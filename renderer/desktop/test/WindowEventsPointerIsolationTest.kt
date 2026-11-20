@@ -11,6 +11,7 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.ui.platform.forgetPointer
 import dev.darkpyonix.composerust.ui.platform.receive
 import org.thisisthepy.compose.window.WindowEvent
 import kotlin.test.Test
@@ -70,4 +71,44 @@ class WindowEventsPointerIsolationTest {
             sceneB.close()
         }
     }
+
+    @Test
+    fun a_forgotten_scene_scrolls_from_the_top_left_again() {
+        var scrollPos: Offset? = null
+        val scene = CanvasLayersComposeScene(density = Density(1f), size = IntSize(300, 300))
+        try {
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .onPointerEvent(PointerEventType.Scroll) { event ->
+                            scrollPos = event.changes.firstOrNull()?.position
+                        },
+                )
+            }
+            scene.receive(event(WindowEvent.POINTER_MOVE, 220f, 180f))
+            scene.receive(event(WindowEvent.SCROLL, 0f, 1f))
+            assertEquals(Offset(220f, 180f), scrollPos)
+
+            // What a window does as it closes its scene. Nothing of the scene stays behind.
+            scene.forgetPointer()
+            scrollPos = null
+            scene.receive(event(WindowEvent.SCROLL, 0f, 1f))
+            assertEquals(Offset.Zero, scrollPos)
+        } finally {
+            scene.forgetPointer()
+            scene.close()
+        }
+    }
+
+    private fun event(kind: Int, x: Float, y: Float) = WindowEvent(
+        kind = kind,
+        x = x,
+        y = y,
+        buttons = 0,
+        modifiers = 0,
+        keyCode = 0,
+        codePoint = 0,
+        text = "",
+    )
 }

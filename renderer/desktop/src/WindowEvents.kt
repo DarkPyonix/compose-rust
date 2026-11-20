@@ -26,8 +26,24 @@ import org.thisisthepy.compose.window.WindowEvent
 // no Win32, no Xlib and nothing of GraalVM, which is what lets the Kotlin/Native windows
 // compile it through a symlink.
 
+// Where the pointer last was in each scene, so a scroll lands there. Kept per scene because
+// a scroll in a second window before any move in it must not land at the first window's
+// pointer. A plain map, because this file is compiled by Kotlin/Native as well, which has no
+// weak map: each window takes its scene out with `forgetPointer` when it closes the scene.
+private val lastPointerPositions = mutableMapOf<ComposeScene, Offset>()
+
 /**
- * Hands one thing the window heard to the scene.
+ * Drops what this file remembers about the scene. A window calls it as it closes the scene,
+ * so a closed scene is not kept alive by the pointer's last place.
+ */
+internal fun ComposeScene.forgetPointer() {
+    lastPointerPositions.remove(this)
+}
+
+/**
+ * Hands one thing the window heard to the scene. Answers whether a key was consumed by
+ * something in the scene, which is how a window knows a zoom shortcut was the application's
+ * to keep.
  *
  * Shared by every desktop for the same reason the scene's content is. They all record an
  * event into the same fields, so turning one into something Compose understands is
@@ -36,12 +52,6 @@ import org.thisisthepy.compose.window.WindowEvent
  * The pointer's place arrives from the top left of the content, in whatever unit that
  * platform's scene measures in, so nothing is converted here beyond naming which kind of
  * event it was.
- */
-private val lastPointerPositions = java.util.WeakHashMap<ComposeScene, Offset>()
-
-/**
- * Hands one window event to the scene. Answers whether a key was consumed by something in
- * the scene, which is how a window knows a zoom shortcut was the application's to keep.
  */
 internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): Boolean {
     var keyConsumed = false
