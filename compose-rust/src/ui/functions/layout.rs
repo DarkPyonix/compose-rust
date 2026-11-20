@@ -58,7 +58,7 @@ macro_rules! container {
             on_window_drag_over: Option<impl FnMut(WindowDragOver) + 'static>,
             #[default(|| {})] content: impl FnOnce(),
         ) {
-            let mut $scope = crate::ui::$name().modifier(modifier);
+            let mut $scope = crate::ui::widgets::$name().modifier(modifier);
             $apply;
             if let Some((kinds, handler)) = on_pointer {
                 $scope = $scope.on_pointer(kinds, handler);
@@ -104,7 +104,7 @@ macro_rules! container {
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
             #[default(|| {})] content: impl FnOnce(),
         ) {
-            let mut $scope = crate::ui::$name().modifier(modifier);
+            let mut $scope = crate::ui::widgets::$name().modifier(modifier);
             $apply;
             if let Some((kinds, handler)) = on_pointer {
                 $scope = $scope.on_pointer(kinds, handler);
@@ -269,7 +269,7 @@ pub fn FlowRow(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::FlowRow().modifier(modifier);
+    let mut scope = crate::ui::widgets::FlowRow().modifier(modifier);
     set!(
         scope;
         horizontal_spacing,

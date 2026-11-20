@@ -2013,7 +2013,7 @@ mod tests {
         let value = BEFORE_LAUNCH.get().expect("made before launching").get();
         COMPOSED.fetch_add(1, Ordering::SeqCst);
         READ.store(value, Ordering::SeqCst);
-        crate::ui::Text(format!("value {value}"));
+        crate::ui::widgets::Text(format!("value {value}"));
     }
 
     /// Whether a batch the Host returned sets a text to `text`.

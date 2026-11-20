@@ -13,7 +13,7 @@ use compose_rust::schema::{
     EventPayload, LoopMode, PROTOCOL_VERSION, PointerKind, PointerType, PropertyKind, SCHEMA_HASH,
     WheelDeltaMode,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Cursor, UserSelect};
 use std::cell::RefCell;
 use std::sync::{Mutex, MutexGuard};

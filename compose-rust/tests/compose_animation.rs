@@ -8,7 +8,7 @@ use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::Modifier as Wire;
 use compose_rust::schema::WidgetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{
     AnimatedProperty, AnimationSpec, ComposeHost, GraphicsLayer, KeyframeValue,
     animate_color_as_state, animate_float_as_state, animate_offset_as_state, transition,
