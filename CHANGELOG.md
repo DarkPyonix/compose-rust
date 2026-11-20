@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### A bottom sheet's content starts below its handle
+
+A sheet's first line no longer sits level with its drag handle. Material 3 keeps 22 dp above and below the handle, as Compose's `BottomSheetDefaults.DragHandle` does, and every other design system keeps its own sheet padding there. A sheet with `handle(false)` keeps no space for one. No schema change ([#914](https://github.com/DarkPyonix/compose-rust/issues/914)).
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

@@ -1205,6 +1205,12 @@ data class SheetStyle(
     val padding: Dp,
     val borderWidth: Dp,
     val borderColor: Color,
+    /**
+     * The space kept above and below the handle, where the system's own sheet specifies one.
+     * Null means the sheet's [padding]: a handle sits in the padding the content would have
+     * had, and the content starts that far below it.
+     */
+    val handleGap: Dp? = null,
 )
 
 /**
