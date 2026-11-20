@@ -84,10 +84,9 @@
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-    <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
-        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
-        <span class="k">let</span> more = count.<span class="f">clone</span>();
-        <span class="f">Button</span>(<span class="s">"Increment"</span>).<span class="f">on_click</span>(<span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
+    <span class="f">Column!</span>(modifier = <span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>(), {
+        <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
+        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || count.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -112,31 +111,100 @@
 
     <h2 id="widgets">A widget is a statement</h2>
     <p>
-      <code>Text("Hello")</code> creates a description of a widget. The end of the statement hands
-      it to the composition. The methods in between set what Compose takes as named arguments:
-      <code>Text(title).type_role(TypeRole::Title).max_lines(1)</code> is Compose's
+      <code>Text!("Hello")</code> composes a text where the call stands. What Compose takes as
+      named arguments is named here too:
+      <code>Text!(title, type_role = TypeRole::Title, max_lines = 1)</code> is Compose's
       <code>Text(title, style = ..., maxLines = 1)</code>.
     </p>
     <ul>
       <li><strong>What a widget cannot do without is the argument.</strong> A <code>Text</code>
         takes its text, a <code>Button</code> its label, a <code>Slider</code> its value and a
-        <code>Dialog</code> whether it is open. Everything else is a method.</li>
-      <li><strong>Children are a closure.</strong> A container composes its children when you call
-        <code>content</code>, and the closure runs at once:
-        <code>Row().content(|| { ... })</code>.</li>
-      <li><strong>Every widget takes a <code>Modifier</code>.</strong> Start a chain from the value
-        <code>Modifier</code>, as Compose does:
-        <code>Modifier.fill_max_width().padding_role(SpaceRole::Md)</code>. The order of the calls
-        does not matter, because each kind of modifier has a fixed place in the node's chain.</li>
-      <li><strong>Do not bind a widget to a variable.</strong> A widget bound with <code>let</code>
-        is composed when the variable goes out of scope, which puts it in the wrong place among its
-        siblings.</li>
+        <code>Dialog</code> whether it is open. Everything else is a named parameter with a
+        default.</li>
+      <li><strong>The widget's handler comes next.</strong> A <code>Button</code> takes what a
+        click does, a <code>Slider</code> what a change does, and a <code>Dialog</code> what a
+        dismissal does: <code>Button!("Save", move || save())</code>,
+        <code>Slider!(volume, move |value| set_volume(value))</code>.</li>
+      <li><strong>Children are a trailing block.</strong> A container takes its children as a
+        <code>{ ... }</code> block at the end of the call, and the block runs at once:
+        <code>Row!({ ... })</code>, <code>Row!(spacing = 8.0, { ... })</code>.</li>
+      <li><strong>Every widget takes a <code>Modifier</code>.</strong> Pass it as
+        <code>modifier = ...</code>, and start a chain from the value <code>Modifier</code>, as
+        Compose does: <code>Modifier.fill_max_width().padding_role(SpaceRole::Md)</code>. The
+        order of the calls does not matter, because each kind of modifier has a fixed place in the
+        node's chain.</li>
+      <li><strong>A widget call returns nothing.</strong> The widget is composed by the call
+        itself, in the place the call stands among its siblings, so there is no widget value to
+        keep in a variable or pass around.</li>
     </ul>
     <p>
       The widget vocabulary is the one in the schema, listed in the
       <a href="composables.html">widget reference</a>. The authoring API defines no widget or
       property of its own, so what you can write and what the renderer can draw are the same list.
     </p>
+
+    <h3 id="parameters">Parameters, the macro form and the function form</h3>
+    <p>
+      Every widget takes its parameters in one order: what it cannot do without, its handler,
+      <code>modifier</code>, the optional parameters, and the content last. A widget skips a slot
+      it has no use for: a <code>Column</code> starts at <code>modifier</code>, and a
+      <code>Text</code> has no handler.
+    </p>
+    <p>
+      Each widget is a function and a call macro of the same name. The function form,
+      <code>Text(..)</code>, takes every parameter by position and leaves none out. The macro
+      form, <code>Text!(..)</code>, takes the leading ones by position and the rest as
+      <code>name = value</code> in any order, fills in the default of every parameter you leave
+      out, and takes the content as a trailing <code>{ ... }</code> block. It expands to one call
+      of the function and costs nothing more. The arguments are evaluated in the order of the
+      parameters, not in the order you write them, which is not how Kotlin's named arguments
+      behave. A widget has many parameters (a <code>TextField</code> has close to thirty), so
+      real code uses the macro form. Your own
+      <code>#[Composable]</code> functions get a call macro the same way.
+    </p>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="c">// The macro form: what the call needs, and what differs from the defaults.</span>
+<span class="f">Divider!</span>(vertical = <span class="k">true</span>);
+<span class="c">// The function form of the same call: every parameter, in order.</span>
+<span class="f">Divider</span>(<span class="ty">Modifier</span>::<span class="f">new</span>(), <span class="k">true</span>, <span class="ty">None</span>::&lt;<span class="k">fn</span>(<span class="ty">MotionFinished</span>)&gt;);</code></pre>
+    </figure>
+
+    <ul>
+      <li><strong>An optional value is written bare.</strong> <code>font_size = 14.0</code> sets
+        it. A value that is already an <code>Option</code> goes in as it is, so
+        <code>color = highlight</code> leaves the colour unset when <code>highlight</code> is
+        <code>None</code>.</li>
+      <li><strong>An optional handler is an <code>Option</code>.</strong> A widget without a
+        handler is a different node from one with an empty handler: a <code>Column</code> without
+        <code>on_click</code> is not a control at all. So an optional handler is
+        <code>Some(closure)</code> or left out, and <code>cond.then_some(closure)</code> makes it
+        depend on something. Inside <code>Some(..)</code> the compiler does not infer the type of
+        a closure's argument, so a handler that takes one names it.</li>
+      <li><strong>A call macro needs its function under its own name.</strong> The macro calls
+        the function it is named after, in the scope of the call. <code>use compose_rust::ui::*;</code>
+        and <code>use compose_rust::ui::Text;</code> bring in both. After
+        <code>use compose_rust::ui::Text as T;</code>, <code>T(..)</code> is the function, but
+        <code>T!(..)</code> cannot be called, because it looks for a function named
+        <code>Text</code>.</li>
+    </ul>
+
+    <figure class="codeblock" data-copy="Copy" data-copied="Copied">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">Card!</span>(on_click = <span class="ty">Some</span>(<span class="k">move</span> || <span class="f">open</span>(id)), {
+    <span class="f">Text!</span>(<span class="s">"Details"</span>);
+});
+<span class="f">Column!</span>(on_click = editable.<span class="f">then_some</span>(<span class="k">move</span> || <span class="f">edit</span>(id)), {
+    <span class="f">Text!</span>(<span class="s">"Edit"</span>);
+});
+<span class="f">Column!</span>(
+    on_key_down = <span class="ty">Some</span>(<span class="k">move</span> |event: <span class="ty">KeyEvent</span>| <span class="f">handle_key</span>(event)),
+    {
+        <span class="f">Text!</span>(<span class="s">"Press a key"</span>);
+    }
+);</code></pre>
+    </figure>
 
     <h2 id="functions">Your own composables</h2>
     <p>
@@ -148,14 +216,15 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">task_row</span>(title: <span class="ty">String</span>, done: <span class="ty">bool</span>, on_toggle: <span class="ty">Rc</span>&lt;<span class="k">dyn</span> <span class="ty">Fn</span>(<span class="ty">bool</span>)&gt;) {
-    <span class="f">Row</span>()
-        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_width</span>())
-        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Sm)
-        .<span class="f">alignment</span>(<span class="ty">Alignment</span>::CenterStart)
-        .<span class="f">content</span>(|| {
-            <span class="f">Checkbox</span>(done).<span class="f">on_change</span>(<span class="k">move</span> |checked| <span class="f">on_toggle</span>(checked));
-            <span class="f">Text</span>(title).<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">weight</span>(<span class="n">1.0</span>));
-        });
+    <span class="f">Row!</span>(
+        modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_width</span>(),
+        space_role = <span class="ty">SpaceRole</span>::Sm,
+        alignment = <span class="ty">Alignment</span>::CenterStart,
+        {
+            <span class="f">Checkbox!</span>(done, <span class="k">move</span> |checked| <span class="f">on_toggle</span>(checked));
+            <span class="f">Text!</span>(title, modifier = <span class="ty">Modifier</span>.<span class="f">weight</span>(<span class="n">1.0</span>));
+        }
+    );
 }</code></pre>
     </figure>
 
@@ -188,8 +257,8 @@
       </table>
     </div>
     <ul>
-      <li><strong>A state is a handle.</strong> Cloning it gives a second handle to the same value,
-        which is how a <code>move</code> closure takes it: clone first, then move the clone.</li>
+      <li><strong>A state is a <code>Copy</code> handle.</strong> Copying it gives another handle to the same value,
+        so a <code>move</code> closure captures it directly without cloning.</li>
       <li><strong>Equal writes are free.</strong> The default policy compares with
         <code>PartialEq</code>. <code>mutable_state_of_with_policy(value, never_equal_policy())</code>
         treats every write as a change, for a value that is expensive to compare, such as a long
@@ -255,14 +324,13 @@
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> seconds = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-<span class="k">let</span> tick = seconds.<span class="f">clone</span>();
 <span class="f">launched_effect</span>((), <span class="k">move</span> || <span class="k">async move</span> {
     <span class="k">loop</span> {
         <span class="f">delay</span>(<span class="ty">Duration</span>::<span class="f">from_secs</span>(<span class="n">1</span>)).<span class="k">await</span>;
-        tick.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
+        seconds.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
     }
 });
-<span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
+<span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
     </figure>
 
     <p>
@@ -331,9 +399,11 @@
 
     <h2 id="events">Event handlers</h2>
     <p>
-      Handlers are ordinary Rust closures, given with methods such as <code>on_click</code>,
-      <code>on_change</code> and <code>on_submit</code>. A handler has to be <code>'static</code>,
-      so it owns what it uses: clone a state, then move the clone in.
+      Handlers are ordinary Rust closures. A widget's main handler is its argument after the
+      data, such as a <code>Button</code>'s <code>on_click</code> and a <code>Slider</code>'s
+      <code>on_change</code>, and the others are named parameters such as
+      <code>on_submit</code>. A handler has to be <code>'static</code>,
+      so it owns what it uses: a <code>MutableState</code> is <code>Copy</code> and moves straight in.
     </p>
     <p>
       Handlers run <em>synchronously</em>. The renderer calls into the Host on its UI thread, your
@@ -358,18 +428,20 @@
 
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
-<pre><code><span class="f">TextField</span>()
-    .<span class="f">multiline</span>(<span class="k">true</span>)
-    .<span class="f">placeholder</span>(<span class="s">"Message"</span>)
-    .<span class="f">on_value_change</span>(<span class="k">move</span> |text| draft.<span class="f">set</span>(text))
-    .<span class="f">on_submit</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text))
-    .<span class="f">on_key_down</span>(<span class="k">move</span> |event| {
+<pre><code><span class="f">TextField!</span>(
+    <span class="s">""</span>,
+    <span class="k">move</span> |text| draft.<span class="f">set</span>(text),
+    multiline = <span class="k">true</span>,
+    placeholder = <span class="s">"Message"</span>,
+    on_submit = <span class="ty">Some</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text)),
+    on_key_down = <span class="ty">Some</span>(<span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
         <span class="c">// Ctrl+Enter sends at once, without waiting for the reply to finish.</span>
         <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; event.<span class="f">ctrl_key</span>() {
             event.<span class="f">consume</span>();
             <span class="f">send_now</span>();
         }
-    });</code></pre>
+    })
+);</code></pre>
     </figure>
 
     <div class="note">
@@ -385,7 +457,8 @@
 
     <h2 id="textfield">The uncontrolled TextField</h2>
     <p>
-      <code>TextField</code> has no value argument. The edit buffer, the selection and the
+      <code>TextField</code> has no value it is held to: its first argument is only the text it
+      starts with. The edit buffer, the selection and the
       composition state belong to the renderer. Rust learns about changes through events:
       <code>on_value_change</code> with the current text, <code>on_submit</code> with the submitted
       text, and <code>on_focus_lost</code>. Keep a copy in a state if you need it, as the
@@ -398,7 +471,7 @@
       way. Keeping the buffer in Kotlin makes that failure impossible rather than rare.
     </p>
     <p>
-      <code>text(..)</code> gives the field the text it starts with, and only that: a later value
+      That first argument gives the field the text it starts with, and only that: a later value
       changes nothing on a field that already exists. To show other text, such as another
       document, or to clear an input after sending, give the field a new identity with
       <code>key</code>. The new field starts with the text you pass.
@@ -408,7 +481,7 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="c">// A new key after each send is a new, empty field.</span>
 <span class="f">key</span>(sent.<span class="f">get</span>(), || {
-    <span class="f">TextField</span>().<span class="f">text</span>(draft.<span class="f">get_untracked</span>()).<span class="f">on_submit</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text));
+    <span class="f">TextField!</span>(draft.<span class="f">get_untracked</span>(), |_| {}, on_submit = <span class="ty">Some</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text)));
 });</code></pre>
     </figure>
 
@@ -424,7 +497,7 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> window = <span class="f">current_window_size</span>();
 <span class="k">if</span> window.<span class="f">is_expanded</span>() {
-    <span class="f">SplitPane</span>().<span class="f">content</span>(|| {
+    <span class="f">SplitPane!</span>(|_| {}, {
         <span class="f">document_list</span>();
         <span class="f">page</span>();
     });
@@ -505,13 +578,11 @@
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">fading</span>(faded: <span class="ty">MutableState</span>&lt;<span class="ty">bool</span>&gt;) {
     <span class="k">let</span> target = <span class="k">if</span> faded.<span class="f">get</span>() { <span class="n">0.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
-    <span class="f">Box</span>()
-        .<span class="f">modifier</span>(
-            <span class="ty">Modifier</span>
-                .<span class="f">size</span>(<span class="n">40.0</span>, <span class="n">40.0</span>)
-                .<span class="f">animated_alpha</span>(<span class="f">animate_float_as_state</span>(target, <span class="ty">AnimationSpec</span>::<span class="ty">STANDARD</span>)),
-        )
-        .<span class="f">content</span>(|| {});
+    <span class="f">Box!</span>(
+        modifier = <span class="ty">Modifier</span>
+            .<span class="f">size</span>(<span class="n">40.0</span>, <span class="n">40.0</span>)
+            .<span class="f">animated_alpha</span>(<span class="f">animate_float_as_state</span>(target, <span class="ty">AnimationSpec</span>::<span class="ty">STANDARD</span>))
+    );
 }</code></pre>
     </figure>
 

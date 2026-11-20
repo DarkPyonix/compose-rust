@@ -6,12 +6,11 @@ use compose_rust::ui::*;
 
 #[Composable]
 fn PaddingBoxes() {
-    Box()
-        .modifier(Modifier::new().padding_each(16.0, 20.0, 12.0, 8.0))
-        .content(|| {});
-    Box()
-        .modifier(Modifier::new().padding_xy(16.0, 20.0))
-        .content(|| {});
+    Box!(
+        modifier = Modifier::new().padding_each(16.0, 20.0, 12.0, 8.0),
+        {}
+    );
+    Box!(modifier = Modifier::new().padding_xy(16.0, 20.0), {});
 }
 
 #[test]

@@ -45,42 +45,52 @@ thread_local! {
 
 #[Composable]
 fn Screen() {
-    Column().content(|| {
+    Column!({
         // Subscribed to presses and moves. A press is consumed, a move is not.
-        Box()
-            .modifier(Modifier.cursor(Cursor::Grab).user_select(UserSelect::None))
-            .on_pointer(PointerKinds::DOWN | PointerKinds::MOVE, |event| {
-                SEEN.with(|seen| {
-                    seen.borrow_mut().push((
-                        event.kind(),
-                        event.x(),
-                        event.y(),
-                        event.buttons(),
-                        event.button(),
-                        event.click_count(),
-                    ));
-                });
-                if event.kind() == PointerKind::Down {
-                    event.consume();
+        Box!(
+            modifier = Modifier.cursor(Cursor::Grab).user_select(UserSelect::None),
+            on_pointer = Some((
+                PointerKinds::DOWN | PointerKinds::MOVE,
+                |event: ::compose_rust::PointerEvent| {
+                    SEEN.with(|seen| {
+                        seen.borrow_mut().push((
+                            event.kind(),
+                            event.x(),
+                            event.y(),
+                            event.buttons(),
+                            event.button(),
+                            event.click_count(),
+                        ));
+                    });
+                    if event.kind() == PointerKind::Down {
+                        event.consume();
+                    }
                 }
-            })
-            .content(|| {
-                Text("subscribed");
-            });
+            )),
+            {
+                Text!("subscribed");
+            }
+        );
         // Never subscribed.
-        Box().content(|| {
-            Text("plain");
+        Box!({
+            Text!("plain");
         });
         // Text takes a subscription too.
-        Text("link").on_pointer(PointerKinds::ENTER, |_| {});
+        Text!(
+            "link",
+            on_pointer = Some((PointerKinds::ENTER, |_: ::compose_rust::PointerEvent| {}))
+        );
         // A subscription of no kinds is not one.
-        Box().on_pointer(PointerKinds::NONE, |_| {}).content(|| {
-            Text("empty mask");
-        });
+        Box!(
+            on_pointer = Some((PointerKinds::NONE, |_: ::compose_rust::PointerEvent| {})),
+            {
+                Text!("empty mask");
+            }
+        );
         // A list row that hears every kind: a double press opens it, the secondary button
         // asks for its menu, and the menu is the row's own, so that one is consumed.
-        Row()
-            .on_pointer(PointerKinds::ALL, |event| {
+        Row!(
+            on_pointer = Some((PointerKinds::ALL, |event: ::compose_rust::PointerEvent| {
                 ROW_SEEN.with(|seen| {
                     seen.borrow_mut().push((
                         event.kind(),
@@ -96,10 +106,11 @@ fn Screen() {
                 if event.kind() == PointerKind::ContextMenu {
                     event.consume();
                 }
-            })
-            .content(|| {
-                Text("row");
-            });
+            })),
+            {
+                Text!("row");
+            }
+        );
     });
 }
 

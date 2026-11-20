@@ -12,17 +12,23 @@ use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 #[Composable]
 fn Untouched() {
-    Text("plain bold link");
+    Text!("plain bold link");
 }
 
 #[Composable]
 fn EmptyRuns() {
-    Text("plain bold link").spans(TextSpans::new(Vec::<TextSpan>::new()));
+    Text!(
+        "plain bold link",
+        spans = TextSpans::new(Vec::<TextSpan>::new())
+    );
 }
 
 #[Composable]
 fn WithRuns() {
-    Text("plain bold link").spans(TextSpans::new([TextSpan::new(6, 4).bold()]));
+    Text!(
+        "plain bold link",
+        spans = TextSpans::new([TextSpan::new(6, 4).bold()])
+    );
 }
 
 fn first_batch(content: fn()) -> Vec<u8> {
@@ -124,7 +130,7 @@ fn RunFonts(on: MutableState<bool>, count: MutableState<i32>) {
     } else {
         TextSpans::new([TextSpan::new(6, 4)])
     };
-    Text(format!("plain bold link {}", count.get())).spans(spans);
+    Text!(format!("plain bold link {}", count.get()), spans = spans);
 }
 
 /// A text whose runs stop naming fonts clears the table once, and sends nothing for it
@@ -179,14 +185,13 @@ fn fr26_a_plain_text_sends_no_font_or_break_rule_records() {
 #[Composable]
 fn Styled(on: MutableState<bool>) {
     // One Text call and one place it is composed, so both frames are the same node.
-    let text = Text("plain bold link");
-    let _text = if on.get() {
-        text.font(serif())
-            .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere)
-    } else {
-        text
-    };
+    let on = on.get();
+    Text!(
+        "plain bold link",
+        font = if on { serif() } else { FontRefs::default() },
+        word_break = on.then_some(WordBreak::KeepAll),
+        overflow_wrap = on.then_some(OverflowWrap::Anywhere),
+    );
 }
 
 /// A font list or a break rule that is taken away is cleared by one record each.

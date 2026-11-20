@@ -102,9 +102,7 @@ fn fr84_size_in_and_aspect_ratio_round_trip() {
 #[test]
 fn fr84_modifier_size_in_builder_bounds() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.size_in(10.0, 100.0, 20.0, 200.0))
-            .content(|| {});
+        Box!(modifier = Modifier.size_in(10.0, 100.0, 20.0, 200.0), {});
     });
     let dump = tree.dump();
     assert!(
@@ -115,9 +113,10 @@ fn fr84_modifier_size_in_builder_bounds() {
     );
 
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.width_in(15.0, 80.0).height_in(25.0, 90.0))
-            .content(|| {});
+        Box!(
+            modifier = Modifier.width_in(15.0, 80.0).height_in(25.0, 90.0),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(
@@ -128,13 +127,13 @@ fn fr84_modifier_size_in_builder_bounds() {
     );
 
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.max_width(120.0)).content(|| {});
+        Box!(modifier = Modifier.max_width(120.0), {});
     });
     let dump = tree.dump();
     assert!(dump.contains("max_width: 120.0"), "{dump}");
 
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.min_height(40.0)).content(|| {});
+        Box!(modifier = Modifier.min_height(40.0), {});
     });
     let dump = tree.dump();
     assert!(dump.contains("min_height: 40.0"), "{dump}");
@@ -143,7 +142,7 @@ fn fr84_modifier_size_in_builder_bounds() {
 #[test]
 fn fr84_modifier_aspect_ratio_builder() {
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.aspect_ratio(1.5)).content(|| {});
+        Box!(modifier = Modifier.aspect_ratio(1.5), {});
     });
     let dump = tree.dump();
     assert!(
@@ -152,9 +151,7 @@ fn fr84_modifier_aspect_ratio_builder() {
     );
 
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.aspect_ratio_match_height(2.0, true))
-            .content(|| {});
+        Box!(modifier = Modifier.aspect_ratio_match_height(2.0, true), {});
     });
     let dump = tree.dump();
     assert!(

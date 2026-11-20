@@ -78,13 +78,13 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>shell</figcaption>
-<pre><code>cargo add compose-rust@0.0.11</code></pre>
+<pre><code>cargo add compose-rust@0.0.12</code></pre>
     </figure>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>Cargo.toml, 그 명령이 쓰는 줄</figcaption>
 <pre><code>[dependencies]
-compose-rust = <span class="s">"0.0.11"</span></code></pre>
+compose-rust = <span class="s">"0.0.12"</span></code></pre>
     </figure>
 
     <p>
@@ -146,16 +146,14 @@ compose-rust = <span class="s">"0.0.11"</span></code></pre>
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">app</span>() {
     <span class="k">let</span> name = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="ty">String</span>::<span class="f">new</span>()));
-    <span class="k">let</span> typed = name.<span class="f">clone</span>();
-    <span class="f">Column</span>()
-        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg))
-        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Md)
-        .<span class="f">content</span>(|| {
-            <span class="f">TextField</span>()
-                .<span class="f">placeholder</span>(<span class="s">"Your name"</span>)
-                .<span class="f">on_value_change</span>(<span class="k">move</span> |text| typed.<span class="f">set</span>(text));
-            <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
-        });
+    <span class="f">Column!</span>(
+        modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg),
+        space_role = <span class="ty">SpaceRole</span>::Md,
+        {
+            <span class="f">TextField!</span>(<span class="s">""</span>, <span class="k">move</span> |text| name.<span class="f">set</span>(text), placeholder = <span class="s">"Your name"</span>);
+            <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
+        }
+    );
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {
@@ -164,7 +162,7 @@ compose-rust = <span class="s">"0.0.11"</span></code></pre>
     </figure>
 
     <p>
-      <code>compose-rust = "0.0.11"</code> 로는 이 프로그램이 그대로 빌드됩니다. <code>cargo run</code>
+      <code>compose-rust = "0.0.12"</code> 로는 이 프로그램이 그대로 빌드됩니다. <code>cargo run</code>
       이 렌더러를 내려받고 창을 엽니다.
     </p>
 

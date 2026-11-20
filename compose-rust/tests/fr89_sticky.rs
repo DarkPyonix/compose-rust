@@ -37,11 +37,11 @@ fn fr89_sticky_modifier_round_trips() {
 #[test]
 fn fr89_modifier_sticky_builder() {
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.sticky()).content(|| {
-            Text("pinned");
+        Box!(modifier = Modifier.sticky(), {
+            Text!("pinned");
         });
-        Box().content(|| {
-            Text("scrolling");
+        Box!({
+            Text!("scrolling");
         });
     });
     let dump = tree.dump();
@@ -57,9 +57,9 @@ fn fr89_modifier_sticky_builder() {
 #[test]
 fn fr89_writer_maps_sticky_attribute() {
     let (_host, tree) = start(|| {
-        ScrollRow().content(|| {
-            Box().modifier(Modifier.sticky()).content(|| {});
-            Box().content(|| {});
+        ScrollRow!({
+            Box!(modifier = Modifier.sticky(), {});
+            Box!({});
         });
     });
     let dump = tree.dump();

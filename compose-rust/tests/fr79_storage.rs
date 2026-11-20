@@ -622,13 +622,13 @@ fn Loader() {
 fn Savers() {
     let scope = remember_coroutine_scope();
     let saving = scope.clone();
-    Button("save").on_click(move || {
+    Button!("save", move || {
         saving.launch(async {
             let outcome = storage::write("draft", "v").await;
             record("save", outcome);
         })
     });
-    Button("load").on_click(move || {
+    Button!("load", move || {
         scope.launch(async {
             let outcome = storage::read("draft").await;
             record("load", outcome);
@@ -636,7 +636,7 @@ fn Savers() {
     });
     let shown = remember(|| mutable_state_of(true));
     let hide = shown;
-    Button("hide").on_click(move || hide.set(false));
+    Button!("hide", move || hide.set(false));
     if shown.get() {
         Loader();
     }

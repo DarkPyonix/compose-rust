@@ -77,6 +77,7 @@ private fun symbolName(role: IconRole?): String? = when (role) {
     IconRole.Language -> "globe"
     IconRole.CompactOverlay -> "pip"
     IconRole.Calculator -> "function"
+    IconRole.Refresh -> "arrow.clockwise"
     null -> null
 }
 

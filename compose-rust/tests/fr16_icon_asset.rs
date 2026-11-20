@@ -15,11 +15,11 @@ const PRIMARY: Paint = Paint::Role(ColorRole::Primary);
 
 #[Composable]
 fn Icons() {
-    Row().content(|| {
+    Row!({
         let picture = asset(AssetKind::Svg, STROKE);
-        Icon::asset(picture).color(PRIMARY);
+        IconAsset!(picture, color = PRIMARY);
         // The same picture through the plain constructor is a picture in its own colours.
-        Icon(picture);
+        Icon!(picture);
     });
 }
 

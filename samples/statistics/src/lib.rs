@@ -125,16 +125,15 @@ fn drawn_button(
     if let Some(fill) = fill {
         frame = frame.background(fill);
     }
-    Box()
-        .modifier(frame)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Canvas(face).modifier(Modifier.size(face_size, face_size));
-            Button("")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size().label(name))
-                .on_click(on_click);
-        });
+    Box!(modifier = frame, alignment = Alignment::Center, {
+        Canvas!(face, modifier = Modifier.size(face_size, face_size));
+        Button!(
+            "",
+            on_click,
+            variant = ButtonVariant::Text,
+            modifier = Modifier.fill_max_size().label(name)
+        );
+    });
 }
 
 /// The dial, with its reading stacked in the middle of it.
@@ -148,28 +147,35 @@ fn drawn_button(
 /// ladder's own metrics.
 #[Composable]
 fn dial() {
-    Box()
-        .modifier(Modifier.fill_max_width())
-        .alignment(Alignment::Center)
-        .content(|| {
-            Canvas(charts::dial(
-                DIAL_SIDE,
-                MOBILE_SHARE as f32 / 100.0,
-                palette::TICK,
-                palette::ORANGE,
-            ))
-            .modifier(Modifier.size(DIAL_SIDE, DIAL_SIDE));
-            Column().alignment(Alignment::Center).content(|| {
-                Text(format!("{MOBILE_SHARE}%"))
-                    .type_role(TypeRole::Display)
-                    .font_weight(400)
-                    .color(palette::INK);
-                Text("Mobile")
-                    .type_role(TypeRole::Label)
-                    .font_weight(600)
-                    .color(palette::GREY);
+    Box!(
+        modifier = Modifier.fill_max_width(),
+        alignment = Alignment::Center,
+        {
+            Canvas!(
+                charts::dial(
+                    DIAL_SIDE,
+                    MOBILE_SHARE as f32 / 100.0,
+                    palette::TICK,
+                    palette::ORANGE,
+                ),
+                modifier = Modifier.size(DIAL_SIDE, DIAL_SIDE)
+            );
+            Column!(alignment = Alignment::Center, {
+                Text!(
+                    format!("{MOBILE_SHARE}%"),
+                    type_role = TypeRole::Display,
+                    font_weight = 400,
+                    color = palette::INK
+                );
+                Text!(
+                    "Mobile",
+                    type_role = TypeRole::Label,
+                    font_weight = 600,
+                    color = palette::GREY
+                );
             });
-        });
+        }
+    );
 }
 
 /// The week's columns on the sage panel, with the panel's two-line title over them.
@@ -177,62 +183,67 @@ fn dial() {
 fn costs_panel() {
     let (width, height) = PANEL_CHART;
     let bars = week_bars();
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::SAGE)
-                .shape_role(ShapeRole::Medium)
-                .padding_role(SpaceRole::Sm),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Popular\nCosts")
-                .type_role(TypeRole::BodyStrong)
-                .font_weight(700)
-                .color(palette::INK);
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Canvas(charts::week(width, height, &bars))
-                        .modifier(Modifier.size(width, height));
-                });
-        });
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::SAGE)
+            .shape_role(ShapeRole::Medium)
+            .padding_role(SpaceRole::Sm),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Popular\nCosts",
+                type_role = TypeRole::BodyStrong,
+                font_weight = 700,
+                color = palette::INK
+            );
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Canvas!(
+                        charts::week(width, height, &bars),
+                        modifier = Modifier.size(width, height)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The column beside the panel: one white card holding the second reading over a powder
 /// block, and the round "+" under it.
 #[Composable]
 fn returning_column() {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::TopCenter)
-        .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::CARD)
-                        .shape_role(ShapeRole::Medium)
-                        .padding_role(SpaceRole::Xs),
-                )
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    Text(format!("{RETURNING_SHARE}%"))
-                        .type_role(TypeRole::Headline)
-                        .font_weight(400)
-                        .color(palette::INK);
-                    Box().modifier(
-                        Modifier
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::TopCenter,
+        {
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::CARD)
+                    .shape_role(ShapeRole::Medium)
+                    .padding_role(SpaceRole::Xs),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::TopCenter,
+                {
+                    Text!(
+                        format!("{RETURNING_SHARE}%"),
+                        type_role = TypeRole::Headline,
+                        font_weight = 400,
+                        color = palette::INK
+                    );
+                    Box!(
+                        modifier = Modifier
                             .fill_max_width()
                             .height(80.0)
                             .background(palette::POWDER)
-                            .shape_role(ShapeRole::Medium),
+                            .shape_role(ShapeRole::Medium)
                     );
-                });
+                }
+            );
             drawn_button(
                 ADD_BUTTON,
                 Some(palette::BUTTON),
@@ -243,20 +254,25 @@ fn returning_column() {
                     Message::new("Adding a source is not part of this sample").show();
                 },
             );
-        });
+        }
+    );
 }
 
 /// One number at the foot with a smaller number raised beside it.
 #[Composable]
 fn day_total(day: &'static str, count: u32, ink: Paint) {
-    Row().alignment(Alignment::TopStart).content(|| {
-        Text(day)
-            .type_role(TypeRole::Title)
-            .font_weight(700)
-            .color(ink);
-        Text(count.to_string())
-            .type_role(TypeRole::Caption)
-            .color(ink);
+    Row!(alignment = Alignment::TopStart, {
+        Text!(
+            day,
+            type_role = TypeRole::Title,
+            font_weight = 700,
+            color = ink
+        );
+        Text!(
+            count.to_string(),
+            type_role = TypeRole::Caption,
+            color = ink
+        );
     });
 }
 
@@ -264,42 +280,48 @@ fn day_total(day: &'static str, count: u32, ink: Paint) {
 /// at the foot. Nothing else: the reference keeps the services for the costs page.
 #[Composable]
 fn today_page() {
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             dial();
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::TopStart)
-                .content(|| {
-                    Box().modifier(Modifier.weight(2.0)).content(costs_panel);
-                    Box()
-                        .modifier(Modifier.weight(1.0))
-                        .content(returning_column);
-                });
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::TopStart,
+                {
+                    Box!(modifier = Modifier.weight(2.0), content = costs_panel);
+                    Box!(modifier = Modifier.weight(1.0), content = returning_column);
+                }
+            );
 
             // Today in the middle, with the chevron and yesterday taking equal room on
             // either side of it, so it is centred however wide the two are.
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.weight(1.0))
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            Icon(asset(AssetKind::VectorIcon, &icon::BACK)).color(palette::GREY);
-                        });
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Box!(
+                        modifier = Modifier.weight(1.0),
+                        alignment = Alignment::CenterStart,
+                        {
+                            Icon!(
+                                asset(AssetKind::VectorIcon, &icon::BACK),
+                                color = palette::GREY
+                            );
+                        }
+                    );
                     day_total("Today", TODAY, palette::INK);
-                    Box()
-                        .modifier(Modifier.weight(1.0))
-                        .alignment(Alignment::CenterEnd)
-                        .content(|| day_total("Yesterday", YESTERDAY, palette::FAINT));
-                });
-        });
+                    Box!(
+                        modifier = Modifier.weight(1.0),
+                        alignment = Alignment::CenterEnd,
+                        content = || day_total("Yesterday", YESTERDAY, palette::FAINT)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// One service: a badge where its logo would be, its name, and what it cost.
@@ -309,65 +331,69 @@ fn today_page() {
 #[Composable]
 fn source_tile(source: Source) {
     let (width, _) = SOURCE_TILE;
-    Box()
-        .modifier(
-            Modifier
-                .width(width)
-                .fill_max_height()
-                .padding_role(SpaceRole::Xs),
-        )
-        .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_size()
-                        .background(palette::TILE)
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Sm),
-                )
-                .space_role(SpaceRole::Xs)
-                .content(|| {
-                    Box()
-                        .modifier(
-                            Modifier
-                                .size(44.0, 44.0)
-                                .shape_role(ShapeRole::Full)
-                                .background(palette::BADGE),
-                        )
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Text(&source.name[..1])
-                                .type_role(TypeRole::BodyStrong)
-                                .font_weight(700)
-                                .color(palette::INK);
-                        });
-                    Spacer().modifier(Modifier.weight(1.0));
-                    Text(source.name)
-                        .type_role(TypeRole::Label)
-                        .color(palette::SAGE_INK)
-                        .max_lines(1)
-                        .overflow(TextOverflow::Ellipsis);
-                    Text(whole_cost(source.cents))
-                        .type_role(TypeRole::Display)
-                        .color(palette::INK)
-                        .max_lines(1)
-                        .overflow(TextOverflow::Ellipsis);
-                });
-        });
+    Box!(
+        modifier = Modifier
+            .width(width)
+            .fill_max_height()
+            .padding_role(SpaceRole::Xs),
+        {
+            Column!(
+                modifier = Modifier
+                    .fill_max_size()
+                    .background(palette::TILE)
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Sm),
+                space_role = SpaceRole::Xs,
+                {
+                    Box!(
+                        modifier = Modifier
+                            .size(44.0, 44.0)
+                            .shape_role(ShapeRole::Full)
+                            .background(palette::BADGE),
+                        alignment = Alignment::Center,
+                        {
+                            Text!(
+                                &source.name[..1],
+                                type_role = TypeRole::BodyStrong,
+                                font_weight = 700,
+                                color = palette::INK
+                            );
+                        }
+                    );
+                    Spacer!(modifier = Modifier.weight(1.0));
+                    Text!(
+                        source.name,
+                        type_role = TypeRole::Label,
+                        color = palette::SAGE_INK,
+                        max_lines = 1,
+                        overflow = TextOverflow::Ellipsis
+                    );
+                    Text!(
+                        whole_cost(source.cents),
+                        type_role = TypeRole::Display,
+                        color = palette::INK,
+                        max_lines = 1,
+                        overflow = TextOverflow::Ellipsis
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// Where the money went, one tile per service, running past the right edge.
 #[Composable]
 fn sources_strip() {
-    LazyRow()
-        .modifier(Modifier.fill_max_width().height(SOURCE_TILE.1))
-        .content(|list| {
+    LazyRow!(
+        modifier = Modifier.fill_max_width().height(SOURCE_TILE.1),
+        content = |list| {
             list.items_keyed(
                 SOURCES.len(),
                 |position| SOURCES[position].name.to_owned(),
                 |position| source_tile(SOURCES[position]),
             );
-        });
+        }
+    );
 }
 
 /// The costs in full: the week large, the services under it, and the total at the foot.
@@ -376,42 +402,49 @@ fn sources_strip() {
 /// bar and out to both edges at every width, so this column only lays things out on it.
 #[Composable]
 fn costs_page() {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Spacer().modifier(Modifier.weight(1.0));
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Spacer!(modifier = Modifier.weight(1.0));
 
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Canvas(charts::week(PAGE_CHART.0, PAGE_CHART.1, &week_bars()))
-                        .modifier(Modifier.size(PAGE_CHART.0, PAGE_CHART.1));
-                });
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Canvas!(
+                        charts::week(PAGE_CHART.0, PAGE_CHART.1, &week_bars()),
+                        modifier = Modifier.size(PAGE_CHART.0, PAGE_CHART.1)
+                    );
+                }
+            );
 
             sources_strip();
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("All Time:")
-                        .type_role(TypeRole::Body)
-                        .color(palette::SAGE_INK)
-                        .modifier(Modifier.weight(1.0));
-                    Text(cost(ALL_TIME_CENTS))
-                        .type_role(TypeRole::Headline)
-                        .font_weight(400)
-                        .color(palette::INK);
-                });
-        });
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "All Time:",
+                        type_role = TypeRole::Body,
+                        color = palette::SAGE_INK,
+                        modifier = Modifier.weight(1.0)
+                    );
+                    Text!(
+                        cost(ALL_TIME_CENTS),
+                        type_role = TypeRole::Headline,
+                        font_weight = 400,
+                        color = palette::INK
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The bar across the top of the window: the page's title in two bold lines, and the
@@ -422,20 +455,22 @@ fn costs_page() {
 /// measure, so the title stands over the content rather than at the window's far edge.
 #[Composable]
 fn page_bar(showing: Page, measure: Option<f32>, turn: impl Fn() + 'static) {
-    TopAppBar()
-        .modifier(Modifier.fill_max_width().background(showing.ground()))
-        .hairline(false)
-        .content(|| {
-            Box()
-                .modifier(Modifier.weight(1.0))
-                .alignment(Alignment::Center)
-                .content(|| {
+    TopAppBar!(
+        modifier = Modifier.fill_max_width().background(showing.ground()),
+        hairline = false,
+        {
+            Box!(
+                modifier = Modifier.weight(1.0),
+                alignment = Alignment::Center,
+                {
                     bar_row(measure, || {
-                        Text(showing.title())
-                            .type_role(TypeRole::Headline)
-                            .font_weight(700)
-                            .color(palette::INK)
-                            .modifier(Modifier.weight(1.0));
+                        Text!(
+                            showing.title(),
+                            type_role = TypeRole::Headline,
+                            font_weight = 700,
+                            color = palette::INK,
+                            modifier = Modifier.weight(1.0)
+                        );
                         drawn_button(
                             CHEVRON + 16.0,
                             None,
@@ -445,8 +480,10 @@ fn page_bar(showing: Page, measure: Option<f32>, turn: impl Fn() + 'static) {
                             turn,
                         );
                     });
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The bar's row, held to the page's measure on a window with room.
@@ -459,27 +496,27 @@ fn page_bar(showing: Page, measure: Option<f32>, turn: impl Fn() + 'static) {
 /// The step is the design system's, not a number in dp.
 #[Composable]
 fn bar_row(measure: Option<f32>, content: impl FnOnce()) {
-    Row()
-        .modifier(
-            Modifier
-                .width_if(measure)
-                .fill_max_width_if(measure.is_none()),
-        )
-        .space_role(if measure.is_some() {
+    Row!(
+        modifier = Modifier
+            .width_if(measure)
+            .fill_max_width_if(measure.is_none()),
+        space_role = if measure.is_some() {
             SpaceRole::Md
         } else {
             SpaceRole::None
-        })
-        .alignment(Alignment::CenterStart)
-        .content(|| {
-            Spacer();
-            Row()
-                .modifier(Modifier.weight(1.0))
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(content);
-            Spacer();
-        });
+        },
+        alignment = Alignment::CenterStart,
+        {
+            Spacer!();
+            Row!(
+                modifier = Modifier.weight(1.0),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                content = content
+            );
+            Spacer!();
+        }
+    );
 }
 
 #[Composable]
@@ -497,36 +534,38 @@ pub fn app() {
     // starts under it, are answers this screen never has to know. Its background is the
     // page's, so whichever page is showing is the colour of the whole window, edge to
     // edge, at every width.
-    Scaffold()
-        .modifier(Modifier.background(showing.ground()))
-        .top_bar(|| {
+    Scaffold!(
+        modifier = Modifier.background(showing.ground()),
+        top_bar = Some(|| {
             let turn = page;
             page_bar(showing, measure, move || {
                 turn.set(turn.get_untracked().other());
             });
-        })
-        .content(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none())
-                                .fill_max_height(),
-                        )
-                        .content(|| match showing {
+        }),
+        {
+            Box!(
+                modifier = Modifier.fill_max_width().weight(1.0),
+                alignment = Alignment::TopCenter,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none())
+                            .fill_max_height(),
+                        content = || match showing {
                             Page::Today => {
-                                ScrollColumn()
-                                    .modifier(Modifier.fill_max_width().fill_max_height())
-                                    .content(today_page);
+                                ScrollColumn!(
+                                    modifier = Modifier.fill_max_width().fill_max_height(),
+                                    content = today_page
+                                );
                             }
                             Page::Costs => costs_page(),
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The design this sample draws, named once.

@@ -20,7 +20,7 @@ fn fr63_canvas_view_box_writes_min_and_max_properties() {
             .fractional()
             .rect(Paint::Role(ColorRole::Primary), 0.0, 0.0, 0.5, 1.0, 0.0)
             .build();
-        Canvas(list);
+        Canvas!(list);
     });
     let dump = tree.dump();
     assert!(dump.contains("Min=Float(1.0)"), "{dump}");
@@ -33,7 +33,7 @@ fn fr63_plain_canvas_does_not_write_min_or_max_properties() {
         let list = DrawList::builder()
             .rect(Paint::Role(ColorRole::Primary), 0.0, 0.0, 20.0, 20.0, 0.0)
             .build();
-        Canvas(list);
+        Canvas!(list);
     });
     let dump = tree.dump();
     assert!(!dump.contains("Min="), "{dump}");

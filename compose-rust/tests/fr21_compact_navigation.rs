@@ -18,10 +18,10 @@ thread_local! {
 
 #[Composable]
 fn Destinations() {
-    Navigation(0).compact(CHOICE.with(Cell::get)).content(|| {
-        NavigationItem("Tasks").icon(IconRole::List);
-        NavigationItem("Done").icon(IconRole::Check);
-        Text("the screen");
+    Navigation!(0, compact = CHOICE.with(Cell::get), {
+        NavigationItem!("Tasks", || {}, icon = IconRole::List);
+        NavigationItem!("Done", || {}, icon = IconRole::Check);
+        Text!("the screen");
     });
 }
 

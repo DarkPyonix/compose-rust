@@ -77,10 +77,11 @@ fn fr24_motion_finished_round_trips() {
 
     // The handler property travels as a handler id, like every other handler.
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.motion(MotionRole::Standard))
-            .on_motion_finished(|_| {})
-            .content(|| {});
+        Box!(
+            modifier = Modifier.motion(MotionRole::Standard),
+            on_motion_finished = Some(|_: ::compose_rust::MotionFinished| {}),
+            {}
+        );
     });
     assert_eq!(tree.handled("Box", PropertyKind::OnMotionFinished).len(), 1);
 }
@@ -93,12 +94,16 @@ fn fr24_motion_finished_reports_once_with_the_final_size() {
     let sink = Arc::clone(&seen);
     let (mut host, tree) = start(move || {
         let sink = Arc::clone(&sink);
-        Column()
-            .modifier(Modifier.motion(MotionRole::Standard).height(120.0))
-            .on_motion_finished(move |finished| sink.lock().unwrap().push(finished))
-            .content(|| {
-                Text("collapsing");
-            });
+        Column!(
+            modifier = Modifier.motion(MotionRole::Standard).height(120.0),
+            on_motion_finished = Some(move |finished: ::compose_rust::MotionFinished| sink
+                .lock()
+                .unwrap()
+                .push(finished)),
+            {
+                Text!("collapsing");
+            }
+        );
     });
     let handled = tree.handled("Column", PropertyKind::OnMotionFinished);
     assert_eq!(handled.len(), 1, "{}", tree.dump());
@@ -158,12 +163,10 @@ fn fr24_motion_finished_reports_once_with_the_final_size() {
 #[test]
 fn fr24_no_handler_means_no_listener() {
     let mut host = ComposeHost::with_content(|| {
-        Column()
-            .modifier(Modifier.motion(MotionRole::Standard))
-            .content(|| {
-                Text("plain");
-                TextField().modifier(Modifier.motion(MotionRole::Quick));
-            });
+        Column!(modifier = Modifier.motion(MotionRole::Standard), {
+            Text!("plain");
+            TextField!("", |_| {}, modifier = Modifier.motion(MotionRole::Quick));
+        });
     });
     let batch = host.rebuild().expect("the first batch encodes").to_vec();
     let mutations = decode_batch(&batch).expect("the batch decodes");
@@ -179,9 +182,12 @@ fn fr24_no_handler_means_no_listener() {
     );
 
     let (_host, tree) = start(|| {
-        TextField()
-            .modifier(Modifier.motion(MotionRole::Quick))
-            .on_motion_finished(|_| {});
+        TextField!(
+            "",
+            |_| {},
+            modifier = Modifier.motion(MotionRole::Quick),
+            on_motion_finished = Some(|_: ::compose_rust::MotionFinished| {})
+        );
     });
     assert_eq!(
         tree.handled("TextField", PropertyKind::OnMotionFinished)
@@ -257,9 +263,11 @@ fn moving() -> Modifier {
 fn fr24_1_text_reports_motion_finished() {
     assert_each_reports(
         |heard| {
-            Text("settles")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Text"));
+            Text!(
+                "settles",
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Text"))
+            );
         },
         &[("Text", "Text")],
     );
@@ -269,33 +277,60 @@ fn fr24_1_text_reports_motion_finished() {
 fn fr24_1_controls_report_motion_finished() {
     assert_each_reports(
         |heard| {
-            Button("go")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Button"));
-            MenuItem("entry")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "MenuItem"));
-            Checkbox(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Checkbox"));
-            RadioButton(false)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "RadioButton"));
-            Switch(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Switch"));
-            Slider(0.5)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Slider"));
-            Chip("tag")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Chip"));
-            FloatingAction("add")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "FloatingAction"));
-            NavigationItem("home")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "NavigationItem"));
+            Button!(
+                "go",
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Button"))
+            );
+            MenuItem!(
+                "entry",
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "MenuItem"))
+            );
+            Checkbox!(
+                true,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Checkbox"))
+            );
+            RadioButton!(
+                false,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "RadioButton"))
+            );
+            Switch!(
+                true,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Switch"))
+            );
+            Slider!(
+                0.5,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Slider"))
+            );
+            Chip!(
+                "tag",
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Chip"))
+            );
+            FloatingAction!(
+                "add",
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "FloatingAction"))
+            );
+            NavigationItem!(
+                "home",
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "NavigationItem"))
+            );
         },
         &[
             ("Button", "Button"),
@@ -316,16 +351,25 @@ fn fr24_1_controls_report_motion_finished() {
 fn fr24_1_pickers_report_motion_finished() {
     assert_each_reports(
         |heard| {
-            DatePicker(0)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "DatePicker"));
-            TimePicker(90)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "TimePicker"));
-            Dropdown(0)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Dropdown"))
-                .content(|| {});
+            DatePicker!(
+                0,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "DatePicker"))
+            );
+            TimePicker!(
+                90,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "TimePicker"))
+            );
+            Dropdown!(
+                0,
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Dropdown")),
+                {}
+            );
         },
         &[
             ("DatePicker", "DatePicker"),
@@ -339,28 +383,40 @@ fn fr24_1_pickers_report_motion_finished() {
 fn fr24_1_indicators_and_media_report_motion_finished() {
     assert_each_reports(
         |heard| {
-            ProgressIndicator(0.25)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "ProgressIndicator"));
-            LinearProgressIndicator(0.5)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "LinearProgressIndicator"));
-            Divider()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Divider"));
-            Image(1)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Image"));
-            Icon(2)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Icon"));
-            Canvas(DrawList::default())
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Canvas"));
-            Badge()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Badge"))
-                .content(|| {});
+            ProgressIndicator!(
+                0.25,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "ProgressIndicator"))
+            );
+            LinearProgressIndicator!(
+                0.5,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "LinearProgressIndicator"))
+            );
+            Divider!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Divider"))
+            );
+            Image!(
+                1,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Image"))
+            );
+            Icon!(
+                2,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Icon"))
+            );
+            Canvas!(
+                DrawList::default(),
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Canvas"))
+            );
+            Badge!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Badge")),
+                {}
+            );
         },
         &[
             ("ProgressIndicator", "ProgressIndicator"),
@@ -378,26 +434,40 @@ fn fr24_1_indicators_and_media_report_motion_finished() {
 fn fr24_1_overlays_report_motion_finished() {
     assert_each_reports(
         |heard| {
-            Dialog(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Dialog"))
-                .content(|| {});
-            Sheet(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Sheet"))
-                .content(|| {});
-            Menu(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Menu"))
-                .content(|| {});
-            Popover(true)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Popover"))
-                .content(|| {});
-            Tooltip("hint")
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Tooltip"))
-                .content(|| {});
+            Dialog!(
+                true,
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Dialog")),
+                {}
+            );
+            Sheet!(
+                true,
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Sheet")),
+                {}
+            );
+            Menu!(
+                true,
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Menu")),
+                {}
+            );
+            Popover!(
+                true,
+                || {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Popover")),
+                {}
+            );
+            Tooltip!(
+                "hint",
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Tooltip")),
+                {}
+            );
         },
         &[
             ("Dialog", "Dialog"),
@@ -413,34 +483,45 @@ fn fr24_1_overlays_report_motion_finished() {
 fn fr24_1_structure_reports_motion_finished() {
     assert_each_reports(
         |heard| {
-            FlowRow()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "FlowRow"))
-                .content(|| {});
-            Tabs(0)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Tabs"))
-                .content(|| {});
-            TopAppBar()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "TopAppBar"))
-                .content(|| {});
-            Scaffold()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Scaffold"))
-                .content(|| {});
-            Navigation(0)
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "Navigation"))
-                .content(|| {});
-            FileDropTarget()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "FileDropTarget"))
-                .content(|| {});
-            SplitPane()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "SplitPane"))
-                .content(|| {});
+            FlowRow!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "FlowRow")),
+                {}
+            );
+            Tabs!(
+                0,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Tabs")),
+                {}
+            );
+            TopAppBar!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "TopAppBar")),
+                {}
+            );
+            Scaffold!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Scaffold")),
+                {}
+            );
+            Navigation!(
+                0,
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "Navigation")),
+                {}
+            );
+            FileDropTarget!(
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "FileDropTarget")),
+                {}
+            );
+            SplitPane!(
+                |_| {},
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "SplitPane")),
+                {}
+            );
         },
         &[
             ("FlowRow", "FlowRow"),
@@ -458,18 +539,21 @@ fn fr24_1_structure_reports_motion_finished() {
 fn fr24_1_lazy_lists_report_motion_finished() {
     assert_each_reports(
         |heard| {
-            LazyColumn()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "LazyColumn"))
-                .content(|_| {});
-            LazyRow()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "LazyRow"))
-                .content(|_| {});
-            LazyGrid()
-                .modifier(moving())
-                .on_motion_finished(hears(heard, "LazyGrid"))
-                .content(|_| {});
+            LazyColumn!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "LazyColumn")),
+                content = |_| {}
+            );
+            LazyRow!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "LazyRow")),
+                content = |_| {}
+            );
+            LazyGrid!(
+                modifier = moving(),
+                on_motion_finished = Some(hears(heard, "LazyGrid")),
+                content = |_| {}
+            );
         },
         &[
             ("LazyColumn", "LazyColumn"),

@@ -46,21 +46,21 @@ fn bare_values(content: impl Fn() + Send + Sync + 'static, widget: WidgetKind) -
 
 #[Composable]
 fn Fields() {
-    Column().content(|| {
-        TextField().placeholder("검색").bare();
-        TextField().placeholder("framed");
+    Column!({
+        TextField!("", |_| {}, placeholder = "검색", bare = true);
+        TextField!("", |_| {}, placeholder = "framed");
     });
 }
 
 #[Composable]
 fn Selects() {
-    Column().content(|| {
-        Select(0).bare().content(|| {
-            Text("Opus");
-            Text("Sonnet");
+    Column!({
+        Select!(0, |_| {}, bare = true, {
+            Text!("Opus");
+            Text!("Sonnet");
         });
-        Select(0).content(|| {
-            Text("Opus");
+        Select!(0, |_| {}, {
+            Text!("Opus");
         });
     });
 }

@@ -6,9 +6,7 @@ use compose_rust::ui::*;
 
 #[Composable]
 fn ReadOnlyField() {
-    TextField()
-        .text("https://example.invalid/invite")
-        .read_only(true);
+    TextField!("https://example.invalid/invite", |_| {}, read_only = true);
 }
 
 #[test]

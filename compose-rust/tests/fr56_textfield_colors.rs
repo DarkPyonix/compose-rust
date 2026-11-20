@@ -12,12 +12,15 @@ const PRIMARY_ROLE: Paint = Paint::Role(ColorRole::Primary);
 
 #[Composable]
 fn ConfiguredFields() {
-    Column().content(|| {
-        TextField()
-            .placeholder("Search")
-            .placeholder_color(LITERAL_GREEN)
-            .caret_color(PRIMARY_ROLE);
-        TextField().placeholder("Default");
+    Column!({
+        TextField!(
+            "",
+            |_| {},
+            placeholder = "Search",
+            placeholder_color = LITERAL_GREEN,
+            caret_color = PRIMARY_ROLE
+        );
+        TextField!("", |_| {}, placeholder = "Default");
     });
 }
 

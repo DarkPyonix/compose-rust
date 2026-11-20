@@ -10,15 +10,19 @@ use support::Tree;
 
 #[Composable]
 fn Buttons() {
-    Row().content(|| {
-        Button("")
-            .icon(IconRole::Add)
-            .modifier(Modifier.size(26.0, 32.0).min_touch_target(44.0))
-            .on_click(|| {});
-        Button("")
-            .icon(IconRole::Close)
-            .modifier(Modifier.size(26.0, 32.0))
-            .on_click(|| {});
+    Row!({
+        Button!(
+            "",
+            || {},
+            icon = IconRole::Add,
+            modifier = Modifier.size(26.0, 32.0).min_touch_target(44.0)
+        );
+        Button!(
+            "",
+            || {},
+            icon = IconRole::Close,
+            modifier = Modifier.size(26.0, 32.0)
+        );
     });
 }
 

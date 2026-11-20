@@ -385,6 +385,13 @@ internal class Win32Window private constructor(
         Win32Loop.action(which)
     }
 
+    /** Hands a press in an application-owned caption strip or drag region to Windows' move loop. */
+    fun beginDrag() {
+        if (gone) return
+        select()
+        beginWindowDrag()
+    }
+
     /**
      * Destroys the window now and leaves the scene and the GPU objects for [release], which
      * the loop calls once nothing is inside the scene any more. Closing a scene from inside
@@ -400,6 +407,7 @@ internal class Win32Window private constructor(
 
     /** Takes the scene and everything under it down after [destroy]. */
     fun release() {
+        scene.forgetPointer()
         scene.close()
         context.close()
         releaseHandle(native.window)
@@ -409,6 +417,7 @@ internal class Win32Window private constructor(
     fun close() {
         Win32Loop.setDrawCallback(null)
         resizing = null
+        scene.forgetPointer()
         scene.close()
         context.close()
     }
@@ -544,6 +553,7 @@ internal class Win32Window private constructor(
                 config.chrome == Chrome.System,
                 backdrop = 0,
             )
+            configureAppCaption(config.chrome == Chrome.FullSize)
             val x = config.x
             val y = config.y
             if (x != null && y != null) {
@@ -578,9 +588,11 @@ internal class Win32Window private constructor(
             minWidth: Int = 0,
             minHeight: Int = 0,
             systemChrome: Boolean = true,
+            appCaption: Boolean = false,
         ): Win32Window? {
             if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
             Win32NativeWindow.configure(resizable, minWidth, minHeight, systemChrome, backdrop = 0)
+            configureAppCaption(appCaption)
             val native = Win32NativeWindow.open(title, width, height) ?: return null
             // Resize frames on the CPU unless asked not to (DXC_RASTER_RESIZE=0).
             Win32Loop.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")

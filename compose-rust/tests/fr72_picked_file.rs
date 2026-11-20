@@ -40,7 +40,7 @@ fn results() -> Vec<FileDialogResult> {
 
 #[Composable]
 fn Opener() {
-    Button("open").on_click(|| {
+    Button!("open", || {
         FileDialog::open_files()
             .filter("Text", &["txt"])
             .show(|result| RESULTS.with_borrow_mut(|results| results.push(result)));
