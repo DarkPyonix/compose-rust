@@ -2849,7 +2849,11 @@ Notification::new("세션이 끝났습니다")
 
 ### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
 
-> **현황(2026-11-20, [leader, 2026-11-20]).** 런타임과 작성 API가 develop에 있습니다. 슬롯 테이블 런타임은 `compose-rust/src/runtime/`(composer, state, effects, host, seam)에, `#[Composable]`과 호출 매크로는 `compose-rust/macros`에 있고, compose-rust는 `dioxus-*`에 의존하지 않습니다(`scripts/tests/core-has-no-dioxus.test.sh`). 저장소의 샘플은 이 API로 쓰여 있습니다. 기준별 증거는 다음과 같습니다.
+> **현황(2026-11-21, [leader, 2026-11-21]).** 런타임과 작성 API가 develop에 있습니다. 슬롯 테이블 런타임은 `compose-rust/src/runtime/`(composer, state, effects, host, seam)에, `#[Composable]`과 호출 매크로는 `compose-rust/macros`에 있고, compose-rust는 `dioxus-*`에 의존하지 않습니다(`scripts/tests/core-has-no-dioxus.test.sh`).
+>
+> 위젯은 `compose-rust/src/ui/functions/`의 공개 함수와 같은 이름의 호출 매크로입니다. 그 함수들이 채우는 `*Scope` 빌더는 `compose-rust/src/ui/widgets.rs`에 `pub(crate)`로 남아 있어 공개 API에 없습니다. PR #906(`9ef0d722`)이 소유자의 빌더 제거 결정(2026-11-20, 39.5.1 아래)대로 그렇게 바꿨습니다. 함수 형태의 위젯은 v0.0.12에서 `ui::next` 모듈로 먼저 나왔고(`3ca9e223`), 같은 PR이 그것을 `ui`로 옮기면서 `ui::next`는 없어졌습니다. 저장소의 샘플, 크레이트의 테스트, 가이드와 README는 이 API로 쓰여 있습니다.
+>
+> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정이고(이슈 #23), 39.4.7은 소유자 결정으로 1.0 뒤에 확인합니다. 기준별 증거는 다음과 같습니다.
 > - 39.4.1 Dioxus 없이: `core-has-no-dioxus.test.sh`, `fr39_the_boundary_drives_a_runtime_that_is_not_dioxus`, `fr39_a_message_action_runs_without_dioxus`.
 > - 39.4.2 건너뜀: `fr39_a_state_change_runs_only_the_scope_that_read_it`(Mutation은 `SetProp Text` 1건), `fr39_a_composable_whose_parameters_are_unchanged_is_skipped`, `fr39_a_static_string_parameter_is_compared_and_skipped`, `fr39_an_unchanged_frame_sends_nothing`.
 > - 39.4.3 위치 기반 기억: `fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears`, `fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh`, `fr39_a_match_arm_that_changes_takes_its_state_with_it`, 대조군 `fr39_without_branch_groups_a_call_site_is_handed_another_ones_state`, `fr39_groups_close_on_return_continue_break_question_mark_and_unwind`, `fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered`.
@@ -2857,13 +2861,13 @@ Notification::new("세션이 끝났습니다")
 > - 39.4.5 effect: `fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_they_leave`.
 > - 39.4.6 같은 와이어: `fr39_a_composable_application_runs_through_the_unchanged_boundary`. 렌더러 아티팩트 하나가 두 경로를 그리는 것은 dioxus-compose의 CI가 같은 렌더러로 돌기 때문이고, 이 저장소에 그것을 묻는 시험은 없습니다.
 > - 39.4.7 `rsx!`와 같은 표현력: **확인 안 됨.** 샘플의 `rsx!` 판은 dioxus-compose에 있고, 두 판의 노드 트리를 비교하는 시험이 없습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
-> - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다.
-> - 39.5.1 함수 형태: `fr39_function_form_takes_every_argument_and_no_defaults`가 함수 형태를 확인합니다. **어긋남:** develop의 공개 API에는 빌더 체인 메서드가 있습니다(`on_click`, `TextFieldScope::read_only`, `ModalScope::handle` 등). 소유자는 빌더를 1.0 전에 없애기로 정했습니다(2026-11-20, 39.5.1 아래).
+> - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다. `compose-rust/benches/baseline.json`이 아직 없습니다. 남은 일은 빌더 제거 뒤의 벤치를 다시 빌드하고, 한가한 기계에서 `parity.sh`와 `run.sh`를 돌려 결과를 남기고, 다른 세션이 같은 벤치로 같은 결과를 확인하는 것입니다(39.4.8의 7, 8, 이슈 #23).
+> - 39.5.1 함수 형태: `fr39_function_form_no_public_method_chains_outside_the_value_types`가 39.1의 값 타입 밖에 `self`를 받아 `Self`를 돌려주는 공개 메서드가 없음을, `fr39_function_form_every_widget_function_returns_nothing`이 공개 위젯 함수가 값을 돌려주지 않음을 확인합니다. `fr39_function_form_takes_every_argument_and_no_defaults`와 위젯 종류마다의 `fr39_function_form_*_composes_with_every_parameter`가 함수 형태로 모든 인자를 줍니다. 첫 검사는 지금 `compose-rust/src/ui` 아래의 파일만 읽어서, `ui`가 다른 파일에서 다시 내보내는 타입은 보지 않습니다.
 > - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다. 내용 클로저를 두 번 준 호출(`fail_content_twice`)과 const 제네릭, `impl Trait` 인자의 composable(`fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form`)은 2026-11-20에 더했습니다.
 >
 > 이름 조회와 재전송 비용은 #65가 추적합니다.
 
-**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-28)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 2026-11-14로 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜였습니다. 그 뒤 소유자가 2026-11-14에 2026-11-23으로, 2026-11-21에 2026-11-28로 옮겼습니다([leader, 2026-11-21]).
 
 #### 39.1 모양
 
@@ -2899,7 +2903,7 @@ fn main() {
 - **선언.** 위젯은 `#[Composable(widget)]`로 선언합니다. 호출 매크로와 그 문서는 다른 composable과 같이 만들고, 본문은 건드리지 않습니다. 위젯은 이미 자기 그룹을 열고 자기 노드를 쓰므로, 그룹을 하나 더 두거나 매개변수 비교를 감싸면 슬롯 테이블과 할당 수가 바뀝니다.
 - **매개변수의 모양.** 빌더 메서드가 하던 일은 같은 이름의 매개변수가 합니다. 생성자 인자는 같은 자리의 필수 매개변수이고, 위젯의 주 핸들러(`Button`의 `on_click`, `Slider`의 `on_change`, `TextField`의 `on_value_change` 등)는 데이터 바로 뒤의 필수 `impl FnMut(..)`입니다. `modifier`의 기본값은 `Modifier::new()`입니다. "정하지 않음"이 와이어에서 값과 다른 속성(`font_size`, `color`, `spacing` 등)은 `impl Into<Option<T>>`(기본값 `None`)라서 `font_size = 14.0`처럼 값을 그대로 씁니다. 진짜 기본값이 있는 속성(`enabled`, `multiline`)은 `T`이고, 인자 없는 깃발 메서드(`bare()`)는 `bool`(기본 `false`), 인자가 여럿인 메서드(`range(min, max)`)는 튜플 하나입니다. 선택 핸들러와 슬롯(컨테이너의 `on_click`, `on_key_down`, `Scaffold`의 `top_bar`)은 `Option<impl FnMut(..)>`이고 기본값은 `None`입니다. 핸들러가 없는 것과 빈 핸들러는 와이어에서 다르기 때문입니다(`on_click`이 없는 컨테이너는 컨트롤이 아닙니다). `Some(..)` 안에서는 rustc가 클로저 인자 타입을 추론하지 않으므로, 인자가 있는 선택 핸들러는 `Some(move |event: KeyEvent| ..)`처럼 타입을 적습니다. `color_if` 같은 `Option`을 받는 쌍둥이 메서드는 `impl Into<Option<T>>`가 대신하므로 없습니다. 내용 클로저는 마지막의 `content`이고 기본값은 `|| {}`입니다.
 - **빌더가 아닌 것.** 체인으로 만든 뒤 인자로 넘기는 값 타입(`Modifier`, `TextSpans`, `DrawListBuilder`, `HoverStyle`, `PressStyle`, `Shadow`, `LaunchBuilder`)과 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)은 빌더 체인이 아니고 남습니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 39.5.1의 검사가 이 타입들을 이름으로 적으므로, 새로 더하는 것은 의도한 수정이 됩니다.
-- **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 빌더가 남아 있는 동안 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험합니다.
+- **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 지금 함수는 크레이트 안의 빌더(`pub(crate)`)를 채워서 씁니다([leader, 2026-11-21]). 빌더가 공개 API에 있던 동안은 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험했습니다. 빌더가 공개 API에서 빠지면서 그 시험은 지웠습니다(`9ef0d722`). 비교할 공개 빌더가 없기 때문입니다. 지금 와이어의 내용은 호출 매크로로 옮긴 기능별 시험이 확인하고, 함수 형태와 매크로 형태가 같은 바이트를 쓰는 것은 `fr39_call_macro_layout_is_the_function_call`이 `Column`과 `Row`에 대해 확인합니다.
 
 #### 39.1.1 호출 매크로
 
@@ -2939,7 +2943,14 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 **매크로의 문서.** 생성된 매크로는 `#[doc]`을 달고 나옵니다. 내용은 함수 자신의 문서 텍스트에 이어, 매개변수마다 한 줄씩 선언 순서대로 이름, 타입, 기본값(`#[default]`의 식, `modifier`의 암묵 기본값 포함) 또는 `required`를 적은 목록입니다. rust-analyzer는 매크로를 가리켰을 때 매개변수를 펼쳐 보이지 않으므로, IDE의 호버가 서명을 보이게 하는 것은 이 문서뿐입니다. `pub use`로 다시 내보낸 이름에도 이 문서가 따라갑니다.
 
-**함수 형태와 같은 호출입니다.** 매크로는 인자를 정리한 뒤 함수 한 번의 호출로 펼쳐지고, 중간 함수, 클로저 감싸기, 동적 디스패치, 할당을 더하지 않습니다. 그래서 실행 비용이 같습니다. 슬롯 그룹 키는 호출 위치에서 정해지고(`#[track_caller]`의 `Location::caller()`, 39.2의 위치 기반 기억), 매크로 형태에서 그 위치는 매크로 호출 자리입니다. 매크로가 한 번의 호출로만 펼쳐지고 중간 함수가 없으므로 rustc가 보고하는 위치가 곧 `Name!(..)`을 쓴 자리입니다. 같은 자리에서 함수 형태로 부르든 매크로 형태로 부르든 같은 그룹 키를 얻고, `macro_rules!` 안에서 부르면 두 형태 모두 바깥 매크로의 호출 자리가 위치가 됩니다.
+**함수 형태와 같은 호출입니다.** 매크로는 인자를 정리한 뒤 함수 한 번의 호출로 펼쳐지고, 중간 함수, 클로저 감싸기, 동적 디스패치, 할당을 더하지 않습니다. 그래서 실행 비용이 같습니다.
+
+슬롯 그룹 키는 호출 위치가 아니라 불리는 함수에서 정해집니다([leader, 2026-11-21]).
+- `#[Composable]`은 함수의 그룹 키를 컴파일 시점에 정합니다. 함수가 놓인 모듈 경로와 함수 이름(`concat!(module_path!(), "::", "Name")`)의 해시입니다(`compose-rust/macros/src/lib.rs`의 `key_expression`, `runtime::__private::call_site`).
+- 본문 안의 분기 그룹은 같은 경로에 본문 안에서 차례로 매긴 번호를 더해 키를 정합니다.
+- 한 부모 그룹 안에서 같은 키가 여러 번 나오면, 런타임이 그 키가 몇 번째로 나왔는지를 키에 섞어 구별합니다(`Composer::start_group`). 같은 composable을 나란히 두 번 부르는 경우입니다.
+- 키에 호출 위치가 들어가지 않으므로, 같은 자리에서 함수 형태로 부르든 매크로 형태로 부르든 같은 그룹 키를 얻습니다. `macro_rules!` 안에서 불러도 마찬가지입니다.
+- `#[track_caller]`의 `Location::caller()`를 쓰는 것은 `remember`뿐입니다. 해제된 핸들을 읽었을 때 패닉 메시지에 값을 만든 자리를 적기 위해서입니다(39.2.1의 2). 값이 놓이는 칸은 위치가 아니라 그룹 안의 순서로 정해집니다(39.2).
 
 #### 39.1.2 기본값
 
@@ -3031,11 +3042,11 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 13. **매크로 문서.** 생성된 매크로의 `#[doc]`에 함수의 문서 텍스트가 들어 있고, 모든 매개변수가 선언 순서대로 이름, 타입, 기본값 또는 `required`와 함께 나옵니다. 매크로 확장 테스트나 rustdoc JSON으로 확인합니다. 이름 패턴 `fr39_call_macro_doc_*`.
 
-위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 이 기준은 구현이 들어올 때까지 `Agreed`입니다.
+위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 구현은 들어왔습니다([leader, 2026-11-21]). 실제 테스트 이름을 적은 것은 아직 39.5.5뿐이고, 나머지 기준의 실제 이름은 FR-39 머리의 현황에 있습니다. 39.5.8의 `fr39_call_macro_args_*`처럼 그 패턴으로 시작하는 테스트가 없는 것도 있습니다. 39.5의 기준은 FR-39와 함께 `Agreed`입니다.
 
 #### 39.6 이행
 
-이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
