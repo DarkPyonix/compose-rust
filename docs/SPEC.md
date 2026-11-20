@@ -3118,7 +3118,9 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
   - `AnimationEvent`는 자기 시각 칸을 그대로 갖습니다. 시작 시각은 이것과 `Ready` 이벤트로 압니다.
   - 입력 시각은 FR-18 제스처(1.1)에서 `DragStart`, `DragMove`, `DragEnd`, `Scroll` payload에 더합니다.
   - **와이어에 실리는 모든 시각은 `render_frame`의 `frame_time_nanos`와 같은 단조 나노초 시계입니다.** 플랫폼이 주는 시각은 그 시계로 바꾼 뒤 싣고, 기준점을 다시 잡지 않습니다.
-  - **Host의 이벤트 열거형(`HostEvent`, `EventPayload`)은 1.0 전에 `#[non_exhaustive]`가 됩니다.** 그래야 1.0 뒤에 이벤트나 칸을 더하는 것이 메이저 버전 변경이 되지 않습니다. 수용 기준: 두 열거형에 `#[non_exhaustive]`가 붙어 있고, 크레이트 밖의 match가 와일드카드 갈래 없이는 컴파일되지 않습니다(fr41_event_enums_are_non_exhaustive).
+  - **Host의 이벤트 타입(`HostEvent`, `EventPayload`)은 1.0 전에 `#[non_exhaustive]`가 됩니다.** 그래야 1.0 뒤에 이벤트나 칸을 더하는 것이 메이저 버전 변경이 되지 않습니다. 수용 기준: 두 타입에 `#[non_exhaustive]`가 붙어 있고, 크레이트 밖의 match가 와일드카드 갈래 없이는 컴파일되지 않습니다(fr41_event_enums_are_non_exhaustive).
+    - `EventPayload`는 열거형이고 `HostEvent`는 구조체입니다(`compose-rust/src/protocol.rs`, [leader, 2026-11-21]). 열거형의 `#[non_exhaustive]`는 크레이트 밖의 `match`에 와일드카드 갈래를 요구합니다. 구조체의 `#[non_exhaustive]`는 크레이트 밖에서 구조체 리터럴로 값을 만들지 못하게 하고, 크레이트 밖의 구조체 패턴에 `..`를 요구합니다. 그래서 `HostEvent`에 대한 위 기준은 크레이트 밖의 패턴이 `..` 없이는 컴파일되지 않는다는 뜻입니다.
+    - 크레이트 밖에서 `HostEvent`를 만드는 길은 공개 생성자 `HostEvent::new(node_id: u32, handler_id: u64, payload: EventPayload<'a>)` 하나이고, 이 생성자는 `const fn`입니다([leader, 2026-11-21]). 생성자를 두는 이유는, `#[non_exhaustive]`가 리터럴을 막아도 크레이트 밖의 테스트나 dioxus-compose 같은 층이 이벤트를 만들 수 있어야 하기 때문입니다.
 
 ### FR-41.1 `Transform` 수정자 (`Agreed`)
 
