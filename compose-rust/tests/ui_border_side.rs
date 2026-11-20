@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
@@ -39,9 +39,7 @@ fn border_each(widths: [f32; 4], paints: [Paint; 4]) -> String {
 #[test]
 fn fr60_border_side_start_writes_border_each_with_zero_widths_on_the_other_sides() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.border_side(Side::Start, 1.0, GUIDE))
-            .content(|| {});
+        Box!(modifier = Modifier.border_side(Side::Start, 1.0, GUIDE), {});
     });
     let dump = tree.dump();
     let expected = border_each([0.0, 0.0, 0.0, 1.0], [GUIDE; 4]);
@@ -58,9 +56,7 @@ fn fr60_border_side_maps_each_side_to_its_screen_side() {
         (Side::Start, [0.0, 0.0, 0.0, 2.0]),
     ] {
         let (_host, tree) = start(move || {
-            Box()
-                .modifier(Modifier.border_side(side, 2.0, GUIDE))
-                .content(|| {});
+            Box!(modifier = Modifier.border_side(side, 2.0, GUIDE), {});
         });
         let dump = tree.dump();
         assert!(
@@ -73,13 +69,13 @@ fn fr60_border_side_maps_each_side_to_its_screen_side() {
 #[test]
 fn fr60_border_side_twice_draws_two_sides() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.border_side(Side::Bottom, 1.0, RULE).border_side(
-                Side::Start,
-                3.0,
-                GUIDE,
-            ))
-            .content(|| {});
+        Box!(
+            modifier =
+                Modifier
+                    .border_side(Side::Bottom, 1.0, RULE)
+                    .border_side(Side::Start, 3.0, GUIDE,),
+            {}
+        );
     });
     let dump = tree.dump();
     let expected = border_each([0.0, 0.0, 1.0, 3.0], [RULE, RULE, RULE, GUIDE]);
@@ -90,9 +86,10 @@ fn fr60_border_side_twice_draws_two_sides() {
 fn fr60_border_each_writes_each_side_in_css_order() {
     let red = Paint::Literal(Color::argb(0xffff_0000));
     let (_host, tree) = start(move || {
-        Box()
-            .modifier(Modifier.border_each((1.0, red), (0.0, RULE), (2.0, GUIDE), (4.0, RULE)))
-            .content(|| {});
+        Box!(
+            modifier = Modifier.border_each((1.0, red), (0.0, RULE), (2.0, GUIDE), (4.0, RULE)),
+            {}
+        );
     });
     let dump = tree.dump();
     let expected = border_each([1.0, 0.0, 2.0, 4.0], [red, RULE, GUIDE, RULE]);
@@ -102,9 +99,10 @@ fn fr60_border_each_writes_each_side_in_css_order() {
 #[test]
 fn fr60_border_each_with_four_equal_sides_is_one_border() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.border_each((1.0, RULE), (1.0, RULE), (1.0, RULE), (1.0, RULE)))
-            .content(|| {});
+        Box!(
+            modifier = Modifier.border_each((1.0, RULE), (1.0, RULE), (1.0, RULE), (1.0, RULE)),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(
@@ -124,7 +122,7 @@ fn fr60_border_side_and_border_take_each_others_place() {
         } else {
             Modifier.border(2.0, RULE)
         };
-        Box().modifier(modifier).content(|| {});
+        Box!(modifier = modifier, {});
     });
     assert!(tree.dump().contains("BorderEach"), "{}", tree.dump());
 
@@ -157,10 +155,52 @@ fn fr60_removing_border_side_clears_the_border() {
         } else {
             Modifier
         };
-        Box().modifier(modifier).content(|| {});
+        Box!(modifier = modifier, {});
     });
     assert!(tree.dump().contains("BorderEach"), "{}", tree.dump());
     bordered.set(false);
     tree.apply(host.render_frame(0).expect("the frame encodes"));
     assert!(!tree.dump().contains("Border"), "{}", tree.dump());
+}
+
+#[test]
+fn fr60_border_dashed_round_trips_and_clears_when_replaced_by_solid() {
+    let dashed = mutable_state_of(true);
+    let state = dashed;
+    let (mut host, mut tree) = start(move || {
+        let modifier = if state.get() {
+            Modifier.border_dashed(1.5, ColorRole::Outline, 4.0, 4.0)
+        } else {
+            Modifier
+                .border_dashed(1.5, ColorRole::Outline, 4.0, 4.0)
+                .border(2.0, GUIDE)
+        };
+        Box!(modifier = modifier, {});
+    });
+    let dump = tree.dump();
+    assert!(
+        dump.contains("Border { width: 1.5, paint: Role(Outline) }"),
+        "{dump}"
+    );
+    assert!(
+        dump.contains("BorderDash { dash_dp: 4.0, gap_dp: 4.0 }"),
+        "{dump}"
+    );
+
+    dashed.set(false);
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
+    let dump = tree.dump();
+    assert!(
+        dump.contains("Border { width: 2.0, paint: Literal(Color(4281558681)) }"),
+        "{dump}"
+    );
+    assert!(!dump.contains("BorderDash"), "{dump}");
+
+    dashed.set(true);
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
+    let dump = tree.dump();
+    assert!(
+        dump.contains("BorderDash { dash_dp: 4.0, gap_dp: 4.0 }"),
+        "{dump}"
+    );
 }

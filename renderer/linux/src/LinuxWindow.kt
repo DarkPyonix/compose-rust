@@ -346,6 +346,10 @@ internal class LinuxWindow private constructor(
                 LocalZoom provides zoom,
                 LocalDisplayScale provides displayScale,
                 LocalSystemDarkObserver provides { resolvedDark() },
+                // A node the application made a drag region (`WindowDrag(true)`) moves the
+                // window from the press it is holding: the window manager takes the pointer
+                // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
+                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { x11.startMove() },
             ) {
                 content()
             }
@@ -481,6 +485,7 @@ internal class LinuxWindow private constructor(
     internal fun close() {
         if (closed) return
         closed = true
+        scene.forgetPointer()
         scene.close()
         x11.close()
     }

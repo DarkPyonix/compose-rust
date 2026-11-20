@@ -16,7 +16,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, IoStatus, PropertyKind, StorageOp, Theme,
 };
 use compose_rust::storage::{self, Backend, Platform, StorageError, testing};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::PathBuf;
@@ -211,8 +211,8 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
 
     // The vectors the Kotlin side reads carry the same records.
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(decode_event(&events[1093..1130]).unwrap(), answer);
-    assert_eq!(decode_event(&events[1237..1319]).unwrap(), location);
+    assert_eq!(decode_event(&events[1097..1134]).unwrap(), answer);
+    assert_eq!(decode_event(&events[1241..1323]).unwrap(), location);
     let mutations = include_bytes!("vectors/mutations.bin");
     let calls: Vec<Mutation<'_>> = decode_batch(mutations)
         .unwrap()
@@ -622,13 +622,13 @@ fn Loader() {
 fn Savers() {
     let scope = remember_coroutine_scope();
     let saving = scope.clone();
-    Button("save").on_click(move || {
+    Button!("save", move || {
         saving.launch(async {
             let outcome = storage::write("draft", "v").await;
             record("save", outcome);
         })
     });
-    Button("load").on_click(move || {
+    Button!("load", move || {
         scope.launch(async {
             let outcome = storage::read("draft").await;
             record("load", outcome);
@@ -636,7 +636,7 @@ fn Savers() {
     });
     let shown = remember(|| mutable_state_of(true));
     let hide = shown;
-    Button("hide").on_click(move || hide.set(false));
+    Button!("hide", move || hide.set(false));
     if shown.get() {
         Loader();
     }

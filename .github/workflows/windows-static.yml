@@ -204,19 +204,6 @@ jobs:
           ls ~/.m2/repository/org/thisisthepy/compose/ui | head
           ls -la .scratch/skiko-build/out/windows-x64
 
-      - name: Restore the Kotlin toolchain
-        id: toolchain-cache
-        # Restored and saved as two steps, so a run that fails after the toolchain is in place
-        # still keeps it for the next one.
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/AppData/Local/JetBrains/Kotlin
-            ~/.konan
-          key: kotlin-native-windows-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml') }}
-          restore-keys: |
-            kotlin-native-windows-
-
       - name: Enter the Visual Studio developer environment
         # The headers clang compiles our C against, and dumpbin.
         shell: pwsh
@@ -261,15 +248,6 @@ jobs:
         # code than the other platforms ship.
         run: ./renderer/desktop/scripts/build-windows.sh --release
 
-      - name: Keep the Kotlin toolchain for the next run
-        if: github.event_name != 'pull_request' && (always() && steps.toolchain-cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/AppData/Local/JetBrains/Kotlin
-            ~/.konan
-          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
-
       - name: Show what the renderer build left behind
         if: failure()
         run: |
@@ -299,7 +277,7 @@ jobs:
 
       - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
         # Here rather than with the application checks: the probe is compiled with the
-        # Kotlin/Native compiler this job's renderer build left in the toolchain cache.
+        # Kotlin/Native compiler this job's renderer build downloaded into ~/.konan.
         if: always() && steps.renderer.outcome == 'success'
         run: ./scripts/check-windows-mingw-link.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
       - name: Package the kit the way the release carries it

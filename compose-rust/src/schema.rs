@@ -20,6 +20,8 @@ pub enum FieldType {
     /// An `f32` that has to be a number. NaN or an infinity is a protocol error, for a
     /// value that would otherwise turn a whole subtree into nothing on one side only.
     FiniteFloat,
+    /// A `Paint` or nothing. A zero word is nothing, because no paint kind is zero.
+    OptionalPaint,
 }
 
 /// Which half of which `u64` word of a modifier's value a field occupies.
@@ -251,8 +253,8 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,native_visible,on_native_view_focus;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,sheet_handle,read_only,native_visible,on_native_view_focus;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -320,6 +322,7 @@ const fn schema_hash() -> u64 {
                     FieldType::Role(_) => 5,
                     FieldType::Bool => 6,
                     FieldType::FiniteFloat => 7,
+                    FieldType::OptionalPaint => 8,
                 }],
             );
             if let FieldType::Role(role) = field.ty {
@@ -1131,6 +1134,24 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     Sidebar = 19,
     Compose = 20,
     Collapse = 21,
+    Lock = 22,
+    Favorite = 23,
+    Book = 24,
+    Play = 25,
+    Shuffle = 26,
+    ExpandMore = 27,
+    Person = 28,
+    Clock = 29,
+    Tune = 30,
+    Chat = 31,
+    Star = 32,
+    Bag = 33,
+    Bell = 34,
+    Share = 35,
+    Language = 36,
+    CompactOverlay = 37,
+    Calculator = 38,
+    Refresh = 39,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
@@ -1797,6 +1818,18 @@ impl Paint {
             PAINT_KIND_ASSET => Some(Self::Asset(value)),
             _ => None,
         }
+    }
+}
+
+impl From<ColorRole> for Paint {
+    fn from(role: ColorRole) -> Self {
+        Self::Role(role)
+    }
+}
+
+impl From<Color> for Paint {
+    fn from(color: Color) -> Self {
+        Self::Literal(color)
     }
 }
 
@@ -2742,6 +2775,42 @@ pub enum Modifier {
     /// content asks for. The node still takes the width its parent offered, and what is
     /// wider than that is clipped.
     UnboundedWidth,
+    /// Draws the node's uniform `Border` as a repeating pattern of `dash_dp` and `gap_dp`
+    /// along its outline. A non-positive dash or gap draws a solid border.
+    BorderDash {
+        dash_dp: f32,
+        gap_dp: f32,
+    },
+    /// How a pressable node looks while a mouse is over it. The hover layer is `fill` at
+    /// `fill_alpha` instead of the default `OnSurface` layer, or the default layer when
+    /// `fill` is none. `border`, when set, replaces the colour of the node's `Border` while
+    /// the mouse is over it. `content_alpha` multiplies the whole node's opacity while the
+    /// mouse is over it; 1.0 leaves it as it is. Hovering sends nothing to the Host.
+    HoverStyle {
+        fill: Option<Paint>,
+        fill_alpha: f32,
+        border: Option<Paint>,
+        content_alpha: f32,
+    },
+    /// The ring a pressable node draws while it has keyboard or programmatic focus: its
+    /// paint, its width in dp, and how far outside the node's outline it sits in dp. At an
+    /// offset of 0 or less the ring is drawn inside the outline; above 0 it is drawn that
+    /// far outside it, with each corner radius grown by the same amount, the way CSS
+    /// `outline-offset` draws. The ring takes no room. Focus a pointer gave draws no ring.
+    FocusRing {
+        paint: Paint,
+        width_dp: f32,
+        offset_dp: f32,
+    },
+    /// The colour and the press-in curve of a pressed surface. `tint`, when set, is the
+    /// colour laid over the surface while it is pressed, at the alpha `PressFeedback` gives
+    /// or the default one; without it the node's content colour is used. `press_easing`,
+    /// when set, is the `cubic-bezier(x1, y1, x2, y2)` the press runs along; the release
+    /// keeps its own curve. On the wire a NaN `x1` is no curve.
+    PressStyle {
+        tint: Option<Paint>,
+        press_easing: Option<[f32; 4]>,
+    },
 }
 
 /// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
@@ -3460,6 +3529,88 @@ const ASPECT_RATIO_FIELDS: &[FieldSchema] = &[
     },
 ];
 
+const BORDER_DASH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "dashDp",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "gapDp",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+];
+
+const HOVER_STYLE_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "fill",
+        ty: FieldType::OptionalPaint,
+        slot: FieldSlot::First,
+    },
+    FieldSchema {
+        name: "fillAlpha",
+        ty: FieldType::Float,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "border",
+        ty: FieldType::OptionalPaint,
+        slot: FieldSlot::Second,
+    },
+    FieldSchema {
+        name: "contentAlpha",
+        ty: FieldType::Float,
+        slot: FieldSlot::ThirdHigh,
+    },
+];
+
+const FOCUS_RING_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::First,
+    },
+    FieldSchema {
+        name: "widthDp",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "offsetDp",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+
+const PRESS_STYLE_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "tint",
+        ty: FieldType::OptionalPaint,
+        slot: FieldSlot::First,
+    },
+    FieldSchema {
+        name: "easingX1",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "easingY1",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "easingX2",
+        ty: FieldType::Float,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "easingY2",
+        ty: FieldType::Float,
+        slot: FieldSlot::ThirdHigh,
+    },
+];
+
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
@@ -3711,6 +3862,32 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 40,
         extra_words: 0,
         fields: NO_FIELDS,
+    },
+    VariantSchema {
+        name: "BorderDash",
+        tag: 42,
+        extra_words: 0,
+        fields: BORDER_DASH_FIELDS,
+    },
+    // The two optional paints take the first two words and the two alphas share a third.
+    VariantSchema {
+        name: "HoverStyle",
+        tag: 43,
+        extra_words: 1,
+        fields: HOVER_STYLE_FIELDS,
+    },
+    VariantSchema {
+        name: "FocusRing",
+        tag: 44,
+        extra_words: 0,
+        fields: FOCUS_RING_FIELDS,
+    },
+    // The optional tint in the first word and the four curve points in the next two.
+    VariantSchema {
+        name: "PressStyle",
+        tag: 45,
+        extra_words: 1,
+        fields: PRESS_STYLE_FIELDS,
     },
 ];
 
@@ -4129,6 +4306,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // gutter, so the text starts at the same place whether or not the file has folds or
     // changes. A boolean, absent is no.
     FixedGutterColumns = 211,
+    // Whether a bottom `Sheet` draws its drag handle, a boolean. Absent is yes. Without it
+    // the sheet still drags the same way. 212 and 213 are held by properties on other
+    // branches.
+    SheetHandle = 214,
+    // When true on a TextField, the field stays focusable and selectable (including copy)
+    // while rejecting edits and announcing itself as read-only.
+    ReadOnly = 215,
     // A `NativeView`'s two properties. 187 is held by a property on another branch.
     //
     // Whether the platform view shows, a boolean. Absent is yes. A hidden view stays in the
@@ -4185,6 +4369,9 @@ pub enum EventPayload<'a> {
         safe_area_top: f32,
         safe_area_leading: f32,
         safe_area_trailing: f32,
+        /// The room the system keeps at the bottom edge, after every other field so the
+        /// fields before it keep their offsets. Zero on a desktop window.
+        safe_area_bottom: f32,
     },
     /// Files are over a node that said it would take them. Nothing about what they are:
     /// the platforms disagree about what is knowable before a drop, and a screen that

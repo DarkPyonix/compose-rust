@@ -1245,6 +1245,7 @@ pub struct TextFieldScope {
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
     bare: bool,
+    read_only: bool,
     done: bool,
 }
 
@@ -1280,6 +1281,7 @@ pub fn TextField() -> TextFieldScope {
         on_motion_finished: None,
         focus_handle: None,
         bare: false,
+        read_only: false,
         done: false,
     }
 }
@@ -1452,12 +1454,19 @@ impl TextFieldScope {
         self
     }
 
+    /// Keeps the field focusable and selectable (including copy) while rejecting edits and
+    /// announcing it as read-only.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
-        let bare = self.bare;
+        let (bare, read_only) = (self.bare, self.read_only);
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1507,6 +1516,9 @@ impl TextFieldScope {
                 attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
+                if read_only {
+                    attrs.push(("read_only", OwnedAttr::Bool(true)));
+                }
                 // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
                 // as for `Text`.
                 attrs.push(("type_role", super::role(type_role)));
@@ -2849,6 +2861,7 @@ pub struct ModalScope {
     max_height_fraction: Option<f32>,
     presentation: SheetPresentation,
     max_width: Option<u32>,
+    handle: bool,
     on_dismiss: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -2865,6 +2878,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         max_height_fraction: None,
         presentation: SheetPresentation::Edge,
         max_width: None,
+        handle: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -2882,6 +2896,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         max_height_fraction: None,
         presentation: SheetPresentation::Edge,
         max_width: None,
+        handle: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -2930,6 +2945,16 @@ impl ModalScope {
         self
     }
 
+    /// Whether a bottom sheet draws its drag handle at the top of its surface. On by
+    /// default.
+    ///
+    /// Turning it off removes only the handle: the sheet still drags down and closes the
+    /// same way. Only a `Sheet` sends it; a `Dialog` has no handle.
+    pub fn handle(mut self, show: bool) -> Self {
+        self.handle = show;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
@@ -2938,6 +2963,8 @@ impl ModalScope {
             .filter(|_| widget == WidgetKind::Sheet);
         let presentation = self.presentation;
         let max_width = self.max_width.filter(|_| widget == WidgetKind::Sheet);
+        // Sent only to turn the handle off, so a sheet that keeps it costs no record.
+        let hide_handle = widget == WidgetKind::Sheet && !self.handle;
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2965,6 +2992,9 @@ impl ModalScope {
                 }
                 if let Some(max_width) = max_width {
                     attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
+                }
+                if hide_handle {
+                    attrs.push(("sheet_handle", OwnedAttr::Bool(false)));
                 }
             },
             with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),

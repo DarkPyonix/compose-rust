@@ -17,7 +17,7 @@
 //! row therefore composes that row again and leaves its neighbours alone.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::rc::Rc;
 
 mod store;
@@ -80,46 +80,53 @@ struct Section {
 /// What this sample is and the one control that only a sample has.
 #[Composable]
 fn about_panel(total: usize, fill: Rc<dyn Fn()>, close: Rc<dyn Fn()>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("About this sample")
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "About this sample",
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
                     let close = Rc::clone(&close);
-                    Button("Close")
-                        .variant(ButtonVariant::Filled)
-                        .on_click(move || close());
-                });
-            Separator(None);
-            Text(
+                    Button!("Close", move || close(), variant = ButtonVariant::Filled);
+                }
+            );
+            Separator!(None);
+            Text!(
                 "The list windows its rows: the widgets that exist are the ones on \
                  screen, not the ones in the list. A dozen tasks never exercises \
                  that, so this fills the list with enough rows that the window is a \
                  small fraction of it.",
-            )
-            .type_role(TypeRole::Body)
-            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text(format!("{total} tasks now"))
-                        .type_role(TypeRole::Label)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .modifier(Modifier.weight(1.0));
+                type_role = TypeRole::Body,
+                color = Paint::Role(ColorRole::OnSurfaceVariant)
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        format!("{total} tasks now"),
+                        type_role = TypeRole::Label,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant),
+                        modifier = Modifier.weight(1.0)
+                    );
                     let fill = Rc::clone(&fill);
-                    Button(format!("Add {BULK_COUNT} tasks"))
-                        .variant(ButtonVariant::Tonal)
-                        .on_click(move || fill());
-                });
-        });
+                    Button!(
+                        format!("Add {BULK_COUNT} tasks"),
+                        move || fill(),
+                        variant = ButtonVariant::Tonal
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// One run of cards on the list: the heading over it, when the view holds more than one
@@ -130,23 +137,28 @@ type Run = (Option<&'static str>, Rc<Vec<usize>>, Rc<Vec<String>>);
 /// whose field grows with the window.
 #[Composable]
 fn composer(add: Rc<dyn Fn(String)>, draft: MutableState<String>) {
-    Surface().modifier(Modifier.fill_max_width()).content(|| {
-        Row()
-            .modifier(Modifier.fill_max_width())
-            .space_role(SpaceRole::Sm)
-            .alignment(Alignment::CenterStart)
-            .content(|| {
+    Surface!(modifier = Modifier.fill_max_width(), {
+        Row!(
+            modifier = Modifier.fill_max_width(),
+            space_role = SpaceRole::Sm,
+            alignment = Alignment::CenterStart,
+            {
                 let (typed, submit) = (draft, Rc::clone(&add));
-                TextField()
-                    .modifier(Modifier.weight(1.0))
-                    .placeholder("Add a task, then press Enter")
-                    .on_value_change(move |value| typed.set(value))
-                    .on_submit(move |value: String| submit(value));
+                TextField!(
+                    "",
+                    move |value| typed.set(value),
+                    modifier = Modifier.weight(1.0),
+                    placeholder = "Add a task, then press Enter",
+                    on_submit = Some(move |value: String| submit(value))
+                );
                 let (pressed, current) = (Rc::clone(&add), draft);
-                Button("Add")
-                    .variant(ButtonVariant::Filled)
-                    .on_click(move || pressed(current.get_untracked()));
-            });
+                Button!(
+                    "Add",
+                    move || pressed(current.get_untracked()),
+                    variant = ButtonVariant::Filled
+                );
+            }
+        );
     });
 }
 
@@ -160,49 +172,61 @@ fn add_task_panel(
     note_draft: MutableState<String>,
     close: Rc<dyn Fn()>,
 ) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Add Task").type_role(TypeRole::Headline);
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        {
+            Text!("Add Task", type_role = TypeRole::Headline);
             // A task added on a list's page goes into that list, and the sheet says so.
             if let Some(list_name) = list_name.clone() {
-                Text(format!("In {list_name}"))
-                    .type_role(TypeRole::Label)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                Text!(
+                    format!("In {list_name}"),
+                    type_role = TypeRole::Label,
+                    color = Paint::Role(ColorRole::OnSurfaceVariant)
+                );
             }
-            Separator(None);
+            Separator!(None);
             let (typed, submit) = (draft, Rc::clone(&compose));
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .placeholder("What is there to do?")
-                .on_value_change(move |value| typed.set(value))
-                .on_submit(move |value: String| submit(value));
+            TextField!(
+                "",
+                move |value| typed.set(value),
+                modifier = Modifier.fill_max_width(),
+                placeholder = "What is there to do?",
+                on_submit = Some(move |value: String| submit(value))
+            );
             let noted = note_draft;
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .multiline(true)
-                .placeholder("Note")
-                .on_value_change(move |value| noted.set(value));
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .arrangement(Arrangement::SpaceBetween)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
+            TextField!(
+                "",
+                move |value| noted.set(value),
+                modifier = Modifier.fill_max_width(),
+                multiline = true,
+                placeholder = "Note"
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                arrangement = Arrangement::SpaceBetween,
+                alignment = Alignment::CenterStart,
+                {
                     let close = Rc::clone(&close);
-                    Button("")
-                        .icon(IconRole::Close)
-                        .variant(ButtonVariant::Tonal)
-                        .accessible_name("Close")
-                        .on_click(move || close());
+                    Button!(
+                        "",
+                        move || close(),
+                        icon = IconRole::Close,
+                        variant = ButtonVariant::Tonal,
+                        accessible_name = "Close"
+                    );
                     let (pressed, current) = (Rc::clone(&compose), draft);
-                    Button("")
-                        .icon(IconRole::Add)
-                        .variant(ButtonVariant::Tonal)
-                        .accessible_name(ADD_TASK)
-                        .on_click(move || pressed(current.get_untracked()));
-                });
-        });
+                    Button!(
+                        "",
+                        move || pressed(current.get_untracked()),
+                        icon = IconRole::Add,
+                        variant = ButtonVariant::Tonal,
+                        accessible_name = ADD_TASK
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The two buttons floating at the foot of a narrow window's page: back to the list of
@@ -213,49 +237,59 @@ fn floating_actions(
     compose_open: MutableState<bool>,
     can_add: bool,
 ) {
-    Row()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .arrangement(Arrangement::SpaceBetween)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
-            Button("")
-                .icon(IconRole::Back)
-                .variant(ButtonVariant::Tonal)
-                .accessible_name(SHOW_LISTS)
-                .on_click(move || lists_open.set(true));
-            Button("")
-                .icon(IconRole::Add)
-                .variant(ButtonVariant::Tonal)
-                .accessible_name(ADD_TASK)
-                .enabled(can_add)
-                .on_click(move || compose_open.set(true));
-        });
+    Row!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        arrangement = Arrangement::SpaceBetween,
+        alignment = Alignment::CenterStart,
+        {
+            Button!(
+                "",
+                move || lists_open.set(true),
+                icon = IconRole::Back,
+                variant = ButtonVariant::Tonal,
+                accessible_name = SHOW_LISTS
+            );
+            Button!(
+                "",
+                move || compose_open.set(true),
+                icon = IconRole::Add,
+                variant = ButtonVariant::Tonal,
+                accessible_name = ADD_TASK,
+                enabled = can_add
+            );
+        }
+    );
 }
 
 /// One destination on the list of lists: its name, which picks it, and how many tasks it
 /// holds.
 #[Composable]
 fn destination_row(label: String, icon: IconRole, count: usize, current: bool, pick: Rc<dyn Fn()>) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
-            Button(label)
-                .icon(icon)
-                .variant(ButtonVariant::Text)
-                .text_align(TextAlign::Start)
-                .color(Paint::Role(if current {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::CenterStart,
+        {
+            Button!(
+                label,
+                move || pick(),
+                icon = icon,
+                variant = ButtonVariant::Text,
+                text_align = TextAlign::Start,
+                color = Paint::Role(if current {
                     ColorRole::Primary
                 } else {
                     ColorRole::OnSurface
-                }))
-                .modifier(Modifier.weight(1.0))
-                .on_click(move || pick());
-            Text(count.to_string())
-                .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
-        });
+                }),
+                modifier = Modifier.weight(1.0)
+            );
+            Text!(
+                count.to_string(),
+                type_role = TypeRole::Label,
+                color = Paint::Role(ColorRole::OnSurfaceVariant)
+            );
+        }
+    );
 }
 
 /// The list of lists a narrow window shows in place of the page: search, every
@@ -270,63 +304,66 @@ fn lists_screen(
     open_search: Rc<dyn Fn()>,
     new_list: Rc<dyn Fn()>,
 ) {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Sm)
-        .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Sm,
+        {
             let search = Rc::clone(&open_search);
-            Button(SEARCH_LABEL)
-                .icon(IconRole::Search)
-                .variant(ButtonVariant::Tonal)
-                .text_align(TextAlign::Start)
-                .modifier(Modifier.fill_max_width())
-                .on_click(move || search());
-            ScrollColumn()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .content(|| {
-                    for choice in Filter::STRIP {
-                        key(choice.label(), || {
+            Button!(
+                SEARCH_LABEL,
+                move || search(),
+                icon = IconRole::Search,
+                variant = ButtonVariant::Tonal,
+                text_align = TextAlign::Start,
+                modifier = Modifier.fill_max_width()
+            );
+            ScrollColumn!(modifier = Modifier.fill_max_width().weight(1.0), {
+                for choice in Filter::STRIP {
+                    key(choice.label(), || {
+                        let pick = Rc::clone(&pick);
+                        destination_row(
+                            choice.label().to_owned(),
+                            choice.icon(),
+                            filter_counts[choice.index()],
+                            current == View::Filter(choice),
+                            Rc::new(move || pick(View::Filter(choice))),
+                        );
+                    });
+                }
+                if !lists.is_empty() {
+                    Separator!(None);
+                    Text!(
+                        LISTS_LABEL,
+                        type_role = TypeRole::Label,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                    for (list, count) in lists.iter().cloned() {
+                        key(format!("list {}", list.id), || {
                             let pick = Rc::clone(&pick);
+                            let id = list.id;
                             destination_row(
-                                choice.label().to_owned(),
-                                choice.icon(),
-                                filter_counts[choice.index()],
-                                current == View::Filter(choice),
-                                Rc::new(move || pick(View::Filter(choice))),
+                                list.name,
+                                IconRole::List,
+                                count,
+                                current == View::List(id),
+                                Rc::new(move || pick(View::List(id))),
                             );
                         });
                     }
-                    if !lists.is_empty() {
-                        Separator(None);
-                        Text(LISTS_LABEL)
-                            .type_role(TypeRole::Label)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                        for (list, count) in lists.iter().cloned() {
-                            key(format!("list {}", list.id), || {
-                                let pick = Rc::clone(&pick);
-                                let id = list.id;
-                                destination_row(
-                                    list.name,
-                                    IconRole::List,
-                                    count,
-                                    current == View::List(id),
-                                    Rc::new(move || pick(View::List(id))),
-                                );
-                            });
-                        }
-                    }
-                });
+                }
+            });
             let new_list = Rc::clone(&new_list);
-            Button(NEW_LIST_LABEL)
-                .icon(IconRole::Add)
-                .variant(ButtonVariant::Text)
-                .on_click(move || new_list());
-        });
+            Button!(
+                NEW_LIST_LABEL,
+                move || new_list(),
+                icon = IconRole::Add,
+                variant = ButtonVariant::Text
+            );
+        }
+    );
 }
 
 /// The bar's row: the title and its action, held to the screen's measure on a wide
@@ -340,27 +377,27 @@ fn lists_screen(
 /// The step is the design system's, the same one the list below is inset by.
 #[Composable]
 fn bar_row(measure: Option<f32>, content: impl FnOnce()) {
-    Row()
-        .modifier(
-            Modifier
-                .width_if(measure)
-                .fill_max_width_if(measure.is_none()),
-        )
-        .space_role(if measure.is_some() {
+    Row!(
+        modifier = Modifier
+            .width_if(measure)
+            .fill_max_width_if(measure.is_none()),
+        space_role = if measure.is_some() {
             SpaceRole::Md
         } else {
             SpaceRole::None
-        })
-        .alignment(Alignment::CenterStart)
-        .content(|| {
-            Spacer();
-            Row()
-                .modifier(Modifier.weight(1.0))
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(content);
-            Spacer();
-        });
+        },
+        alignment = Alignment::CenterStart,
+        {
+            Spacer!();
+            Row!(
+                modifier = Modifier.weight(1.0),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                content = content
+            );
+            Spacer!();
+        }
+    );
 }
 
 /// The task list.
@@ -625,33 +662,41 @@ pub fn app() {
 
     let list = || {
         if still_loading {
-            Box()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text(LOADING_LABEL)
-                        .type_role(TypeRole::Body)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                });
+            Box!(
+                modifier = Modifier.fill_max_width().weight(1.0),
+                alignment = Alignment::Center,
+                {
+                    Text!(
+                        LOADING_LABEL,
+                        type_role = TypeRole::Body,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                }
+            );
         } else if visible.is_empty() {
             // An empty list explains itself rather than leaving a blank half window.
-            Box()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text(if !needle.is_empty() {
-                        "No task matches the search."
-                    } else {
-                        match current_view {
-                            View::Filter(Filter::All) => "No tasks yet. Add one above.",
-                            View::Filter(Filter::Active) => "Nothing left to do under this filter.",
-                            View::Filter(Filter::Done) => "Nothing has been completed yet.",
-                            View::List(_) => "This list is empty. Add a task to it.",
-                        }
-                    })
-                    .type_role(TypeRole::Body)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                });
+            Box!(
+                modifier = Modifier.fill_max_width().weight(1.0),
+                alignment = Alignment::Center,
+                {
+                    Text!(
+                        if !needle.is_empty() {
+                            "No task matches the search."
+                        } else {
+                            match current_view {
+                                View::Filter(Filter::All) => "No tasks yet. Add one above.",
+                                View::Filter(Filter::Active) => {
+                                    "Nothing left to do under this filter."
+                                }
+                                View::Filter(Filter::Done) => "Nothing has been completed yet.",
+                                View::List(_) => "This list is empty. Add a task to it.",
+                            }
+                        },
+                        type_role = TypeRole::Body,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                }
+            );
         } else {
             // A card for each task, as the reference draws them, under a heading for each
             // kind when the view holds both.
@@ -669,9 +714,9 @@ pub fn app() {
             let (editing, edit_draft, menu_open) = (editing, edit_draft, menu_open);
             let (commit_edit, swap_tasks) = (Rc::clone(&commit_edit), Rc::clone(&swap_tasks));
             let names = Rc::clone(&names);
-            LazyColumn()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .content(move |list| {
+            LazyColumn!(
+                modifier = Modifier.fill_max_width().weight(1.0),
+                content = move |list| {
                     for (title, rows, keys) in runs {
                         if let Some(title) = title {
                             list.items_keyed(
@@ -704,7 +749,8 @@ pub fn app() {
                             },
                         );
                     }
-                });
+                }
+            );
         }
     };
 
@@ -737,65 +783,75 @@ pub fn app() {
         }
     };
 
-    Scaffold()
+    Scaffold!(
         // The destinations are one set; the Renderer decides whether they are a rail or a
         // drawer.
-        .bottom_bar(|| {
+        bottom_bar = Some(|| {
             // The reference has no bar in a narrow window: the list of lists is a screen of
             // its own, reached from a button floating over the page.
-            Navigation(selected)
-                .compact(CompactNavigation::None)
-                .foot(|| {
+            Navigation!(
+                selected,
+                compact = CompactNavigation::None,
+                foot = Some(|| {
                     let new_list = Rc::clone(&open_new_list);
-                    Button(NEW_LIST_LABEL)
-                        .icon(IconRole::Add)
-                        .variant(ButtonVariant::Text)
-                        .on_click(move || new_list());
-                })
-                .content(|| {
+                    Button!(
+                        NEW_LIST_LABEL,
+                        move || new_list(),
+                        icon = IconRole::Add,
+                        variant = ButtonVariant::Text
+                    );
+                }),
+                {
                     let search = Rc::clone(&open_search);
-                    NavigationItem(SEARCH_LABEL)
-                        .icon(IconRole::Search)
-                        .on_click(move || search());
+                    NavigationItem!(SEARCH_LABEL, move || search(), icon = IconRole::Search);
                     for choice in Filter::STRIP {
                         let pick = Rc::clone(&pick);
                         key(choice.label(), || {
-                            NavigationItem(choice.label())
-                                .icon(choice.icon())
-                                .on_click(move || pick(View::Filter(choice)));
+                            NavigationItem!(
+                                choice.label(),
+                                move || pick(View::Filter(choice)),
+                                icon = choice.icon()
+                            );
                         });
                     }
                     for list in all_lists.iter() {
                         let pick = Rc::clone(&pick);
                         let id = list.id;
                         key(format!("list {id}"), || {
-                            NavigationItem(list.name.clone())
-                                .icon(IconRole::List)
-                                .section(LISTS_LABEL)
-                                .on_click(move || pick(View::List(id)));
+                            NavigationItem!(
+                                list.name.clone(),
+                                move || pick(View::List(id)),
+                                icon = IconRole::List,
+                                section = AsRef::<str>::as_ref(&(LISTS_LABEL))
+                            );
                         });
                     }
-                });
-        })
-        .top_bar(|| {
-            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
-                Box()
-                    .modifier(Modifier.weight(1.0))
-                    .alignment(Alignment::Center)
-                    .content(|| {
+                }
+            );
+        }),
+        top_bar = Some(|| {
+            TopAppBar!(modifier = Modifier.fill_max_width(), {
+                Box!(
+                    modifier = Modifier.weight(1.0),
+                    alignment = Alignment::Center,
+                    {
                         bar_row(measure, || {
                             // Two lines, as the reference heads every list: what is on
                             // screen, and a second line nearly as large.
-                            Column().modifier(Modifier.weight(1.0)).content(|| {
-                                Text(title.clone())
-                                    .type_role(TypeRole::Headline)
-                                    .max_lines(1)
-                                    .overflow(TextOverflow::Ellipsis);
+                            Column!(modifier = Modifier.weight(1.0), {
+                                Text!(
+                                    title.clone(),
+                                    type_role = TypeRole::Headline,
+                                    max_lines = 1,
+                                    overflow = TextOverflow::Ellipsis
+                                );
                                 if let Some(second_line) = second_line.clone() {
-                                    Text(second_line)
-                                        .type_role(TypeRole::Title)
-                                        .max_lines(1)
-                                        .overflow(TextOverflow::Ellipsis);
+                                    Text!(
+                                        second_line,
+                                        type_role = TypeRole::Title,
+                                        max_lines = 1,
+                                        overflow = TextOverflow::Ellipsis
+                                    );
                                 }
                             });
                             bar_menu(
@@ -807,129 +863,137 @@ pub fn app() {
                                 about_open,
                             );
                         });
-                    });
+                    }
+                );
             });
-        })
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_width().fill_max_height())
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.fill_max_width().fill_max_height())
-                        .alignment(Alignment::BottomCenter)
-                        .content(|| {
-                            if on_lists_screen {
-                                lists_screen(
-                                    current_view,
-                                    filter_counts,
-                                    list_counts.clone(),
-                                    Rc::clone(&pick),
-                                    Rc::clone(&open_search),
-                                    Rc::clone(&open_new_list),
-                                );
-                            } else {
-                                Column()
-                                    .modifier(
-                                        Modifier
-                                            .fill_max_width_if(measure.is_none())
-                                            .width_if(measure)
-                                            .fill_max_height()
-                                            .padding_role(SpaceRole::Md),
-                                    )
-                                    .space_role(SpaceRole::Md)
-                                    .content(|| {
-                                        if !stacked {
-                                            composer(Rc::clone(&compose), draft);
-                                        }
-                                        list();
-                                    });
-                                // Over the page's foot, where a thumb reaches, the way back
-                                // to the list of lists and the way to a new task.
-                                if stacked {
-                                    floating_actions(lists_open, compose_open, !still_loading);
-                                }
-                            }
-                        });
-
-                    // Composing, arriving from an edge, where there is no room for it at
-                    // the head of the list.
-                    let close = compose_open;
-                    Sheet(compose_open.get() && stacked)
-                        .on_dismiss(move || close.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
-                            if stacked {
-                                let close: Rc<dyn Fn()> = Rc::new(move || compose_open.set(false));
-                                let destination = match current_view {
-                                    View::List(id) => list_name(id),
-                                    View::Filter(_) => None,
-                                };
-                                add_task_panel(
-                                    destination,
-                                    Rc::clone(&compose),
-                                    draft,
-                                    note_draft,
-                                    close,
-                                );
-                            }
-                        });
-
-                    // Search narrows the page it was opened over to what matches.
-                    let close = search_open;
-                    Sheet(search_open.get())
-                        .on_dismiss(move || close.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
-                            if search_open.get() {
-                                search_panel(query, search_open);
-                            }
-                        });
-
-                    let close = new_list_open;
-                    Sheet(new_list_open.get())
-                        .on_dismiss(move || close.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
-                            if new_list_open.get() {
-                                new_list_panel(Rc::clone(&create_list), list_draft, new_list_open);
-                            }
-                        });
-
-                    // What this sample is, and the one control that belongs to the sample.
-                    let dismiss = about_open;
-                    Sheet(about_open.get())
-                        .on_dismiss(move || dismiss.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
-                            let fill: Rc<dyn Fn()> = {
-                                let (next_id, about_open) = (next_id, about_open);
-                                Rc::new(move || {
-                                    if loading.get_untracked() {
-                                        return;
+        }),
+        {
+            Column!(modifier = Modifier.fill_max_width().fill_max_height(), {
+                Box!(
+                    modifier = Modifier.fill_max_width().fill_max_height(),
+                    alignment = Alignment::BottomCenter,
+                    {
+                        if on_lists_screen {
+                            lists_screen(
+                                current_view,
+                                filter_counts,
+                                list_counts.clone(),
+                                Rc::clone(&pick),
+                                Rc::clone(&open_search),
+                                Rc::clone(&open_new_list),
+                            );
+                        } else {
+                            Column!(
+                                modifier = Modifier
+                                    .fill_max_width_if(measure.is_none())
+                                    .width_if(measure)
+                                    .fill_max_height()
+                                    .padding_role(SpaceRole::Md),
+                                space_role = SpaceRole::Md,
+                                {
+                                    if !stacked {
+                                        composer(Rc::clone(&compose), draft);
                                     }
-                                    let start = next_id.get_untracked();
-                                    tasks.update(|list| {
-                                        list.reserve(BULK_COUNT);
-                                        for offset in 0..BULK_COUNT as u64 {
-                                            let id = start + offset;
-                                            list.push(Task {
-                                                id,
-                                                title: format!("Generated task {id}"),
-                                                done: offset % 3 == 0,
-                                                ..Task::default()
-                                            });
-                                        }
-                                    });
-                                    next_id.set(start + BULK_COUNT as u64);
-                                    data.save();
-                                    about_open.set(false);
-                                })
+                                    list();
+                                }
+                            );
+                            // Over the page's foot, where a thumb reaches, the way back
+                            // to the list of lists and the way to a new task.
+                            if stacked {
+                                floating_actions(lists_open, compose_open, !still_loading);
+                            }
+                        }
+                    }
+                );
+
+                // Composing, arriving from an edge, where there is no room for it at
+                // the head of the list.
+                let close = compose_open;
+                Sheet!(
+                    compose_open.get() && stacked,
+                    move || close.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        if stacked {
+                            let close: Rc<dyn Fn()> = Rc::new(move || compose_open.set(false));
+                            let destination = match current_view {
+                                View::List(id) => list_name(id),
+                                View::Filter(_) => None,
                             };
-                            let close: Rc<dyn Fn()> = { Rc::new(move || about_open.set(false)) };
-                            about_panel(total_tasks(&data), fill, close);
-                        });
-                });
-        });
+                            add_task_panel(
+                                destination,
+                                Rc::clone(&compose),
+                                draft,
+                                note_draft,
+                                close,
+                            );
+                        }
+                    }
+                );
+
+                // Search narrows the page it was opened over to what matches.
+                let close = search_open;
+                Sheet!(
+                    search_open.get(),
+                    move || close.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        if search_open.get() {
+                            search_panel(query, search_open);
+                        }
+                    }
+                );
+
+                let close = new_list_open;
+                Sheet!(
+                    new_list_open.get(),
+                    move || close.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        if new_list_open.get() {
+                            new_list_panel(Rc::clone(&create_list), list_draft, new_list_open);
+                        }
+                    }
+                );
+
+                // What this sample is, and the one control that belongs to the sample.
+                let dismiss = about_open;
+                Sheet!(
+                    about_open.get(),
+                    move || dismiss.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        let fill: Rc<dyn Fn()> = {
+                            let (next_id, about_open) = (next_id, about_open);
+                            Rc::new(move || {
+                                if loading.get_untracked() {
+                                    return;
+                                }
+                                let start = next_id.get_untracked();
+                                tasks.update(|list| {
+                                    list.reserve(BULK_COUNT);
+                                    for offset in 0..BULK_COUNT as u64 {
+                                        let id = start + offset;
+                                        list.push(Task {
+                                            id,
+                                            title: format!("Generated task {id}"),
+                                            done: offset % 3 == 0,
+                                            ..Task::default()
+                                        });
+                                    }
+                                });
+                                next_id.set(start + BULK_COUNT as u64);
+                                data.save();
+                                about_open.set(false);
+                            })
+                        };
+                        let close: Rc<dyn Fn()> = { Rc::new(move || about_open.set(false)) };
+                        about_panel(total_tasks(&data), fill, close);
+                    }
+                );
+            });
+        }
+    );
 }
 
 /// How many tasks there are, in every list.
@@ -950,27 +1014,27 @@ fn bar_menu(
 ) {
     let expanded = open.get();
     let (dismiss, opener) = (open, open);
-    Menu(expanded)
-        .on_dismiss(move || dismiss.set(false))
-        .anchor(move || {
-            Button("")
-                .icon(IconRole::More)
-                .variant(ButtonVariant::Text)
-                .accessible_name("More")
-                .on_click(move || opener.set(true));
-        })
-        .content(|| {
+    Menu!(
+        expanded,
+        move || dismiss.set(false),
+        anchor = Some(move || {
+            Button!(
+                "",
+                move || opener.set(true),
+                icon = IconRole::More,
+                variant = ButtonVariant::Text,
+                accessible_name = "More"
+            );
+        }),
+        {
             if !expanded {
                 return;
             }
             // Clearing throws work away, so it says so and offers the way back.
             let close = open;
-            Button("Clear completed")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_width())
-                .color(Paint::Role(ColorRole::Error))
-                .enabled(completed_here > 0)
-                .on_click(move || {
+            Button!(
+                "Clear completed",
+                move || {
                     close.set(false);
                     let before = data.tasks.get_untracked();
                     data.tasks
@@ -984,16 +1048,19 @@ fn bar_menu(
                         })
                         .with_duration(MessageDuration::Long)
                         .show();
-                });
+                },
+                variant = ButtonVariant::Text,
+                modifier = Modifier.fill_max_width(),
+                color = Paint::Role(ColorRole::Error),
+                enabled = completed_here > 0
+            );
             if let View::List(id) = current {
                 // A list is a place to keep tasks, not the tasks themselves: deleting one
                 // keeps its tasks, under All.
                 let close = open;
-                Button("Delete list")
-                    .variant(ButtonVariant::Text)
-                    .modifier(Modifier.fill_max_width())
-                    .color(Paint::Role(ColorRole::Error))
-                    .on_click(move || {
+                Button!(
+                    "Delete list",
+                    move || {
                         close.set(false);
                         let name = data
                             .lists
@@ -1016,50 +1083,66 @@ fn bar_menu(
                         ))
                         .with_duration(MessageDuration::Long)
                         .show();
-                    });
+                    },
+                    variant = ButtonVariant::Text,
+                    modifier = Modifier.fill_max_width(),
+                    color = Paint::Role(ColorRole::Error)
+                );
             }
             let (close, about) = (open, about_open);
-            Button(ABOUT_LABEL)
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_width())
-                .on_click(move || {
+            Button!(
+                ABOUT_LABEL,
+                move || {
                     close.set(false);
                     about.set(true);
-                });
-        });
+                },
+                variant = ButtonVariant::Text,
+                modifier = Modifier.fill_max_width()
+            );
+        }
+    );
 }
 
 /// The search sheet: one field, and the page behind it narrows as it is typed into.
 #[Composable]
 fn search_panel(query: MutableState<String>, open: MutableState<bool>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("Search tasks")
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
-                    Button("Done")
-                        .variant(ButtonVariant::Filled)
-                        .on_click(move || open.set(false));
-                });
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "Search tasks",
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
+                    Button!(
+                        "Done",
+                        move || open.set(false),
+                        variant = ButtonVariant::Filled
+                    );
+                }
+            );
             let typed = query;
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .text(query.get_untracked())
-                .placeholder("Search tasks")
-                .on_value_change(move |value| typed.set(value));
+            TextField!(
+                query.get_untracked(),
+                move |value| typed.set(value),
+                modifier = Modifier.fill_max_width(),
+                placeholder = "Search tasks"
+            );
             if !query.get().is_empty() {
-                Button("Clear search")
-                    .modifier(Modifier.fill_max_width())
-                    .variant(ButtonVariant::Text)
-                    .on_click(move || query.set(String::new()));
+                Button!(
+                    "Clear search",
+                    move || query.set(String::new()),
+                    modifier = Modifier.fill_max_width(),
+                    variant = ButtonVariant::Text
+                );
             }
-        });
+        }
+    );
 }
 
 /// The sheet that names a new list.
@@ -1069,41 +1152,53 @@ fn new_list_panel(
     draft: MutableState<String>,
     open: MutableState<bool>,
 ) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("New list")
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
-                    Button("Cancel")
-                        .variant(ButtonVariant::Text)
-                        .on_click(move || open.set(false));
-                });
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "New list",
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
+                    Button!(
+                        "Cancel",
+                        move || open.set(false),
+                        variant = ButtonVariant::Text
+                    );
+                }
+            );
             let (typed, submit) = (draft, Rc::clone(&create));
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .placeholder("List name")
-                .on_value_change(move |value| typed.set(value))
-                .on_submit(move |value: String| submit(value));
+            TextField!(
+                "",
+                move |value| typed.set(value),
+                modifier = Modifier.fill_max_width(),
+                placeholder = "List name",
+                on_submit = Some(move |value: String| submit(value))
+            );
             let (pressed, current) = (Rc::clone(&create), draft);
-            Button("Create")
-                .variant(ButtonVariant::Filled)
-                .modifier(Modifier.fill_max_width())
-                .on_click(move || pressed(current.get_untracked()));
-        });
+            Button!(
+                "Create",
+                move || pressed(current.get_untracked()),
+                variant = ButtonVariant::Filled,
+                modifier = Modifier.fill_max_width()
+            );
+        }
+    );
 }
 
 /// The heading over the tasks of one kind.
 #[Composable]
 fn section_heading(title: &'static str) {
-    Text(title)
-        .type_role(TypeRole::Title)
-        .modifier(Modifier.padding_role(SpaceRole::Sm));
+    Text!(
+        title,
+        type_role = TypeRole::Title,
+        modifier = Modifier.padding_role(SpaceRole::Sm)
+    );
 }
 
 /// One task, as a card of its own, composed when the Renderer's window reaches it.
@@ -1132,18 +1227,18 @@ fn task_row(
         .find(|list| list.id == task.list)
         .map(|list| list.name.clone());
     // The gap between two cards.
-    Box()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Xs))
-        .content(|| {
-            Card().modifier(Modifier.fill_max_width()).content(|| {
-                Row()
-                    .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                    .space_role(SpaceRole::Sm)
-                    .alignment(Alignment::CenterStart)
-                    .content(|| {
+    Box!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Xs),
+        {
+            Card!(modifier = Modifier.fill_max_width(), {
+                Row!(
+                    modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                    space_role = SpaceRole::Sm,
+                    alignment = Alignment::CenterStart,
+                    {
                         let (toggle, saver) = (*tasks, *data);
                         let done = task.done;
-                        Checkbox(task.done).on_change(move |_| {
+                        Checkbox!(task.done, move |_| {
                             toggle.update(|tasks| tasks[index].done = !done);
                             saver.save();
                         });
@@ -1156,68 +1251,84 @@ fn task_row(
                                 Rc::clone(commit_edit),
                             );
                             let (lost_draft, saved_draft) = (*edit_draft, *edit_draft);
-                            TextField()
-                                .modifier(Modifier.weight(1.0))
-                                .text(task.title.clone())
-                                .on_value_change(move |value| typed.set(value))
-                                .on_submit(move |value: String| submit(value))
-                                .on_focus_lost(move || lost(lost_draft.get_untracked()));
-                            Button("Save")
-                                .variant(ButtonVariant::Filled)
-                                .on_click(move || saved(saved_draft.get_untracked()));
+                            TextField!(
+                                task.title.clone(),
+                                move |value| typed.set(value),
+                                modifier = Modifier.weight(1.0),
+                                on_submit = Some(move |value: String| submit(value)),
+                                on_focus_lost = Some(move || lost(lost_draft.get_untracked()))
+                            );
+                            Button!(
+                                "Save",
+                                move || saved(saved_draft.get_untracked()),
+                                variant = ButtonVariant::Filled
+                            );
                         } else {
-                            Column()
-                                .modifier(Modifier.weight(1.0))
-                                .space_role(SpaceRole::Xs)
-                                .content(|| {
-                                    Text(task.title.clone())
-                                        .type_role(TypeRole::Body)
-                                        .color(Paint::Role(if task.done {
+                            Column!(
+                                modifier = Modifier.weight(1.0),
+                                space_role = SpaceRole::Xs,
+                                {
+                                    Text!(
+                                        task.title.clone(),
+                                        type_role = TypeRole::Body,
+                                        color = Paint::Role(if task.done {
                                             ColorRole::OnSurfaceVariant
                                         } else {
                                             ColorRole::OnSurface
-                                        }))
-                                        .max_lines(1)
-                                        .overflow(TextOverflow::Ellipsis);
+                                        }),
+                                        max_lines = 1,
+                                        overflow = TextOverflow::Ellipsis
+                                    );
                                     if !task.note.is_empty() {
-                                        Text(task.note.clone())
-                                            .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                                            .max_lines(3)
-                                            .overflow(TextOverflow::Ellipsis);
+                                        Text!(
+                                            task.note.clone(),
+                                            type_role = TypeRole::Caption,
+                                            color = Paint::Role(ColorRole::OnSurfaceVariant),
+                                            max_lines = 3,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
                                     }
                                     if let Some(name) = list_name.clone() {
-                                        Text(name)
-                                            .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ColorRole::Primary))
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
+                                        Text!(
+                                            name,
+                                            type_role = TypeRole::Caption,
+                                            color = Paint::Role(ColorRole::Primary),
+                                            max_lines = 1,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
                                     }
-                                });
+                                }
+                            );
                             // What a card can have done to it lives behind one control. The
                             // entries exist only while the menu is open.
                             let (dismiss, opener) = (*menu_open, *menu_open);
                             let id = task.id;
-                            Menu(open)
-                                .on_dismiss(move || dismiss.set(None))
-                                .anchor(move || {
-                                    Button("\u{22ef}")
-                                        .variant(ButtonVariant::Text)
-                                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                                        .on_click(move || opener.set(Some(id)));
-                                })
-                                .content(|| {
+                            Menu!(
+                                open,
+                                move || dismiss.set(None),
+                                anchor = Some(move || {
+                                    Button!(
+                                        "\u{22ef}",
+                                        move || opener.set(Some(id)),
+                                        variant = ButtonVariant::Text,
+                                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                                    );
+                                }),
+                                {
                                     if open {
                                         menu_entries(
                                             &task, index, previous, next, data, editing,
                                             edit_draft, menu_open, swap_tasks,
                                         );
                                     }
-                                });
+                                }
+                            );
                         }
-                    });
+                    }
+                );
             });
-        });
+        }
+    );
 }
 
 /// The four things a card can have done to it.
@@ -1235,44 +1346,48 @@ fn menu_entries(
 ) {
     let id = task.id;
     let (close, draft, edit) = (*menu_open, *edit_draft, *editing);
-    Button("Edit")
-        .variant(ButtonVariant::Text)
-        .modifier(Modifier.fill_max_width())
-        .on_click(move || {
+    Button!(
+        "Edit",
+        move || {
             close.set(None);
             draft.set(String::new());
             edit.set(Some(id));
-        });
+        },
+        variant = ButtonVariant::Text,
+        modifier = Modifier.fill_max_width()
+    );
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button("Move up")
-        .variant(ButtonVariant::Text)
-        .modifier(Modifier.fill_max_width())
-        .enabled(previous.is_some())
-        .on_click(move || {
+    Button!(
+        "Move up",
+        move || {
             close.set(None);
             if let Some(above) = previous {
                 swap(index, above);
             }
-        });
+        },
+        variant = ButtonVariant::Text,
+        modifier = Modifier.fill_max_width(),
+        enabled = previous.is_some()
+    );
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button("Move down")
-        .variant(ButtonVariant::Text)
-        .modifier(Modifier.fill_max_width())
-        .enabled(next.is_some())
-        .on_click(move || {
+    Button!(
+        "Move down",
+        move || {
             close.set(None);
             if let Some(below) = next {
                 swap(index, below);
             }
-        });
+        },
+        variant = ButtonVariant::Text,
+        modifier = Modifier.fill_max_width(),
+        enabled = next.is_some()
+    );
     // Deleting throws work away without asking, so it says what it did and offers the
     // task back.
     let (close, data) = (*menu_open, *data);
-    Button("Delete")
-        .variant(ButtonVariant::Text)
-        .modifier(Modifier.fill_max_width())
-        .color(Paint::Role(ColorRole::Error))
-        .on_click(move || {
+    Button!(
+        "Delete",
+        move || {
             close.set(None);
             let mut removed = None;
             data.tasks.update(|list| removed = Some(list.remove(index)));
@@ -1287,7 +1402,11 @@ fn menu_entries(
                 })
                 .with_duration(MessageDuration::Long)
                 .show();
-        });
+        },
+        variant = ButtonVariant::Text,
+        modifier = Modifier.fill_max_width(),
+        color = Paint::Role(ColorRole::Error)
+    );
 }
 
 /// Runs the sample as a program of its own.
@@ -1892,6 +2011,7 @@ mod tests {
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
             });
             compose_rust::window::reset_window_size();
@@ -2161,6 +2281,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();

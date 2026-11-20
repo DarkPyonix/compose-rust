@@ -8,13 +8,13 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{ComposeHost, ZoomHandle, zoom};
 use support::Tree;
 
 #[Composable]
 fn App() {
-    Button("in twice").on_click(|| {
+    Button!("in twice", || {
         let handle = ZoomHandle::default();
         handle.zoom_in();
         handle.zoom_in();

@@ -16,7 +16,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDialogKind, FileDialogStatus, PropertyKind,
     Theme,
 };
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{FileDialog, FileDialogResult, FileDialogSender};
 use std::cell::RefCell;
 use std::sync::Mutex;
@@ -42,21 +42,21 @@ fn results() -> Vec<(&'static str, FileDialogResult)> {
 
 #[Composable]
 fn Askers() {
-    Button("choose").on_click(|| {
+    Button!("choose", || {
         FileDialog::open_files()
             .title("Choose")
             .filter("Images", &["png", "jpg"])
             .show(record("choose"));
     });
-    Button("cancel").on_click(|| {
+    Button!("cancel", || {
         FileDialog::save().name("a.txt").show(record("cancel"));
     });
-    Button("unavailable").on_click(|| {
+    Button!("unavailable", || {
         FileDialog::open_folder()
             .window(0)
             .show(record("unavailable"));
     });
-    Button("worker").on_click(|| {
+    Button!("worker", || {
         FileDialogSender::new().show(FileDialog::open_file(), |result| {
             WORKER_RESULTS.lock().unwrap().push(result);
         });

@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
@@ -18,21 +18,23 @@ const CUSTOM_COLOR: Paint = Paint::Literal(Color::rgb(0x123456));
 
 #[Composable]
 fn StyledField() {
-    Column().content(|| {
-        TextField()
-            .text("custom")
-            .font_size(15.0)
-            .font_weight(600)
-            .line_height(22.0)
-            .letter_spacing(0.5)
-            .color(CUSTOM_COLOR);
+    Column!({
+        TextField!(
+            "custom",
+            |_| {},
+            font_size = 15.0,
+            font_weight = 600,
+            line_height = 22.0,
+            letter_spacing = 0.5,
+            color = CUSTOM_COLOR
+        );
     });
 }
 
 #[Composable]
 fn PlainField() {
-    Column().content(|| {
-        TextField().text("plain");
+    Column!({
+        TextField!("plain", |_| {});
     });
 }
 
@@ -90,7 +92,7 @@ const CONTENT_PADDING: &str = "m36=PaddingEach { start: 12.0, top: 6.0, end: 12.
 #[test]
 fn fr75_button_content_padding_is_sent_as_the_four_sided_padding() {
     let tree = start(|| {
-        Button("Commit").content_padding(12.0, 6.0);
+        Button!("Commit", || {}, content_padding = (12.0, 6.0));
     });
     let dump = tree.dump();
     assert!(dump.contains("Button"), "missing Button: {dump}");
@@ -103,9 +105,12 @@ fn fr75_button_content_padding_is_sent_as_the_four_sided_padding() {
 #[test]
 fn fr75_button_content_padding_leaves_the_padding_around_it() {
     let tree = start(|| {
-        Button("Commit")
-            .content_padding(12.0, 6.0)
-            .modifier(Modifier.padding(8.0));
+        Button!(
+            "Commit",
+            || {},
+            content_padding = (12.0, 6.0),
+            modifier = Modifier.padding(8.0)
+        );
     });
     let dump = tree.dump();
     assert!(
@@ -121,7 +126,7 @@ fn fr75_button_content_padding_leaves_the_padding_around_it() {
 #[test]
 fn fr75_button_without_content_padding_sends_no_padding() {
     let tree = start(|| {
-        Button("Commit");
+        Button!("Commit", || {});
     });
     let dump = tree.dump();
     assert!(dump.contains("Button"), "missing Button: {dump}");

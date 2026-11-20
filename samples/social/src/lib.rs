@@ -14,7 +14,7 @@ mod palette;
 
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use courses::{Course, Palette, Shelf, Slot, course, meta_label, on, sessions_label};
 use std::rc::Rc;
 
@@ -149,42 +149,46 @@ fn wide_badge(family: Palette) -> Paint {
 /// own container in the design system's accent, which comes out as the theme's blue over
 /// a picture whose badges are dark circles.
 fn play_badge(id: u32, size: f32, fill: Paint, opened: MutableState<Option<u32>>) {
-    Button(PLAY)
-        .variant(ButtonVariant::Text)
-        .color(palette::ON_ART)
-        .modifier(
-            Modifier
-                .size(size, size)
-                .background(fill)
-                .shape_role(ShapeRole::Full),
-        )
-        .on_click(move || opened.set(Some(id)));
+    Button!(
+        PLAY,
+        move || opened.set(Some(id)),
+        variant = ButtonVariant::Text,
+        color = palette::ON_ART,
+        modifier = Modifier
+            .size(size, size)
+            .background(fill)
+            .shape_role(ShapeRole::Full)
+    );
 }
 
 /// A round button that goes back, on a fill of its own.
 fn back_button(fill: Paint, on_click: Rc<dyn Fn()>) {
-    Button(BACK)
-        .variant(ButtonVariant::Text)
-        .color(palette::ON_ART)
-        .modifier(
-            Modifier
-                .size(BADGE_LARGE, BADGE_LARGE)
-                .background(fill)
-                .shape_role(ShapeRole::Full),
-        )
-        .on_click(move || on_click());
+    Button!(
+        BACK,
+        move || on_click(),
+        variant = ButtonVariant::Text,
+        color = palette::ON_ART,
+        modifier = Modifier
+            .size(BADGE_LARGE, BADGE_LARGE)
+            .background(fill)
+            .shape_role(ShapeRole::Full)
+    );
 }
 
 /// The title and the meta written on a picture.
 fn caption_on_art(found: &'static Course) {
-    Text(found.title)
-        .type_role(TypeRole::Subtitle)
-        .color(palette::ON_ART)
-        .max_lines(2)
-        .overflow(TextOverflow::Ellipsis);
-    Text(meta_label(found).to_uppercase())
-        .type_role(TypeRole::Caption)
-        .color(palette::ON_ART_MUTED);
+    Text!(
+        found.title,
+        type_role = TypeRole::Subtitle,
+        color = palette::ON_ART,
+        max_lines = 2,
+        overflow = TextOverflow::Ellipsis
+    );
+    Text!(
+        meta_label(found).to_uppercase(),
+        type_role = TypeRole::Caption,
+        color = palette::ON_ART_MUTED
+    );
 }
 
 /// The picture across the top of the first page, edge to edge.
@@ -193,36 +197,36 @@ fn caption_on_art(found: &'static Course) {
 /// title, which is what the reference does with its course of the day.
 #[Composable]
 fn hero_card(found: &'static Course, opened: MutableState<Option<u32>>) {
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(HERO)
-                .corner_radii([0.0, 0.0, HERO_CORNER, HERO_CORNER])
-                .clip(true),
-        )
-        .alignment(Alignment::BottomStart)
-        .content(|| {
-            Image(scene(found)).modifier(Modifier.fill_max_size());
-            Box()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(HERO / 2.0)
-                        .background(scrim()),
-                )
-                .content(|| {});
-            Row()
-                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(HERO)
+            .corner_radii([0.0, 0.0, HERO_CORNER, HERO_CORNER])
+            .clip(true),
+        alignment = Alignment::BottomStart,
+        {
+            Image!(scene(found), modifier = Modifier.fill_max_size());
+            Box!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(HERO / 2.0)
+                    .background(scrim()),
+                {}
+            );
+            Row!(
+                modifier = Modifier.fill_max_width().padding_role(SpaceRole::Lg),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
                     play_badge(found.id, BADGE_LARGE, palette::BADGE, opened);
-                    Column()
-                        .modifier(Modifier.weight(1.0))
-                        .content(|| caption_on_art(found));
-                });
-        });
+                    Column!(
+                        modifier = Modifier.weight(1.0),
+                        content = || caption_on_art(found)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// A card given a whole row: the picture, and its caption written on it.
@@ -236,73 +240,78 @@ fn wide_card(found: &'static Course, night: bool, opened: MutableState<Option<u3
         story_card(found, WIDE, opened);
         return;
     }
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(WIDE)
-                .shape_role(ShapeRole::Large),
-        )
-        .alignment(Alignment::BottomStart)
-        .content(|| {
-            Image(scene(found)).modifier(Modifier.fill_max_size());
-            Box()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(WIDE / 2.0)
-                        .background(scrim()),
-                )
-                .content(|| {});
-            Row()
-                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Column()
-                        .modifier(Modifier.weight(1.0))
-                        .content(|| caption_on_art(found));
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(WIDE)
+            .shape_role(ShapeRole::Large),
+        alignment = Alignment::BottomStart,
+        {
+            Image!(scene(found), modifier = Modifier.fill_max_size());
+            Box!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(WIDE / 2.0)
+                    .background(scrim()),
+                {}
+            );
+            Row!(
+                modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
+                    Column!(
+                        modifier = Modifier.weight(1.0),
+                        content = || caption_on_art(found)
+                    );
                     play_badge(found.id, BADGE_LARGE, wide_badge(found.palette), opened);
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// A picture with its badge in the lower left, at some height.
 fn picture_with_badge(found: &'static Course, height: f32, opened: MutableState<Option<u32>>) {
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(height)
-                .shape_role(ShapeRole::Medium),
-        )
-        .alignment(Alignment::BottomStart)
-        .content(|| {
-            Image(scene(found)).modifier(Modifier.fill_max_size());
-            Box()
-                .modifier(Modifier.padding_role(SpaceRole::Sm))
-                .content(|| play_badge(found.id, BADGE, palette::BADGE, opened));
-        });
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(height)
+            .shape_role(ShapeRole::Medium),
+        alignment = Alignment::BottomStart,
+        {
+            Image!(scene(found), modifier = Modifier.fill_max_size());
+            Box!(
+                modifier = Modifier.padding_role(SpaceRole::Sm),
+                content = || play_badge(found.id, BADGE, palette::BADGE, opened)
+            );
+        }
+    );
 }
 
 /// A story on the night page: the picture, then the title in white and the length under
 /// it, which is the order the reference uses there.
 #[Composable]
 fn story_card(found: &'static Course, height: f32, opened: MutableState<Option<u32>>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Xs,
+        {
             picture_with_badge(found, height, opened);
-            Text(found.title)
-                .type_role(TypeRole::Body)
-                .color(palette::ON_ART)
-                .max_lines(2)
-                .overflow(TextOverflow::Ellipsis);
-            Text(meta_label(found).to_uppercase())
-                .type_role(TypeRole::Caption)
-                .color(palette::ON_ART_MUTED);
-        });
+            Text!(
+                found.title,
+                type_role = TypeRole::Body,
+                color = palette::ON_ART,
+                max_lines = 2,
+                overflow = TextOverflow::Ellipsis
+            );
+            Text!(
+                meta_label(found).to_uppercase(),
+                type_role = TypeRole::Caption,
+                color = palette::ON_ART_MUTED
+            );
+        }
+    );
 }
 
 /// A course on a cream page: the picture, then the meta above the title.
@@ -316,20 +325,25 @@ fn tile_card(found: &'static Course, night: bool, opened: MutableState<Option<u3
         story_card(found, PORTRAIT, opened);
         return;
     }
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Xs,
+        {
             picture_with_badge(found, TILE, opened);
-            Text(meta_label(found).to_uppercase())
-                .type_role(TypeRole::Caption)
-                .color(palette::META);
-            Text(found.title)
-                .type_role(TypeRole::Body)
-                .color(palette::INK)
-                .max_lines(2)
-                .overflow(TextOverflow::Ellipsis);
-        });
+            Text!(
+                meta_label(found).to_uppercase(),
+                type_role = TypeRole::Caption,
+                color = palette::META
+            );
+            Text!(
+                found.title,
+                type_role = TypeRole::Body,
+                color = palette::INK,
+                max_lines = 2,
+                overflow = TextOverflow::Ellipsis
+            );
+        }
+    );
 }
 
 /// A row of two small cards.
@@ -338,24 +352,26 @@ fn tile_card(found: &'static Course, night: bool, opened: MutableState<Option<u3
 /// count and the code says how many rather than the layout working it out from the width.
 #[Composable]
 fn tile_row(row: Vec<&'static Course>, night: bool, opened: MutableState<Option<u32>>) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .alignment(Alignment::TopStart)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        alignment = Alignment::TopStart,
+        {
             for found in row.iter().copied() {
                 key(found.id, || {
-                    Box()
-                        .modifier(Modifier.weight(1.0))
-                        .content(|| tile_card(found, night, opened));
+                    Box!(
+                        modifier = Modifier.weight(1.0),
+                        content = || tile_card(found, night, opened)
+                    );
                 });
             }
             // An odd shelf leaves a gap rather than letting the last card stretch to
             // twice the width of its neighbours, which reads as a different kind of card.
             if row.len() == 1 {
-                Spacer().modifier(Modifier.weight(1.0));
+                Spacer!(modifier = Modifier.weight(1.0));
             }
-        });
+        }
+    );
 }
 
 /// What a shelf is drawn as: its cards in order, tiles gathered two to a row.
@@ -399,11 +415,11 @@ fn page_header(
 ) {
     let night = destination.is_night();
     let ink = if night { palette::ON_ART } else { palette::INK };
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        alignment = Alignment::CenterStart,
+        {
             // The night page is one you arrive at from the others, and the reference
             // gives it a round way back beside its title.
             if night {
@@ -412,18 +428,22 @@ fn page_header(
                     Rc::new(move || pick.set(Destination::Today)),
                 );
             }
-            Column()
-                .modifier(Modifier.weight(1.0))
-                .space_role(SpaceRole::Xs)
-                .content(|| {
-                    Text(heading).type_role(TypeRole::Headline).color(ink);
+            Column!(
+                modifier = Modifier.weight(1.0),
+                space_role = SpaceRole::Xs,
+                {
+                    Text!(heading, type_role = TypeRole::Headline, color = ink);
                     if let Some(strapline) = strapline {
-                        Text(strapline)
-                            .type_role(TypeRole::Body)
-                            .color(palette::MUTED);
+                        Text!(
+                            strapline,
+                            type_role = TypeRole::Body,
+                            color = palette::MUTED
+                        );
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The page a destination shows, in the order the reference draws it.
@@ -444,16 +464,16 @@ fn shelf_page(
         }
         Destination::Sleep => Some(("Sleep stories", None)),
     };
-    Column().modifier(Modifier.fill_max_width()).content(|| {
+    Column!(modifier = Modifier.fill_max_width(), {
         for block in &blocks {
             if let Block::Hero(found) = block {
                 hero_card(found, opened);
             }
         }
-        Column()
-            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
-            .space_role(SpaceRole::Md)
-            .content(|| {
+        Column!(
+            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Lg),
+            space_role = SpaceRole::Md,
+            {
                 if let Some((heading, strapline)) = header {
                     page_header(destination, pick, heading, strapline);
                 }
@@ -461,15 +481,14 @@ fn shelf_page(
                     key(index, || match block {
                         Block::Hero(_) => {}
                         Block::Heading(text) => {
-                            Text(*text)
-                                .type_role(TypeRole::Subtitle)
-                                .color(palette::INK);
+                            Text!(*text, type_role = TypeRole::Subtitle, color = palette::INK);
                         }
                         Block::Tiles(row) => tile_row(row.clone(), night, opened),
                         Block::Wide(found) => wide_card(found, night, opened),
                     });
                 }
-            });
+            }
+        );
     });
 }
 
@@ -477,81 +496,83 @@ fn shelf_page(
 #[Composable]
 fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
     let (strong, quiet, ink) = found.palette.roles();
-    Column()
-        .modifier(Modifier.fill_max_size().background(quiet))
-        .content(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().height(HERO))
-                .alignment(Alignment::TopStart)
-                .content(|| {
-                    Image(scene(found)).modifier(Modifier.fill_max_size());
-                    // A round dark button on the picture, like every other control the
-                    // reference stands on an illustration.
-                    Box()
-                        .modifier(Modifier.padding_role(SpaceRole::Md))
-                        .content(|| {
-                            back_button(palette::BADGE, Rc::new(move || opened.set(None)));
-                        });
+    Column!(modifier = Modifier.fill_max_size().background(quiet), {
+        Box!(
+            modifier = Modifier.fill_max_width().height(HERO),
+            alignment = Alignment::TopStart,
+            {
+                Image!(scene(found), modifier = Modifier.fill_max_size());
+                // A round dark button on the picture, like every other control the
+                // reference stands on an illustration.
+                Box!(modifier = Modifier.padding_role(SpaceRole::Md), {
+                    back_button(palette::BADGE, Rc::new(move || opened.set(None)));
                 });
+            }
+        );
 
-            Column()
-                .modifier(
-                    Modifier
+        Column!(
+            modifier = Modifier
+                .fill_max_width()
+                .weight(1.0)
+                .padding_role(SpaceRole::Lg),
+            space_role = SpaceRole::Md,
+            {
+                Text!(found.title, type_role = TypeRole::Headline, color = ink);
+                Text!(
+                    sessions_label(found),
+                    type_role = TypeRole::Body,
+                    color = palette::MUTED
+                );
+                Column!(
+                    modifier = Modifier.fill_max_width(),
+                    space_role = SpaceRole::Sm,
+                    {
+                        for number in 1..=found.sessions {
+                            key(number, || {
+                                Row!(
+                                    modifier = Modifier
+                                        .fill_max_width()
+                                        .background(palette::CARD)
+                                        .shape_role(ShapeRole::Medium)
+                                        .padding_role(SpaceRole::Md),
+                                    space_role = SpaceRole::Sm,
+                                    alignment = Alignment::CenterStart,
+                                    {
+                                        Text!(
+                                            format!("Session {number}"),
+                                            type_role = TypeRole::Body,
+                                            color = ink,
+                                            modifier = Modifier.weight(1.0)
+                                        );
+                                        Text!(
+                                            format!("{} min", found.minutes),
+                                            type_role = TypeRole::Caption,
+                                            color = palette::MUTED
+                                        );
+                                    }
+                                );
+                            });
+                        }
+                    }
+                );
+                Spacer!(modifier = Modifier.weight(1.0));
+                // A text button on a literal fill, for the same reason the badges are:
+                // a filled button would be the theme's blue.
+                Button!(
+                    "Begin",
+                    || {
+                        Message::new("Playback is not part of this sample").show();
+                    },
+                    variant = ButtonVariant::Text,
+                    color = palette::ON_ART,
+                    modifier = Modifier
                         .fill_max_width()
-                        .weight(1.0)
-                        .padding_role(SpaceRole::Lg),
-                )
-                .space_role(SpaceRole::Md)
-                .content(|| {
-                    Text(found.title).type_role(TypeRole::Headline).color(ink);
-                    Text(sessions_label(found))
-                        .type_role(TypeRole::Body)
-                        .color(palette::MUTED);
-                    Column()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .content(|| {
-                            for number in 1..=found.sessions {
-                                key(number, || {
-                                    Row()
-                                        .modifier(
-                                            Modifier
-                                                .fill_max_width()
-                                                .background(palette::CARD)
-                                                .shape_role(ShapeRole::Medium)
-                                                .padding_role(SpaceRole::Md),
-                                        )
-                                        .space_role(SpaceRole::Sm)
-                                        .alignment(Alignment::CenterStart)
-                                        .content(|| {
-                                            Text(format!("Session {number}"))
-                                                .type_role(TypeRole::Body)
-                                                .color(ink)
-                                                .modifier(Modifier.weight(1.0));
-                                            Text(format!("{} min", found.minutes))
-                                                .type_role(TypeRole::Caption)
-                                                .color(palette::MUTED);
-                                        });
-                                });
-                            }
-                        });
-                    Spacer().modifier(Modifier.weight(1.0));
-                    // A text button on a literal fill, for the same reason the badges are:
-                    // a filled button would be the theme's blue.
-                    Button("Begin")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::ON_ART)
-                        .modifier(
-                            Modifier
-                                .fill_max_width()
-                                .background(strong)
-                                .shape_role(ShapeRole::Full),
-                        )
-                        .on_click(|| {
-                            Message::new("Playback is not part of this sample").show();
-                        });
-                });
-        });
+                        .background(strong)
+                        .shape_role(ShapeRole::Full)
+                );
+            }
+        );
+    });
 }
 
 /// A destination along the bottom: its icon, and a press over it.
@@ -559,17 +580,23 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
 /// The button carries no text and sits over the icon, so the press lands on it whatever
 /// was drawn underneath.
 fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
-    Box()
-        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-        .alignment(Alignment::Center)
-        .content(|| {
-            Icon(compose_rust::asset::asset(AssetKind::VectorIcon, picture)).color(tint);
+    Box!(
+        modifier = Modifier.size(ICON_TAP, ICON_TAP),
+        alignment = Alignment::Center,
+        {
+            Icon!(
+                compose_rust::asset::asset(AssetKind::VectorIcon, picture),
+                color = tint
+            );
             let press = Rc::clone(&on_click);
-            Button("")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || press());
-        });
+            Button!(
+                "",
+                move || press(),
+                variant = ButtonVariant::Text,
+                modifier = Modifier.fill_max_size()
+            );
+        }
+    );
 }
 
 /// The bar along the bottom: three icons and nothing else.
@@ -587,11 +614,11 @@ fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
     } else {
         palette::MUTED
     };
-    Row()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-        .arrangement(Arrangement::SpaceAround)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+        arrangement = Arrangement::SpaceAround,
+        alignment = Alignment::Center,
+        {
             for choice in Destination::STRIP {
                 let tint = if choice == destination {
                     palette::ACCENT
@@ -599,13 +626,14 @@ fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
                     rest
                 };
                 key(choice.label(), || {
-                    Box().content(|| {
+                    Box!({
                         let go = Rc::clone(&on_go);
                         icon_button(choice.icon(), tint, Rc::new(move || go(choice)));
                     });
                 });
             }
-        });
+        }
+    );
 }
 
 /// The app.
@@ -626,19 +654,19 @@ pub fn app() {
     // around the measure is cream too, so a wide window does not show the toolkit's own
     // background either side of it.
     if let Some(found) = opened.get().and_then(course) {
-        Box()
-            .modifier(Modifier.fill_max_size().background(palette::PAGE))
-            .alignment(Alignment::TopCenter)
-            .content(|| {
-                Column()
-                    .modifier(
-                        Modifier
-                            .width_if(measure)
-                            .fill_max_width_if(measure.is_none())
-                            .fill_max_height(),
-                    )
-                    .content(|| course_page(found, opened));
-            });
+        Box!(
+            modifier = Modifier.fill_max_size().background(palette::PAGE),
+            alignment = Alignment::TopCenter,
+            {
+                Column!(
+                    modifier = Modifier
+                        .width_if(measure)
+                        .fill_max_width_if(measure.is_none())
+                        .fill_max_height(),
+                    content = || course_page(found, opened)
+                );
+            }
+        );
         return;
     }
 
@@ -647,44 +675,43 @@ pub fn app() {
 
     // The bar stays along the bottom at every width, under the same measure as the page,
     // because the reference is a phone and a phone's bar does not become a rail.
-    Scaffold()
-        .modifier(Modifier.background(ground))
-        .bottom_bar(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().background(ground))
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(|| {
+    Scaffold!(
+        modifier = Modifier.background(ground),
+        bottom_bar = Some(|| {
+            Box!(
+                modifier = Modifier.fill_max_width().background(ground),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none()),
+                        {
                             let go = destination;
                             bottom_bar(chosen, Rc::new(move |choice| go.set(choice)));
-                        });
-                });
-        })
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_size().background(ground))
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.fill_max_size())
-                        .alignment(Alignment::TopCenter)
-                        .content(|| {
-                            ScrollColumn()
-                                .modifier(
-                                    Modifier
-                                        .width_if(measure)
-                                        .fill_max_width_if(measure.is_none())
-                                        .fill_max_height(),
-                                )
-                                .content(|| shelf_page(chosen, destination, opened));
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }),
+        {
+            Column!(modifier = Modifier.fill_max_size().background(ground), {
+                Box!(
+                    modifier = Modifier.fill_max_size(),
+                    alignment = Alignment::TopCenter,
+                    {
+                        ScrollColumn!(
+                            modifier = Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none())
+                                .fill_max_height(),
+                            content = || shelf_page(chosen, destination, opened)
+                        );
+                    }
+                );
+            });
+        }
+    );
 }
 
 /// The design this sample draws, named once.

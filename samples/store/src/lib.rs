@@ -20,7 +20,7 @@ use catalogue::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::rc::Rc;
 
 /// How wide the page is once the window is wider than a phone. A phone design in a desktop
@@ -151,13 +151,14 @@ impl Destination {
 #[Composable]
 fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
     let press = Rc::clone(&on_click);
-    Box()
-        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-        .alignment(Alignment::Center)
-        .on_click(move || press())
-        .content(|| {
-            Icon(asset(AssetKind::VectorIcon, picture)).color(tint);
-        });
+    Box!(
+        modifier = Modifier.size(ICON_TAP, ICON_TAP),
+        alignment = Alignment::Center,
+        on_click = Some(move || press()),
+        {
+            Icon!(asset(AssetKind::VectorIcon, picture), color = tint);
+        }
+    );
 }
 
 /// The shop's mark: three slanted bars, which is what the reference puts in the corner.
@@ -184,12 +185,12 @@ fn logo_mark() -> DrawList {
 /// on the right.
 #[Composable]
 fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .alignment(Alignment::Center)
-        .content(|| {
-            Canvas(logo_mark()).modifier(Modifier.size(LOGO.0, LOGO.1));
-            Spacer().modifier(Modifier.weight(1.0));
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        alignment = Alignment::Center,
+        {
+            Canvas!(logo_mark(), modifier = Modifier.size(LOGO.0, LOGO.1));
+            Spacer!(modifier = Modifier.weight(1.0));
             let go = Rc::clone(&on_go);
             icon_button(
                 &icon::ORDERS,
@@ -198,7 +199,7 @@ fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
             );
             // The bag, with the mark that says something is in it. The mark is the one
             // red on this screen and it only appears when it means something.
-            Box().alignment(Alignment::TopEnd).content(|| {
+            Box!(alignment = Alignment::TopEnd, {
                 let go = Rc::clone(&on_go);
                 icon_button(
                     &icon::BAG,
@@ -206,15 +207,16 @@ fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
                     Rc::new(move || go(Destination::Bag)),
                 );
                 if waiting > 0 {
-                    Box().modifier(
-                        Modifier
+                    Box!(
+                        modifier = Modifier
                             .size(10.0, 10.0)
                             .background(palette::ALERT)
-                            .shape_role(ShapeRole::Full),
+                            .shape_role(ShapeRole::Full)
                     );
                 }
             });
-        });
+        }
+    );
 }
 
 /// A garment on its card: the flat grey picture area, and the press that opens it.
@@ -225,20 +227,21 @@ fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
 fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
     let id = product.id;
     let open = Rc::clone(&on_open);
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(height)
-                .background(palette::TILE)
-                .shape_role(ShapeRole::Large),
-        )
-        .alignment(Alignment::Center)
-        .on_click(move || open(id))
-        .content(|| {
-            Image(asset(AssetKind::Svg, product.picture))
-                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
-        });
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(height)
+            .background(palette::TILE)
+            .shape_role(ShapeRole::Large),
+        alignment = Alignment::Center,
+        on_click = Some(move || open(id)),
+        {
+            Image!(
+                asset(AssetKind::Svg, product.picture),
+                modifier = Modifier.fill_max_size().padding_role(SpaceRole::Md)
+            );
+        }
+    );
 }
 
 /// One cell of the two-up grid: the picture area, then the name, the support line and the
@@ -249,27 +252,34 @@ fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
 /// out as a height of zero. The width share belongs to the wrapper in the row above.
 #[Composable]
 fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Xs,
+        {
             tile(product, TILE_HEIGHT, Rc::clone(&on_open));
             // Name and price in the regular weight, as the reference writes them: the
             // picture is what the eye goes to, not the words under it.
-            Text(product.name)
-                .type_role(TypeRole::Body)
-                .color(palette::INK)
-                .max_lines(1)
-                .overflow(TextOverflow::Ellipsis);
-            Text(product.support)
-                .type_role(TypeRole::Caption)
-                .color(palette::MUTED)
-                .max_lines(1)
-                .overflow(TextOverflow::Ellipsis);
-            Text(price(product.cents))
-                .type_role(TypeRole::Body)
-                .color(palette::INK);
-        });
+            Text!(
+                product.name,
+                type_role = TypeRole::Body,
+                color = palette::INK,
+                max_lines = 1,
+                overflow = TextOverflow::Ellipsis
+            );
+            Text!(
+                product.support,
+                type_role = TypeRole::Caption,
+                color = palette::MUTED,
+                max_lines = 1,
+                overflow = TextOverflow::Ellipsis
+            );
+            Text!(
+                price(product.cents),
+                type_role = TypeRole::Body,
+                color = palette::INK
+            );
+        }
+    );
 }
 
 /// The carousel: one wide picture on the flat grey card, with the dots under it.
@@ -288,64 +298,69 @@ fn carousel(slide: MutableState<usize>) {
     let showing = slide.get() % FEATURED;
     let picture = catalogue::featured()[showing];
     let scene = picture == catalogue::HERO;
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(CAROUSEL_HEIGHT + CAROUSEL_RISE),
-        )
-        .alignment(Alignment::BottomCenter)
-        .content(|| {
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(CAROUSEL_HEIGHT + CAROUSEL_RISE),
+        alignment = Alignment::BottomCenter,
+        {
             let turn = slide;
-            Box()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(CAROUSEL_HEIGHT)
-                        .background(palette::TILE)
-                        .shape_role(ShapeRole::Large),
-                )
-                .alignment(Alignment::Center)
-                .on_click(move || turn.set((turn.get_untracked() + 1) % FEATURED))
-                .content(|| {
+            Box!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(CAROUSEL_HEIGHT)
+                    .background(palette::TILE)
+                    .shape_role(ShapeRole::Large),
+                alignment = Alignment::Center,
+                on_click = Some(move || turn.set((turn.get_untracked() + 1) % FEATURED)),
+                {
                     if !scene {
-                        Image(asset(AssetKind::Svg, picture))
-                            .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
+                        Image!(
+                            asset(AssetKind::Svg, picture),
+                            modifier = Modifier.fill_max_size().padding_role(SpaceRole::Md)
+                        );
                     }
-                });
+                }
+            );
             if scene {
-                Image(asset(AssetKind::Svg, picture)).modifier(Modifier.fill_max_size());
+                Image!(
+                    asset(AssetKind::Svg, picture),
+                    modifier = Modifier.fill_max_size()
+                );
             }
-        });
-    Row()
-        .modifier(Modifier.fill_max_width())
+        }
+    );
+    Row!(
+        modifier = Modifier.fill_max_width(),
         // Centred across the row, which needs the arrangement rather than the alignment:
         // alignment answers where a child sits across the row's other axis, so a row of
         // dots set to centre alignment is a row of vertically centred dots still starting
         // at the left edge.
-        .arrangement(Arrangement::Center)
-        .alignment(Alignment::Center)
-        .content(|| {
+        arrangement = Arrangement::Center,
+        alignment = Alignment::Center,
+        {
             for position in 0..FEATURED {
                 key(position, || {
-                    Box()
-                        .modifier(Modifier.size(DOT_SLOT, DOT_HEIGHT))
-                        .alignment(Alignment::Center)
-                        .content(|| {
+                    Box!(
+                        modifier = Modifier.size(DOT_SLOT, DOT_HEIGHT),
+                        alignment = Alignment::Center,
+                        {
                             let active = position == showing;
-                            Box().modifier(
-                                Modifier
+                            Box!(
+                                modifier = Modifier
                                     .size(
                                         if active { DOT_ACTIVE_WIDTH } else { DOT_WIDTH },
                                         DOT_HEIGHT,
                                     )
                                     .background(if active { palette::DARK } else { palette::DOT })
-                                    .shape_role(ShapeRole::Full),
+                                    .shape_role(ShapeRole::Full)
                             );
-                        });
+                        }
+                    );
                 });
             }
-        });
+        }
+    );
 }
 
 /// The catalogue: the header, the heading, the carousel, the category strip and a two-up
@@ -362,18 +377,20 @@ fn catalogue_screen(
     let rows: Vec<Vec<&'static Product>> = shelf.chunks(2).map(<[_]>::to_vec).collect();
     let in_bag: u32 = bag.with(|lines| lines.iter().map(|line| line.quantity).sum());
 
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             header(in_bag, Rc::clone(&on_go));
 
             // Broken where the reference breaks it, so the heading is two lines at every
             // width rather than one line on a phone wide enough to hold it.
-            Text("Let's find your\nsports outfit!")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK)
-                .modifier(Modifier.fill_max_width());
+            Text!(
+                "Let's find your\nsports outfit!",
+                type_role = TypeRole::Headline,
+                color = palette::INK,
+                modifier = Modifier.fill_max_width()
+            );
 
             carousel(slide);
 
@@ -385,9 +402,9 @@ fn catalogue_screen(
             // broke into a column of single letters. The reference's own strip runs past
             // the right edge with the last category half shown, which is this.
             let strip = category;
-            LazyRow()
-                .modifier(Modifier.fill_max_width().height(STRIP_HEIGHT))
-                .content(move |list| {
+            LazyRow!(
+                modifier = Modifier.fill_max_width().height(STRIP_HEIGHT),
+                content = move |list| {
                     list.items_keyed(
                         Category::STRIP.len(),
                         |position| Category::STRIP[position].label().to_owned(),
@@ -403,45 +420,43 @@ fn catalogue_screen(
                             // something to the bag. A label rather than a button, because a
                             // button's words take the design system's button type and
                             // padding, and the reference's are plain words with even gaps.
-                            Row().alignment(Alignment::Center).content(|| {
-                                Box()
-                                    .alignment(Alignment::Center)
-                                    .on_click(move || pick.set(choice))
-                                    .content(|| {
-                                        Text(choice.label())
-                                            .type_role(TypeRole::Subtitle)
-                                            .font_weight(if chosen {
-                                                CHOSEN_WEIGHT
-                                            } else {
-                                                PLAIN_WEIGHT
-                                            })
-                                            .color(if chosen {
-                                                palette::INK
-                                            } else {
-                                                palette::MUTED
-                                            })
-                                            .max_lines(1);
-                                    });
-                                Spacer().modifier(Modifier.width(STRIP_GAP));
+                            Row!(alignment = Alignment::Center, {
+                                Box!(
+                                    alignment = Alignment::Center,
+                                    on_click = Some(move || pick.set(choice)),
+                                    {
+                                        Text!(
+                                            choice.label(),
+                                            type_role = TypeRole::Subtitle,
+                                            font_weight =
+                                                if chosen { CHOSEN_WEIGHT } else { PLAIN_WEIGHT },
+                                            color =
+                                                if chosen { palette::INK } else { palette::MUTED },
+                                            max_lines = 1
+                                        );
+                                    }
+                                );
+                                Spacer!(modifier = Modifier.width(STRIP_GAP));
                             });
                         },
                     );
-                });
+                }
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Md)
-                .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Md,
+                {
                     for (index, row) in rows.iter().enumerate() {
                         key(index, || {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Md)
-                                .alignment(Alignment::TopStart)
-                                .content(|| {
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Md,
+                                alignment = Alignment::TopStart,
+                                {
                                     for product in row.iter().copied() {
                                         key(product.id, || {
-                                            Column().modifier(Modifier.weight(1.0)).content(|| {
+                                            Column!(modifier = Modifier.weight(1.0), {
                                                 grid_cell(product, Rc::clone(&on_open))
                                             });
                                         });
@@ -451,13 +466,16 @@ fn catalogue_screen(
                                     // width of its neighbours, which would read as a
                                     // different kind of product.
                                     if row.len() == 1 {
-                                        Spacer().modifier(Modifier.weight(1.0));
+                                        Spacer!(modifier = Modifier.weight(1.0));
                                     }
-                                });
+                                }
+                            );
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The shop's first screen: the mark, what the shop is, and the way in.
@@ -474,51 +492,56 @@ fn catalogue_screen(
 /// centred on it.
 #[Composable]
 fn onboarding_screen(on_start: Rc<dyn Fn()>) {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .background(palette::PAGE),
-        )
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                .space_role(SpaceRole::Xl)
-                .content(|| {
-                    Canvas(logo_mark()).modifier(Modifier.size(LOGO.0, LOGO.1));
-                    Text(WELCOME_TITLE)
-                        .type_role(TypeRole::Headline)
-                        .font_weight(PLAIN_WEIGHT)
-                        .color(palette::INK);
-                });
-            Box()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .alignment(Alignment::TopEnd)
-                .content(|| {
-                    Column().modifier(Modifier.fill_max_size()).content(|| {
-                        Spacer().modifier(Modifier.height(START_SIDE / 2.0));
-                        Image(asset(AssetKind::Svg, catalogue::WELCOME))
-                            .modifier(Modifier.fill_max_width().weight(1.0));
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .background(palette::PAGE),
+        {
+            Column!(
+                modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Xl,
+                {
+                    Canvas!(logo_mark(), modifier = Modifier.size(LOGO.0, LOGO.1));
+                    Text!(
+                        WELCOME_TITLE,
+                        type_role = TypeRole::Headline,
+                        font_weight = PLAIN_WEIGHT,
+                        color = palette::INK
+                    );
+                }
+            );
+            Box!(
+                modifier = Modifier.fill_max_width().weight(1.0),
+                alignment = Alignment::TopEnd,
+                {
+                    Column!(modifier = Modifier.fill_max_size(), {
+                        Spacer!(modifier = Modifier.height(START_SIDE / 2.0));
+                        Image!(
+                            asset(AssetKind::Svg, catalogue::WELCOME),
+                            modifier = Modifier.fill_max_width().weight(1.0)
+                        );
                     });
-                    Row().alignment(Alignment::Center).content(|| {
+                    Row!(alignment = Alignment::Center, {
                         let start = Rc::clone(&on_start);
-                        Button("")
-                            .icon(IconRole::Forward)
-                            .accessible_name("Start shopping")
-                            .variant(ButtonVariant::Text)
-                            .color(palette::PAGE)
-                            .modifier(
-                                Modifier
-                                    .size(START_SIDE, START_SIDE)
-                                    .background(palette::DARK)
-                                    .shape_role(ShapeRole::Full),
-                            )
-                            .on_click(move || start());
-                        Spacer().modifier(Modifier.width(START_INSET));
+                        Button!(
+                            "",
+                            move || start(),
+                            icon = IconRole::Forward,
+                            accessible_name = "Start shopping",
+                            variant = ButtonVariant::Text,
+                            color = palette::PAGE,
+                            modifier = Modifier
+                                .size(START_SIDE, START_SIDE)
+                                .background(palette::DARK)
+                                .shape_role(ShapeRole::Full)
+                        );
+                        Spacer!(modifier = Modifier.width(START_INSET));
                     });
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// What the first screen says the shop is, broken where the reference breaks it.
@@ -550,110 +573,123 @@ fn detail_screen(
     let (lit, unlit) = stars(product.rating);
     let rating = product.rating;
 
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .background(palette::PAGE),
-        )
-        .alignment(Alignment::TopStart)
-        .content(|| {
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .background(palette::PAGE),
+        alignment = Alignment::TopStart,
+        {
             // The garment, full size. The reference's product page is a photograph
             // running to the window's edges with the panel covering its lower part, and a
             // page that fills that with a flat colour is the one screen in the shop that
             // shows you nothing about what you are buying.
-            Box()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(HERO_HEIGHT)
-                        .background(palette::TILE),
-                )
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Image(asset(AssetKind::Svg, product.picture))
-                        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Xl));
-                });
+            Box!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(HERO_HEIGHT)
+                    .background(palette::TILE),
+                alignment = Alignment::Center,
+                {
+                    Image!(
+                        asset(AssetKind::Svg, product.picture),
+                        modifier = Modifier.fill_max_size().padding_role(SpaceRole::Xl)
+                    );
+                }
+            );
 
-            Column().modifier(Modifier.fill_max_size()).content(|| {
-                Spacer().modifier(Modifier.height(HERO_HEIGHT - PANEL_OVERLAP));
-                Column()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .weight(1.0)
-                            .background(palette::PAGE)
-                            .corner_radii([PANEL_CORNER, PANEL_CORNER, 0.0, 0.0])
-                            .padding_role(SpaceRole::Md),
-                    )
-                    .space_role(SpaceRole::Md)
-                    .content(|| {
-                        Box()
-                            .modifier(Modifier.fill_max_width())
-                            .alignment(Alignment::Center)
-                            .content(|| {
-                                Box().modifier(
-                                    Modifier
+            Column!(modifier = Modifier.fill_max_size(), {
+                Spacer!(modifier = Modifier.height(HERO_HEIGHT - PANEL_OVERLAP));
+                Column!(
+                    modifier = Modifier
+                        .fill_max_width()
+                        .weight(1.0)
+                        .background(palette::PAGE)
+                        .corner_radii([PANEL_CORNER, PANEL_CORNER, 0.0, 0.0])
+                        .padding_role(SpaceRole::Md),
+                    space_role = SpaceRole::Md,
+                    {
+                        Box!(
+                            modifier = Modifier.fill_max_width(),
+                            alignment = Alignment::Center,
+                            {
+                                Box!(
+                                    modifier = Modifier
                                         .size(GRABBER.0, GRABBER.1)
                                         .background(palette::DOT)
-                                        .shape_role(ShapeRole::Full),
+                                        .shape_role(ShapeRole::Full)
                                 );
-                            });
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Xs)
-                            .content(|| {
-                                Text(product.name)
-                                    .type_role(TypeRole::Headline)
-                                    .color(palette::INK);
-                                Text(product.support)
-                                    .type_role(TypeRole::Body)
-                                    .color(palette::MUTED);
-                                Row()
-                                    .space_role(SpaceRole::Sm)
-                                    .alignment(Alignment::CenterStart)
-                                    .content(|| {
+                            }
+                        );
+                        Column!(
+                            modifier = Modifier.fill_max_width(),
+                            space_role = SpaceRole::Xs,
+                            {
+                                Text!(
+                                    product.name,
+                                    type_role = TypeRole::Headline,
+                                    color = palette::INK
+                                );
+                                Text!(
+                                    product.support,
+                                    type_role = TypeRole::Body,
+                                    color = palette::MUTED
+                                );
+                                Row!(
+                                    space_role = SpaceRole::Sm,
+                                    alignment = Alignment::CenterStart,
+                                    {
                                         // Two runs of the same star in two inks,
                                         // so the one the rating does not reach is
                                         // grey rather than hollow.
-                                        Row().alignment(Alignment::CenterStart).content(|| {
+                                        Row!(alignment = Alignment::CenterStart, {
                                             if !lit.is_empty() {
-                                                Text(lit.as_str())
-                                                    .type_role(TypeRole::Caption)
-                                                    .color(palette::INK);
+                                                Text!(
+                                                    lit.as_str(),
+                                                    type_role = TypeRole::Caption,
+                                                    color = palette::INK
+                                                );
                                             }
                                             if !unlit.is_empty() {
-                                                Text(unlit.as_str())
-                                                    .type_role(TypeRole::Caption)
-                                                    .color(palette::FAINT);
+                                                Text!(
+                                                    unlit.as_str(),
+                                                    type_role = TypeRole::Caption,
+                                                    color = palette::FAINT
+                                                );
                                             }
                                         });
-                                        Text(format!("({})", catalogue::rating_text(rating)))
-                                            .type_role(TypeRole::Label)
-                                            .color(palette::MUTED);
-                                    });
-                            });
+                                        Text!(
+                                            format!("({})", catalogue::rating_text(rating)),
+                                            type_role = TypeRole::Label,
+                                            color = palette::MUTED
+                                        );
+                                    }
+                                );
+                            }
+                        );
 
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                Text("Select size")
-                                    .type_role(TypeRole::Label)
-                                    .color(palette::MUTED);
-                                Row().space_role(SpaceRole::Md).content(|| {
+                        Column!(
+                            modifier = Modifier.fill_max_width(),
+                            space_role = SpaceRole::Sm,
+                            {
+                                Text!(
+                                    "Select size",
+                                    type_role = TypeRole::Label,
+                                    color = palette::MUTED
+                                );
+                                Row!(space_role = SpaceRole::Md, {
                                     for option in SIZES {
                                         key(option, || size_chip(option, chosen, size));
                                     }
                                 });
-                            });
+                            }
+                        );
 
-                        Row()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Md)
-                            .alignment(Alignment::CenterStart)
-                            .content(|| {
+                        Row!(
+                            modifier = Modifier.fill_max_width(),
+                            space_role = SpaceRole::Md,
+                            alignment = Alignment::CenterStart,
+                            {
                                 let fewer = quantity;
                                 step_button(
                                     "\u{2212}",
@@ -662,49 +698,59 @@ fn detail_screen(
                                         fewer.set(fewer.get_untracked().saturating_sub(1).max(1))
                                     }),
                                 );
-                                Text(count.to_string())
-                                    .type_role(TypeRole::Subtitle)
-                                    .color(palette::INK);
+                                Text!(
+                                    count.to_string(),
+                                    type_role = TypeRole::Subtitle,
+                                    color = palette::INK
+                                );
                                 let more = quantity;
                                 step_button(
                                     "+",
                                     true,
                                     Rc::new(move || more.set((more.get_untracked() + 1).min(9))),
                                 );
-                                Spacer().modifier(Modifier.weight(1.0));
-                                Text(line_total.as_str())
-                                    .type_role(TypeRole::Headline)
-                                    .color(palette::INK);
-                            });
+                                Spacer!(modifier = Modifier.weight(1.0));
+                                Text!(
+                                    line_total.as_str(),
+                                    type_role = TypeRole::Headline,
+                                    color = palette::INK
+                                );
+                            }
+                        );
 
                         let add = Rc::clone(&on_add);
-                        Button("Add to Bag")
-                            .modifier(
-                                Modifier
-                                    .fill_max_width()
-                                    .height(PILL_HEIGHT)
-                                    .background(palette::DARK)
-                                    .shape_role(ShapeRole::Full),
-                            )
-                            .variant(ButtonVariant::Text)
-                            .color(palette::PAGE)
-                            .on_click(move || add());
-                    });
+                        Button!(
+                            "Add to Bag",
+                            move || add(),
+                            modifier = Modifier
+                                .fill_max_width()
+                                .height(PILL_HEIGHT)
+                                .background(palette::DARK)
+                                .shape_role(ShapeRole::Full),
+                            variant = ButtonVariant::Text,
+                            color = palette::PAGE
+                        );
+                    }
+                );
             });
 
-            Row()
-                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-                .alignment(Alignment::CenterStart)
-                .content(|| {
+            Row!(
+                modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+                alignment = Alignment::CenterStart,
+                {
                     let back = Rc::clone(&on_back);
-                    Button("")
-                        .icon(IconRole::Back)
-                        .variant(ButtonVariant::Text)
-                        .color(palette::INK)
-                        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-                        .on_click(move || back());
-                });
-        });
+                    Button!(
+                        "",
+                        move || back(),
+                        icon = IconRole::Back,
+                        variant = ButtonVariant::Text,
+                        color = palette::INK,
+                        modifier = Modifier.size(ICON_TAP, ICON_TAP)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// One size on a garment's page: a circle with the size written in it.
@@ -715,22 +761,21 @@ fn detail_screen(
 /// card the garment is drawn on.
 #[Composable]
 fn size_chip(option: &'static str, chosen: &'static str, size: MutableState<&'static str>) {
-    Box()
-        .modifier(
-            Modifier
-                .size(CHIP_SIDE, CHIP_SIDE)
-                .background(if option == chosen {
-                    palette::ACCENT
-                } else {
-                    palette::TILE
-                })
-                .shape_role(ShapeRole::Full),
-        )
-        .alignment(Alignment::Center)
-        .on_click(move || size.set(option))
-        .content(|| {
-            Text(option).type_role(TypeRole::Body).color(palette::INK);
-        });
+    Box!(
+        modifier = Modifier
+            .size(CHIP_SIDE, CHIP_SIDE)
+            .background(if option == chosen {
+                palette::ACCENT
+            } else {
+                palette::TILE
+            })
+            .shape_role(ShapeRole::Full),
+        alignment = Alignment::Center,
+        on_click = Some(move || size.set(option)),
+        {
+            Text!(option, type_role = TypeRole::Body, color = palette::INK);
+        }
+    );
 }
 
 /// One of the stepper's two round buttons: an outlined circle for fewer and a filled dark
@@ -746,17 +791,18 @@ fn step_button(glyph: &'static str, filled: bool, on_step: Rc<dyn Fn()>) {
         circle.background(palette::PAGE).border(1.0, palette::DARK)
     };
     let step = Rc::clone(&on_step);
-    Box()
-        .modifier(face)
-        .alignment(Alignment::Center)
-        .on_click(move || step())
-        .content(|| {
-            Text(glyph).type_role(TypeRole::Body).color(if filled {
-                palette::PAGE
-            } else {
-                palette::INK
-            });
-        });
+    Box!(
+        modifier = face,
+        alignment = Alignment::Center,
+        on_click = Some(move || step()),
+        {
+            Text!(
+                glyph,
+                type_role = TypeRole::Body,
+                color = if filled { palette::PAGE } else { palette::INK }
+            );
+        }
+    );
 }
 
 /// What is waiting to be paid for.
@@ -765,100 +811,110 @@ fn bag_screen(bag: MutableState<Vec<BagLine>>) {
     let lines = bag.get();
     let sum = total(&lines);
 
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Bag")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!("Bag", type_role = TypeRole::Headline, color = palette::INK);
             if lines.is_empty() {
-                Box()
-                    .modifier(Modifier.fill_max_width().weight(1.0))
-                    .alignment(Alignment::Center)
-                    .content(|| {
-                        Text("Nothing in the bag yet.")
-                            .type_role(TypeRole::Body)
-                            .color(palette::MUTED);
-                    });
+                Box!(
+                    modifier = Modifier.fill_max_width().weight(1.0),
+                    alignment = Alignment::Center,
+                    {
+                        Text!(
+                            "Nothing in the bag yet.",
+                            type_role = TypeRole::Body,
+                            color = palette::MUTED
+                        );
+                    }
+                );
             } else {
-                Column()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .background(palette::TILE)
-                            .shape_role(ShapeRole::Large),
-                    )
-                    .content(|| {
+                Column!(
+                    modifier = Modifier
+                        .fill_max_width()
+                        .background(palette::TILE)
+                        .shape_role(ShapeRole::Large),
+                    {
                         for (index, line) in lines.iter().copied().enumerate() {
                             let last = index + 1 == lines.len();
                             key(index, || bag_line(bag, index, line, last));
                         }
-                    });
-                Spacer().modifier(Modifier.weight(1.0));
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .alignment(Alignment::CenterStart)
-                    .content(|| {
-                        Text("Total")
-                            .type_role(TypeRole::Body)
-                            .color(palette::MUTED)
-                            .modifier(Modifier.weight(1.0));
-                        Text(price(sum))
-                            .type_role(TypeRole::Headline)
-                            .color(palette::INK);
-                    });
-                Button("Checkout")
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .height(PILL_HEIGHT)
-                            .background(palette::DARK)
-                            .shape_role(ShapeRole::Full),
-                    )
-                    .variant(ButtonVariant::Text)
-                    .color(palette::PAGE)
-                    .on_click(|| Message::new("Checkout is not part of this sample").show());
+                    }
+                );
+                Spacer!(modifier = Modifier.weight(1.0));
+                Row!(
+                    modifier = Modifier.fill_max_width(),
+                    alignment = Alignment::CenterStart,
+                    {
+                        Text!(
+                            "Total",
+                            type_role = TypeRole::Body,
+                            color = palette::MUTED,
+                            modifier = Modifier.weight(1.0)
+                        );
+                        Text!(
+                            price(sum),
+                            type_role = TypeRole::Headline,
+                            color = palette::INK
+                        );
+                    }
+                );
+                Button!(
+                    "Checkout",
+                    || Message::new("Checkout is not part of this sample").show(),
+                    modifier = Modifier
+                        .fill_max_width()
+                        .height(PILL_HEIGHT)
+                        .background(palette::DARK)
+                        .shape_role(ShapeRole::Full),
+                    variant = ButtonVariant::Text,
+                    color = palette::PAGE
+                );
             }
-        });
+        }
+    );
 }
 
 /// One line of the bag, with the hairline under it unless it is the last.
 #[Composable]
 fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: bool) {
     let named = catalogue::product(line.product);
-    Column().modifier(Modifier.fill_max_width()).content(|| {
-        Row()
-            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-            .space_role(SpaceRole::Sm)
-            .alignment(Alignment::CenterStart)
-            .content(|| {
-                Column()
-                    .modifier(Modifier.weight(1.0))
-                    .space_role(SpaceRole::Xs)
-                    .content(|| {
-                        Text(named.map_or("Unavailable", |found| found.name))
-                            .type_role(TypeRole::Body)
-                            .color(palette::INK)
-                            .max_lines(1)
-                            .overflow(TextOverflow::Ellipsis);
-                        Text(format!("Size {} \u{00b7} {}", line.size, line.quantity))
-                            .type_role(TypeRole::Caption)
-                            .color(palette::MUTED);
-                    });
-                Text(price(named.map_or(0, |found| found.cents) * line.quantity))
-                    .type_role(TypeRole::BodyStrong)
-                    .color(palette::INK);
+    Column!(modifier = Modifier.fill_max_width(), {
+        Row!(
+            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+            space_role = SpaceRole::Sm,
+            alignment = Alignment::CenterStart,
+            {
+                Column!(
+                    modifier = Modifier.weight(1.0),
+                    space_role = SpaceRole::Xs,
+                    {
+                        Text!(
+                            named.map_or("Unavailable", |found| found.name),
+                            type_role = TypeRole::Body,
+                            color = palette::INK,
+                            max_lines = 1,
+                            overflow = TextOverflow::Ellipsis
+                        );
+                        Text!(
+                            format!("Size {} \u{00b7} {}", line.size, line.quantity),
+                            type_role = TypeRole::Caption,
+                            color = palette::MUTED
+                        );
+                    }
+                );
+                Text!(
+                    price(named.map_or(0, |found| found.cents) * line.quantity),
+                    type_role = TypeRole::BodyStrong,
+                    color = palette::INK
+                );
                 let lines = bag;
-                Button("Remove")
-                    .variant(ButtonVariant::Text)
-                    .color(palette::ALERT)
-                    .on_click(move || {
+                Button!(
+                    "Remove",
+                    move || {
                         let mut removed = None;
                         lines.update(|lines| {
                             if index < lines.len() {
@@ -876,10 +932,14 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                             })
                             .with_duration(MessageDuration::Long)
                             .show();
-                    });
-            });
+                    },
+                    variant = ButtonVariant::Text,
+                    color = palette::ALERT
+                );
+            }
+        );
         if !last {
-            Separator(Some(palette::OUTLINE));
+            Separator!(Some(palette::OUTLINE));
         }
     });
 }
@@ -887,120 +947,138 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
 /// Search, which is a field and the shelves as a list.
 #[Composable]
 fn search_screen(on_open: Rc<dyn Fn(u32)>) {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Search")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .placeholder("T-shirts, joggers, jackets");
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Search",
+                type_role = TypeRole::Headline,
+                color = palette::INK
+            );
+            TextField!(
+                "",
+                |_| {},
+                modifier = Modifier.fill_max_width(),
+                placeholder = "T-shirts, joggers, jackets"
+            );
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     for product in CATALOGUE.iter() {
                         key(product.id, || {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Sm)
-                                .alignment(Alignment::CenterStart)
-                                .content(|| {
-                                    Box()
-                                        .modifier(
-                                            Modifier
-                                                .size(44.0, 44.0)
-                                                .background(palette::TILE)
-                                                .shape_role(ShapeRole::Medium),
-                                        )
-                                        .alignment(Alignment::Center)
-                                        .content(|| {
-                                            Image(asset(AssetKind::Svg, product.picture)).modifier(
-                                                Modifier
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Sm,
+                                alignment = Alignment::CenterStart,
+                                {
+                                    Box!(
+                                        modifier = Modifier
+                                            .size(44.0, 44.0)
+                                            .background(palette::TILE)
+                                            .shape_role(ShapeRole::Medium),
+                                        alignment = Alignment::Center,
+                                        {
+                                            Image!(
+                                                asset(AssetKind::Svg, product.picture),
+                                                modifier = Modifier
                                                     .fill_max_size()
-                                                    .padding_role(SpaceRole::Xs),
+                                                    .padding_role(SpaceRole::Xs)
                                             );
-                                        });
-                                    Column().modifier(Modifier.weight(1.0)).content(|| {
-                                        Text(product.name)
-                                            .type_role(TypeRole::Body)
-                                            .color(palette::INK)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
-                                        Text(product.support)
-                                            .type_role(TypeRole::Caption)
-                                            .color(palette::MUTED)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
+                                        }
+                                    );
+                                    Column!(modifier = Modifier.weight(1.0), {
+                                        Text!(
+                                            product.name,
+                                            type_role = TypeRole::Body,
+                                            color = palette::INK,
+                                            max_lines = 1,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
+                                        Text!(
+                                            product.support,
+                                            type_role = TypeRole::Caption,
+                                            color = palette::MUTED,
+                                            max_lines = 1,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
                                     });
                                     let (open, id) = (Rc::clone(&on_open), product.id);
-                                    Button(price(product.cents))
-                                        .variant(ButtonVariant::Text)
-                                        .color(palette::INK)
-                                        .on_click(move || open(id));
-                                });
+                                    Button!(
+                                        price(product.cents),
+                                        move || open(id),
+                                        variant = ButtonVariant::Text,
+                                        color = palette::INK
+                                    );
+                                }
+                            );
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The account page, which is a short list of the things a shop keeps about a person.
 #[Composable]
 fn account_screen() {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .fill_max_height()
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Account")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::TILE)
-                        .shape_role(ShapeRole::Large),
-                )
-                .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .fill_max_height()
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Account",
+                type_role = TypeRole::Headline,
+                color = palette::INK
+            );
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::TILE)
+                    .shape_role(ShapeRole::Large),
+                {
                     for (index, entry) in ["Orders", "Addresses", "Payment", "Notifications"]
                         .into_iter()
                         .enumerate()
                     {
                         key(entry, || {
-                            Column().modifier(Modifier.fill_max_width()).content(|| {
-                                Row()
-                                    .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                                    .alignment(Alignment::CenterStart)
-                                    .content(|| {
-                                        Text(entry)
-                                            .type_role(TypeRole::Body)
-                                            .color(palette::INK)
-                                            .modifier(Modifier.weight(1.0));
-                                        Text("\u{203a}")
-                                            .type_role(TypeRole::Body)
-                                            .color(palette::MUTED);
-                                    });
+                            Column!(modifier = Modifier.fill_max_width(), {
+                                Row!(
+                                    modifier =
+                                        Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                                    alignment = Alignment::CenterStart,
+                                    {
+                                        Text!(
+                                            entry,
+                                            type_role = TypeRole::Body,
+                                            color = palette::INK,
+                                            modifier = Modifier.weight(1.0)
+                                        );
+                                        Text!(
+                                            "\u{203a}",
+                                            type_role = TypeRole::Body,
+                                            color = palette::MUTED
+                                        );
+                                    }
+                                );
                                 if index < 3 {
-                                    Separator(Some(palette::OUTLINE));
+                                    Separator!(Some(palette::OUTLINE));
                                 }
                             });
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The bar along the bottom: four icons and nothing else.
@@ -1012,11 +1090,11 @@ fn account_screen() {
 /// would be right to give a set of destinations.
 #[Composable]
 fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
-    Row()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-        .arrangement(Arrangement::SpaceAround)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+        arrangement = Arrangement::SpaceAround,
+        alignment = Alignment::Center,
+        {
             for choice in Destination::STRIP {
                 let tint = if choice == destination {
                     palette::ACCENT
@@ -1024,13 +1102,14 @@ fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
                     palette::INK
                 };
                 key(choice.label(), || {
-                    Box().content(|| {
+                    Box!({
                         let go = Rc::clone(&on_go);
                         icon_button(choice.icon(), tint, Rc::new(move || go(choice)));
                     });
                 });
             }
-        });
+        }
+    );
 }
 
 #[Composable]
@@ -1107,50 +1186,46 @@ pub fn app() {
         (Destination::Account, _) => account_screen(),
     };
 
-    // The frame is named rather than built, and the page is laid out clear of whatever the
-    // bar took. A screen that fills the window gives the frame no bar at all.
-    let frame = Scaffold().modifier(Modifier.background(palette::PAGE));
-    let frame = if full_screen {
-        frame
-    } else {
-        frame.bottom_bar(|| {
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(|| bottom_bar(current, Rc::clone(&on_go)));
-                });
-        })
-    };
-    frame.content(|| {
-        Box()
-            .modifier(Modifier.weight(1.0))
-            .alignment(Alignment::TopCenter)
-            .content(|| {
-                if !full_screen {
-                    ScrollColumn()
-                        .modifier(Modifier.width_if(measure))
-                        .content(body);
-                } else {
-                    // A column with no width of its own is as wide as its widest child at
-                    // that child's narrowest, which for the first screen is one word of its
-                    // title. So below the measure it fills the window, as the bar does.
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(body);
+    // The page is laid out clear of whatever the bar took. A screen that fills the window
+    // gives the frame no bar at all.
+    Scaffold!(
+        modifier = Modifier.background(palette::PAGE),
+        bottom_bar = (!full_screen).then_some(|| {
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none()),
+                        content = || bottom_bar(current, Rc::clone(&on_go))
+                    );
                 }
-            });
-    });
+            );
+        }),
+        {
+            Box!(
+                modifier = Modifier.weight(1.0),
+                alignment = Alignment::TopCenter,
+                {
+                    if !full_screen {
+                        ScrollColumn!(modifier = Modifier.width_if(measure), content = body);
+                    } else {
+                        // A column with no width of its own is as wide as its widest child at
+                        // that child's narrowest, which for the first screen is one word of its
+                        // title. So below the measure it fills the window, as the bar does.
+                        Column!(
+                            modifier = Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                            content = body
+                        );
+                    }
+                }
+            );
+        }
+    );
 }
 
 /// Putting the open garment in the bag, at the size and count that are showing.
@@ -1322,6 +1397,7 @@ mod tests {
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
             });
         }
@@ -1996,6 +2072,7 @@ mod tests {
                         safe_area_top: 0.0,
                         safe_area_leading: 0.0,
                         safe_area_trailing: 0.0,
+                        safe_area_bottom: 0.0,
                     },
                 },
                 &mut bytes,

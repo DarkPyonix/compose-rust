@@ -1,5 +1,119 @@
 # Changelog
 
+## v0.0.12
+
+### Fixed from v0.0.11's known issues
+
+The Windows window pin moves to `146d920b`. A window resized by dragging an edge on Windows 10 and Windows Server 2022 no longer shows a gap at the moving edge: the resize check measured 0 of 24 faulty drags on both Windows Server 2022 and 2025, and that check is strict again. A Windows window also keeps its size in dp when the display scale changes while it is open.
+
+### Call macros: the widgets as functions in `ui::next`
+
+`compose_rust::ui::next` has every widget as one function that takes all of its parameters, plus a call macro of the same name, so `Row!(modifier = m, { .. })` replaces a `Row` builder chain. `#[Composable(widget)]` gives a function its call macro and its `#[default(..)]` values. Each function writes the same bytes as the builder chain it replaces. The samples and tests now use the call macros. This is additive: the builder API is still public in v0.0.12 and is removed before 1.0 ([#23](https://github.com/DarkPyonix/compose-rust/issues/23)).
+
+### A macOS window gives back its memory when it closes
+
+A Kotlin/Native macOS window now releases its Metal surface when it closes, and the renderer reads the VoiceOver setting once and again only when it changes, instead of on every frame. Opening and closing windows in one process no longer makes the next one slower; a test opens and closes 20 windows and checks that frame time and memory stay bounded. The Compose fork's window pin moves to `98002181` ([#857](https://github.com/DarkPyonix/compose-rust/issues/857)).
+
+### A `Material` added after the first frame keeps the window opaque
+
+Whether a window gets a material backdrop is decided once, when the window opens. A `Material` node mounted after the first frame used to make the page translucent over a window with no backdrop behind it; the page now stays opaque ([#743](https://github.com/DarkPyonix/compose-rust/issues/743)).
+
+### A `Button`'s text style reaches its child `Text`
+
+A `Button`'s `type_role` and `font_weight` now apply to a `Text` inside it, unless that `Text` sets its own. No schema change ([#500](https://github.com/DarkPyonix/compose-rust/issues/500)).
+
+### An SVG ellipse with a gradient fill draws its gradient
+
+On the desktop, iOS and the web, an SVG `<ellipse>` filled with an `objectBoundingBox` gradient drew solid black. The renderer now turns such an ellipse into an equivalent path before Skia draws it ([#678](https://github.com/DarkPyonix/compose-rust/issues/678)).
+
+### Each desktop window keeps its own pointer position
+
+The desktop renderer kept one last pointer position for the whole process, so a wheel scroll in a second window before the pointer moved there used another window's position. Each window now keeps its own ([#854](https://github.com/DarkPyonix/compose-rust/issues/854)).
+
+### A sheet's handle can be turned off, and a bottom sheet clears the bottom safe area
+
+`Sheet::handle(false)` removes a bottom sheet's drag handle. It travels as the `SheetHandle` property (tag 214, a boolean, only on a `Sheet`), sent only to turn the handle off, so a sheet that keeps it writes no record. The sheet still drags shut the same way. A bottom sheet now pads its content by the larger of the bottom safe area and the keyboard, so its last row ends above the gesture handle or the navigation bar while its surface still runs to the bottom edge. The schema hash changes.
+
+### The window size event carries the bottom safe area
+
+`WindowSafeArea` has a `bottom` side in dp: the room the system keeps at the bottom edge, which is the navigation bar or gesture handle on Android and the home indicator on iOS. The renderer measures it from `WindowInsets.safeDrawing` with the keyboard left out, and a desktop window sends 0. It travels as `safe_area_bottom`, appended to the end of the `WindowSizeChanged` record, which grows from 44 to 48 bytes; every field before it keeps its offset. A change of the bottom side alone sends the event again, as the other sides do. The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### Dashed borders
+
+`Modifier::border_dashed(width_dp, paint, dash_dp, gap_dp)` draws a uniform border around the node's outline as repeating dashes of `dash_dp` and gaps of `gap_dp` in dp, following the node's corner shape (`Shape`, `ShapeRole`, `CornerEach`, `CornerCurve`). It writes `Border` together with the new `BorderDash` modifier (tag 42, two `f32` in the first word) and clears any previous `border_each` or `border_side`, while calling `border`, `border_each` or `border_side` clears `BorderDash`. A non-positive dash or gap falls back to a solid border. The new modifier moves the schema hash ([#817](https://github.com/DarkPyonix/compose-rust/issues/817)).
+
+### Hover style, focus ring and press style
+
+`Modifier::hover_style(HoverStyle)` sets how a pressable node (a container with `on_click`, a `Clickable` node, or a toolkit `Button`) looks while a mouse is over it: `HoverStyle::fill(paint, alpha)` lays that paint at that alpha in place of the default `OnSurface` 8% layer, `.border(paint)` swaps the node's border colour until the mouse leaves, and `.content_alpha(a)` multiplies the whole node's opacity. Hovering still sends nothing to the Host. `Modifier::focus_ring(paint, width_dp, offset_dp)` sets the keyboard focus ring; a positive offset draws it that far outside the node's outline with its corners grown by the same amount, as CSS `outline-offset` does, and it takes no room. Focus a pointer gave still draws no ring. `Modifier::press_style(PressStyle)` sets the press tint's colour (`PressStyle::tint(paint)`, at the alpha `press_feedback` gives or the default) and the press-in curve (`.press_easing(x1, y1, x2, y2)`); the release keeps its curve. The toolkit `Button` now has the default hover layer and draws the keyboard focus ring by the same rules as a pressable container. These are the new modifiers `HoverStyle` (tag 43), `FocusRing` (tag 44) and `PressStyle` (tag 45), whose optional paints use a zero word for none, and they move the schema hash. A node without them looks and behaves as before ([#822](https://github.com/DarkPyonix/compose-rust/issues/822)).
+
+### Syntax roles have a font style
+
+A `CodeEditor` syntax span can carry a font weight, italic and underline as well as a colour: `SyntaxSpan::italic`, `bold`, `with_weight`, `underline` and `with_style`. `style_for_role` and `style_for_highlight` give the defaults: comments are italic, types weight 500, and everything else keeps the editor's font. `SyntaxSpanRecord` grows from 28 to 32 bytes with a `style` field at offset 28, so the schema hash changes ([#863](https://github.com/DarkPyonix/compose-rust/issues/863)).
+
+### SVG arcs with packed flags draw right on Android
+
+An SVG path writes an arc's two flags as single digits that need no separator, as in `a3 3 0 100-6`. Android's path parser read `100` as one number and drew such a path wrong. The renderer now separates the flags before the path is parsed, on every platform ([#842](https://github.com/DarkPyonix/compose-rust/issues/842)).
+
+### Declared roles reach VoiceOver in the Kotlin/Native macOS window
+
+A group, list, tab list or other declared role now reaches `NSAccessibility` in the Kotlin/Native macOS window, where before it read as static text. A `Button` with its own accessible name exposes one element, not its visible label as well ([#782](https://github.com/DarkPyonix/compose-rust/issues/782), [#838](https://github.com/DarkPyonix/compose-rust/issues/838)). `has_popup` reaches TalkBack and VoiceOver on Android and iOS as the state description "has popup" ([#810](https://github.com/DarkPyonix/compose-rust/issues/810)).
+
+### A drag region moves a Kotlin/Native Linux or Windows window
+
+`WindowDrag(true)` content moves a Kotlin/Native Linux or Windows window, as it does on macOS. On Windows, `Chrome.FullSize` now also lets the page draw under the title bar ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)).
+
+### Deeply nested rows and columns measure in linear time
+
+Alternating `Column` and `Row` levels with a child that fills the width no longer make the intrinsic measurement grow exponentially with depth. A tree 100 levels deep measures at once, where before it hung ([#846](https://github.com/DarkPyonix/compose-rust/issues/846)).
+
+### Less memory after large batches and registered fonts
+
+The Host's batch encoder gives back its buffers after a batch larger than its retained caps (64 KiB of records and strings, 128 KiB of arena), such as one that registers fonts; ordinary frames still allocate nothing. The renderer keeps one Skia typeface per registered font instead of two ([#862](https://github.com/DarkPyonix/compose-rust/issues/862)).
+
+### A macOS native view costs less per frame
+
+A `NativeView` that only moves or only resizes while scrolling updates just that part of its frame, and a view with nothing drawn above it makes no hole list. The saving is small, below what the frame budget test resolves ([#855](https://github.com/DarkPyonix/compose-rust/issues/855)).
+
+### A bare single-line `TextField` centres its text vertically
+
+A bare single-line `TextField` now centres its text in the height it is given, as a decorated one does; before, a bare field put its text at the top. This changes how bare fields given a height look, for example a 48 dp search field. Multiline fields still start at the top. Padding set with `padding_each` sits inside the field, so a click in it still focuses the field ([#771](https://github.com/DarkPyonix/compose-rust/issues/771)).
+
+### A read-only `TextField`
+
+`TextFieldScope::read_only(true)` keeps a field's text selectable and copyable but not editable, and accessibility reads it as not editable. It travels as the `ReadOnly` property (tag 215, a boolean), so the schema hash changes ([#826](https://github.com/DarkPyonix/compose-rust/issues/826)).
+
+### `padding_each` and `padding_xy`
+
+`Modifier::padding_each(start, top, end, bottom)` sets each side's padding in dp, and `Modifier::padding_xy(horizontal, vertical)` sets the two axes. No schema change ([#826](https://github.com/DarkPyonix/compose-rust/issues/826)).
+
+### A border of width 0 draws nothing
+
+`Modifier::border` with a width of 0 or less now draws no border. Before, Compose read 0 dp as a hairline and drew a 1 pixel line ([#770](https://github.com/DarkPyonix/compose-rust/issues/770)).
+
+### `equal_height` rows with a scrolling child
+
+In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixed height now measures at that height. Before, it measured 0 and the row collapsed ([#766](https://github.com/DarkPyonix/compose-rust/issues/766)).
+
+### The settings icon is a gear
+
+`IconRole::Settings` draws an eight-tooth gear with a hub. Before, at bar size, it read as a crosshair ([#537](https://github.com/DarkPyonix/compose-rust/issues/537)).
+
+### A refresh icon
+
+`IconRole::Refresh` (tag 39) draws a clockwise arrow on desktop and Android and the `arrow.clockwise` system symbol on iOS. The schema hash changes ([#908](https://github.com/DarkPyonix/compose-rust/issues/908)).
+
+### Seventeen more icon roles
+
+`IconRole` gains `Lock`, `Favorite`, `Book`, `Play`, `Shuffle`, `ExpandMore`, `Person`, `Clock`, `Tune`, `Chat`, `Star`, `Bag`, `Bell`, `Share`, `Language`, `CompactOverlay` and `Calculator` (tags 22 to 38, the ones already reserved for them). Each has drawn artwork on desktop and Android and a system symbol on iOS, and works in an icon-only button. The schema hash changes ([#539](https://github.com/DarkPyonix/compose-rust/issues/539), [#602](https://github.com/DarkPyonix/compose-rust/issues/602)).
+
+### The design-system parity test says where to fetch from
+
+When `design_system_parity` cannot find the design systems, its failure now names the checkout it looked in and tells you to run `scripts/fetch-design-systems.sh` there ([#495](https://github.com/DarkPyonix/compose-rust/issues/495)).
+
+### `Canvas` draws with any brush
+
+A `Canvas` draw command whose paint is a registered brush (a gradient or an image brush) now draws with that brush: lines, rectangles, rounded rectangles, circles, arcs and text alike. Before, the generated decoder read a brush paint as a plain colour, so the shape came out in a single colour. The wire format is unchanged; the generated Kotlin decoder changes, so a renderer and a crate should both be at this version ([#584](https://github.com/DarkPyonix/compose-rust/issues/584)).
+
 ## v0.0.11
 
 ### Known issues

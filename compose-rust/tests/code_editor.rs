@@ -317,7 +317,7 @@ fn fr38_an_unknown_hover_phase_is_a_protocol_error() {
 #[test]
 fn fr38_decoration_and_syntax_span_records_have_their_wire_sizes_and_round_trip() {
     assert_eq!(DECORATION_LEN, 44);
-    assert_eq!(SYNTAX_SPAN_LEN, 28);
+    assert_eq!(SYNTAX_SPAN_LEN, 32);
     assert_eq!(usize::from(DECORATION_RECORD.length), DECORATION_LEN);
     assert_eq!(usize::from(SYNTAX_SPAN_RECORD.length), SYNTAX_SPAN_LEN);
 
@@ -335,12 +335,14 @@ fn fr38_decoration_and_syntax_span_records_have_their_wire_sizes_and_round_trip(
     assert_eq!(encoded.decorations(), decorations);
 
     let spans = vec![
-        SyntaxSpan::role(3, CodeRange::of(0, 0, 0, 2), ColorRole::Primary),
+        SyntaxSpan::role(3, CodeRange::of(0, 0, 0, 2), ColorRole::SyntaxComment).italic(),
         SyntaxSpan::new(
             3,
             CodeRange::of(1, 12, 1, 16),
-            Paint::Role(ColorRole::Tertiary),
-        ),
+            Paint::Role(ColorRole::SyntaxType),
+        )
+        .with_weight(500)
+        .underline(),
     ];
     let encoded = SyntaxSpans::new(spans.clone());
     assert_eq!(encoded.as_bytes().len(), 2 * SYNTAX_SPAN_LEN);
@@ -389,7 +391,9 @@ fn fr38_the_record_schema_is_the_layout_the_encoder_writes() {
     assert_eq!(read(40, 4), 3);
     assert_eq!(&bytes[DECORATION_LEN..], b"abc");
 
-    let span = SyntaxSpan::role(2, CodeRange::of(5, 6, 7, 8), ColorRole::Primary);
+    let span = SyntaxSpan::role(2, CodeRange::of(5, 6, 7, 8), ColorRole::Primary)
+        .italic()
+        .with_weight(500);
     let encoded = SyntaxSpans::new([span]);
     let bytes = encoded.as_bytes();
     for field in SYNTAX_SPAN_RECORD.fields {
@@ -401,6 +405,7 @@ fn fr38_the_record_schema_is_the_layout_the_encoder_writes() {
             "endLine" => 7,
             "endColumn" => 8,
             "paint" => Paint::Role(ColorRole::Primary).to_bits(),
+            "style" => u64::from(span.style.to_bits()),
             other => panic!("the span schema has a field this test does not know: {other}"),
         };
         let width = if field.ty == RecordFieldType::Paint {
@@ -1221,7 +1226,8 @@ thread_local! {
 
 #[compose_rust::runtime::Composable]
 fn Nothing() {
-    compose_rust::ui::Text("editor");
+    use compose_rust::ui::next::Text;
+    Text!("editor");
 }
 
 /// The query is a 20 byte command written with the request number a callback was given,
@@ -1486,7 +1492,7 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
         &mut expected,
     )
     .unwrap();
-    assert_eq!(&events[1543..1623], expected.as_slice());
+    assert_eq!(&events[1547..1627], expected.as_slice());
 }
 
 /// The two backgrounds are decoration kinds 5 and 6, after the four there were, in the
@@ -1675,8 +1681,8 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
-    assert_eq!(&events[1623..1659], wire.as_slice());
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    assert_eq!(&events[1627..1663], wire.as_slice());
 }
 
 /// An empty group is no request at all, so nothing is written for it.
@@ -1961,8 +1967,8 @@ fn fr38_selections_round_trip_on_the_wire() {
 
     // The selections of the mutation vector's editor, the record before the vector's last.
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
-    let last = decode_event(&events[1679..1755]).unwrap();
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    let last = decode_event(&events[1683..1759]).unwrap();
     assert_eq!((last.node_id, last.handler_id), (12, 33));
     assert_eq!(
         SelectionsChange::from_payload(&last.payload),

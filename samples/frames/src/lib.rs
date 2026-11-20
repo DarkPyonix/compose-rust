@@ -520,6 +520,7 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
             });
             prepare(&mut recording);

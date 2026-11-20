@@ -17,7 +17,7 @@ const MUTATIONS: &[u8] = include_bytes!("vectors/mutations.bin");
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the report sits in the event vector, and how long it is.
-const REPORT_AT: usize = 1319;
+const REPORT_AT: usize = 1323;
 const REPORT_LEN: usize = 72;
 
 fn vector_report() -> HostEvent<'static> {

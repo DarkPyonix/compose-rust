@@ -15,7 +15,7 @@ mod school;
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use school::{
     LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, reached, stage,
 };
@@ -109,135 +109,158 @@ type OpenSubject = Rc<dyn Fn(&'static str)>;
 
 /// A control whose face is an icon and nothing else, in the page's white.
 fn icon_button(icon: IconRole, name: &'static str, on_click: impl FnMut() + 'static) {
-    Button("")
-        .icon(icon)
-        .accessible_name(name)
-        .variant(ButtonVariant::Text)
-        .color(palette::TEXT)
-        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-        .on_click(on_click);
+    Button!(
+        "",
+        on_click,
+        icon = icon,
+        accessible_name = name,
+        variant = ButtonVariant::Text,
+        color = palette::TEXT,
+        modifier = Modifier.size(ICON_TAP, ICON_TAP)
+    );
 }
 
 /// Small bold capitals, spaced out, which is how the reference sets its labels.
 fn capitals(label: &'static str, ink: Paint) {
-    Text(label)
-        .type_role(TypeRole::Caption)
-        .font_weight(700)
-        .letter_spacing(1.0)
-        .color(ink);
+    Text!(
+        label,
+        type_role = TypeRole::Caption,
+        font_weight = 700,
+        letter_spacing = 1.0,
+        color = ink
+    );
 }
 
 /// One subject as a tile: the mark, and the name centred under it.
 fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
     let name = subject.name;
-    Box()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(TILE_HEIGHT)
-                .background(subject.fill)
-                .shape_role(ShapeRole::Large)
-                .padding_role(SpaceRole::Md),
-        )
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_size())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.fill_max_width().weight(1.0))
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Image(compose_rust::asset(AssetKind::Svg, subject.mark))
-                                .modifier(Modifier.size(MARK_SIDE, MARK_SIDE));
-                        });
+    Box!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(TILE_HEIGHT)
+            .background(subject.fill)
+            .shape_role(ShapeRole::Large)
+            .padding_role(SpaceRole::Md),
+        {
+            Column!(
+                modifier = Modifier.fill_max_size(),
+                alignment = Alignment::Center,
+                {
+                    Box!(
+                        modifier = Modifier.fill_max_width().weight(1.0),
+                        alignment = Alignment::Center,
+                        {
+                            Image!(
+                                compose_rust::asset(AssetKind::Svg, subject.mark),
+                                modifier = Modifier.size(MARK_SIDE, MARK_SIDE)
+                            );
+                        }
+                    );
                     let open = Rc::clone(on_open);
-                    Button(name)
-                        .variant(ButtonVariant::Text)
-                        .color(palette::TEXT)
-                        .modifier(Modifier.padding_role(SpaceRole::None))
-                        .on_click(move || open(name));
-                });
-        });
+                    Button!(
+                        name,
+                        move || open(name),
+                        variant = ButtonVariant::Text,
+                        color = palette::TEXT,
+                        modifier = Modifier.padding_role(SpaceRole::None)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The subjects page: the pupil's picture on a line of its own, the title under it, the
 /// four subjects two to a row, and the two ways on from here.
 fn skills_page(on_open: &OpenSubject, destination: MutableState<Destination>) {
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .arrangement(Arrangement::End)
-                .content(|| {
-                    Image(compose_rust::asset(AssetKind::Svg, AVATAR)).modifier(
-                        Modifier
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                arrangement = Arrangement::End,
+                {
+                    Image!(
+                        compose_rust::asset(AssetKind::Svg, AVATAR),
+                        modifier = Modifier
                             .size(AVATAR_SIDE, AVATAR_SIDE)
                             .shape_role(ShapeRole::Full)
-                            .clip(true),
+                            .clip(true)
                     );
-                });
+                }
+            );
 
-            Text("Skills\nTo Pump!")
-                .type_role(TypeRole::Display)
-                .font_weight(600)
-                .color(palette::TEXT);
+            Text!(
+                "Skills\nTo Pump!",
+                type_role = TypeRole::Display,
+                font_weight = 600,
+                color = palette::TEXT
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Md)
-                .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Md,
+                {
                     // Promoted to a static, so each tile can hold its subject for as long
                     // as the composition keeps it.
                     let subjects: &'static [Subject; 4] = &SUBJECTS;
                     for (index, row) in subjects.chunks(2).enumerate() {
                         key(index, || {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Md)
-                                .alignment(Alignment::TopStart)
-                                .content(|| {
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Md,
+                                alignment = Alignment::TopStart,
+                                {
                                     for subject in row {
                                         key(subject.name, || {
-                                            Box().modifier(Modifier.weight(1.0)).content(|| {
+                                            Box!(modifier = Modifier.weight(1.0), {
                                                 subject_tile(subject, on_open);
                                             });
                                         });
                                     }
-                                });
+                                }
+                            );
                         });
                     }
-                });
+                }
+            );
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Row()
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .on_click(move || destination.set(Destination::Plan))
-                        .content(|| {
-                            Icon(compose_rust::asset(AssetKind::VectorIcon, &icon::BACK))
-                                .color(palette::TEXT)
-                                .modifier(Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE));
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Row!(
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::CenterStart,
+                        on_click = Some(move || destination.set(Destination::Plan)),
+                        {
+                            Icon!(
+                                compose_rust::asset(AssetKind::VectorIcon, &icon::BACK),
+                                color = palette::TEXT,
+                                modifier = Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE)
+                            );
                             capitals("LESSON PLAN", palette::TEXT);
-                        });
-                    Spacer().modifier(Modifier.weight(1.0));
-                    Row()
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .on_click(move || destination.set(Destination::Progress))
-                        .content(|| {
+                        }
+                    );
+                    Spacer!(modifier = Modifier.weight(1.0));
+                    Row!(
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::CenterStart,
+                        on_click = Some(move || destination.set(Destination::Progress)),
+                        {
                             capitals("YOUR PROGRESS", palette::TEXT);
-                            Icon(compose_rust::asset(AssetKind::VectorIcon, &icon::FORWARD))
-                                .color(palette::TEXT)
-                                .modifier(Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE));
-                        });
-                });
-        });
+                            Icon!(
+                                compose_rust::asset(AssetKind::VectorIcon, &icon::FORWARD),
+                                color = palette::TEXT,
+                                modifier = Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE)
+                            );
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// One lesson as a card.
@@ -249,86 +272,95 @@ fn skills_page(on_open: &OpenSubject, destination: MutableState<Destination>) {
 #[Composable]
 fn lesson_card(lesson: &'static Lesson) {
     if lesson.open {
-        Box()
-            .modifier(
-                Modifier
-                    .fill_max_width()
-                    .background(palette::CARD)
-                    .shape_role(ShapeRole::Large)
-                    .clip(true),
-            )
-            .alignment(Alignment::BottomEnd)
-            .content(|| {
+        Box!(
+            modifier = Modifier
+                .fill_max_width()
+                .background(palette::CARD)
+                .shape_role(ShapeRole::Large)
+                .clip(true),
+            alignment = Alignment::BottomEnd,
+            {
                 // Under the words, pushed past the corner so the card's clip leaves a
                 // quarter of it.
-                Box().modifier(
-                    Modifier
+                Box!(
+                    modifier = Modifier
                         .size(CORNER_SIDE, CORNER_SIDE)
                         .offset(CORNER_PUSH, CORNER_PUSH)
                         .background(palette::ACCENT)
-                        .shape_role(ShapeRole::Full),
+                        .shape_role(ShapeRole::Full)
                 );
-                Row()
-                    .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
-                    .space_role(SpaceRole::Sm)
-                    .alignment(Alignment::CenterStart)
-                    .content(|| {
-                        Column()
-                            .modifier(Modifier.weight(1.0))
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
+                Row!(
+                    modifier = Modifier.fill_max_width().padding_role(SpaceRole::Lg),
+                    space_role = SpaceRole::Sm,
+                    alignment = Alignment::CenterStart,
+                    {
+                        Column!(
+                            modifier = Modifier.weight(1.0),
+                            space_role = SpaceRole::Sm,
+                            {
                                 if lesson.recent {
-                                    Row()
-                                        .space_role(SpaceRole::Xs)
-                                        .alignment(Alignment::TopStart)
-                                        .content(|| {
+                                    Row!(
+                                        space_role = SpaceRole::Xs,
+                                        alignment = Alignment::TopStart,
+                                        {
                                             capitals("RECENT", palette::CARD_INK);
-                                            Box().modifier(
-                                                Modifier
+                                            Box!(
+                                                modifier = Modifier
                                                     .size(DOT, DOT)
                                                     .background(palette::ACCENT)
-                                                    .shape_role(ShapeRole::Full),
+                                                    .shape_role(ShapeRole::Full)
                                             );
-                                        });
+                                        }
+                                    );
                                 }
-                                Text(lesson.title)
-                                    .type_role(TypeRole::Headline)
-                                    .font_weight(700)
-                                    .color(palette::CARD_INK);
-                                Text(format!("{} lesson", ordinal(lesson.number)))
-                                    .type_role(TypeRole::Body)
-                                    .color(palette::CARD_MUTED);
-                            });
-                        Button("")
-                            .icon(IconRole::Forward)
-                            .accessible_name(lesson.title)
-                            .variant(ButtonVariant::Text)
-                            .color(palette::CHEVRON)
-                            .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-                            .on_click(|| {
-                                Message::new("Lessons are not part of this sample").show()
-                            });
-                    });
-            });
+                                Text!(
+                                    lesson.title,
+                                    type_role = TypeRole::Headline,
+                                    font_weight = 700,
+                                    color = palette::CARD_INK
+                                );
+                                Text!(
+                                    format!("{} lesson", ordinal(lesson.number)),
+                                    type_role = TypeRole::Body,
+                                    color = palette::CARD_MUTED
+                                );
+                            }
+                        );
+                        Button!(
+                            "",
+                            || { Message::new("Lessons are not part of this sample").show() },
+                            icon = IconRole::Forward,
+                            accessible_name = lesson.title,
+                            variant = ButtonVariant::Text,
+                            color = palette::CHEVRON,
+                            modifier = Modifier.size(ICON_TAP, ICON_TAP)
+                        );
+                    }
+                );
+            }
+        );
     } else {
-        Column()
-            .modifier(
-                Modifier
-                    .fill_max_width()
-                    .background(palette::LOCKED)
-                    .shape_role(ShapeRole::Large)
-                    .padding_role(SpaceRole::Lg)
-                    .label("Locked"),
-            )
-            .space_role(SpaceRole::Sm)
-            .content(|| {
-                Text(lesson.title)
-                    .type_role(TypeRole::Title)
-                    .color(palette::LOCKED_INK);
-                Text(format!("{} lesson", ordinal(lesson.number)))
-                    .type_role(TypeRole::Body)
-                    .color(palette::LOCKED_INK);
-            });
+        Column!(
+            modifier = Modifier
+                .fill_max_width()
+                .background(palette::LOCKED)
+                .shape_role(ShapeRole::Large)
+                .padding_role(SpaceRole::Lg)
+                .label("Locked"),
+            space_role = SpaceRole::Sm,
+            {
+                Text!(
+                    lesson.title,
+                    type_role = TypeRole::Title,
+                    color = palette::LOCKED_INK
+                );
+                Text!(
+                    format!("{} lesson", ordinal(lesson.number)),
+                    type_role = TypeRole::Body,
+                    color = palette::LOCKED_INK
+                );
+            }
+        );
     }
 }
 
@@ -336,35 +368,36 @@ fn lesson_card(lesson: &'static Lesson) {
 /// in that stage, and "MORE" under them.
 fn plan_page(chosen: &MutableState<u32>, destination: MutableState<Destination>) {
     let lessons = stage(chosen.get());
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             // The reference's plan screen has no title. Its top is a way back, search and
             // a menu.
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
                     icon_button(IconRole::Back, "Back", move || {
                         destination.set(Destination::Skills)
                     });
-                    Spacer().modifier(Modifier.weight(1.0));
+                    Spacer!(modifier = Modifier.weight(1.0));
                     icon_button(IconRole::Search, "Search", || {
                         Message::new("Search is not part of this sample").show()
                     });
                     icon_button(IconRole::Menu, "Menu", || {
                         Message::new("The menu is not part of this sample").show()
                     });
-                });
+                }
+            );
 
             // A strip rather than a segmented control. `Tabs` divides its width equally
             // and does not scroll, so four stages on a phone is four segments of seventy
             // dp with a button's own padding inside each, and every label breaks.
             let strip = *chosen;
-            LazyRow()
-                .modifier(Modifier.fill_max_width().height(STRIP_HEIGHT))
-                .content(move |list| {
+            LazyRow!(
+                modifier = Modifier.fill_max_width().height(STRIP_HEIGHT),
+                content = move |list| {
                     list.items_keyed(
                         STAGES.len(),
                         |position| STAGES[position].to_string(),
@@ -380,47 +413,54 @@ fn plan_page(chosen: &MutableState<u32>, destination: MutableState<Destination>)
                             } else {
                                 palette::MUTED
                             };
-                            Box()
-                                .modifier(Modifier.padding_role(SpaceRole::Xs))
-                                .alignment(Alignment::Center)
-                                .content(|| {
-                                    Button(format!("{number} Stage"))
-                                        .variant(ButtonVariant::Text)
-                                        .color(ink)
-                                        .modifier(
-                                            Modifier
-                                                .background_if(current.then_some(palette::AMBER))
-                                                .shape_role(ShapeRole::Full),
-                                        )
-                                        .on_click(move || pick.set(number));
-                                });
+                            Box!(
+                                modifier = Modifier.padding_role(SpaceRole::Xs),
+                                alignment = Alignment::Center,
+                                {
+                                    Button!(
+                                        format!("{number} Stage"),
+                                        move || pick.set(number),
+                                        variant = ButtonVariant::Text,
+                                        color = ink,
+                                        modifier = Modifier
+                                            .background_if(current.then_some(palette::AMBER))
+                                            .shape_role(ShapeRole::Full)
+                                    );
+                                }
+                            );
                         },
                     );
-                });
+                }
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Md)
-                .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Md,
+                {
                     for lesson in lessons.iter().copied() {
                         key(lesson.number, || {
-                            Box().modifier(Modifier.fill_max_width()).content(|| {
+                            Box!(modifier = Modifier.fill_max_width(), {
                                 lesson_card(lesson);
                             });
                         });
                     }
-                });
+                }
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .alignment(Alignment::Center)
-                        .on_click(|| Message::new("Later lessons open as you finish these").show())
-                        .content(|| capitals("MORE", palette::TEXT));
-                });
-        });
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        alignment = Alignment::Center,
+                        on_click =
+                            Some(|| Message::new("Later lessons open as you finish these").show()),
+                        content = || capitals("MORE", palette::TEXT)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// How far through everything a pupil is, subject by subject. The reference has no such
@@ -429,89 +469,103 @@ fn plan_page(chosen: &MutableState<u32>, destination: MutableState<Destination>)
 fn progress_page() {
     let overall = overall_progress();
     let done = LESSONS.iter().filter(|lesson| lesson.open).count();
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Your progress")
-                .type_role(TypeRole::Headline)
-                .font_weight(600)
-                .color(palette::TEXT);
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Your progress",
+                type_role = TypeRole::Headline,
+                font_weight = 600,
+                color = palette::TEXT
+            );
 
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::LOCKED)
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Sm)
-                .content(|| {
-                    Text(format!("{done} of {} lessons open", LESSONS.len()))
-                        .type_role(TypeRole::Body)
-                        .color(palette::TEXT);
-                    ProgressIndicator(overall)
-                        .color(palette::ACCENT)
-                        .track_color(palette::PAGE)
-                        .modifier(Modifier.fill_max_width());
-                });
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::LOCKED)
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Sm,
+                {
+                    Text!(
+                        format!("{done} of {} lessons open", LESSONS.len()),
+                        type_role = TypeRole::Body,
+                        color = palette::TEXT
+                    );
+                    ProgressIndicator!(
+                        overall,
+                        color = palette::ACCENT,
+                        track_color = palette::PAGE,
+                        modifier = Modifier.fill_max_width()
+                    );
+                }
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     for subject in &SUBJECTS {
                         key(subject.name, || {
-                            Column()
-                                .modifier(
-                                    Modifier
-                                        .fill_max_width()
-                                        .background(subject.fill)
-                                        .shape_role(ShapeRole::Large)
-                                        .padding_role(SpaceRole::Md),
-                                )
-                                .space_role(SpaceRole::Xs)
-                                .content(|| {
-                                    Row()
-                                        .modifier(Modifier.fill_max_width())
-                                        .alignment(Alignment::CenterStart)
-                                        .content(|| {
-                                            Text(subject.name)
-                                                .type_role(TypeRole::BodyStrong)
-                                                .color(palette::TEXT)
-                                                .modifier(Modifier.weight(1.0));
-                                            Text(format!(
-                                                "{}%",
-                                                (subject.progress * 100.0).round() as i32
-                                            ))
-                                            .type_role(TypeRole::Label)
-                                            .color(palette::TEXT);
-                                        });
-                                    Text(subject.blurb)
-                                        .type_role(TypeRole::Caption)
-                                        .color(palette::TEXT);
-                                    ProgressIndicator(subject.progress)
-                                        .color(palette::TEXT)
-                                        .track_color(palette::PAGE)
-                                        .modifier(Modifier.fill_max_width());
-                                });
+                            Column!(
+                                modifier = Modifier
+                                    .fill_max_width()
+                                    .background(subject.fill)
+                                    .shape_role(ShapeRole::Large)
+                                    .padding_role(SpaceRole::Md),
+                                space_role = SpaceRole::Xs,
+                                {
+                                    Row!(
+                                        modifier = Modifier.fill_max_width(),
+                                        alignment = Alignment::CenterStart,
+                                        {
+                                            Text!(
+                                                subject.name,
+                                                type_role = TypeRole::BodyStrong,
+                                                color = palette::TEXT,
+                                                modifier = Modifier.weight(1.0)
+                                            );
+                                            Text!(
+                                                format!(
+                                                    "{}%",
+                                                    (subject.progress * 100.0).round() as i32
+                                                ),
+                                                type_role = TypeRole::Label,
+                                                color = palette::TEXT
+                                            );
+                                        }
+                                    );
+                                    Text!(
+                                        subject.blurb,
+                                        type_role = TypeRole::Caption,
+                                        color = palette::TEXT
+                                    );
+                                    ProgressIndicator!(
+                                        subject.progress,
+                                        color = palette::TEXT,
+                                        track_color = palette::PAGE,
+                                        modifier = Modifier.fill_max_width()
+                                    );
+                                }
+                            );
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The profile destination, which the reference leaves as a name.
 fn profile_page() {
-    Box()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .alignment(Alignment::Center)
-        .content(|| {
-            Text("Profile")
-                .type_role(TypeRole::Body)
-                .color(palette::TEXT);
-        });
+    Box!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        alignment = Alignment::Center,
+        {
+            Text!("Profile", type_role = TypeRole::Body, color = palette::TEXT);
+        }
+    );
 }
 
 /// The bar along the bottom: four white icons and nothing else.
@@ -522,33 +576,35 @@ fn profile_page() {
 /// reference is four bare icons on the black page with no labels, no pill and no hairline,
 /// and the one you are on carries a coral dot at its shoulder.
 fn bottom_bar(current: Destination, destination: MutableState<Destination>) {
-    Row()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-        .arrangement(Arrangement::SpaceAround)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+        arrangement = Arrangement::SpaceAround,
+        alignment = Alignment::Center,
+        {
             for choice in Destination::STRIP {
                 key(choice.label(), || {
-                    Box()
-                        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
-                        .alignment(Alignment::TopEnd)
-                        .content(|| {
+                    Box!(
+                        modifier = Modifier.size(ICON_TAP, ICON_TAP),
+                        alignment = Alignment::TopEnd,
+                        {
                             icon_button(choice.icon(), choice.label(), move || {
                                 destination.set(choice)
                             });
                             if choice == current {
-                                Box().modifier(
-                                    Modifier
+                                Box!(
+                                    modifier = Modifier
                                         .size(DOT, DOT)
                                         .offset(-DOT, DOT)
                                         .background(palette::ACCENT)
-                                        .shape_role(ShapeRole::Full),
+                                        .shape_role(ShapeRole::Full)
                                 );
                             }
-                        });
+                        }
+                    );
                 });
             }
-        });
+        }
+    );
 }
 
 #[Composable]
@@ -572,42 +628,43 @@ pub fn app() {
     // The page and the bar are both held to a phone's width once the window is wider than
     // one, so the title, the grid and the bar stay in one column rather than the title
     // running to one edge of a desktop window and the bar to both.
-    Scaffold()
-        .modifier(Modifier.background(palette::PAGE))
-        .bottom_bar(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().background(palette::PAGE))
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(|| bottom_bar(current, destination));
-                });
-        })
-        .content(|| {
-            Box()
-                .modifier(Modifier.fill_max_size().background(palette::PAGE))
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    ScrollColumn()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none())
-                                .fill_max_height(),
-                        )
-                        .content(|| match current {
+    Scaffold!(
+        modifier = Modifier.background(palette::PAGE),
+        bottom_bar = Some(|| {
+            Box!(
+                modifier = Modifier.fill_max_width().background(palette::PAGE),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none()),
+                        content = || bottom_bar(current, destination)
+                    );
+                }
+            );
+        }),
+        {
+            Box!(
+                modifier = Modifier.fill_max_size().background(palette::PAGE),
+                alignment = Alignment::TopCenter,
+                {
+                    ScrollColumn!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none())
+                            .fill_max_height(),
+                        content = || match current {
                             Destination::Skills => skills_page(&on_open, destination),
                             Destination::Plan => plan_page(&chosen_stage, destination),
                             Destination::Progress => progress_page(),
                             Destination::Profile => profile_page(),
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The design this sample draws, named once.
@@ -1285,6 +1342,7 @@ mod tests {
                         safe_area_top: 0.0,
                         safe_area_leading: 0.0,
                         safe_area_trailing: 0.0,
+                        safe_area_bottom: 0.0,
                     },
                 },
                 &mut bytes,

@@ -14,7 +14,7 @@
 //! so the message growing at the bottom does not disturb the ones above it.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::rc::Rc;
 
 mod assistant;
@@ -72,7 +72,7 @@ fn opening_messages() -> Vec<Message> {
 
 /// The mark, drawn in an icon's place so the design system says how big it is.
 fn spark() {
-    Icon(compose_rust::asset::asset(
+    Icon!(compose_rust::asset::asset(
         compose_rust::schema::AssetKind::Svg,
         include_bytes!("../assets/spark.svg"),
     ));
@@ -80,7 +80,7 @@ fn spark() {
 
 /// The account's picture, at an icon's size for the same reason.
 fn account_picture() {
-    Icon(compose_rust::asset::asset(
+    Icon!(compose_rust::asset::asset(
         compose_rust::schema::AssetKind::Svg,
         include_bytes!("../assets/avatar.svg"),
     ));
@@ -95,19 +95,24 @@ const EMPTY_GUIDANCE: &str = "Nothing written here leaves this device. The assis
 /// What an empty conversation shows: the reference's title over a quieter paragraph, and
 /// no mark, because the reference has none there.
 fn opening_greeting() {
-    Column()
-        .modifier(Modifier.padding_role(SpaceRole::Lg))
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Text(EMPTY_TITLE)
-                .type_role(TypeRole::Headline)
-                .text_align(TextAlign::Center);
-            Text(EMPTY_GUIDANCE)
-                .type_role(TypeRole::Body)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                .text_align(TextAlign::Center);
-        });
+    Column!(
+        modifier = Modifier.padding_role(SpaceRole::Lg),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::Center,
+        {
+            Text!(
+                EMPTY_TITLE,
+                type_role = TypeRole::Headline,
+                text_align = TextAlign::Center
+            );
+            Text!(
+                EMPTY_GUIDANCE,
+                type_role = TypeRole::Body,
+                color = Paint::Role(ColorRole::OnSurfaceVariant),
+                text_align = TextAlign::Center
+            );
+        }
+    );
 }
 
 /// The widest the thread may be, per class.
@@ -127,72 +132,86 @@ fn thread_width(window: &WindowSize) -> Option<f32> {
 /// The assistant's settings, in a sheet.
 #[Composable]
 fn settings_panel(settings: Settings, change: Rc<dyn Fn(Settings)>, close: Rc<dyn Fn()>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("Assistant")
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "Assistant",
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
                     let close = Rc::clone(&close);
-                    Button("Done")
-                        .variant(ButtonVariant::Filled)
-                        .on_click(move || close());
-                });
-            Separator(None);
+                    Button!("Done", move || close(), variant = ButtonVariant::Filled);
+                }
+            );
+            Separator!(None);
 
-            Text("Reply length")
-                .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            Text!(
+                "Reply length",
+                type_role = TypeRole::Label,
+                color = Paint::Role(ColorRole::OnSurfaceVariant)
+            );
             for length in Length::ALL {
                 let change = Rc::clone(&change);
                 key(length.label(), || {
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            RadioButton(settings.length == length)
-                                .on_change(move |_| change(Settings { length, ..settings }));
-                            Text(length.label()).type_role(TypeRole::Body);
-                        });
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::CenterStart,
+                        {
+                            RadioButton!(settings.length == length, move |_| change(Settings {
+                                length,
+                                ..settings
+                            }));
+                            Text!(length.label(), type_role = TypeRole::Body);
+                        }
+                    );
                 });
             }
 
-            Separator(None);
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Column().modifier(Modifier.weight(1.0)).content(|| {
-                        Text("Type the reply out").type_role(TypeRole::Body);
-                        Text("Off, and the whole answer lands at once.")
-                            .type_role(TypeRole::Caption)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            Separator!(None);
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
+                    Column!(modifier = Modifier.weight(1.0), {
+                        Text!("Type the reply out", type_role = TypeRole::Body);
+                        Text!(
+                            "Off, and the whole answer lands at once.",
+                            type_role = TypeRole::Caption,
+                            color = Paint::Role(ColorRole::OnSurfaceVariant)
+                        );
                     });
                     let change = Rc::clone(&change);
-                    Switch(settings.streaming).on_change(move |streaming| {
+                    Switch!(settings.streaming, move |streaming| {
                         change(Settings {
                             streaming,
                             ..settings
                         })
                     });
-                });
+                }
+            );
 
-            Text(format!("{} characters a second", settings.speed as u32))
-                .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+            Text!(
+                format!("{} characters a second", settings.speed as u32),
+                type_role = TypeRole::Label,
+                color = Paint::Role(ColorRole::OnSurfaceVariant)
+            );
             let change = Rc::clone(&change);
-            Slider(settings.speed)
-                .range(assistant::SLOWEST, assistant::FASTEST)
-                .enabled(settings.streaming)
-                .on_change(move |speed| change(Settings { speed, ..settings }));
-        });
+            Slider!(
+                settings.speed,
+                move |speed| change(Settings { speed, ..settings }),
+                range = (assistant::SLOWEST, assistant::FASTEST),
+                enabled = settings.streaming
+            );
+        }
+    );
 }
 
 /// The chat.
@@ -387,165 +406,180 @@ pub fn app() {
     let current_settings = settings.get();
     let conversation_count = conversations.with(Vec::len);
 
-    Scaffold()
-        .modifier(Modifier.material(MaterialRole::Chrome))
-        .top_bar(|| {
-            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
-                Spacer().modifier(Modifier.weight(1.0));
+    Scaffold!(
+        modifier = Modifier.material(MaterialRole::Chrome),
+        top_bar = Some(|| {
+            TopAppBar!(modifier = Modifier.fill_max_width(), {
+                Spacer!(modifier = Modifier.weight(1.0));
                 let start = Rc::clone(&start_conversation);
-                Button("")
-                    .icon(IconRole::Compose)
-                    .variant(ButtonVariant::Text)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                    .on_click(move || start());
+                Button!(
+                    "",
+                    move || start(),
+                    icon = IconRole::Compose,
+                    variant = ButtonVariant::Text,
+                    color = Paint::Role(ColorRole::OnSurfaceVariant)
+                );
                 let (dismiss, open) = (more_open, more_open);
-                Menu(more_open.get())
-                    .on_dismiss(move || dismiss.set(false))
-                    .anchor(move || {
-                        Button("")
-                            .icon(IconRole::More)
-                            .variant(ButtonVariant::Text)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                            .on_click(move || open.set(true));
-                    })
-                    .content(|| {
+                Menu!(
+                    more_open.get(),
+                    move || dismiss.set(false),
+                    anchor = Some(move || {
+                        Button!(
+                            "",
+                            move || open.set(true),
+                            icon = IconRole::More,
+                            variant = ButtonVariant::Text,
+                            color = Paint::Role(ColorRole::OnSurfaceVariant)
+                        );
+                    }),
+                    {
                         let (more, settings_open) = (more_open, settings_open);
-                        Button("Assistant settings")
-                            .variant(ButtonVariant::Text)
-                            .modifier(Modifier.fill_max_width())
-                            .on_click(move || {
+                        Button!(
+                            "Assistant settings",
+                            move || {
                                 more.set(false);
                                 settings_open.set(true);
-                            });
+                            },
+                            variant = ButtonVariant::Text,
+                            modifier = Modifier.fill_max_width()
+                        );
                         let (more, delete) = (more_open, Rc::clone(&delete_current));
-                        Button("Delete conversation")
-                            .variant(ButtonVariant::Text)
-                            .color(Paint::Role(ColorRole::Error))
-                            .modifier(Modifier.fill_max_width())
-                            .enabled(conversation_count > 1)
-                            .on_click(move || {
+                        Button!(
+                            "Delete conversation",
+                            move || {
                                 more.set(false);
                                 delete();
-                            });
-                    });
+                            },
+                            variant = ButtonVariant::Text,
+                            color = Paint::Role(ColorRole::Error),
+                            modifier = Modifier.fill_max_width(),
+                            enabled = conversation_count > 1
+                        );
+                    }
+                );
             });
-        })
-        .bottom_bar(|| {
+        }),
+        bottom_bar = Some(|| {
             // The reference has no bottom bar on a phone either: a toggle at the top left
             // brings the sidebar out over the page.
-            Navigation(selected)
-                .compact(CompactNavigation::Sidebar)
-                .head(|| {
-                    Column()
-                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-                        .space_role(SpaceRole::Sm)
-                        .content(|| {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Sm)
-                                .alignment(Alignment::CenterStart)
-                                .content(|| {
+            Navigation!(
+                selected,
+                compact = CompactNavigation::Sidebar,
+                head = Some(|| {
+                    Column!(
+                        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+                        space_role = SpaceRole::Sm,
+                        {
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Sm,
+                                alignment = Alignment::CenterStart,
+                                {
                                     spark();
-                                    Text("Chat").type_role(TypeRole::Subtitle);
-                                });
+                                    Text!("Chat", type_role = TypeRole::Subtitle);
+                                }
+                            );
                             // The reference's two modes under its name, both of which can
                             // be chosen and left. The Renderer sends a press anywhere on a
                             // tab as that tab's child's own click, so each child carries
                             // the handler and the whole tab is one target.
-                            Tabs(mode.get())
-                                .modifier(Modifier.fill_max_width())
-                                .content(|| {
-                                    for (index, label) in MODES.into_iter().enumerate() {
-                                        key(label, || {
-                                            Box().on_click(move || mode.set(index)).content(|| {
-                                                Text(label).type_role(TypeRole::Label);
-                                            });
+                            Tabs!(mode.get(), modifier = Modifier.fill_max_width(), {
+                                for (index, label) in MODES.into_iter().enumerate() {
+                                    key(label, || {
+                                        Box!(on_click = Some(move || mode.set(index)), {
+                                            Text!(label, type_role = TypeRole::Label);
                                         });
-                                    }
-                                });
-                        });
-                })
-                .foot(|| {
-                    Row()
-                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            account_picture();
-                            Column().content(|| {
-                                Text("Signed in").type_role(TypeRole::Label);
-                                Text("Local")
-                                    .type_role(TypeRole::Caption)
-                                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                    });
+                                }
                             });
-                        });
-                })
-                .content(|| {
+                        }
+                    );
+                }),
+                foot = Some(|| {
+                    Row!(
+                        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::CenterStart,
+                        {
+                            account_picture();
+                            Column!({
+                                Text!("Signed in", type_role = TypeRole::Label);
+                                Text!(
+                                    "Local",
+                                    type_role = TypeRole::Caption,
+                                    color = Paint::Role(ColorRole::OnSurfaceVariant)
+                                );
+                            });
+                        }
+                    );
+                }),
+                {
                     let start = Rc::clone(&start_conversation);
-                    NavigationItem("New chat")
-                        .icon(IconRole::Compose)
-                        .on_click(move || start());
+                    NavigationItem!("New chat", move || start(), icon = IconRole::Compose);
                     // A row like the others at every width: the sidebar is the same set of
                     // rows whether it is pinned beside the page or brought out over it.
                     let open = search_open;
-                    NavigationItem("Search")
-                        .icon(IconRole::Search)
-                        .on_click(move || open.set(true));
-                    NavigationItem("Images").icon(IconRole::Image);
-                    NavigationItem("Videos").icon(IconRole::Video);
-                    NavigationItem("Library").icon(IconRole::Library);
-                    NavigationItem("New notebook")
-                        .icon(IconRole::Add)
-                        .section("Notebooks");
+                    NavigationItem!("Search", move || open.set(true), icon = IconRole::Search);
+                    NavigationItem!("Images", || {}, icon = IconRole::Image);
+                    NavigationItem!("Videos", || {}, icon = IconRole::Video);
+                    NavigationItem!("Library", || {}, icon = IconRole::Library);
+                    NavigationItem!(
+                        "New notebook",
+                        || {},
+                        icon = IconRole::Add,
+                        section = "Notebooks"
+                    );
                     for conversation in recent.iter().cloned() {
                         let pick = current;
                         let id = conversation.id;
                         key(id, || {
-                            NavigationItem(conversation.label())
-                                .section("Chats")
-                                .on_click(move || {
+                            NavigationItem!(
+                                conversation.label(),
+                                move || {
                                     mode.set(CHAT_MODE);
                                     pick.set(id);
-                                });
+                                },
+                                section = "Chats"
+                            );
                         });
                     }
-                });
-        })
-        .content(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().fill_max_height())
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .fill_max_width_if(measure.is_none())
-                                .width_if(measure)
-                                .fill_max_height()
-                                .padding_role(SpaceRole::Sm),
-                        )
-                        .space_role(SpaceRole::Md)
-                        .content(|| {
+                }
+            );
+        }),
+        {
+            Box!(
+                modifier = Modifier.fill_max_width().fill_max_height(),
+                alignment = Alignment::TopCenter,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .fill_max_width_if(measure.is_none())
+                            .width_if(measure)
+                            .fill_max_height()
+                            .padding_role(SpaceRole::Sm),
+                        space_role = SpaceRole::Md,
+                        {
                             if mode.get() == AGENT_MODE {
-                                Box()
-                                    .modifier(Modifier.fill_max_width().weight(1.0))
-                                    .alignment(Alignment::Center)
-                                    .content(agent_page);
+                                Box!(
+                                    modifier = Modifier.fill_max_width().weight(1.0),
+                                    alignment = Alignment::Center,
+                                    content = agent_page
+                                );
                                 return;
                             }
                             if busy {
-                                IndeterminateProgressIndicator();
+                                IndeterminateProgressIndicator!();
                             }
 
-                            Box()
-                                .modifier(Modifier.fill_max_width().weight(1.0))
-                                .alignment(Alignment::Center)
-                                .content(|| {
+                            Box!(
+                                modifier = Modifier.fill_max_width().weight(1.0),
+                                alignment = Alignment::Center,
+                                {
                                     let (keys, rows, messages) =
                                         (keys.clone(), rows.clone(), messages);
-                                    LazyColumn()
-                                        .modifier(Modifier.fill_max_width().fill_max_height())
-                                        .content(move |list| {
+                                    LazyColumn!(
+                                        modifier = Modifier.fill_max_width().fill_max_height(),
+                                        content = move |list| {
                                             list.items_keyed(
                                                 count,
                                                 move |index| keys[index].clone(),
@@ -553,11 +587,13 @@ pub fn app() {
                                                     message_row(&rows, position, &messages)
                                                 },
                                             );
-                                        });
+                                        }
+                                    );
                                     if count == 0 {
                                         opening_greeting();
                                     }
-                                });
+                                }
+                            );
 
                             composer_row(
                                 &more_open,
@@ -569,58 +605,75 @@ pub fn app() {
                                 current_settings,
                                 &send,
                             );
-                        });
+                        }
+                    );
 
                     let close = settings_open;
-                    Sheet(settings_open.get())
-                        .on_dismiss(move || close.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
+                    Sheet!(
+                        settings_open.get(),
+                        move || close.set(false),
+                        modifier = Modifier.fill_max_width(),
+                        {
                             let (next, close) = (settings, settings_open);
                             settings_panel(
                                 current_settings,
                                 Rc::new(move |value| next.set(value)),
                                 Rc::new(move || close.set(false)),
                             );
-                        });
+                        }
+                    );
 
                     let close = search_open;
-                    Sheet(search_open.get())
-                        .on_dismiss(move || close.set(false))
-                        .modifier(Modifier.fill_max_width())
-                        .content(|| {
-                            Column()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Md)
-                                .content(|| {
-                                    Row()
-                                        .modifier(Modifier.fill_max_width())
-                                        .alignment(Alignment::CenterStart)
-                                        .content(|| {
-                                            Text("Search conversations")
-                                                .type_role(TypeRole::Subtitle)
-                                                .modifier(Modifier.weight(1.0));
+                    Sheet!(
+                        search_open.get(),
+                        move || close.set(false),
+                        modifier = Modifier.fill_max_width(),
+                        {
+                            Column!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Md,
+                                {
+                                    Row!(
+                                        modifier = Modifier.fill_max_width(),
+                                        alignment = Alignment::CenterStart,
+                                        {
+                                            Text!(
+                                                "Search conversations",
+                                                type_role = TypeRole::Subtitle,
+                                                modifier = Modifier.weight(1.0)
+                                            );
                                             let done = search_open;
-                                            Button("Done")
-                                                .variant(ButtonVariant::Filled)
-                                                .on_click(move || done.set(false));
-                                        });
+                                            Button!(
+                                                "Done",
+                                                move || done.set(false),
+                                                variant = ButtonVariant::Filled
+                                            );
+                                        }
+                                    );
                                     let typed = search_query;
-                                    TextField()
-                                        .modifier(Modifier.fill_max_width())
-                                        .placeholder("Search conversations")
-                                        .on_value_change(move |value| typed.set(value));
+                                    TextField!(
+                                        "",
+                                        move |value| typed.set(value),
+                                        modifier = Modifier.fill_max_width(),
+                                        placeholder = "Search conversations"
+                                    );
                                     if !search_query.get().is_empty() {
                                         let clear = search_query;
-                                        Button("Clear search")
-                                            .modifier(Modifier.fill_max_width())
-                                            .variant(ButtonVariant::Text)
-                                            .on_click(move || clear.set(String::new()));
+                                        Button!(
+                                            "Clear search",
+                                            move || clear.set(String::new()),
+                                            modifier = Modifier.fill_max_width(),
+                                            variant = ButtonVariant::Text
+                                        );
                                     }
-                                });
-                        });
-                });
-        });
+                                }
+                            );
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// One message, composed when the Renderer's window reaches it.
@@ -640,45 +693,46 @@ fn message_row(rows: &[usize], position: usize, messages: &MutableState<Vec<Mess
     } else {
         Alignment::CenterStart
     };
-    Box()
-        .modifier(Modifier.fill_max_width().padding_role(if starts_a_run {
+    Box!(
+        modifier = Modifier.fill_max_width().padding_role(if starts_a_run {
             SpaceRole::Sm
         } else {
             SpaceRole::Xs
-        }))
-        .alignment(side)
-        .content(|| {
-            Column()
-                .space_role(SpaceRole::Xs)
-                .alignment(side)
-                .content(|| {
-                    if starts_a_run {
-                        Text(if message.from_user {
+        }),
+        alignment = side,
+        {
+            Column!(space_role = SpaceRole::Xs, alignment = side, {
+                if starts_a_run {
+                    Text!(
+                        if message.from_user {
                             "You"
                         } else {
                             "Assistant"
-                        })
-                        .type_role(TypeRole::Caption)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                    }
-                    Column()
-                        .modifier(
-                            Modifier
-                                .background(Paint::Role(fill))
-                                .shape_role(ShapeRole::Large)
-                                .padding_role(SpaceRole::Md),
-                        )
-                        .content(|| {
-                            Text(if message.streaming {
+                        },
+                        type_role = TypeRole::Caption,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                }
+                Column!(
+                    modifier = Modifier
+                        .background(Paint::Role(fill))
+                        .shape_role(ShapeRole::Large)
+                        .padding_role(SpaceRole::Md),
+                    {
+                        Text!(
+                            if message.streaming {
                                 format!("{}\u{2589}", message.text)
                             } else {
                                 message.text.clone()
-                            })
-                            .type_role(TypeRole::Body)
-                            .color(Paint::Role(ink));
-                        });
-                });
-        });
+                            },
+                            type_role = TypeRole::Body,
+                            color = Paint::Role(ink)
+                        );
+                    }
+                );
+            });
+        }
+    );
 }
 
 /// The composer: the add menu, the field, the length menu and the send key.
@@ -694,97 +748,116 @@ fn composer_row(
     current_settings: Settings,
     send: &Rc<dyn Fn(String)>,
 ) {
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .material(MaterialRole::Regular)
-                .shape_role(ShapeRole::Full)
-                .padding_role(SpaceRole::Sm),
-        )
-        .space_role(SpaceRole::Xs)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .material(MaterialRole::Regular)
+            .shape_role(ShapeRole::Full)
+            .padding_role(SpaceRole::Sm),
+        space_role = SpaceRole::Xs,
+        alignment = Alignment::CenterStart,
+        {
             let (dismiss, open) = (*more_open, *more_open);
-            Menu(more_open.get())
-                .on_dismiss(move || dismiss.set(false))
-                .anchor(move || {
-                    Button("")
-                        .icon(IconRole::Add)
-                        .variant(ButtonVariant::Text)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .on_click(move || open.set(true));
-                })
-                .content(|| {
+            Menu!(
+                more_open.get(),
+                move || dismiss.set(false),
+                anchor = Some(move || {
+                    Button!(
+                        "",
+                        move || open.set(true),
+                        icon = IconRole::Add,
+                        variant = ButtonVariant::Text,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                }),
+                {
                     let (more, search) = (*more_open, *search_open);
-                    Button("Search conversations")
-                        .icon(IconRole::Search)
-                        .variant(ButtonVariant::Text)
-                        .modifier(Modifier.fill_max_width())
-                        .on_click(move || {
+                    Button!(
+                        "Search conversations",
+                        move || {
                             more.set(false);
                             search.set(true);
-                        });
-                    Divider();
+                        },
+                        icon = IconRole::Search,
+                        variant = ButtonVariant::Text,
+                        modifier = Modifier.fill_max_width()
+                    );
+                    Divider!();
                     let (more, settings_open) = (*more_open, *settings_open);
-                    Button("Settings")
-                        .icon(IconRole::Settings)
-                        .variant(ButtonVariant::Text)
-                        .modifier(Modifier.fill_max_width())
-                        .on_click(move || {
+                    Button!(
+                        "Settings",
+                        move || {
                             more.set(false);
                             settings_open.set(true);
-                        });
-                });
+                        },
+                        icon = IconRole::Settings,
+                        variant = ButtonVariant::Text,
+                        modifier = Modifier.fill_max_width()
+                    );
+                }
+            );
             let (typed, submit) = (*draft, Rc::clone(send));
-            TextField()
-                .modifier(Modifier.weight(1.0))
-                .multiline(true)
-                .placeholder("Message")
-                .on_value_change(move |value| typed.set(value))
-                .on_submit(move |value: String| submit(value));
+            TextField!(
+                "",
+                move |value| typed.set(value),
+                modifier = Modifier.weight(1.0),
+                multiline = true,
+                placeholder = "Message",
+                on_submit = Some(move |value: String| submit(value))
+            );
             let (dismiss, open) = (*length_open, *length_open);
-            Menu(length_open.get())
-                .on_dismiss(move || dismiss.set(false))
-                .anchor(move || {
-                    Button(current_settings.length.label())
-                        .variant(ButtonVariant::Text)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .on_click(move || open.set(true));
-                })
-                .content(|| {
+            Menu!(
+                length_open.get(),
+                move || dismiss.set(false),
+                anchor = Some(move || {
+                    Button!(
+                        current_settings.length.label(),
+                        move || open.set(true),
+                        variant = ButtonVariant::Text,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant)
+                    );
+                }),
+                {
                     for length in Length::ALL {
                         let (close, settings) = (*length_open, *settings);
                         key(length.label(), || {
-                            Button(length.label())
-                                .variant(ButtonVariant::Text)
-                                .modifier(Modifier.fill_max_width())
-                                .on_click(move || {
+                            Button!(
+                                length.label(),
+                                move || {
                                     close.set(false);
                                     let current = settings.get_untracked();
                                     settings.set(Settings { length, ..current });
-                                });
+                                },
+                                variant = ButtonVariant::Text,
+                                modifier = Modifier.fill_max_width()
+                            );
                         });
                     }
-                });
+                }
+            );
             // The reference's mic sits between the model and the send. Speech is not
             // something this sample listens to, so pressing it says so rather than doing
             // nothing.
-            Button("")
-                .icon(IconRole::Mic)
-                .variant(ButtonVariant::Text)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                .on_click(voice_unavailable);
+            Button!(
+                "",
+                voice_unavailable,
+                icon = IconRole::Mic,
+                variant = ButtonVariant::Text,
+                color = Paint::Role(ColorRole::OnSurfaceVariant)
+            );
             // The variant's own fill and ink, which is the reference's tinted disc with
             // the arrow in the accent. Its size is the design system's for a key that
             // holds a glyph and no word.
             let (pressed, current) = (Rc::clone(send), *draft);
-            Button("")
-                .icon(IconRole::Send)
-                .variant(ButtonVariant::Tonal)
-                .modifier(Modifier.shape_role(ShapeRole::Full))
-                .on_click(move || pressed(current.get_untracked()));
-        });
+            Button!(
+                "",
+                move || pressed(current.get_untracked()),
+                icon = IconRole::Send,
+                variant = ButtonVariant::Tonal,
+                modifier = Modifier.shape_role(ShapeRole::Full)
+            );
+        }
+    );
 }
 
 /// The tabs under the sidebar's name, in order.
@@ -799,19 +872,24 @@ const AGENT_GUIDANCE: &str = "The agent works through a task for you over a netw
 /// The reference's second mode, which needs a network: its page says so, in the same
 /// shape as an empty conversation.
 fn agent_page() {
-    Column()
-        .modifier(Modifier.padding_role(SpaceRole::Lg))
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Text(AGENT_TITLE)
-                .type_role(TypeRole::Headline)
-                .text_align(TextAlign::Center);
-            Text(AGENT_GUIDANCE)
-                .type_role(TypeRole::Body)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                .text_align(TextAlign::Center);
-        });
+    Column!(
+        modifier = Modifier.padding_role(SpaceRole::Lg),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::Center,
+        {
+            Text!(
+                AGENT_TITLE,
+                type_role = TypeRole::Headline,
+                text_align = TextAlign::Center
+            );
+            Text!(
+                AGENT_GUIDANCE,
+                type_role = TypeRole::Body,
+                color = Paint::Role(ColorRole::OnSurfaceVariant),
+                text_align = TextAlign::Center
+            );
+        }
+    );
 }
 
 /// The reference's mic, which needs speech input.
@@ -1525,6 +1603,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();
@@ -1856,6 +1935,7 @@ mod tests {
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
             };
             let mut bytes = Vec::new();

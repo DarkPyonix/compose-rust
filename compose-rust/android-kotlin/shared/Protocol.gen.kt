@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, NativeVisible, OnNativeViewFocus, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -50,7 +50,7 @@ enum class ColorScheme { Light, Dark, FollowSystem }
 
 enum class AssetKind { Png, Jpeg, Svg, VectorIcon, Font, Brush }
 
-enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse }
+enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh }
 
 enum class MessageDuration { Short, Long }
 
@@ -366,11 +366,11 @@ object DrawCommands {
             if (length != COMMAND_LENGTH) break
             val paintBits = buffer.getLong(offset + 4)
             val kind = (paintBits ushr 32).toInt()
-            if (kind != 1 && kind != 2) break
-            val paint = if (kind == 1) {
-                Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
-            } else {
-                Paint.Literal(paintBits.toInt())
+            val paint = when (kind) {
+                1 -> Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
+                2 -> Paint.Literal(paintBits.toInt())
+                3 -> Paint.Asset(paintBits.toInt())
+                else -> break
             }
             fun word(index: Int): Int = buffer.getInt(offset + 12 + index * 4)
             fun real(index: Int): kotlin.Float = kotlin.Float.fromBits(word(index))
@@ -635,6 +635,7 @@ data class SyntaxSpanRecord(
     val endLine: Int,
     val endColumn: Int,
     val paint: Paint,
+    val style: Int,
 )
 
 /** One stretch of a code editor's lines that can be folded. Folding keeps `startLine` and hides the lines after it up to `endLine`; both are in the document at `version`. */
@@ -782,7 +783,7 @@ object CodeEditorRecords {
         return DecorationRecord(version, kind, severity, color, startLine, startColumn, endLine, endColumn, id, text)
     }
 
-    const val SYNTAX_SPAN_LENGTH = 28
+    const val SYNTAX_SPAN_LENGTH = 32
 
     fun decodeSyntaxSpans(bytes: ByteArray, onError: (String) -> Unit): List<SyntaxSpanRecord> {
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -808,7 +809,8 @@ object CodeEditorRecords {
         val endLine = buffer.getInt(offset + 12)
         val endColumn = buffer.getInt(offset + 16)
         val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
-        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+        val style = buffer.getInt(offset + 28)
+        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint, style)
     }
 
     const val FOLD_LENGTH = 16
@@ -1335,6 +1337,10 @@ sealed interface Modifier {
     data class Overlay(val paint: Paint) : Modifier
     data object Sticky : Modifier
     data object UnboundedWidth : Modifier
+    data class BorderDash(val dashDp: kotlin.Float, val gapDp: kotlin.Float) : Modifier
+    data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
+    data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
+    data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1845,7 +1851,7 @@ sealed interface HostEvent {
     data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
     data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
-    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float) : HostEvent
+    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float, val safeAreaBottom: kotlin.Float) : HostEvent
     data class Resync(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStart(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStop(override val nodeId: Int, override val handlerId: Long) : HostEvent
@@ -1926,7 +1932,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -7259639446471370L
+    const val SCHEMA_HASH: Long = -8231975907812482968L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2646,7 +2652,7 @@ object Protocol {
                 is HostEvent.KeyDown -> 32
                 is HostEvent.RangeRequested -> 24
                 is HostEvent.ValueChanged -> 24
-                is HostEvent.WindowSizeChanged -> 44
+                is HostEvent.WindowSizeChanged -> 48
                 is HostEvent.Resync -> 16
                 is HostEvent.LifecycleStart -> 16
                 is HostEvent.LifecycleStop -> 16
@@ -2803,6 +2809,7 @@ object Protocol {
                     out.putFloat(event.safeAreaTop)
                     out.putFloat(event.safeAreaLeading)
                     out.putFloat(event.safeAreaTrailing)
+                    out.putFloat(event.safeAreaBottom)
                 }
                 is HostEvent.Resync -> Unit
                 is HostEvent.LifecycleStart -> Unit
@@ -3289,6 +3296,8 @@ object Protocol {
         209 -> PropertyKind.SpanFontFeatures
         210 -> PropertyKind.ContentPaddingDp
         211 -> PropertyKind.FixedGutterColumns
+        214 -> PropertyKind.SheetHandle
+        215 -> PropertyKind.ReadOnly
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
         27 -> PropertyKind.Progress
@@ -3722,6 +3731,24 @@ object Protocol {
         19 -> IconRole.Sidebar
         20 -> IconRole.Compose
         21 -> IconRole.Collapse
+        22 -> IconRole.Lock
+        23 -> IconRole.Favorite
+        24 -> IconRole.Book
+        25 -> IconRole.Play
+        26 -> IconRole.Shuffle
+        27 -> IconRole.ExpandMore
+        28 -> IconRole.Person
+        29 -> IconRole.Clock
+        30 -> IconRole.Tune
+        31 -> IconRole.Chat
+        32 -> IconRole.Star
+        33 -> IconRole.Bag
+        34 -> IconRole.Bell
+        35 -> IconRole.Share
+        36 -> IconRole.Language
+        37 -> IconRole.CompactOverlay
+        38 -> IconRole.Calculator
+        39 -> IconRole.Refresh
         else -> throw ProtocolException("unknown IconRole tag $tag", offset)
     }
 
@@ -4164,6 +4191,9 @@ object Protocol {
         }
     }
 
+    /** A paint that may be absent: a zero word is none, because no paint kind is zero. */
+    private fun optionalPaint(bits: Long, offset: Int): Paint? = if (bits == 0L) null else paint(bits, offset)
+
     /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
     private fun flag(word: Long, offset: Int): Boolean = when (word) {
         0L -> false
@@ -4220,6 +4250,10 @@ object Protocol {
         39 -> 0
         41 -> 0
         40 -> 0
+        42 -> 0
+        43 -> 1
+        44 -> 0
+        45 -> 1
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4267,6 +4301,10 @@ object Protocol {
             39 -> Modifier.Overlay(paint(first, offset))
             41 -> Modifier.Sticky
             40 -> Modifier.UnboundedWidth
+            42 -> Modifier.BorderDash(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
+            43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

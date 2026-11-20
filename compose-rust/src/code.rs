@@ -27,7 +27,16 @@ use std::rc::Rc;
 pub const DECORATION_LEN: usize = 44;
 
 /// Bytes of one syntax colour run record.
-pub const SYNTAX_SPAN_LEN: usize = 28;
+pub const SYNTAX_SPAN_LEN: usize = 32;
+
+/// Bit in [`SyntaxSpan`]'s encoded style word that sets italic slant.
+pub const SYNTAX_STYLE_ITALIC: u32 = 1 << 16;
+
+/// Bit in [`SyntaxSpan`]'s encoded style word that draws an underline.
+pub const SYNTAX_STYLE_UNDERLINE: u32 = 1 << 17;
+
+/// Mask for the font weight (0 = inherit, 1..=1000) in [`SyntaxSpan`]'s encoded style word.
+pub const SYNTAX_STYLE_WEIGHT_MASK: u32 = 0xFFFF;
 
 /// Bytes of one edit record inside a grouped edit: the range as four `u32`, then the
 /// text's `(offset, length)`.
@@ -120,7 +129,9 @@ pub const DECORATION_RECORD: RecordSchema = RecordSchema {
     ],
 };
 
-/// One colour run of the syntax: a version, a range and the paint it is drawn in.
+/// One colour run of the syntax: a version, a range, the paint it is drawn in and a packed
+/// font style word (low 16 bits: font weight 0 = inherit or 1..=1000; bit 16: italic;
+/// bit 17: underline).
 pub const SYNTAX_SPAN_RECORD: RecordSchema = RecordSchema {
     name: "SyntaxSpanRecord",
     length: SYNTAX_SPAN_LEN as u16,
@@ -131,6 +142,7 @@ pub const SYNTAX_SPAN_RECORD: RecordSchema = RecordSchema {
         field("endLine", 12, RecordFieldType::U32),
         field("endColumn", 16, RecordFieldType::U32),
         field("paint", 20, RecordFieldType::Paint),
+        field("style", 28, RecordFieldType::U32),
     ],
 };
 
@@ -656,6 +668,73 @@ impl Decorations {
     }
 }
 
+/// Font style for one syntax span: optional weight (1..=1000), italic slant, and underline.
+///
+/// The default leaves every attribute inherited from the editor's base style.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SyntaxFontStyle {
+    /// Font weight in 1..=1000 (for example 500 for medium, 700 for bold). `None` inherits.
+    pub weight: Option<u16>,
+    pub italic: bool,
+    pub underline: bool,
+}
+
+impl SyntaxFontStyle {
+    pub const NORMAL: Self = Self {
+        weight: None,
+        italic: false,
+        underline: false,
+    };
+
+    pub const fn italic(mut self) -> Self {
+        self.italic = true;
+        self
+    }
+
+    pub const fn bold(mut self) -> Self {
+        self.weight = Some(700);
+        self
+    }
+
+    pub const fn weight(mut self, weight: u16) -> Self {
+        self.weight = Some(weight);
+        self
+    }
+
+    pub const fn underline(mut self) -> Self {
+        self.underline = true;
+        self
+    }
+
+    pub const fn to_bits(self) -> u32 {
+        let mut bits = match self.weight {
+            Some(weight) if weight >= 1 && weight <= 1000 => weight as u32,
+            _ => 0,
+        };
+        if self.italic {
+            bits |= SYNTAX_STYLE_ITALIC;
+        }
+        if self.underline {
+            bits |= SYNTAX_STYLE_UNDERLINE;
+        }
+        bits
+    }
+
+    pub const fn from_bits(bits: u32) -> Self {
+        let raw_weight = (bits & SYNTAX_STYLE_WEIGHT_MASK) as u16;
+        let weight = if raw_weight >= 1 && raw_weight <= 1000 {
+            Some(raw_weight)
+        } else {
+            None
+        };
+        Self {
+            weight,
+            italic: (bits & SYNTAX_STYLE_ITALIC) != 0,
+            underline: (bits & SYNTAX_STYLE_UNDERLINE) != 0,
+        }
+    }
+}
+
 /// One colour run of the syntax.
 ///
 /// A paint rather than a colour, and in practice a role: the code colour roles are what a
@@ -666,6 +745,7 @@ pub struct SyntaxSpan {
     pub version: u32,
     pub range: CodeRange,
     pub paint: Paint,
+    pub style: SyntaxFontStyle,
 }
 
 impl SyntaxSpan {
@@ -674,12 +754,38 @@ impl SyntaxSpan {
             version,
             range,
             paint,
+            style: SyntaxFontStyle::NORMAL,
         }
     }
 
     /// A run drawn in one colour role.
     pub const fn role(version: u32, range: CodeRange, role: ColorRole) -> Self {
         Self::new(version, range, Paint::Role(role))
+    }
+
+    pub const fn with_style(mut self, style: SyntaxFontStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    pub const fn italic(mut self) -> Self {
+        self.style.italic = true;
+        self
+    }
+
+    pub const fn bold(mut self) -> Self {
+        self.style.weight = Some(700);
+        self
+    }
+
+    pub const fn with_weight(mut self, weight: u16) -> Self {
+        self.style.weight = Some(weight);
+        self
+    }
+
+    pub const fn underline(mut self) -> Self {
+        self.style.underline = true;
+        self
     }
 }
 
@@ -705,6 +811,7 @@ impl SyntaxSpans {
             put_u32(&mut bytes, span.version);
             put_range(&mut bytes, span.range);
             put_u64(&mut bytes, span.paint.to_bits());
+            put_u32(&mut bytes, span.style.to_bits());
         }
         Self::from_bytes(bytes)
     }
@@ -734,6 +841,7 @@ impl SyntaxSpans {
                     version: word(record, 0),
                     range: range_at(record, 4),
                     paint: Paint::from_bits(long(record, 20))?,
+                    style: SyntaxFontStyle::from_bits(word(record, 28)),
                 })
             })
             .collect()

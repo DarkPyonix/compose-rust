@@ -1842,7 +1842,12 @@ class NodeTable {
                 // The presentation of a sheet: edge drawer or centered modal, and its max width.
                 PropertyKind.Presentation,
                 PropertyKind.MaxWidth,
+                // Whether a bottom sheet draws its drag handle.
+                PropertyKind.SheetHandle,
                 -> widget == WidgetKind.Sheet
+
+                // Whether a text field rejects edits while keeping focus, selection and copy.
+                PropertyKind.ReadOnly -> widget == WidgetKind.TextField
 
                 // How a picture is laid into its box. An icon takes its design system's
                 // optical size, so only an image has a box to lay it into.

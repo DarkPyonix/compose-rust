@@ -28,6 +28,7 @@
 
 pub(crate) mod focus;
 mod lazy;
+pub mod next;
 mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
@@ -357,6 +358,86 @@ pub enum Side {
     Start,
 }
 
+/// How a pressable node looks while a mouse is over it, for [`Modifier::hover_style`].
+///
+/// Built as `HoverStyle::fill(paint, alpha).border(paint).content_alpha(a)`, or from
+/// `HoverStyle::default()`, which changes nothing: the default hover layer, the node's own
+/// border colour and its full opacity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoverStyle {
+    /// The hover layer's paint. None keeps the default `OnSurface` layer.
+    pub fill: Option<Paint>,
+    /// The opacity the hover layer is laid over the node at, from 0 to 1.
+    pub fill_alpha: f32,
+    /// The colour the node's border takes while the mouse is over it. None keeps it.
+    pub border: Option<Paint>,
+    /// What the whole node's opacity is multiplied by while the mouse is over it.
+    pub content_alpha: f32,
+}
+
+impl Default for HoverStyle {
+    fn default() -> Self {
+        Self {
+            fill: None,
+            fill_alpha: 0.0,
+            border: None,
+            content_alpha: 1.0,
+        }
+    }
+}
+
+impl HoverStyle {
+    /// A hover layer of `paint` laid over the node at `alpha`.
+    pub fn fill(paint: impl Into<Paint>, alpha: f32) -> Self {
+        Self {
+            fill: Some(paint.into()),
+            fill_alpha: alpha,
+            ..Self::default()
+        }
+    }
+
+    /// The border colour while the mouse is over the node.
+    pub fn border(mut self, paint: impl Into<Paint>) -> Self {
+        self.border = Some(paint.into());
+        self
+    }
+
+    /// The factor the node's opacity is multiplied by while the mouse is over it.
+    pub fn content_alpha(mut self, alpha: f32) -> Self {
+        self.content_alpha = alpha;
+        self
+    }
+}
+
+/// The colour and the press-in curve of a pressed surface, for [`Modifier::press_style`].
+///
+/// `PressStyle::default()` changes nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PressStyle {
+    /// The colour laid over the surface while it is pressed, at the press tint's alpha.
+    /// None keeps the node's content colour.
+    pub tint: Option<Paint>,
+    /// The `cubic-bezier(x1, y1, x2, y2)` the press runs along. None keeps the default
+    /// ease-out. The release keeps its own curve either way.
+    pub press_easing: Option<[f32; 4]>,
+}
+
+impl PressStyle {
+    /// A press tint of `paint`.
+    pub fn tint(paint: impl Into<Paint>) -> Self {
+        Self {
+            tint: Some(paint.into()),
+            press_easing: None,
+        }
+    }
+
+    /// The press-in curve, as CSS `cubic-bezier(x1, y1, x2, y2)`.
+    pub const fn press_easing(mut self, x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
+        self.press_easing = Some([x1, y1, x2, y2]);
+        self
+    }
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -380,6 +461,7 @@ pub struct Modifier {
     height: Option<f32>,
     padding: Option<f32>,
     padding_role: Option<SpaceRole>,
+    padding_each: Option<[f32; 4]>,
     background: Option<Paint>,
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
@@ -389,10 +471,14 @@ pub struct Modifier {
     overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
+    border_dash: Option<(f32, f32)>,
     border_each: Option<[(f32, Paint); 4]>,
     elevation: Option<f32>,
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
+    hover_style: Option<HoverStyle>,
+    focus_ring: Option<(Paint, f32, f32)>,
+    press_style: Option<PressStyle>,
     semantics_role: Option<SemanticsRole>,
     semantics_label: Option<Arc<str>>,
     semantics_state: SemanticsState,
@@ -433,6 +519,7 @@ impl Modifier {
             height: None,
             padding: None,
             padding_role: None,
+            padding_each: None,
             background: None,
             shape_role: None,
             corner_radius: None,
@@ -442,10 +529,14 @@ impl Modifier {
             overlay: None,
             border_width: None,
             border_color: None,
+            border_dash: None,
             border_each: None,
             elevation: None,
             alpha: None,
             press_feedback: None,
+            hover_style: None,
+            focus_ring: None,
+            press_style: None,
             semantics_role: None,
             semantics_label: None,
             semantics_state: SemanticsState::NONE,
@@ -624,13 +715,30 @@ impl Modifier {
     /// The same inset on every side, in dp.
     pub const fn padding(mut self, dp: f32) -> Self {
         self.padding = Some(dp);
+        self.padding_role = None;
+        self.padding_each = None;
         self
     }
 
     /// An inset from the design system's spacing ladder. Wins over `padding`.
     pub const fn padding_role(mut self, role: SpaceRole) -> Self {
         self.padding_role = Some(role);
+        self.padding = None;
+        self.padding_each = None;
         self
+    }
+
+    /// Insets each side of the node's content in dp (start, top, end, bottom).
+    pub const fn padding_each(mut self, start: f32, top: f32, end: f32, bottom: f32) -> Self {
+        self.padding_each = Some([start, top, end, bottom]);
+        self.padding = None;
+        self.padding_role = None;
+        self
+    }
+
+    /// Insets the horizontal and vertical sides of the node's content in dp.
+    pub const fn padding_xy(self, horizontal: f32, vertical: f32) -> Self {
+        self.padding_each(horizontal, vertical, horizontal, vertical)
     }
 
     /// The same, when the inset may be unset.
@@ -700,18 +808,36 @@ impl Modifier {
         self
     }
 
-    /// The same border on every side. It takes the place of `border_each` and
-    /// `border_side`.
+    /// The same border on every side. It takes the place of `border_each`,
+    /// `border_side` and `border_dashed`.
     pub const fn border(mut self, width: f32, paint: Paint) -> Self {
         self.border_width = Some(width);
         self.border_color = Some(paint);
+        self.border_dash = None;
+        self.border_each = None;
+        self
+    }
+
+    /// A dashed border on every side, drawn with dashes of `dash_dp` and gaps of `gap_dp`
+    /// along the node's outline. A non-positive dash or gap draws a solid border. It takes
+    /// the place of `border`, `border_each` and `border_side`.
+    pub fn border_dashed(
+        mut self,
+        width_dp: f32,
+        paint: impl Into<Paint>,
+        dash_dp: f32,
+        gap_dp: f32,
+    ) -> Self {
+        self.border_width = Some(width_dp);
+        self.border_color = Some(paint.into());
+        self.border_dash = Some((dash_dp, gap_dp));
         self.border_each = None;
         self
     }
 
     /// A border whose sides each have their own width and paint, in CSS order: top,
     /// right, bottom, left. A side of width 0 draws nothing. It takes the place of
-    /// `border`.
+    /// `border` and `border_dashed`.
     ///
     /// The sides are the screen's, not the reading direction's: `right` is the right side
     /// in a right-to-left window too.
@@ -725,13 +851,14 @@ impl Modifier {
         self.border_each = Some([top, right, bottom, left]);
         self.border_width = None;
         self.border_color = None;
+        self.border_dash = None;
         self
     }
 
     /// A border on one side only, such as the guide line beside an indented row. The
     /// other sides have width 0, unless an earlier `border_side` or `border_each` in the
     /// same chain gave them one, so `border_side(Side::Top, ..).border_side(Side::Start,
-    /// ..)` draws two sides. It takes the place of `border`.
+    /// ..)` draws two sides. It takes the place of `border` and `border_dashed`.
     ///
     /// `Side::Start` is the left side and `Side::End` the right one. The Host lays every
     /// screen out left to right and the Renderer draws a border on the screen's sides, so
@@ -751,6 +878,7 @@ impl Modifier {
         self.border_each = Some(sides);
         self.border_width = None;
         self.border_color = None;
+        self.border_dash = None;
         self
     }
 
@@ -875,6 +1003,32 @@ impl Modifier {
     /// Sets the pressed scale and tint opacity.
     pub const fn press_feedback(mut self, scale: f32, tint_alpha: f32) -> Self {
         self.press_feedback = Some((scale, tint_alpha));
+        self
+    }
+
+    /// How this pressable node looks while a mouse is over it: its hover layer, its border
+    /// colour and its opacity. A node without it keeps the default hover layer. Hovering
+    /// sends nothing to the Host.
+    pub const fn hover_style(mut self, style: HoverStyle) -> Self {
+        self.hover_style = Some(style);
+        self
+    }
+
+    /// The ring this pressable node draws while it has keyboard focus: its paint, its
+    /// width in dp, and how far outside the node's outline it sits in dp. At 0 the ring is
+    /// drawn just inside the outline; above 0 it is drawn that far outside it, with its
+    /// corners grown by the same amount, as CSS `outline-offset` does. The ring takes no
+    /// room, so nothing around the node moves. A node without it draws a 2 dp `Primary`
+    /// ring inside its outline.
+    pub fn focus_ring(mut self, paint: impl Into<Paint>, width_dp: f32, offset_dp: f32) -> Self {
+        self.focus_ring = Some((paint.into(), width_dp, offset_dp));
+        self
+    }
+
+    /// The colour laid over this node while it is pressed, and the curve the press runs
+    /// along. The tint's alpha is still the one `press_feedback` gives, or the default.
+    pub const fn press_style(mut self, style: PressStyle) -> Self {
+        self.press_style = Some(style);
         self
     }
 
@@ -1105,6 +1259,18 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));
     push(chip, "padding_role", role(modifier.padding_role));
+    push(
+        false,
+        "padding_each",
+        modifier.padding_each.map_or(OwnedAttr::None, |values| {
+            OwnedAttr::Bytes(
+                values
+                    .iter()
+                    .flat_map(|value| value.to_le_bytes())
+                    .collect(),
+            )
+        }),
+    );
     // An animated background owns the background's slot while it is set.
     push(
         standard || scaffold,
@@ -1142,6 +1308,13 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
+    push(
+        false,
+        "border_dash",
+        modifier.border_dash.map_or(OwnedAttr::None, |(dash, gap)| {
+            OwnedAttr::Bytes([dash.to_le_bytes(), gap.to_le_bytes()].concat())
+        }),
+    );
     // Four widths and then four paints, written only when set. It shares the border's
     // slot, after the plain border, so whichever of the two the chain holds is the one
     // the slot ends up with.
@@ -1191,6 +1364,46 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             .map_or(OwnedAttr::None, |(scale, alpha)| {
                 OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
             }),
+    );
+    // Two paints, a zero word for none, and then the two alphas.
+    push(
+        false,
+        "hover_style",
+        modifier.hover_style.map_or(OwnedAttr::None, |style| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&style.fill.map_or(0, Paint::to_bits).to_le_bytes());
+            bytes.extend_from_slice(&style.border.map_or(0, Paint::to_bits).to_le_bytes());
+            bytes.extend_from_slice(&style.fill_alpha.to_le_bytes());
+            bytes.extend_from_slice(&style.content_alpha.to_le_bytes());
+            OwnedAttr::Bytes(bytes)
+        }),
+    );
+    push(
+        false,
+        "focus_ring",
+        modifier
+            .focus_ring
+            .map_or(OwnedAttr::None, |(paint, width, offset)| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
+                bytes.extend_from_slice(&width.to_le_bytes());
+                bytes.extend_from_slice(&offset.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    // The tint, a zero word for none, and then the four curve points, the first NaN for
+    // no curve.
+    push(
+        false,
+        "press_style",
+        modifier.press_style.map_or(OwnedAttr::None, |style| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&style.tint.map_or(0, Paint::to_bits).to_le_bytes());
+            for point in style.press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]) {
+                bytes.extend_from_slice(&point.to_le_bytes());
+            }
+            OwnedAttr::Bytes(bytes)
+        }),
     );
     // The role and state travel as one integer, the role in the low 16 bits; the name is a
     // property of the node because a string does not fit in a modifier's words.

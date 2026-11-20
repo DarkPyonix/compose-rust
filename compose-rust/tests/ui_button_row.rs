@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::schema::{TextAlign, TypeRole};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 fn dump(content: impl Fn() + Send + Sync + 'static) -> String {
@@ -17,7 +17,7 @@ fn dump(content: impl Fn() + Send + Sync + 'static) -> String {
 #[test]
 fn fr66_a_button_that_asks_for_nothing_sends_no_alignment_or_size() {
     let tree = dump(|| {
-        Button("변경 사항");
+        Button!("변경 사항", || {});
     });
     assert!(!tree.contains("TextAlign"), "{tree}");
     assert!(!tree.contains("FontSize"), "{tree}");
@@ -26,9 +26,12 @@ fn fr66_a_button_that_asks_for_nothing_sends_no_alignment_or_size() {
 #[test]
 fn fr66_a_button_writes_the_alignment_and_size_it_was_given() {
     let tree = dump(|| {
-        Button("변경 사항")
-            .text_align(TextAlign::Start)
-            .font_size(13.0);
+        Button!(
+            "변경 사항",
+            || {},
+            text_align = TextAlign::Start,
+            font_size = 13.0
+        );
     });
     assert!(tree.contains("TextAlign=Integer(1)"), "{tree}");
     assert!(tree.contains("FontSize=Float(13"), "{tree}");
@@ -37,10 +40,10 @@ fn fr66_a_button_writes_the_alignment_and_size_it_was_given() {
 #[test]
 fn fr66_a_button_emits_its_children_under_itself() {
     let tree = dump(|| {
-        Button("").content(|| {
-            Text("Files");
-            Spacer().modifier(Modifier.weight(1.0));
-            Text("12");
+        Button!("", || {}, {
+            Text!("Files");
+            Spacer!(modifier = Modifier.weight(1.0));
+            Text!("12");
         });
     });
     let lines: Vec<&str> = tree.lines().collect();
@@ -63,19 +66,24 @@ fn fr66_button_type_role_and_weight() {
     let role = format!("TypeRole=Integer({})", TypeRole::Caption as u16);
 
     let plain = dump(|| {
-        Button("커밋");
+        Button!("커밋", || {});
     });
     assert!(!plain.contains("TypeRole"), "{plain}");
     assert!(!plain.contains("FontWeight"), "{plain}");
 
     let captioned = dump(|| {
-        Button("커밋").type_role(TypeRole::Caption);
+        Button!("커밋", || {}, type_role = TypeRole::Caption);
     });
     assert!(captioned.contains(&role), "{captioned}");
     assert!(!captioned.contains("FontWeight"), "{captioned}");
 
     let weighted = dump(|| {
-        Button("커밋").type_role(TypeRole::Caption).font_weight(500);
+        Button!(
+            "커밋",
+            || {},
+            type_role = TypeRole::Caption,
+            font_weight = 500
+        );
     });
     assert!(weighted.contains(&role), "{weighted}");
     assert!(weighted.contains("FontWeight=Integer(500)"), "{weighted}");

@@ -32,12 +32,12 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 #[Composable]
 fn Pad() {
-    Button("7").kind(ButtonKind::ActionKey);
-    Button("plain");
+    Button!("7", || {}, kind = ButtonKind::ActionKey);
+    Button!("plain", || {});
 }
 
 /// Only a button that names a kind sends one.
