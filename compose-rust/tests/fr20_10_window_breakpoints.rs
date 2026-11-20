@@ -13,7 +13,7 @@ use compose_rust::schema::{
     DesignSystem, EventPayload, LastWindowClosed, Theme, WidgetKind, Window as WindowSettings,
     WindowHeightClass, WindowSizeClass,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::Cell;
 use support::Tree;
 
