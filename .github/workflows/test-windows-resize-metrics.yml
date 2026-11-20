@@ -2,9 +2,10 @@
 #
 # The gate always runs: every dispatch of ci.yml builds hand-check against the Windows
 # renderer kit its windows_static_kit job built in the same run, checks it under a scripted
-# resize (windows), then drags that same hand-check from another process (probe). Those two
-# jobs assert, and nothing here can skip them except the heavy-checks request that every job
-# waits for.
+# resize (windows), then drags that same hand-check from another process (probe). Beside it,
+# the GraalVM native image renderer is built from this commit and dragged the same way
+# (graalvm-fork-desktop, graalvm, probe-graalvm). Those jobs assert, and nothing here can skip
+# them except the heavy-checks request that every job waits for.
 #
 # The renderer is not built here. windows-static.yml builds it once per ci.yml run (release,
 # as the windows-x64 release asset is built) and uploads it as the windows-static-renderer-kit
@@ -38,6 +39,19 @@
 # there, so nothing it says about hand-check counts) and when hand-check's CPU path shows any
 # fault. The frames it kept, and contact sheets of them, are the resize-probe-frames artifact.
 # The runners draw with WARP on the Basic Render Driver.
+#
+# probe-graalvm: the same drags, at the same scales, of the GraalVM native image renderer,
+# judged by the same script (.github/scripts/resize-probe-gate.sh) against the same control.
+# compose-rust's build links only the static Kotlin/Native kit on Windows, so hand-check cannot
+# link the GraalVM image. The C smoke host (renderer/desktop/c/smoke_host.c) can, and with
+# DXC_RESIZE_MARKER=1 it draws hand-check's marker scene, record for record, and stays open
+# until it is closed. graalvm builds the image with build-native-windows.ps1, from the Compose
+# fork's desktop modules graalvm-fork-desktop builds (fork-desktop-modules.yml), links the
+# smoke host to it as graalvm\bin\hand-check.exe, where run-probe-v2.ps1 drags it, and keeps
+# it as the hand-check-windows-graalvm artifact. That artifact unpacked into the kit's graalvm
+# folder adds the GraalVM renderer to a hand run of the kit. Its frames and contact sheets are
+# the resize-probe-frames-graalvm artifact. This chain does not wait for the renderer kit, so it
+# runs beside the Kotlin/Native one.
 
 name: Resize probe and metrics
 
@@ -609,6 +623,285 @@ jobs:
           RUNNER_OS_LABEL: ${{ matrix.os }}
           SCALE_STATUS: ${{ steps.scale.outputs.status }}
         run: bash .github/scripts/resize-probe-gate.sh kn
+
+  # The Compose fork's desktop modules, which the GraalVM renderer's desktop module asks for by
+  # version. Under a name of their own: other workflows ci.yml calls into the same run upload
+  # compose-fork-desktop, and a run holds one artifact of a name.
+  graalvm-fork-desktop:
+    needs: requested
+    name: Build the Compose fork's desktop modules for the GraalVM renderer
+    uses: ./.github/workflows/fork-desktop-modules.yml
+    with:
+      artifact: compose-fork-desktop-resize-probe
+
+  graalvm:
+    # Built as test-native-renderer.yml's Windows job builds it, from this commit, so what is
+    # dragged is the window code at this commit's pin.
+    needs: graalvm-fork-desktop
+    name: GraalVM renderer and the smoke host with the marker scene (Windows, x64)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check symbolic links out as links
+        # The renderer module reaches the shared interpreter through symlinks, and
+        # build-native-windows.ps1 stops when they are text files.
+        shell: bash
+        run: |
+          git config --global core.symlinks true
+          git config --global core.longpaths true
+
+      - uses: actions/checkout@v4
+
+      - name: Install upstream GraalVM 25
+        # As test-native-renderer.yml's Windows job does.
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take the Compose fork's desktop modules
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-fork-desktop-resize-probe
+          path: ${{ runner.temp }}/compose-fork-desktop
+
+      - name: Put them where the renderer's build looks
+        shell: bash
+        run: |
+          mkdir -p ~/.m2/repository/org/jetbrains
+          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
+
+      - name: Build the GraalVM Windows renderer
+        shell: powershell
+        run: .\renderer\desktop\scripts\build-native-windows.ps1
+
+      - name: Non-interactive Windows smoke test
+        # The smoke host's default tree on this image: it starts, draws, measures and exits 0,
+        # so the marker scene below is the only thing the probe run adds.
+        shell: powershell
+        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
+
+      - name: The renderer holds the resize code the probe judges
+        # The lines the gate reads from the application's log, compiled in from the fork's
+        # window C.
+        shell: bash
+        run: |
+          set -euo pipefail
+          dll=renderer/build/native-image/dist/bin/libcompose_rust_renderer.dll
+          ls -la "$dll"
+          for text in "on the CPU (Skia raster, GDI blit)" "resize-proof step"; do
+            echo "\"$text\" in the renderer: $(grep -a -c -F "$text" "$dll" || true)"
+            grep -a -q -F "$text" "$dll"
+          done
+
+      - name: Enter the Visual Studio developer environment
+        # cl.exe and link.exe ahead of Git Bash's own link, and mt.exe, which the linker runs
+        # to embed the manifest.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          $sdkbin = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+            if ($_ -match '^WindowsSdkVerBinPath=(.*)$') { $sdkbin = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Link the smoke host to the renderer as graalvm\bin\hand-check.exe
+        # bin\ holds the renderer, its libraries and the smoke host; lib\ beside bin\ is where
+        # the renderer looks for the files java.home names. The smoke host is a GUI program, so
+        # that starting it opens no console window over the backdrop the probe looks for, and
+        # takes the probe's manifest, per-monitor DPI aware from the start, as hand-check's
+        # window is. Its exports make a .lib and .exp beside it, which nothing needs; the
+        # build's analysis reports are left out too.
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$(cygpath -u "$RUNNER_TEMP")/graalvm"
+          dist=renderer/build/native-image/dist
+          mkdir -p "$package/bin" "$package/lib"
+          cp -r "$dist/bin/." "$package/bin/"
+          [ ! -d "$dist/lib" ] || cp -r "$dist/lib/." "$package/lib/"
+          rm -rf "$package/bin/reports"
+          bin="$(cygpath -w "$PWD/$dist/bin")"
+          source="$(cygpath -w "$PWD/renderer/desktop/c/smoke_host.c")"
+          manifest="$(cygpath -w "$PWD/.github/scripts/resize-probe.manifest")"
+          (cd "$package/bin" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 /Fehand-check.exe "$source" \
+            /link "/LIBPATH:$bin" libcompose_rust_renderer.lib \
+            /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$manifest")
+          rm -f "$package/bin"/*.obj "$package/bin/hand-check.lib" "$package/bin/hand-check.exp"
+          {
+            echo "graalvm\\bin\\hand-check.exe: the C smoke host (renderer/desktop/c/smoke_host.c) linked to"
+            echo "the GraalVM native image renderer, both from commit $GITHUB_SHA (run $GITHUB_RUN_ID)."
+            echo "With DXC_RESIZE_MARKER=1 it draws hand-check's marker scene. Unpack this artifact into"
+            echo "the resize probe kit's graalvm folder, and run-probe-v2.cmd drags it as well."
+          } > "$package/README.txt"
+          ls -la "$package/bin" "$package/lib"
+          du -sh "$package"
+          sha256sum "$package/bin/hand-check.exe" "$package/bin/libcompose_rust_renderer.dll"
+
+      - name: Keep it
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-check-windows-graalvm
+          path: ${{ runner.temp }}/graalvm/
+          if-no-files-found: error
+          retention-days: 14
+
+  probe-graalvm:
+    # The GraalVM renderer graalvm built in this run, dragged exactly as the probe job drags
+    # hand-check: the same kit script, edges, rates, scales and window state runs, beside the
+    # same control, judged by the same script.
+    needs: graalvm
+    name: GraalVM renderer, real drags of every edge from the resize probe at 100% and 200% (Windows, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Receive the GraalVM renderer and the smoke host from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: hand-check-windows-graalvm
+          path: ${{ runner.temp }}/probe-kit/graalvm
+
+      - name: Enter the Visual Studio developer environment
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          $sdkbin = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+            if ($_ -match '^WindowsSdkVerBinPath=(.*)$') { $sdkbin = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          # mt.exe, which the linker runs to embed the probe's manifest.
+          Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+          Write-Output "Windows SDK tools: $(Join-Path $sdkbin 'x64')"
+
+      - name: Build the resize probe, the control window and the display scale tool, and lay out the kit
+        # As the probe job builds them. The kit holds no hand-check.exe, so run-probe-v2.ps1
+        # drags graalvm\bin\hand-check.exe and the control, all that are present.
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$kit" "$tools"
+          scripts="$(cygpath -w "$PWD/.github/scripts")"
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-probe.c" \
+            /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-control.c" \
+            /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
+          rm -f "$kit"/*.obj "$tools"/*.obj
+          cp .github/scripts/run-probe-v2.ps1 .github/scripts/run-probe-v2.cmd .github/scripts/resize-contact-sheet.ps1 "$kit/"
+          [ ! -e "$kit/hand-check.exe" ] || { echo "the GraalVM kit must not hold the Kotlin/Native hand-check.exe" >&2; exit 1; }
+          [ -f "$kit/graalvm/bin/hand-check.exe" ] || { echo "graalvm/bin/hand-check.exe is missing" >&2; exit 1; }
+          ls -la "$kit" "$kit/graalvm/bin" | head -60
+          sha256sum "$kit"/*.exe "$kit/graalvm/bin/hand-check.exe"
+
+      - name: Real drags at 100%
+        # The runner has no graphics card, so the renderer and the control draw with WARP.
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/1x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -StatesRuns 25 -Out "$out"
+
+      - name: Set the display to 200%
+        id: scale
+        run: |
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          mkdir -p "$out"
+          set +e
+          "$tools/set-display-scale.exe" 200 --fit > "$out/set-display-scale.log" 2>&1
+          status=$?
+          cat "$out/set-display-scale.log"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "set-display-scale exit $status"
+
+      - name: Real drags at 200%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/2x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -StatesRuns 25 -Out "$out"
+
+      - name: Report the drags
+        # The table run-probe-v2 wrote for each scale.
+        if: always() && inputs.metrics
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          {
+            echo "## GraalVM, ${{ matrix.os }}"
+            for scale in 1x 2x; do
+              echo
+              echo "### $scale"
+              echo
+              cat "$out/$scale/summary.md" 2>/dev/null | tr -d '\r' | sed 's/^\xEF\xBB\xBF//' || echo "no summary"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-logs-graalvm-${{ matrix.os }}
+          path: ${{ runner.temp }}/probe-logs/
+          retention-days: 14
+
+      - name: Keep the frames and the contact sheets
+        # Every frame a verdict is about, as PNG, a contact sheet per drag
+        # (frames/<drag>/contact.png) and one frame of each drag (contact-sheet.png).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-frames-graalvm-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/probe-logs/*/contact-sheet.png
+            ${{ runner.temp }}/probe-logs/*/frames/
+            ${{ runner.temp }}/probe-logs/*/summary.md
+          retention-days: 30
+
+      - name: The probe can tell late from prompt, and the GraalVM CPU path shows no fault
+        # The same verdict as the probe job's, for the GraalVM renderer: the control must FAIL
+        # every drag, the renderer with resize frames on the CPU must PASS every drag, and its
+        # window states must show a faulty frame on at most 10% of 25 runs of 4 size changes
+        # at each scale. The script says what each check is and why.
+        env:
+          RUNNER_OS_LABEL: ${{ matrix.os }}
+          SCALE_STATUS: ${{ steps.scale.outputs.status }}
+        run: bash .github/scripts/resize-probe-gate.sh graalvm
 
   # Measurement only: times the same scripted resize on macOS and asserts nothing.
   macos:

@@ -15,7 +15,11 @@
 #     fault, or when more than 10% of the CPU path's window state changes show one;
 #   - hand-check and the control draw the markers the probe looks for, in the colours it
 #     takes for them. That half compiles the probe's colour tests with whatever C compiler is
-#     here, and skips without one.
+#     here, and skips without one;
+#   - the GraalVM renderer is built from this commit and dragged the same way: the C smoke
+#     host linked to it as graalvm\bin\hand-check.exe, every edge and 25 window state runs
+#     at 100% and 200% on both server builds, beside the control, judged by the same script,
+#     with its frames and contact sheets kept.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -68,7 +72,7 @@ job() { awk -v key="  $1:" '$0 == key { on = 1; print; next } on && /^  [a-z][a-
 # Each step of a job, flattened to one line per step: its name and its if, if any.
 step_ifs() { awk '/^      - (name|uses):/ { if (n) print n " | " c; n = $0; c = ""; next } /^        if:/ { c = $0 } END { if (n) print n " | " c }' <<<"$1"; }
 gate_problem=""
-for key in windows probe; do
+for key in windows probe graalvm-fork-desktop graalvm probe-graalvm; do
     body="$(job "$key")"
     [[ -n "$body" ]] || { gate_problem="the $key job is missing"; break; }
     if grep -qE '^    (if|continue-on-error):' <<<"$body"; then
@@ -90,6 +94,15 @@ for step in "Real drags at 100%" "Set the display to 200%" "Real drags at 200%" 
     [[ -n "$line" ]] || { gate_problem="${gate_problem:-the probe job has no step \"$step\"}"; continue; }
     grep -qE '\| .+' <<<"$line" && gate_problem="${gate_problem:-the probe step \"$step\" has a condition}"
 done
+for pair in "graalvm|Build the GraalVM Windows renderer" "graalvm|Link the smoke host to the renderer as graalvm\\bin\\hand-check.exe" \
+    "graalvm|Keep it" "probe-graalvm|Real drags at 100%" "probe-graalvm|Set the display to 200%" \
+    "probe-graalvm|Real drags at 200%" "probe-graalvm|The probe can tell late from prompt, and the GraalVM CPU path shows no fault"; do
+    line="$(step_ifs "$(job "${pair%%|*}")" | grep -F "name: ${pair#*|} |")"
+    [[ -n "$line" ]] || { gate_problem="${gate_problem:-the ${pair%%|*} job has no step \"${pair#*|}\"}"; continue; }
+    grep -qE '\| .+' <<<"$line" && gate_problem="${gate_problem:-the ${pair%%|*} step \"${pair#*|}\" has a condition}"
+done
+grep -qE '^    needs: requested$' <<<"$(job graalvm-fork-desktop)" ||
+    gate_problem="${gate_problem:-the GraalVM fork modules job does not wait for the requested job}"
 # The scripted step may only cut its own timing runs short, after the real drags.
 scripted="$(awk '/^      - name: Scripted resize, measured$/ { on = 1; print; next } on && /^      - / { exit } on { print }' <<<"$(job windows)")"
 if [[ "$(grep -n 'METRICS" = true' <<<"$scripted" | tail -1 | cut -d: -f1)" -lt "$(grep -n 'resize-real-drag-run.sh' <<<"$scripted" | head -1 | cut -d: -f1)" ]] 2>/dev/null; then
@@ -99,7 +112,7 @@ fi
 measure_problem=""
 grep -qE '^    if: inputs\.metrics$' <<<"$(job macos)" || measure_problem="the macos job runs without metrics"
 for pair in "windows|Resize frames on the CPU at 200%, each way of drawing them" "windows|Release link, diagnosed" \
-    "probe|Report the drags" "probe|Report memory"; do
+    "probe|Report the drags" "probe|Report memory" "probe-graalvm|Report the drags"; do
     line="$(step_ifs "$(job "${pair%%|*}")" | grep -F "name: ${pair#*|} |")"
     grep -qF 'inputs.metrics' <<<"$line" || measure_problem="${measure_problem:-the ${pair%%|*} step \"${pair#*|}\" runs without metrics}"
 done
@@ -236,6 +249,65 @@ if ! grep -qF 'name: resize-probe-frames-${{ matrix.os }}' <<<"$probe_job" || ! 
     fail "$name" "the probe job does not upload the frames and the contact sheets"
 elif ! grep -qF "ImageFormat]::Png" "$sheets" || ! grep -qF "contact-sheet.png" "$sheets"; then
     fail "$name" "resize-contact-sheet.ps1 does not write PNG frames and a contact sheet"
+else
+    ok "$name"
+fi
+
+# The GraalVM native image renderer is dragged the same way as hand-check. compose-rust links
+# only the static Kotlin/Native kit on Windows, so hand-check cannot link the image: the C smoke
+# host is linked to it instead, draws the same marker scene, and sits where run-probe-v2.ps1
+# drags graalvm\bin\hand-check.exe. The image is built from this commit as the native renderer
+# test builds it, from fork modules uploaded under a name no other workflow of the run uses.
+name=fr19_8_4_the_graalvm_window_is_dragged_through_the_smoke_host
+fork_job="$(job graalvm-fork-desktop)"
+graalvm_job="$(job graalvm)"
+graalvm_probe="$(job probe-graalvm)"
+fork_modules="$repo_root/.github/workflows/fork-desktop-modules.yml"
+link_step="$(awk '/^      - name: Link the smoke host to the renderer as graalvm\\bin\\hand-check\.exe$/ { on = 1; print; next } on && /^      - / { exit } on { print }' <<<"$graalvm_job")"
+if [[ -z "$fork_job" || -z "$graalvm_job" || -z "$graalvm_probe" ]]; then
+    fail "$name" "the workflow lacks the graalvm-fork-desktop, graalvm or probe-graalvm job"
+elif ! grep -qE '^    uses: \./\.github/workflows/fork-desktop-modules\.yml$' <<<"$fork_job" ||
+    ! grep -qE '^      artifact: compose-fork-desktop-resize-probe$' <<<"$fork_job"; then
+    fail "$name" "the fork modules are not built by fork-desktop-modules.yml under a name of their own"
+elif ! grep -qF 'name: ${{ inputs.artifact }}' "$fork_modules" || ! grep -qE '^        default: compose-fork-desktop$' "$fork_modules"; then
+    fail "$name" "fork-desktop-modules.yml does not upload under the artifact name it is given, compose-fork-desktop by default"
+elif ! grep -qE '^    needs: graalvm-fork-desktop$' <<<"$graalvm_job" || ! grep -qF 'name: compose-fork-desktop-resize-probe' <<<"$graalvm_job"; then
+    fail "$name" "the graalvm job does not take the modules graalvm-fork-desktop built"
+elif ! grep -qE '^        run: \.\\renderer\\desktop\\scripts\\build-native-windows\.ps1$' <<<"$graalvm_job"; then
+    fail "$name" "the graalvm job does not build the image with build-native-windows.ps1"
+elif ! grep -qF 'renderer/desktop/c/smoke_host.c' <<<"$link_step" || ! grep -qF '/Fehand-check.exe' <<<"$link_step" ||
+    ! grep -qF 'libcompose_rust_renderer.lib' <<<"$link_step" || ! grep -qF '/SUBSYSTEM:WINDOWS' <<<"$link_step" ||
+    ! grep -qF 'resize-probe.manifest' <<<"$link_step" || ! grep -qF '$package/bin' <<<"$link_step"; then
+    fail "$name" "the smoke host is not linked to the image as a windowed, per-monitor aware graalvm/bin/hand-check.exe"
+elif ! grep -qF 'name: hand-check-windows-graalvm' <<<"$graalvm_job"; then
+    fail "$name" "the graalvm job does not keep hand-check-windows-graalvm"
+elif ! grep -qE '^    needs: graalvm$' <<<"$graalvm_probe" || ! grep -qF 'name: hand-check-windows-graalvm' <<<"$graalvm_probe" ||
+    ! grep -qF 'path: ${{ runner.temp }}/probe-kit/graalvm' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm does not lay this run's GraalVM build out as probe-kit/graalvm"
+elif grep -qF 'hand-check-windows-kn' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm takes the Kotlin/Native hand-check too; its kit must hold only the GraalVM one and the control"
+elif ! grep -qF 'graalvm\bin\hand-check.exe' "$kit_script"; then
+    fail "$name" "run-probe-v2.ps1 no longer drags graalvm\\bin\\hand-check.exe"
+else
+    ok "$name"
+fi
+
+name=fr19_8_4_the_graalvm_drags_are_judged_as_strictly_as_hand_checks
+if ! grep -qF 'os: [windows-2022, windows-2025]' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm does not run on Server 2022 and 2025"
+elif ! grep -qF 'set-display-scale.exe" 200' <<<"$graalvm_probe" || ! grep -qF 'probe-logs/1x' <<<"$graalvm_probe" ||
+    ! grep -qF 'probe-logs/2x' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm does not drag at 100% and at 200%"
+elif [[ "$(grep -c -- 'run-probe-v2.ps1" -NoPause -StatesRuns 25 ' <<<"$graalvm_probe")" != 2 ]]; then
+    fail "$name" "probe-graalvm does not run the kit with 25 window state runs at both scales"
+elif ! grep -qF "\$app.Name -ne 'control' -and \$path -eq 'new'" "$kit_script"; then
+    fail "$name" "run-probe-v2.ps1 repeats the window states for hand-check only, so the GraalVM ones are too few to judge by rate"
+elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh graalvm$' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm is not judged by resize-probe-gate.sh"
+elif ! grep -qF 'graalvm)' "$gate_script" || ! grep -qF 'marker_line="smoke host: marker scene"' "$gate_script"; then
+    fail "$name" "resize-probe-gate.sh does not know the GraalVM renderer and the smoke host's marker line"
+elif ! grep -qF 'name: resize-probe-frames-graalvm-${{ matrix.os }}' <<<"$graalvm_probe" || ! grep -qF 'contact-sheet.png' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm does not upload the frames and the contact sheets"
 else
     ok "$name"
 fi
