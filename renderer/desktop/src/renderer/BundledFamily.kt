@@ -6,6 +6,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.decodeFontAsset
+import org.jetbrains.skia.Data
 
 /**
  * One face of a family the renderer carries in its own bundle: the file, and the weight and
@@ -66,12 +67,15 @@ const val WEB_FONT_DIRECTORY: String = "fonts"
  *
  * Every face is one font of the family at the weight and slant the table says, so Compose's
  * font matching, which follows CSS, chooses the face for a requested weight and style.
+ *
+ * Each file is copied into Skia once and the font is made from that copy, so the typefaces
+ * Compose makes for it share it and the byte array is not kept beside it.
  */
 fun bundledFamily(faces: List<Pair<BundledFace, ByteArray>>): FontFamily = FontFamily(
     faces.map { (face, bytes) ->
         Font(
             identity = "compose-rust-bundled-${face.file}",
-            data = bytes,
+            data = Data.makeFromBytes(bytes),
             weight = FontWeight(face.weight),
             style = if (face.italic) FontStyle.Italic else FontStyle.Normal,
         )

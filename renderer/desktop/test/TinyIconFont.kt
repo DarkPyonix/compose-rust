@@ -44,7 +44,7 @@ internal object TinyIconFont {
             "OS/2" to os2(codePoint, weight, advance, italic),
             "cmap" to cmap(codePoint),
             "glyf" to glyf(advance),
-            "head" to head(advance),
+            "head" to head(advance, italic),
             "hhea" to hhea(advance),
             "hmtx" to hmtx(advance),
             "loca" to loca(),
@@ -102,7 +102,7 @@ internal object TinyIconFont {
         putShort(value.toShort())
     }
 
-    private fun head(advance: Int) = table(54) {
+    private fun head(advance: Int, italic: Boolean) = table(54) {
         putInt(0x00010000)
         putInt(0x00010000)
         putInt(0)
@@ -115,7 +115,9 @@ internal object TinyIconFont {
         short(0)
         short(advance)
         short(800)
-        short(0)
+        // macStyle: bit 1 is italic. Said here as well as in OS/2, the way a real italic
+        // file says it, so every platform's loader reads the face as italic.
+        short(if (italic) 0x0002 else 0)
         short(8)
         short(2)
         short(0)

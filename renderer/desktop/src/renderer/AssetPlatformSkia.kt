@@ -104,12 +104,22 @@ internal fun rewriteSkiaEllipseGradients(bytes: ByteArray): ByteArray {
  * identity, so two weights of one typeface stay two faces: named by the family name the
  * file gives, the second weight registered would have drawn as the first.
  *
+ * The file is copied into Skia once, here, and the font is made from that copy. Every
+ * typeface Compose makes for the face refers to the same copy, including the ones it makes
+ * again after its own typeface cache lets an entry go. Nothing keeps [bytes] after this
+ * returns: a font made from the byte array would keep it alive for as long as the face is
+ * registered, beside Skia's copy, so every file the application shipped was held twice.
+ *
  * The glyph table is read out of the `cmap` table into a compact range array and the
- * validation typeface is closed right away, so only the `LoadedFont` bytes remain in
- * memory until Compose resolves the face into its own typeface cache.
+ * validation typeface is closed right away. Closing it leaves the data open, because the
+ * font is made from it.
  */
 internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
-    val typeface = FontMgr.default.makeFromData(Data.makeFromBytes(bytes)) ?: return null
+    val data = Data.makeFromBytes(bytes)
+    val typeface = FontMgr.default.makeFromData(data) ?: run {
+        data.close()
+        return null
+    }
     val declared = typeface.fontStyle
     val weight = declared.weight.coerceIn(1, 1000)
     val italic = declared.slant != FontSlant.UPRIGHT
@@ -117,7 +127,7 @@ internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
     typeface.close()
     val font = Font(
         identity = "compose-rust-font-${bytes.size}-${bytes.contentHashCode()}",
-        getData = { bytes },
+        data = data,
         weight = FontWeight(weight),
         style = if (italic) FontStyle.Italic else FontStyle.Normal,
     )

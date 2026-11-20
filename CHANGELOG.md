@@ -15,6 +15,10 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `experiments/fr39-codemod`, on the `develop` branch, rewrites the builder chains of a crate into call macros. It reports the few call sites it leaves for a hand edit, such as a builder bound with `let`.
 
+### A registered font file is held in memory once
+
+The Skia renderers (desktop, macOS, Linux, Windows, iOS and web) copy a registered font file into Skia once and make the face from that copy, and every typeface Compose loads for the face shares it. Before, the face kept the file's byte array for as long as it was registered and Skia held a second copy of it, so a macOS process that bundled 6.4 MB of fonts held 7.1 MB more in the Kotlin heap. This needs the Compose fork's font made from Skia data, so the fork pin moves with it.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues
