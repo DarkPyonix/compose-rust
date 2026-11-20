@@ -25,6 +25,7 @@ probe="$repo_root/.github/scripts/resize-probe.c"
 control="$repo_root/.github/scripts/resize-control.c"
 kit_script="$repo_root/.github/scripts/run-probe-v2.ps1"
 sheets="$repo_root/.github/scripts/resize-contact-sheet.ps1"
+gate_script="$repo_root/.github/scripts/resize-probe-gate.sh"
 hand_check="$repo_root/compose-rust/tests/fixtures/hand-check/src/main.rs"
 compose_pin="$repo_root/renderer/scripts/build-compose.sh"
 red=0
@@ -32,7 +33,7 @@ red=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1: $2"; red=1; }
 
-for file in "$workflow" "$ci" "$probe" "$control" "$kit_script" "$sheets" "$hand_check" "$compose_pin"; do
+for file in "$workflow" "$ci" "$probe" "$control" "$kit_script" "$sheets" "$gate_script" "$hand_check" "$compose_pin"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
 
@@ -187,11 +188,13 @@ else
 fi
 
 name=fr19_8_4_the_job_fails_when_the_late_control_passes_or_the_cpu_path_has_a_fault
-gate="$(awk '/name: The probe can tell late from prompt, and the CPU path shows no fault/ { on = 1 } on' <<<"$probe_job")"
+# The probe job's gate step runs resize-probe-gate.sh for hand-check; what it checks is there.
+gate_step="$(awk '/name: The probe can tell late from prompt, and the CPU path shows no fault/ { on = 1 } on && /^      - name: / && !/The probe can tell/ { exit } on' <<<"$probe_job")"
+gate="$(cat "$gate_script")"
 control_branch="$(awk '/control-late-\*\)/ { on = 1 } on { print } on && /^ *;;$/ { exit }' <<<"$gate")"
-cpu_branch="$(awk '/kn-new-\*\)/ { on = 1 } on { print } on && /^ *;;$/ { exit }' <<<"$gate")"
-if [[ -z "$gate" ]]; then
-    fail "$name" "the probe job has no gate step"
+cpu_branch="$(awk '/"\$app"-new-\*\)/ { on = 1 } on { print } on && /^ *;;$/ { exit }' <<<"$gate")"
+if [[ -z "$gate_step" ]] || ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh kn$' <<<"$gate_step"; then
+    fail "$name" "the probe job has no gate step that runs resize-probe-gate.sh for kn"
 elif ! grep -q 'NO DISCRIMINATION' <<<"$control_branch" || ! grep -q 'status=1' <<<"$control_branch"; then
     fail "$name" "a passing control does not fail the job"
 elif ! grep -q 'verdict PASS' <<<"$cpu_branch" || ! grep -q 'FAULT' <<<"$cpu_branch"; then
@@ -221,8 +224,8 @@ elif [[ "$(grep -c -- '-StatesRuns 25 ' <<<"$probe_job")" != 2 ]] || ! grep -qF 
     fail "$name" "the kit is not asked for 25 window state runs at both scales"
 elif ! grep -qF 'say("states changes=%ld faulty=%d' "$probe" || ! grep -qF 'note_state_change();' "$probe"; then
     fail "$name" "the probe does not count faulty window state changes"
-elif ! grep -qF 'kn-new-states:*|*"verdict PASS"*) ;;' <<<"$states_case" ||
-    grep -qE 'kn-new-\*:|\*:\*\|' <<<"$states_case"; then
+elif ! grep -qF '"$app-new-states":*|*"verdict PASS"*) ;;' <<<"$states_case" ||
+    grep -qE '"\$app"-new-\*:|\*:\*\|' <<<"$states_case"; then
     fail "$name" "the drags on the CPU path are no longer held to verdict PASS"
 else
     ok "$name"

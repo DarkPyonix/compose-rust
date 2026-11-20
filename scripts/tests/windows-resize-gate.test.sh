@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# The step that judges the resize probe is a shell script inside a workflow, and it had never
-# run to its end before it was relied on. The first run that got there failed a clean
+# The step that judges the resize probe runs .github/scripts/resize-probe-gate.sh, and that
+# script had never run to its end before it was relied on (it was then the step's own body). The first run that got there failed a clean
 # windows-2025 leg without a word: the script asked every label of the CPU path for at least
 # one CPU step, and the window states draw none, because a maximise or a snap does not go
 # through the move-size loop.
 #
-# So this runs that script here, taken from the workflow as it is, against probe logs made
-# up for the purpose:
+# So this runs that script here, as the probe job calls it, against probe logs made up for the
+# purpose:
 #   - a clean run passes on both legs (windows-2025 and windows-2022);
 #   - a single faulty drag of the 24 fails the job on both windows-2025 and windows-2022,
 #     and a control that passes, a drag with no CPU step and a step that was not validated
@@ -15,7 +15,9 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 workflow="$repo_root/.github/workflows/test-windows-resize-metrics.yml"
+gate="$repo_root/.github/scripts/resize-probe-gate.sh"
 [[ -f "$workflow" ]] || { echo "missing $workflow"; exit 1; }
+[[ -f "$gate" ]] || { echo "missing $gate"; exit 1; }
 red=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1: $2"; red=1; }
@@ -23,23 +25,19 @@ fail() { echo "FAIL  $1: $2"; red=1; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/resize-gate.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
-# The step's script: the lines of its `run: |` block, without their indent.
+# The step runs the script for hand-check, with the display scale's status and the runner.
 step="The probe can tell late from prompt, and the CPU path shows no fault"
-awk -v name="      - name: $step" '
-    $0 == name { found = 1; next }
-    found && /^      - name: / { exit }
-    found && /^        run: \|$/ { body = 1; next }
-    body { sub(/^          /, ""); print }
-' "$workflow" > "$work/gate.sh"
-[[ -s "$work/gate.sh" ]] || { echo "FAIL  the step \"$step\" was not found in the workflow"; exit 1; }
-# The one expression of the workflow in it: the display did go to 200%.
-sed -i.bak 's/\${{ steps.scale.outputs.status }}/0/' "$work/gate.sh"
-if grep -q '\${{' "$work/gate.sh"; then
-    fail "the gate script" "it holds a workflow expression this test does not fill in: $(grep -o '\${{[^}]*}}' "$work/gate.sh" | head -1)"
+step_block="$(awk -v name="      - name: $step" '$0 == name { found = 1 } found && /^      - name: / && $0 != name { exit } found { print }' "$workflow")"
+if [[ -z "$step_block" ]]; then
+    fail "the gate step" "the step \"$step\" was not found in the workflow"
+elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh kn$' <<<"$step_block"; then
+    fail "the gate step" "it does not run resize-probe-gate.sh for kn"
+elif ! grep -qF 'SCALE_STATUS: ${{ steps.scale.outputs.status }}' <<<"$step_block" ||
+    ! grep -qF 'RUNNER_OS_LABEL: ${{ matrix.os }}' <<<"$step_block"; then
+    fail "the gate step" "it does not hand the script the display scale's status and the runner"
 fi
 # Both legs are strict: neither windows-2022 nor windows-2025 uses a reported or rate gate for drags.
-step_block="$(awk -v name="      - name: $step" '$0 == name { found = 1 } found && /^      - name: / && $0 != name { exit } found { print }' "$workflow")"
-if grep -qE "DRAGS_GATE|KNOWN FAULT|drags_limit_percent" <<<"$step_block"; then
+if grep -qE "DRAGS_GATE|KNOWN FAULT|drags_limit_percent" "$gate" - <<<"$step_block"; then
     fail "both legs are strict" "the gate still has a DRAGS_GATE or KNOWN FAULT exception"
 fi
 
@@ -114,7 +112,7 @@ make_logs() {
 run_gate() {
     local status=0
     PATH="$work/bin:$PATH" RUNNER_TEMP="$work/case" DRAGS_GATE="$1" RUNNER_OS_LABEL="$2" \
-        bash --noprofile --norc -o pipefail "$work/gate.sh" > "$work/out" 2>&1 || status=$?
+        SCALE_STATUS=0 bash --noprofile --norc "$gate" kn > "$work/out" 2>&1 || status=$?
     return "$status"
 }
 
