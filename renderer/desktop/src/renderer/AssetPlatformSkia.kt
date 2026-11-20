@@ -44,7 +44,53 @@ internal fun decodeRasterAsset(bytes: ByteArray): ImageBitmap? =
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 
 internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? =
-    SVGDOM(Data.makeFromBytes(bytes))
+    SVGDOM(Data.makeFromBytes(rewriteSkiaEllipseGradients(bytes)))
+
+private val ELLIPSE_TAG_REGEX = Regex("<ellipse\\b([^>]*?)(/?)>")
+private val ELLIPSE_ATTR_REGEX = Regex("\\b(cx|cy|rx|ry)\\s*=\\s*\"([^\"]+)\"")
+
+/**
+ * Skia's SVG DOM paints an `<ellipse>` filled with an `objectBoundingBox` gradient solid black,
+ * whereas an equivalent two-arc `<path>` renders the gradient as expected. Rewrite `<ellipse>`
+ * elements when the document references a `url(#...)` paint server so desktop, iOS, and web
+ * match Android's SVG reader.
+ */
+internal fun rewriteSkiaEllipseGradients(bytes: ByteArray): ByteArray {
+    val text = bytes.decodeToString()
+    if (!text.contains("<ellipse") || !text.contains("url(#")) return bytes
+    var rewritten = false
+    val updated = ELLIPSE_TAG_REGEX.replace(text) { match ->
+        val attrs = match.groupValues[1]
+        val selfClose = match.groupValues[2]
+        var cx = 0.0
+        var cy = 0.0
+        var rx: Double? = null
+        var ry: Double? = null
+        for (attr in ELLIPSE_ATTR_REGEX.findAll(attrs)) {
+            val value = attr.groupValues[2].trim().toDoubleOrNull() ?: continue
+            when (attr.groupValues[1]) {
+                "cx" -> cx = value
+                "cy" -> cy = value
+                "rx" -> rx = value
+                "ry" -> ry = value
+            }
+        }
+        val a = rx
+        val b = ry
+        if (a == null || b == null || a <= 0.0 || b <= 0.0) {
+            match.value
+        } else {
+            rewritten = true
+            val rest = ELLIPSE_ATTR_REGEX.replace(attrs, "")
+            val x0 = cx - a
+            val x1 = cx + a
+            val d = "M $x0 $cy A $a $b 0 1 0 $x1 $cy A $a $b 0 1 0 $x0 $cy Z"
+            "<path d=\"$d\"$rest$selfClose>"
+        }
+    }
+    if (!rewritten) return bytes
+    return updated.replace("</ellipse>", "</path>").encodeToByteArray()
+}
 
 /**
  * Reads a font file into a family one type role can be written in.

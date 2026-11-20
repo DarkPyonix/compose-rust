@@ -6,7 +6,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{AssetKind, PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 static STROKE: &[u8] = b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
 <path d='M4 12H20' stroke='black' stroke-width='4' fill='none'/></svg>";
@@ -15,11 +15,11 @@ const PRIMARY: Paint = Paint::Role(ColorRole::Primary);
 
 #[Composable]
 fn Icons() {
-    Row().content(|| {
+    Row!({
         let picture = asset(AssetKind::Svg, STROKE);
-        Icon::asset(picture).color(PRIMARY);
+        IconAsset!(picture, color = PRIMARY);
         // The same picture through the plain constructor is a picture in its own colours.
-        Icon(picture);
+        Icon!(picture);
     });
 }
 

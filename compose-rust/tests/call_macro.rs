@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -229,21 +229,48 @@ fn fr39_call_macro_limits_generics_are_inferred_like_the_function_form() {
 }
 
 #[Composable]
+fn Repeated<const N: usize>(
+    cells: [u8; N],
+    label: impl Into<String> + Clone + PartialEq + 'static,
+) {
+    let label: String = label.into();
+    note(format!("Repeated {N} {cells:?} {label}"));
+}
+
+#[test]
+fn fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form() {
+    take_log();
+    compose(|| {
+        Repeated([1, 2], "f");
+        Repeated!([7, 8, 9], "m");
+        Repeated!([], label = String::from("named"));
+    });
+    assert_eq!(
+        take_log(),
+        vec![
+            "Repeated 2 [1, 2] f",
+            "Repeated 3 [7, 8, 9] m",
+            "Repeated 0 [] named"
+        ]
+    );
+}
+
+#[Composable]
 fn Leaf(text: String) {
     let clicks = remember(|| mutable_state_of(0));
-    Text(format!("{text}:{}", clicks.get()));
+    Text!(format!("{text}:{}", clicks.get()));
 }
 
 #[test]
 fn fr39_call_macro_expands_to_the_same_tree_as_the_function_form() {
     let function_form = compose(|| {
-        Column().content(|| {
+        Column!({
             Leaf("a".into());
             Leaf("b".into());
         });
     });
     let macro_form = compose(|| {
-        Column().content(|| {
+        Column!({
             Leaf!("a".into());
             Leaf!("b".into());
         });
@@ -257,7 +284,7 @@ fn fr39_call_macro_expands_mixed_with_the_function_form_keeps_each_calls_state()
     // through the function share one position and one identity. Mixing the two forms in one
     // parent and recomposing must keep each call's remembered state apart and intact.
     let mut host = ComposeHost::with_content(|| {
-        Column().content(|| {
+        Column!({
             Leaf("fn".into());
             Leaf!("macro".into());
         });

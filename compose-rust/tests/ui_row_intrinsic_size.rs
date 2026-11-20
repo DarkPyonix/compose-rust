@@ -3,7 +3,7 @@
 mod support;
 
 use compose_rust::ComposeHost;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
@@ -16,7 +16,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 #[test]
 fn fr61_row_intrinsic_size_writes_collapsible_property() {
     let (_host, tree) = start(|| {
-        Row().equal_height(true).content(|| {});
+        Row!(intrinsic_size = true, {});
     });
     let dump = tree.dump();
     assert!(dump.contains("Collapsible=Bool(true)"), "{dump}");
@@ -25,7 +25,7 @@ fn fr61_row_intrinsic_size_writes_collapsible_property() {
 #[test]
 fn fr61_plain_row_does_not_write_collapsible_property() {
     let (_host, tree) = start(|| {
-        Row().content(|| {});
+        Row!({});
     });
     let dump = tree.dump();
     assert!(!dump.contains("Collapsible"), "{dump}");

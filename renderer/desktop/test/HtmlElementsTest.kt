@@ -344,6 +344,53 @@ class HtmlElementsTest {
     }
 
     /**
+     * A blurred shadow falls off as the Gaussian CSS gives it: a blur of 32 is a standard
+     * deviation of 16, so the page next to a long straight edge is darkened by
+     * alpha * erfc(d / (16 sqrt 2)) / 2 at a distance d from it. The same numbers were read
+     * off a Galaxy Z Flip 4, where the falloff matched to within 0.01, so a desktop that
+     * passes this draws the shadow an Android phone draws.
+     */
+    @Test
+    fun fr42_shadow_blur_is_the_css_gaussian() = runComposeUiTest {
+        val faint = 0x1A
+        show(
+            page {
+                // Opaque, right edge at x = 80, and 10% black, right edge at x = 230.
+                for ((id, left, alpha) in listOf(Triple(2, 40f, 0xFF), Triple(3, 190f, faint))) {
+                    node(
+                        id, ROOT, id - 2,
+                        ProtocolModifier.Offset(left, 20f),
+                        ProtocolModifier.RequiredSize(40f, 160f),
+                        ProtocolModifier.Shadow(0f, 0f, 32f, 0f, Paint.Literal(alpha shl 24)),
+                        ProtocolModifier.Background(Paint.Literal(BLACK)),
+                    )
+                }
+            },
+        )
+        val pixels = picture()
+        // Each node's middle row is far from its ends, so its edge reads as a long one.
+        for ((edge, alpha) in listOf(80 to 1f, 230 to faint / 255f)) {
+            for (d in listOf(1, 4, 8, 16, 24, 32, 48)) {
+                val darkness = 1f - pixels[edge + d, 100].red
+                val expected = alpha * gaussianTail(d / 16f)
+                assertTrue(
+                    abs(darkness - expected) <= 0.02f,
+                    "alpha $alpha, ${d}px past the edge: darkness $darkness, the Gaussian gives $expected",
+                )
+            }
+        }
+    }
+
+    /** erfc(z / sqrt 2) / 2: how much of a unit Gaussian lies past z deviations. */
+    private fun gaussianTail(z: Float): Float {
+        // Abramowitz and Stegun 7.1.26, good to 1.5e-7.
+        val x = z / kotlin.math.sqrt(2f)
+        val t = 1f / (1f + 0.3275911f * x)
+        val poly = t * (0.254829592f + t * (-0.284496736f + t * (1.421413741f + t * (-1.453152027f + t * 1.061405429f))))
+        return 0.5f * poly * kotlin.math.exp(-x * x)
+    }
+
+    /**
      * Several shadows on one node are several `Shadow` modifiers, each drawn as its
      * own layer, a later one over an earlier one, all outside the node.
      */

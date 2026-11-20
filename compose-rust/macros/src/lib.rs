@@ -67,6 +67,12 @@ use syn::{
 /// function on its own: a state it reads re-runs its caller instead. That is what an
 /// associated function needs, because the runtime re-runs a function by calling it by its
 /// bare name.
+///
+/// `#[Composable(widget)]` is for a function that writes a node itself, as the widgets in
+/// `compose_rust::ui` do. It gets the call macro and its `#[default(..)]` values, and its
+/// body is left as written: no group is opened around it and its parameters are not
+/// compared, because the node it writes already has a group of its own and a second one
+/// would only be a second entry in the slot table for every widget on the screen.
 #[proc_macro_attribute]
 #[allow(non_snake_case)]
 pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
@@ -85,6 +91,11 @@ pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
         .restartable
         .then(|| call_params(&function, defaults))
         .flatten();
+    if options.widget {
+        function.attrs.push(parse_quote!(#[allow(non_snake_case)]));
+        let call_macro = call_params.map(|params| call_macro::generate(&function, &params));
+        return quote!(#function #call_macro).into();
+    }
     match expand(&mut function, &options) {
         Ok(()) => {
             let call_macro = call_params.map(|params| call_macro::generate(&function, &params));
@@ -190,10 +201,15 @@ fn mentions_self(ty: &Type) -> bool {
 
 struct Options {
     restartable: bool,
+    /// The function writes its own node and group, so only the call macro is generated.
+    widget: bool,
 }
 
 fn parse_options(attribute: proc_macro2::TokenStream) -> syn::Result<Options> {
-    let mut options = Options { restartable: true };
+    let mut options = Options {
+        restartable: true,
+        widget: false,
+    };
     if attribute.is_empty() {
         return Ok(options);
     }
@@ -201,10 +217,13 @@ fn parse_options(attribute: proc_macro2::TokenStream) -> syn::Result<Options> {
     if ident == "nonrestartable" {
         options.restartable = false;
         Ok(options)
+    } else if ident == "widget" {
+        options.widget = true;
+        Ok(options)
     } else {
         Err(syn::Error::new(
             ident.span(),
-            "#[Composable] takes no argument except `nonrestartable`",
+            "#[Composable] takes no argument except `nonrestartable` or `widget`",
         ))
     }
 }

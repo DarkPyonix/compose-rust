@@ -2,26 +2,26 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 #[Composable]
 fn BarNoHairline() {
-    TopAppBar().hairline(false).content(|| {});
+    TopAppBar!(hairline = false, {});
 }
 
 #[Composable]
 fn BarNoSeparator() {
-    TopAppBar().separator(false).content(|| {});
+    TopAppBar!(separator = false, {});
 }
 
 #[Composable]
 fn BarWithHairline() {
-    TopAppBar().hairline(true).content(|| {});
+    TopAppBar!(hairline = true, {});
 }
 
 #[Composable]
 fn BarDefault() {
-    TopAppBar().content(|| {});
+    TopAppBar!({});
 }
 
 #[test]

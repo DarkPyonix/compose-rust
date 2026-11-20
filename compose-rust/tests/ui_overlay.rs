@@ -7,7 +7,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::MODIFIER_SCHEMA;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 const WASH: Paint = Paint::Literal(Color::argb(0x1f00_0000));
@@ -46,12 +46,10 @@ fn fr60_overlay_round_trips() {
 #[test]
 fn fr60_overlay_follows_bounds_and_shape_on_the_wire() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.corner_radius(12.0).overlay(WASH))
-            .content(|| {
-                Text("label");
-            });
-        Box().modifier(Modifier.corner_radius(12.0)).content(|| {});
+        Box!(modifier = Modifier.corner_radius(12.0).overlay(WASH), {
+            Text!("label");
+        });
+        Box!(modifier = Modifier.corner_radius(12.0), {});
     });
     let dump = tree.dump();
     let boxes: Vec<&str> = dump
@@ -75,15 +73,14 @@ fn fr60_overlay_removed_sends_one_modifier() {
     let pressed = mutable_state_of(true);
     let state = pressed;
     let (mut host, mut tree) = start(move || {
-        Box()
-            .modifier(
-                Modifier
-                    .corner_radius(12.0)
-                    .overlay_if(state.get().then_some(WASH)),
-            )
-            .content(|| {
-                Text("child");
-            });
+        Box!(
+            modifier = Modifier
+                .corner_radius(12.0)
+                .overlay_if(state.get().then_some(WASH)),
+            {
+                Text!("child");
+            }
+        );
     });
     pressed.set(false);
     let batch = host.render_frame(0).expect("the frame encodes").to_vec();
