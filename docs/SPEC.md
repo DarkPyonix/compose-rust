@@ -1803,8 +1803,10 @@ Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모�
 메시지는 **수명을 가진 사건**이지 트리의 일부가 아닙니다. 그래서 새 **Mutation 태그 12 `ShowMessage`** 하나를 더합니다. Host는 "이 말을 전하라"고 한 번 말하고 잊습니다.
 
 ```
-tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len), duration: u16, reserved: u16
+tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len), duration: u16, vertical: u16, horizontal: u16, reserved: u16, offset_dp: f32
 ```
+
+처음 정한 레코드는 32바이트였습니다. 일시 메시지의 자리와 거리(이슈 #577, 아래)가 PR #721(`5802be7e`)로 `vertical`, `horizontal`, `offset_dp`를 더해 40바이트가 되었습니다([leader, 2026-11-21]). `vertical`과 `horizontal`이 0이면 디자인 시스템이 정한 자리이고, 둘은 함께 0이거나 함께 0이 아닙니다. `offset_dp`가 NaN이면 거리를 정하지 않은 것입니다.
 
 - `handler_id`는 동작 라벨을 눌렀을 때 보낼 핸들러 id입니다. 동작이 없으면 0이고, 그때 `action`은 빈 문자열입니다. 누르면 기존 `Clicked`(이벤트 태그 1)를 `node_id = 0`으로 보냅니다. 메시지에는 노드가 없기 때문입니다.
 - `duration`은 `Short=1`, `Long=2`인 닫힌 열거형입니다. 실제 밀리초는 디자인 시스템이 정합니다. 반드시 확인을 받아야 하는 메시지는 일시 메시지가 아니라 `Dialog`이므로 "무기한"은 두지 않습니다.
@@ -5180,7 +5182,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 - **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702(FR-88)에서 다룹니다(리더 결정, 2026-11-13).
 - **호스트 텍스트 측정(이슈 #708).** 호스트에서 `tnum` 등 글꼴 기능이 지정된 텍스트를 측정할 때도 렌더러가 그릴 때와 같은 폭을 얻을 수 있도록, `MeasureText` 요청 레코드에 글꼴 기능 목록을 싣습니다.
-  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(레코드 80바이트: `font_features_offset@72 u32`, `font_features_count@76 u32`).
+  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(`font_features_offset@72 u32`, `font_features_count@76 u32`). 이 칸을 더한 PR #788(`b7482f5f`)에서 레코드는 80바이트였습니다. 그 뒤 FR-88의 PR #837(`bd540758`, 이슈 #823)이 `span_features`를 80과 84에 더해 지금 레코드는 88바이트입니다([leader, 2026-11-21]).
   - 페이로드 영역에 8바이트 고정 레코드(`tag: [u8; 4]`, `value: u32`) 목록을 싣고, 렌더러의 `Measurement.kt`는 `textInput`에서 이를 읽어 `TextInput.fontFeatures`로 전달합니다.
   - `TextStyle`에 `font_features: Vec<FontFeature>`를 둘 수 있으며, 기본값은 빈 목록입니다. 기능이 없는 텍스트는 빈 목록(count = 0)으로 보내며 기존과 동일하게 측정됩니다.
   - 오류: 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니거나 16개를 넘으면 해당 레코드의 상태는 `STATUS_MALFORMED`입니다.
