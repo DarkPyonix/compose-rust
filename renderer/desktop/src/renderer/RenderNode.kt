@@ -48,6 +48,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -295,7 +296,23 @@ fun RenderNode(
     // focus target that reports it is focused and whose keys pass the node's handlers.
     val menuKeyboard = LocalMenuKeyboard.current
     val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
-        keyed.then(menuKeyboard.entry(nodeId))
+        val highlight = if (menuKeyboard.isKeyboardFocused(nodeId)) {
+            val fill = theme.color(ColorRole.SurfaceVariant).copy(alpha = 0.65f)
+            val ring = theme.color(ColorRole.Primary).copy(alpha = 0.85f)
+            Modifier.drawWithContent {
+                val radius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                drawRoundRect(color = fill, cornerRadius = radius)
+                drawContent()
+                drawRoundRect(
+                    color = ring,
+                    cornerRadius = radius,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+        } else {
+            Modifier
+        }
+        keyed.then(menuKeyboard.entry(nodeId)).then(highlight)
     } else {
         keyed
     }
