@@ -288,6 +288,13 @@ sealed interface Timing {
 
     /** CSS `steps(count, position)`. */
     data class Steps(val count: Int, val position: StepPosition) : Timing
+
+    /**
+     * Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and settles
+     * at 1, stretched so that the segment ends when it has settled. Overshoots below a
+     * damping ratio of 1. Both values are finite and positive.
+     */
+    data class Spring(val stiffness: kotlin.Float, val dampingRatio: kotlin.Float) : Timing
 }
 
 /**
@@ -2824,6 +2831,18 @@ object Protocol {
                     if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
                     Timing.Steps(count.toInt(), position)
                 }
+                TimingKind.Spring -> {
+                    val stiffness = float(at + 8)
+                    val dampingRatio = float(at + 12)
+                    if (!(stiffness.isFinite() && stiffness > 0f) || !(dampingRatio.isFinite() && dampingRatio > 0f)) {
+                        bad("spring(stiffness $stiffness, damping ratio $dampingRatio)", at + 8)
+                    }
+                    if (readU32(batch, base, available, at + 16) != 0L || readU32(batch, base, available, at + 20) != 0L) {
+                        bad("a spring has two values and the last two numbers must be zero", at + 16)
+                    }
+                    if (readU8(batch, base, available, at + 5) != 0) bad("a spring has no step position", at + 5)
+                    Timing.Spring(stiffness, dampingRatio)
+                }
             }
             if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
             if (!(keyframeOffset >= 0f && keyframeOffset <= 1f)) bad("keyframe offset $keyframeOffset", at)
@@ -3343,6 +3362,45 @@ fn vector_transform(
             KeyframeValue::Transform(std::borrow::Cow::Borrowed(to)),
         ],
     )
+}
+
+/// An opacity animation timed by a spring: stiffness 1500 and damping ratio 0.5 from the
+/// first keyframe to the last, then linear. Its length is the spring's settle time.
+fn vector_spring_animation() -> Animation<'static> {
+    Animation {
+        node_id: 2,
+        animation_id: 11,
+        property: AnimatedProperty::Alpha,
+        slot: 2,
+        direction: PlaybackDirection::Normal,
+        fill: FillMode::Forwards,
+        play_state: PlayState::Running,
+        interpolation: None,
+        start_time_nanos: 0,
+        delay_ms: 0.0,
+        duration_ms: 364.0,
+        iterations: 1.0,
+        origin_x: 0.0,
+        origin_y: 0.0,
+        events: AnimationEvents::END,
+        keyframes: std::borrow::Cow::Owned(vec![
+            Keyframe {
+                offset: 0.0,
+                timing: Timing::Spring {
+                    stiffness: 1500.0,
+                    damping_ratio: 0.5,
+                },
+                from_presented: false,
+                value: KeyframeValue::Alpha(0.0),
+            },
+            Keyframe {
+                offset: 1.0,
+                timing: Timing::Linear,
+                from_presented: false,
+                value: KeyframeValue::Alpha(1.0),
+            },
+        ]),
+    }
 }
 
 /// The little-endian bytes of some `f32`, the layout a window's size, position and drag
@@ -4337,6 +4395,9 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 25,
             focus: true,
         },
+        // A spring segment, after every older record so none of them moves. Node 2 again,
+        // which the vector never creates.
+        Mutation::StartAnimation(vector_spring_animation()),
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -4869,7 +4930,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 147,
+    "recordCount": 152,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

@@ -2774,6 +2774,10 @@ impl BatchEncoder {
                     [x1.to_bits(), y1.to_bits(), x2.to_bits(), y2.to_bits()],
                 ),
                 Timing::Steps { count, position } => (3, position as u8, [count, 0, 0, 0]),
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                } => (4, 0, [stiffness.to_bits(), damping_ratio.to_bits(), 0, 0]),
             };
             self.records.push(kind);
             self.records.push(position);
@@ -3496,6 +3500,24 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                     return Err(bad);
                 }
                 Timing::Steps { count, position }
+            }
+            4 => {
+                // A spring is its stiffness and damping ratio; the last two numbers and
+                // the step position have no meaning for it and must be zero.
+                let (stiffness, damping_ratio) = (float(at + 8)?, float(at + 12)?);
+                let positive = |value: f32| value.is_finite() && value > 0.0;
+                if !positive(stiffness)
+                    || !positive(damping_ratio)
+                    || read_u32(record, at + 16)? != 0
+                    || read_u32(record, at + 20)? != 0
+                    || raw_position != 0
+                {
+                    return Err(bad);
+                }
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                }
             }
             _ => return Err(bad),
         };

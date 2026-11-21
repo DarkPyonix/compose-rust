@@ -39,6 +39,7 @@ import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.RenderNodeObserver
+import dev.darkpyonix.composerust.ui.node.SpringTiming
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import kotlin.math.abs
@@ -469,5 +470,54 @@ class AnimationRendererTest {
             val inside = pixels[x + 30, 40]
             assertTrue(near(1f, inside.green), "$name: the inside is not painted, found $inside")
         }
+    }
+
+    /**
+     * An opacity carried past 1 by a spring is clamped: red at an opacity of 1 over white is
+     * pure red, at the moment the spring overshoots and after it has ended.
+     */
+    @Test
+    fun fr41_spring_alpha_is_clamped_while_it_overshoots() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        // A quarter of the way, a spring of stiffness 1500 and damping ratio 0.5 is past 1.
+        assertTrue(SpringTiming.ease(1500f, 0.5f, 0.25f, SpringTiming.settleMs(1500f, 0.5f)) > 1.1f)
+        fun sprung(node: Int, id: Int, playState: PlayState, delayMs: Float, fill: FillMode) =
+            Mutation.StartAnimation(
+                (played(node, id, AnimatedProperty.Alpha, KeyframeValue.Alpha(0f), KeyframeValue.Alpha(1f),
+                    delayMs = delayMs, playState = playState).animation).let { animation ->
+                    animation.copy(
+                        fill = fill,
+                        originX = 0f,
+                        originY = 0f,
+                        keyframes = listOf(
+                            Keyframe(0f, Timing.Spring(1500f, 0.5f), false, KeyframeValue.Alpha(0f)),
+                            Keyframe(1f, Timing.Linear, false, KeyframeValue.Alpha(1f)),
+                        ),
+                    )
+                },
+            )
+        show(
+            FakeHostConnection(
+                page {
+                    node(2, ProtocolModifier.Offset(0f, 0f), ProtocolModifier.RequiredSize(40f, 40f),
+                        ProtocolModifier.Alpha(0.2f), ProtocolModifier.Background(Paint.Literal(RED)))
+                    node(3, ProtocolModifier.Offset(100f, 0f), ProtocolModifier.RequiredSize(40f, 40f),
+                        ProtocolModifier.Alpha(0.2f), ProtocolModifier.Background(Paint.Literal(RED)))
+                    // Held a quarter of the way, where the spring overshoots.
+                    add(sprung(2, 1, PlayState.Paused, -250f, FillMode.None))
+                    // Played to its end and held there.
+                    add(sprung(3, 2, PlayState.Running, 0f, FillMode.Forwards))
+                },
+            ),
+        )
+        frames(90)
+        val pixels = onNodeWithTag(nodeTestTag(ROOT)).captureToImage().toPixelMap()
+        val overshooting = pixels[20, 20]
+        assertTrue(
+            overshooting.red > 0.98f && overshooting.green < 0.02f,
+            "an opacity past 1 is drawn as 1, found $overshooting",
+        )
+        val ended = pixels[120, 20]
+        assertTrue(ended.red > 0.98f && ended.green < 0.02f, "the end value is exactly 1, found $ended")
     }
 }

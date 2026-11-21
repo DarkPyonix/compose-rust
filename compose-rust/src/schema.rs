@@ -1373,6 +1373,7 @@ define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
     Linear = 1,
     CubicBezier = 2,
     Steps = 3,
+    Spring = 4,
 });
 
 define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
@@ -2919,6 +2920,12 @@ pub enum Timing {
         count: u32,
         position: StepPosition,
     },
+    /// Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and
+    /// settles at 1. The segment's progress `u` is the time `u * T`, where `T` is how long
+    /// the spring takes to come within 0.001 of 1 and stay there, so the curve ends at
+    /// exactly 1. Below a damping ratio of 1 it overshoots. Both numbers are finite and
+    /// positive.
+    Spring { stiffness: f32, damping_ratio: f32 },
 }
 
 /// One CSS transform function: its kind and up to six values, the unused ones zero.

@@ -30,10 +30,13 @@ import dev.darkpyonix.composerust.protocol.TransformFunction
 import dev.darkpyonix.composerust.protocol.TransformFunctionKind
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cbrt
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -160,10 +163,16 @@ internal object WebAnimationTiming {
 
     /**
      * One keyframe's timing function applied to the progress through its segment. [curve]
-     * is the keyframe's cubic-bezier, made once when the animation arrives, so easing a
-     * frame allocates nothing.
+     * is the keyframe's cubic-bezier and [springMs] its spring's settle time, both worked
+     * out once when the animation arrives, so easing a frame allocates nothing.
      */
-    fun ease(timing: Timing, input: Float, beforeFlag: Boolean, curve: CubicBezierEasing? = null): Float = when (timing) {
+    fun ease(
+        timing: Timing,
+        input: Float,
+        beforeFlag: Boolean,
+        curve: CubicBezierEasing? = null,
+        springMs: Double = Double.NaN,
+    ): Float = when (timing) {
         Timing.Linear -> input
         is Timing.CubicBezier -> when {
             // Outside 0..1 a cubic-bezier is extended along its end tangents; inside, it is
@@ -174,6 +183,175 @@ internal object WebAnimationTiming {
             else -> if (timing.x2 < 1f) 1f + (input - 1f) * (1f - timing.y2) / (1f - timing.x2) else 1f
         }
         is Timing.Steps -> steps(input, timing.count, timing.position, beforeFlag)
+        is Timing.Spring -> SpringTiming.ease(
+            timing.stiffness,
+            timing.dampingRatio,
+            input,
+            if (springMs.isNaN()) SpringTiming.settleMs(timing.stiffness, timing.dampingRatio) else springMs,
+        )
+    }
+}
+
+/**
+ * Compose's spring as a timing function: a damped oscillator of mass 1 that starts at rest
+ * at 0 and settles at 1.
+ *
+ * A segment's progress `u` is the time `u × T`, where `T` ([settleMs]) is how long the
+ * spring takes to come within 0.001 of 1 and stay there. The position follows Compose's
+ * `SpringSimulation` and the settle time its `estimateAnimationDurationMillis`, both
+ * ported here step for step rather than called, because the one is internal to Compose and
+ * the other restricted to its own libraries. The Host computes the same settle time for
+ * `AnimationSpec::spring`, which is why it never travels on the wire.
+ */
+internal object SpringTiming {
+    /** How close to 1 the spring has to stay to have settled. */
+    const val THRESHOLD = 0.001
+
+    /** The position at [input], exactly 0 at the start and exactly 1 at the end. */
+    fun ease(stiffness: Float, dampingRatio: Float, input: Float, settleMs: Double): Float = when {
+        input <= 0f -> 0f
+        input >= 1f -> 1f
+        else -> position(stiffness, dampingRatio, input * settleMs / 1000.0).toFloat()
+    }
+
+    /**
+     * Where the spring is [seconds] after it starts: Compose's `SpringSimulation` moving from
+     * 0 at rest to a final position of 1, without its rounding of the time to milliseconds.
+     */
+    fun position(stiffness: Float, dampingRatio: Float, seconds: Double): Double {
+        val naturalFrequency = sqrt(stiffness.toDouble())
+        val displacement0 = -1.0
+        val velocity0 = 0.0
+        val dampingSquared = dampingRatio * dampingRatio.toDouble()
+        val r = -dampingRatio * naturalFrequency
+        val displacement = if (dampingRatio > 1f) {
+            val s = naturalFrequency * sqrt(dampingSquared - 1)
+            val gammaPlus = r + s
+            val gammaMinus = r - s
+            val coefficientB = (gammaMinus * displacement0 - velocity0) / (gammaMinus - gammaPlus)
+            val coefficientA = displacement0 - coefficientB
+            coefficientA * exp(gammaMinus * seconds) + coefficientB * exp(gammaPlus * seconds)
+        } else if (dampingRatio == 1f) {
+            val coefficientA = displacement0
+            val coefficientB = velocity0 + naturalFrequency * displacement0
+            (coefficientA + coefficientB * seconds) * exp(-naturalFrequency * seconds)
+        } else {
+            val dampedFrequency = naturalFrequency * sqrt(1 - dampingSquared)
+            val cosCoefficient = displacement0
+            val sinCoefficient = (1 / dampedFrequency) * ((-r * displacement0) + velocity0)
+            val angle = dampedFrequency * seconds
+            exp(r * seconds) * (cosCoefficient * cos(angle) + sinCoefficient * sin(angle))
+        }
+        return displacement + 1.0
+    }
+
+    /**
+     * How long, in ms, the spring takes to come within [THRESHOLD] of 1 and stay there.
+     * Compose's `estimateAnimationDurationMillis` with the distance measured in units of the
+     * threshold, as Compose measures it, and the fraction of a millisecond kept.
+     */
+    fun settleMs(stiffness: Float, dampingRatio: Float): Double {
+        val k = stiffness.toDouble()
+        val zeta = dampingRatio.toDouble()
+        val p0 = 1.0 / THRESHOLD
+        val v0 = 0.0
+        val delta = 1.0
+        // The roots of x^2 + c x + k = 0, the first of which may be complex.
+        val damping = 2.0 * zeta * sqrt(k)
+        val partial = damping * damping - 4.0 * k
+        val partialReal = if (partial < 0.0) 0.0 else sqrt(partial)
+        val partialImaginary = if (partial < 0.0) sqrt(abs(partial)) else 0.0
+        val firstReal = (-damping + partialReal) * 0.5
+        val firstImaginary = partialImaginary * 0.5
+        val secondReal = (-damping - partialReal) * 0.5
+        val seconds = when {
+            zeta > 1.0 -> overDamped(firstReal, secondReal, p0, v0, delta)
+            zeta < 1.0 -> underDamped(firstReal, firstImaginary, p0, v0, delta)
+            else -> criticallyDamped(firstReal, p0, v0, delta)
+        }
+        return seconds * 1000.0
+    }
+
+    private fun underDamped(r: Double, imaginary: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c1 = p0
+        val c2 = (v0 - r * c1) / imaginary
+        val c = sqrt(c1 * c1 + c2 * c2)
+        return ln(delta / c) / r
+    }
+
+    private fun criticallyDamped(r: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c1 = p0
+        val c2 = v0 - r * c1
+        // The first guess is the later of c1 e^(rt) = delta and c2 t e^(rt) = delta, the
+        // second solved with a few rounds of Lambert's W.
+        val t1 = ln(abs(delta / c1)) / r
+        val guess = ln(abs(delta / c2))
+        var lambert = guess
+        repeat(6) { lambert = guess - ln(abs(lambert / r)) }
+        val t2 = lambert / r
+        var t = when {
+            !t1.isFinite() -> t2
+            !t2.isFinite() -> t1
+            else -> max(t1, t2)
+        }
+        val tInflection = -(r * c1 + c2) / (r * c2)
+        val xInflection = c1 * exp(r * tInflection) + c2 * tInflection * exp(r * tInflection)
+        val signedDelta = if (tInflection.isNaN() || tInflection <= 0.0) {
+            -delta
+        } else if (-xInflection < delta) {
+            if (c2 < 0 && c1 > 0) t = 0.0
+            -delta
+        } else {
+            // Three crossings of the threshold: start between the change of concavity and
+            // the inflection, so that Newton's method lands on the last one.
+            t = -(2.0 / r) - (c1 / c2)
+            delta
+        }
+        var step = Double.MAX_VALUE
+        var iterations = 0
+        while (step > 0.001 && iterations < 100) {
+            iterations++
+            val last = t
+            val value = (c1 + c2 * t) * exp(r * t) + signedDelta
+            val slope = (c2 * (r * t + 1) + c1 * r) * exp(r * t)
+            t -= value / slope
+            step = abs(last - t)
+        }
+        return t
+    }
+
+    private fun overDamped(r1: Double, r2: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c2 = (r1 * p0 - v0) / (r1 - r2)
+        val c1 = p0 - c2
+        val t1 = ln(abs(delta / c1)) / r1
+        val t2 = ln(abs(delta / c2)) / r2
+        var t = when {
+            !t1.isFinite() -> t2
+            !t2.isFinite() -> t1
+            else -> max(t1, t2)
+        }
+        val tInflection = ln((c1 * r1) / (-c2 * r2)) / (r2 - r1)
+        val signedDelta = if (tInflection.isNaN() || tInflection <= 0.0) {
+            -delta
+        } else if (-(c1 * exp(r1 * tInflection) + c2 * exp(r2 * tInflection)) < delta) {
+            if (c2 > 0.0 && c1 < 0.0) t = 0.0
+            -delta
+        } else {
+            t = ln(-(c2 * r2 * r2) / (c1 * r1 * r1)) / (r1 - r2)
+            delta
+        }
+        if (abs(c1 * r1 * exp(r1 * t) + c2 * r2 * exp(r2 * t)) < 0.0001) return t
+        var step = Double.MAX_VALUE
+        var iterations = 0
+        while (step > 0.001 && iterations < 100) {
+            iterations++
+            val last = t
+            val value = c1 * exp(r1 * t) + c2 * exp(r2 * t) + signedDelta
+            val slope = c1 * r1 * exp(r1 * t) + c2 * r2 * exp(r2 * t)
+            t -= value / slope
+            step = abs(last - t)
+        }
+        return t
     }
 }
 
@@ -263,6 +441,12 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         /** Each keyframe's cubic-bezier, made once here rather than every frame. */
         val curves: Array<CubicBezierEasing?> = Array(animation.keyframes.size) { index ->
             (animation.keyframes[index].timing as? Timing.CubicBezier)?.let { CubicBezierEasing(it.x1, it.y1, it.x2, it.y2) }
+        }
+        /** Each keyframe's spring settle time in ms, NaN where it is not a spring. Worked out once here. */
+        val springMs = DoubleArray(animation.keyframes.size) { index ->
+            (animation.keyframes[index].timing as? Timing.Spring)
+                ?.let { SpringTiming.settleMs(it.stiffness, it.dampingRatio) }
+                ?: Double.NaN
         }
         /** Resolved on the first frame where the record said zero. Nanoseconds. */
         var startNanos: Long = animation.startTimeNanos
@@ -524,7 +708,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         val to = keyframes[segment + 1]
         val span = to.offset - from.offset
         val local = if (span == 0f) 0f else (p - from.offset) / span
-        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag, winner.curves[segment])
+        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag, winner.curves[segment], winner.springMs[segment])
         val fromValue: Any = if (segment == 0 && winner.fromPresented != null) winner.fromPresented!! else from.value
         when (property) {
             AnimatedProperty.Alpha -> {

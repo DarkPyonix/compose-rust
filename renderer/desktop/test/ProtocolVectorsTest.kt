@@ -911,14 +911,16 @@ class ProtocolVectorsTest {
     fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
         val mutations = decodeVector("mutations.bin")
         val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
-        assertEquals(10, animations.size)
-        // The border colour came after every record that was there before it.
-        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, animations.last().property)
+        assertEquals(11, animations.size)
+        // The border colour came after every record that was there before it, and a spring
+        // after that.
+        val border = animations[animations.size - 2]
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, border.property)
         assertEquals(
             dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
                 dev.darkpyonix.composerust.protocol.Paint.Literal(0xFF336699.toInt()),
             ),
-            animations.last().keyframes.last().value,
+            border.keyframes.last().value,
         )
         val alpha = animations.first()
         assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, alpha.property)
@@ -977,6 +979,80 @@ class ProtocolVectorsTest {
             ),
             mutations.filterIsInstance<Mutation.ControlAnimation>().single(),
         )
+    }
+
+    /**
+     * The spring segment the vector carries: timing kind 4 with its stiffness and damping
+     * ratio, read from the bytes the Host wrote, after every older record.
+     */
+    @Test
+    fun fr41_spring_timing_round_trips() {
+        val animations = decodeVector("mutations.bin").filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        val spring = animations.last()
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, spring.property)
+        assertEquals(11, spring.animationId)
+        assertEquals(364f, spring.durationMs)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0f,
+                    dev.darkpyonix.composerust.protocol.Timing.Spring(1500f, 0.5f),
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(0f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    1f,
+                    dev.darkpyonix.composerust.protocol.Timing.Linear,
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+            ),
+            spring.keyframes,
+        )
+    }
+
+    /** Where each `StartAnimation` record in the mutation vector starts, in order. */
+    private fun animationRecordOffsets(batch: ByteArray): List<Int> {
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        val offsets = mutableListOf<Int>()
+        var offset = 12
+        while (offset < recordsLength) {
+            if (view.getShort(offset).toInt() == 18) offsets += offset
+            offset += view.getShort(offset + 2).toInt()
+        }
+        return offsets
+    }
+
+    private fun assertRefused(batch: ByteArray, what: String, patch: (ByteBuffer) -> Unit) {
+        val bad = batch.copyOf()
+        patch(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN))
+        val failure = runCatching {
+            Protocol.decode(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN)) { }
+        }.exceptionOrNull()
+        assertTrue(failure is ProtocolException, "$what was read, got $failure")
+    }
+
+    /**
+     * The vector's spring with a stiffness or damping ratio that is not a finite positive
+     * number, or with anything in the numbers and the step position it does not use, is
+     * refused the way the Host refuses it.
+     */
+    @Test
+    fun fr41_spring_with_invalid_parameters_is_a_protocol_error() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val spring = animationRecordOffsets(batch).last()
+        val keyframe = spring + 52
+        assertEquals(4, batch[keyframe + 4].toInt(), "the vector's spring is timing kind 4")
+        for (stiffness in listOf(0f, -1500f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertRefused(batch, "stiffness $stiffness") { it.putFloat(keyframe + 8, stiffness) }
+        }
+        for (damping in listOf(0f, -0.5f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertRefused(batch, "damping ratio $damping") { it.putFloat(keyframe + 12, damping) }
+        }
+        assertRefused(batch, "a third number") { it.putFloat(keyframe + 16, 0.5f) }
+        assertRefused(batch, "a fourth number") { it.putFloat(keyframe + 20, 0.5f) }
+        assertRefused(batch, "a step position") { it.put(keyframe + 5, 2.toByte()) }
     }
 
     /** The animation event and the motion setting encode to the bytes the Host decodes. */
