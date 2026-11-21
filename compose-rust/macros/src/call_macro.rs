@@ -166,6 +166,14 @@ pub(crate) fn generate(function: &ItemFn, params: &[CallParam]) -> TokenStream {
         Visibility::Inherited => quote!(),
         other => quote!(#other),
     };
+    // The macro is `#[doc(hidden)]` so its exported name stays off the crate's front page,
+    // and rustdoc leaves out a plain re-export of a hidden item: the public name would have
+    // no page and the documentation above would be seen by no one. `doc(inline)` makes
+    // rustdoc document the macro, docs and all, under the public name instead.
+    let inline = match &function.vis {
+        Visibility::Public(_) => quote!(#[doc(inline)]),
+        _ => quote!(),
+    };
     quote! {
         #(#cfgs)*
         #(#docs)*
@@ -175,6 +183,7 @@ pub(crate) fn generate(function: &ItemFn, params: &[CallParam]) -> TokenStream {
             #rule
         }
         #(#cfgs)*
+        #inline
         #[allow(unused_imports)]
         #visibility use #hidden as #name;
     }
@@ -474,6 +483,64 @@ mod tests {
             panic!()
         };
         assert!(matches!(reexport.vis, Visibility::Public(_)));
+    }
+
+    /// Whether an item has `#[doc(<word>)]`.
+    fn has_doc_word(attrs: &[Attribute], word: &str) -> bool {
+        attrs.iter().any(|attribute| {
+            attribute.path().is_ident("doc")
+                && matches!(&attribute.meta, syn::Meta::List(list) if list.tokens.to_string() == word)
+        })
+    }
+
+    #[test]
+    fn fr39_call_macro_docs_reach_the_public_name() {
+        // The public name is a re-export of the hidden macro, and rustdoc shows a re-export
+        // of a hidden item only when the re-export asks to be inlined. So the docs are on
+        // the macro the name resolves to, and the re-export carries `doc(inline)`.
+        let (function, params) = sample();
+        let items = expand(function, params);
+        let Item::Macro(hidden) = &items[0] else {
+            panic!("the first item is the macro")
+        };
+        let hidden_name = hidden.ident.as_ref().expect("the macro has a name");
+        assert!(has_doc_word(&hidden.attrs, "hidden"));
+        let docs = docs_of(&items[0]).join("\n");
+        assert!(docs.starts_with(" Draws a field."), "{docs}");
+        assert!(docs.contains("`value: String`, required"), "{docs}");
+
+        let Item::Use(reexport) = &items[1] else {
+            panic!("the second item is the re-export")
+        };
+        let syn::UseTree::Rename(rename) = &reexport.tree else {
+            panic!("the re-export renames the macro")
+        };
+        assert_eq!(&rename.ident, hidden_name, "it names the documented macro");
+        assert_eq!(rename.rename, "Field", "under the function's name");
+        assert!(
+            has_doc_word(&reexport.attrs, "inline"),
+            "a public re-export of a hidden macro is inlined, or rustdoc shows nothing"
+        );
+        assert!(!has_doc_word(&reexport.attrs, "hidden"));
+    }
+
+    #[test]
+    fn fr39_call_macro_docs_private_function_reexport_is_not_inlined() {
+        let function: ItemFn = parse_quote! {
+            /// Draws a field.
+            fn Field(value: String) {}
+        };
+        let params = vec![CallParam {
+            ident: parse_quote!(value),
+            ty: parse_quote!(String),
+            default: None,
+        }];
+        let items = expand(function, params);
+        let Item::Use(reexport) = &items[1] else {
+            panic!("the second item is the re-export")
+        };
+        assert!(matches!(reexport.vis, Visibility::Inherited));
+        assert!(!has_doc_word(&reexport.attrs, "inline"));
     }
 
     #[test]

@@ -74,11 +74,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         batch.to_vec()
     }

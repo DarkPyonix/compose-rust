@@ -2255,7 +2255,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 > **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
 >
-> **1.0 뒤([leader, 2026-11-21]).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어가지 않습니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
+> **1.0 작업(소유자, 2026-11-21).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어갑니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
 적응형 애플리케이션은 디자인 시스템의 이름을 묻지 않고 자기가 놓는 것이 무엇인지 말합니다.
 렌더러의 `ComponentRules`가 그 뜻을 현재 디자인 시스템의 모양과 배치로 바꿉니다.
@@ -2906,7 +2906,7 @@ fn main() {
 
 - **선언.** 위젯은 `#[Composable(widget)]`로 선언합니다. 호출 매크로와 그 문서는 다른 composable과 같이 만들고, 본문은 건드리지 않습니다. 위젯은 이미 자기 그룹을 열고 자기 노드를 쓰므로, 그룹을 하나 더 두거나 매개변수 비교를 감싸면 슬롯 테이블과 할당 수가 바뀝니다.
 - **매개변수의 모양.** 빌더 메서드가 하던 일은 같은 이름의 매개변수가 합니다. 생성자 인자는 같은 자리의 필수 매개변수이고, 위젯의 주 핸들러(`Button`의 `on_click`, `Slider`의 `on_change`, `TextField`의 `on_value_change` 등)는 데이터 바로 뒤의 필수 `impl FnMut(..)`입니다. `modifier`의 기본값은 `Modifier::new()`입니다. "정하지 않음"이 와이어에서 값과 다른 속성(`font_size`, `color`, `spacing` 등)은 `impl Into<Option<T>>`(기본값 `None`)라서 `font_size = 14.0`처럼 값을 그대로 씁니다. 진짜 기본값이 있는 속성(`enabled`, `multiline`)은 `T`이고, 인자 없는 깃발 메서드(`bare()`)는 `bool`(기본 `false`), 인자가 여럿인 메서드(`range(min, max)`)는 튜플 하나입니다. 선택 핸들러와 슬롯(컨테이너의 `on_click`, `on_key_down`, `Scaffold`의 `top_bar`)은 `Option<impl FnMut(..)>`이고 기본값은 `None`입니다. 핸들러가 없는 것과 빈 핸들러는 와이어에서 다르기 때문입니다(`on_click`이 없는 컨테이너는 컨트롤이 아닙니다). `Some(..)` 안에서는 rustc가 클로저 인자 타입을 추론하지 않으므로, 인자가 있는 선택 핸들러는 `Some(move |event: KeyEvent| ..)`처럼 타입을 적습니다. `color_if` 같은 `Option`을 받는 쌍둥이 메서드는 `impl Into<Option<T>>`가 대신하므로 없습니다. 내용 클로저는 마지막의 `content`이고 기본값은 `|| {}`입니다.
-- **빌더가 아닌 것([leader, 2026-11-21]).** 위젯 함수는 값을 돌려주지 않으므로 위젯에는 체인이 붙지 않습니다. 체인으로 만드는 타입은 위젯이나 창이나 Host에 인자로 넘기는 값입니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 예를 들면 `Modifier`, `TextSpans`, `Shadow`이고, 이것이 목록은 아닙니다. 그런 타입은 모두 39.5.1의 검사(`compose-rust/tests/fr39_no_builder_chains.rs`의 `fr39_function_form_no_public_method_chains_outside_the_value_types`)에 이름으로 적고, 이름마다 그 타입이 무엇인지 주석을 답니다. 그래서 새 타입을 더하는 것은 그 시험을 일부러 고치는 일이 되고, SPEC과 시험이 서로 어긋나지 않습니다. 지금 그 시험의 목록(`VALUE_TYPES`)은 `compose-rust/src/ui` 아래의 타입만 담고 이름마다의 주석이 아직 없습니다. 크레이트 전체를 읽고 주석을 다는 일은 PR #923이 합니다. 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)도 빌더 체인이 아니고 남습니다.
+- **빌더가 아닌 것([leader, 2026-11-21]).** 위젯 함수는 값을 돌려주지 않으므로 위젯에는 체인이 붙지 않습니다. 체인으로 만드는 타입은 위젯이나 창이나 Host에 인자로 넘기는 값입니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 예를 들면 `Modifier`, `TextSpans`, `Shadow`이고, 이것이 목록은 아닙니다. 그런 타입은 모두 39.5.1의 검사(`compose-rust/tests/fr39_no_builder_chains.rs`의 `fr39_function_form_no_public_method_chains_outside_the_value_types`)에 이름으로 적고, 이름마다 그 타입이 무엇인지 주석을 답니다. 그래서 새 타입을 더하는 것은 그 시험을 일부러 고치는 일이 되고, SPEC과 시험이 서로 어긋나지 않습니다. 그 시험은 `compose-rust/src/ui`만이 아니라 크레이트의 공개 표면 전체를 읽습니다. `ui`가 다른 파일에서 다시 내보내는 타입도 보기 위해서입니다. 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)도 빌더 체인이 아니고 남습니다.
 - **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 지금 함수는 크레이트 안의 빌더(`pub(crate)`)를 채워서 씁니다([leader, 2026-11-21]). 빌더가 공개 API에 있던 동안은 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험했습니다. 빌더가 공개 API에서 빠지면서 그 시험은 지웠습니다(`9ef0d722`). 비교할 공개 빌더가 없기 때문입니다. 지금 와이어의 내용은 호출 매크로로 옮긴 기능별 시험이 확인하고, 함수 형태와 매크로 형태가 같은 바이트를 쓰는 것은 `fr39_call_macro_layout_is_the_function_call`이 `Column`과 `Row`에 대해 확인합니다.
 
 #### 39.1.1 호출 매크로
@@ -3038,7 +3038,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
 
 8. **호출 매크로의 인자 규칙.** 위치 접두사 뒤에 이름 있는 인자가 순서와 무관하게 들어갑니다. 기본값이 있는 인자를 생략할 수 있고, 후행 `{ .. }` 블록과 `content = || { .. }`가 같은 호출입니다. 인자 식은 매개변수 순서로 평가됩니다. 이름 패턴 `fr39_call_macro_args_*`.
-9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 각 오류의 주 스팬은 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 마지막 인자, 인자가 없으면 매크로 호출)이고 `#[Composable]` 줄이 아니며, trybuild의 `.stderr`로 확인합니다. 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 CI의 stable 도구 체인으로 고정합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
+9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 각 오류의 주 스팬은 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 마지막 인자)이고 `#[Composable]` 줄이 아니며, trybuild의 `.stderr`로 확인합니다. 인자가 하나도 없는 호출만 다릅니다 `[leader, 2026-11-21]`. 이때 메시지는 빠진 매개변수와 매크로의 이름을 말하고 그 호출을 오류가 나온 매크로 호출로 보여 주지만, 주 스팬은 `#[Composable]` 줄에 놓입니다. 인자가 없으면 호출한 쪽의 토큰이 검사에 하나도 닿지 않고, stable Rust는 매크로에게 자기 호출의 스팬을 주지 않기 때문입니다(`fail_no_arguments`). 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 Rust 버전 하나에 고정합니다. 그 버전은 `.github/workflows/test.yml` 맨 위의 `RUST_TOOLCHAIN` 한 줄이 정하고, `stable`처럼 움직이는 이름은 쓰지 않습니다. rustc의 오류 문장이 릴리스마다 달라지기 때문입니다. 버전을 올릴 때는 그 줄을 바꾸고, 새 버전에서 `TRYBUILD=overwrite`로 사례를 다시 돌린 뒤, 바뀐 `.stderr`를 하나씩 읽어 같은 변경에 넣습니다 `[leader, 2026-11-21]`. 이름 패턴 `fr39_call_macro_compile_fail_*`.
 10. **기본값.** `#[default(expr)]`가 없는 매개변수가 필수이고, `modifier`의 기본값이 `Modifier::new()`이며, 기본값이 매크로 형태에서만 적용되고 함수 형태는 모든 인자를 받습니다. 기본값 식이 호출 위치에서 평가됩니다. 이름 패턴 `fr39_default_*`.
 11. **한계의 확인.** 제네릭(타입 인자 추론, const 제네릭)과 `impl Trait` 인자의 composable을 매크로 형태로 부를 수 있고, 메서드에 붙은 `#[Composable]`은 함수 형태만 만듭니다. 이름을 바꿔 가져온 경우 매크로가 컴파일 오류를 내는 것을 `trybuild`로 확인합니다. 이름 패턴 `fr39_call_macro_limits_*`.
 12. **생성 비용 없음.** 같은 호출의 함수 형태와 매크로 형태가 같은 함수 호출로 펼쳐지는 것(`cargo expand` 출력 비교 또는 호출 수 확인)을 보입니다. 이름 패턴 `fr39_call_macro_expands_*`.
@@ -3064,7 +3064,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 > **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
 >
-> **1.0 뒤([leader, 2026-11-21]).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어가지 않습니다. 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
+> **1.0 작업(소유자, 2026-11-21).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어갑니다. 아직 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -3813,7 +3813,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 ### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
-> **1.0 뒤([leader, 2026-11-21]).** `Mask`는 1.0에 들어가지 않습니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
+> **1.0 작업(소유자, 2026-11-21).** `Mask`는 1.0에 들어갑니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
 
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
@@ -3957,7 +3957,7 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 ### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
 
-> **1.0 뒤([leader, 2026-11-21]).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어가지 않습니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
+> **1.0 작업(소유자, 2026-11-21).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어갑니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
 
 소유자 지시(2026-10-26, 원문):
 
@@ -4921,7 +4921,7 @@ pub mod storage {
 
 ### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
 
-> **1.0 뒤([leader, 2026-11-21]).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어가지 않습니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
+> **1.0 작업(소유자, 2026-11-21).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어갑니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
 
 요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
 
@@ -4985,7 +4985,7 @@ pub mod storage {
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
 
-> **1.0 뒤([leader, 2026-11-21]).** 아래 "지금 코드와의 차이"에 적은 빈자리(macOS 두 창의 배율 변경 알림, macOS GraalVM 창의 밀도, Linux의 두 창)와 캡처 시험(기준 1에서 8)은 1.0에 들어가지 않습니다(이슈 #18).
+> **1.0 작업(소유자, 2026-11-21).** 아래 "지금 코드와의 차이"에 적은 빈자리(macOS 두 창의 배율 변경 알림, macOS GraalVM 창의 밀도, Linux의 두 창)와 캡처 시험(기준 1에서 8)은 1.0에 들어갑니다. 아직 되어 있지 않습니다(이슈 #18).
 
 소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
 
@@ -5773,7 +5773,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174가 2026-10-24에 develop에 병합됐습니다. 이슈 #24는 열려 있습니다. Windows는 이 정적 렌더러 하나만 배포합니다(§5.6) |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows의 PR #119, #174는 2026-10-24에 병합됐고, Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다(§5.6). compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
-| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed. 1.0에 들어가지 않습니다([leader, 2026-11-21]). 스키마 해시로 찾는 길이 아직 없고, 캐시는 크레이트 버전으로 나뉩니다(`compose-rust/build/renderer_dir.rs`의 `cached_renderer_dir`, 이슈 #293) |
+| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed. 1.0에 들어갑니다(소유자, 2026-11-21). 스키마 해시로 찾는 길이 아직 없고, 캐시는 크레이트 버전으로 나뉩니다(`compose-rust/build/renderer_dir.rs`의 `cached_renderer_dir`, 이슈 #293) |
 | NFR-17 | 메모리 안정성 | 같은 화면을 몇 천 프레임 그려도 런타임이 붙들고 있는 메모리가 늘지 않음. 규격과 수용 기준은 §5.8 (소유자 보고, 2026-10-26) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)
