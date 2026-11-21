@@ -3062,9 +3062,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
-> **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
->
-> **1.0 뒤([leader, 2026-11-21]).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어가지 않습니다. 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
+> **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다. `SpanMetrics`는 속성 태그 218, `MeasureText` 요청 레코드는 96바이트(`span_metrics_offset@88`, `span_metrics_count@92`)를 씁니다(이슈 #930).
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -3085,7 +3083,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
 8. 그릴 때의 `line_height`(이슈 #91). 지정하지 않은 값과 NaN은 역할의 행간(역할이 없으면 폰트 자체의 행간 normal, Compose의 `TextUnit.Unspecified`)을 씁니다. 측정 요청의 `line_height`(PR-2.1, "NaN이면 normal")와 같은 규칙이며, CSS `line-height: normal`이 역할을 가진 텍스트에는 역할의 행간으로, `TypeRole::None` 텍스트에는 폰트 자체의 행간으로 그려지게 합니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
 9. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
-  - 곁 표 속성 `SpanMetrics`, 속성 태그 187입니다(121은 `TrackColor`가 이미 써서 옮겼습니다, [leader, provisional] (darkpyonix leader, 2026-11-13)). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
+  - 곁 표 속성 `SpanMetrics`, 속성 태그 218입니다(이슈 #930). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
   - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
   - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
   - 구간 번호가 범위 밖이거나, 한 구간 안에서 항목이 중복되거나, 표가 버퍼 밖을 가리키면 `ProtocolError`(NFR-7)이고, 측정은 그 레코드를 `Malformed`로 돌립니다.
@@ -3811,13 +3809,11 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
 
-### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
-
-> **1.0 뒤([leader, 2026-11-21]).** `Mask`는 1.0에 들어가지 않습니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
+### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116, #929)
 
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
-번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
+번호: 수정자 `Mask` 46(이슈 #929). 속성도 명령도 이벤트도 늘지 않습니다.
 
 #### 49.1 값
 
@@ -5436,7 +5432,7 @@ compose_rust_host_dispatch_event: click 1
     - `word_break: Normal | KeepAll | BreakAll`, `overflow_wrap: Normal | Anywhere | BreakWord`
     - `absolute_size: u8`. 1이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다.
     - `zoom: f32`. 이 요청이 속한 HTML 영역의 확대 배율 `k`(FR-43). 0이면 1입니다. Renderer는 `Density(density × k, fontScale = 1)`로 잽니다. 배율을 Renderer의 상태로 두지 않고 요청마다 싣는 것은, Host 하나가 서로 다른 배율의 HTML 영역을 여럿 가질 수 있기 때문입니다.
-  - `span_metrics: (offset, count)`(소유자 승인 2026-10-25). FR-40 기준 8의 `SpanMetrics` 곁 표(16바이트 항목)를 가리킵니다. `spans`와 `span_fonts`처럼 요청 버퍼의 페이로드 영역에 놓이고, 복사할 때 offset을 옮기는 함수는 `SpanFonts`와 같은 것을 씁니다. 이로써 `MeasureText` 요청 레코드는 72바이트에서 **80바이트**가 됩니다: `span_metrics_offset@72 u32`, `span_metrics_count@76 u32`. `MeasureNode`는 그대로입니다. 호출은 아직 릴리스 전이라 공개된 레코드를 깨지 않고, 스키마 해시가 다른 렌더러는 핸드셰이크에서 거절됩니다.
+  - `span_metrics: (offset, count)`(소유자 승인 2026-10-25, 이슈 #930). FR-40 기준 8의 `SpanMetrics` 곁 표(16바이트 항목)를 가리킵니다. `spans`와 `span_fonts`처럼 요청 버퍼의 페이로드 영역에 놓이고, 복사할 때 offset을 옮기는 함수는 `SpanFonts`와 같은 것을 씁니다. `font_features`가 72/76, `span_features`가 80/84를 쓰므로 `MeasureText` 요청 레코드는 88바이트에서 **96바이트**가 됩니다: `span_metrics_offset@88 u32`, `span_metrics_count@92 u32`. `MeasureNode`는 그대로입니다. 스키마 해시가 다른 렌더러는 핸드셰이크에서 거절됩니다.
   - **Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다.** 공백 접기(`normal`, `pre-line`)는 Host의 일입니다. `pre`는 그대로 보낸 문자열과 `wrap = 0`, `pre-wrap`은 그대로 보낸 문자열과 `wrap = 1`입니다.
   - 제약 `constraint: MinContent = 1 | MaxContent = 2 | AtMost = 3`과 `width: f32`(`AtMost`일 때만 씀). 결과는 다음과 같습니다.
     - `MinContent`: 가장 긴 끊을 수 없는 조각의 폭. Compose `ParagraphIntrinsics.minIntrinsicWidth`.
@@ -5506,7 +5502,7 @@ compose_rust_host_dispatch_event: click 1
    - 그 절대 시간을 플랫폼별로 기록합니다.
    - (`benches/measure_sidebar`, 수치는 이 항목 아래에 기록)
 8. 다섯 플랫폼(macOS, Linux, Windows, iOS, Android)과 Web에서 기준 1의 라틴 경우가 통과합니다. CI 스모크로 확인합니다.
-9. `MeasureText` 요청 레코드가 80바이트이고 `span_metrics`의 offset과 길이가 72와 76에 고정됩니다(pr2_measure_record_carries_span_metrics).
+9. `MeasureText` 요청 레코드가 96바이트이고 `span_metrics`의 offset과 길이가 88과 92에 고정됩니다(pr2_measure_record_carries_span_metrics).
 
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
