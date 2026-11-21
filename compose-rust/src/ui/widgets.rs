@@ -734,11 +734,19 @@ macro_rules! plain_container {
 /// [`ScrollRow`](fn@crate::ui::ScrollRow), and a handle to move it.
 ///
 /// The Renderer owns the scroll physics and the scrollbar; this handle reads the current
-/// offset and maximum offset in dp as observable states and sends target scroll requests.
+/// offset, the maximum offset and the size of the viewport in dp as observable states, and
+/// sends target scroll requests.
+///
+/// The three values come from the position the Renderer reports for the container, along
+/// the axis it scrolls on: the height of a `ScrollColumn`, the width of a `ScrollRow`. The
+/// report is in physical pixels and is turned into dp with the density and the application's
+/// zoom level of the window the container is in, so a value read here is the same dp that
+/// `scroll_to` takes. Before the first report all three are `0.0`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScrollState {
     offset: crate::runtime::MutableState<f32>,
     max_offset: crate::runtime::MutableState<f32>,
+    viewport: crate::runtime::MutableState<f32>,
     command: crate::runtime::MutableState<(i64, f32, bool)>,
 }
 
@@ -754,6 +762,7 @@ impl ScrollState {
         Self {
             offset: crate::runtime::mutable_state_of(0.0),
             max_offset: crate::runtime::mutable_state_of(0.0),
+            viewport: crate::runtime::mutable_state_of(0.0),
             command: crate::runtime::mutable_state_of((0, 0.0, false)),
         }
     }
@@ -769,6 +778,21 @@ impl ScrollState {
     /// viewport size changes the scrollable distance.
     pub fn max_offset(&self) -> f32 {
         self.max_offset.get()
+    }
+
+    /// The size in dp of the visible part of the container along the axis it scrolls on:
+    /// the height of a `ScrollColumn`, the width of a `ScrollRow`. `0.0` until the Renderer
+    /// has reported where the container is. A composable that reads this runs again when
+    /// the viewport is resized.
+    ///
+    /// It is what one page is, so a "scroll one page" control moves by it:
+    ///
+    /// ```ignore
+    /// let page = state.clone();
+    /// Button!("Next", move || page.animate_scroll_to(page.offset() + page.viewport_size()));
+    /// ```
+    pub fn viewport_size(&self) -> f32 {
+        self.viewport.get()
     }
 
     /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
@@ -793,6 +817,7 @@ pub fn remember_scroll_state() -> ScrollState {
 
 fn scroll_state_input(
     state: Option<ScrollState>,
+    vertical: bool,
     attrs: &mut Attrs,
     listeners: &mut Vec<(&'static str, EventCallback)>,
 ) {
@@ -807,23 +832,42 @@ fn scroll_state_input(
     }
     let offset = state.offset;
     let max_offset = state.max_offset;
+    let viewport = state.viewport;
     listeners.push((
-        "onrangerequest",
-        EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
-            let next_offset = f32::from_bits(range.start() as u32);
-            let next_max = f32::from_bits(range.count() as u32);
-            if next_offset.is_finite() {
-                offset.set(next_offset);
-            }
-            if next_max.is_finite() {
-                max_offset.set(next_max);
-            }
-        }))),
+        "onscrollchanged",
+        EventCallback::Scroll(Rc::new(RefCell::new(
+            move |report: crate::runtime::composer::ScrollReport| {
+                // The handler runs as the window its node is in, so these are that window's.
+                // Native widgets are drawn at the display scale times the application's zoom
+                // step; the system text size only scales text, so it is not part of a dp.
+                let px_per_dp =
+                    f64::from(crate::density::density()) * f64::from(crate::zoom::zoom().app());
+                let (along, furthest, visible) = if vertical {
+                    (report.y_px, report.max_y_px, report.viewport_height_px)
+                } else {
+                    (report.x_px, report.max_x_px, report.viewport_width_px)
+                };
+                // A value that is not a number leaves what was there; one below zero is zero.
+                let dp = |px: f64| {
+                    let dp = px / px_per_dp;
+                    dp.is_finite().then(|| dp.max(0.0) as f32)
+                };
+                if let Some(value) = dp(along) {
+                    offset.set(value);
+                }
+                if let Some(value) = dp(furthest) {
+                    max_offset.set(value);
+                }
+                if let Some(value) = dp(visible) {
+                    viewport.set(value);
+                }
+            },
+        ))),
     ));
 }
 
 macro_rules! scroll_container {
-    ($name:ident, $widget:ident, $key:literal, $doc:literal) => {
+    ($name:ident, $widget:ident, $vertical:literal, $key:literal, $doc:literal) => {
         #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
         pub(crate) struct $name {
             modifier: Modifier,
@@ -849,8 +893,9 @@ macro_rules! scroll_container {
         }
 
         impl $name {
-            /// Binds a [`ScrollState`] so the application can read `offset()` and
-            /// `max_offset()` or call `scroll_to` and `animate_scroll_to`.
+            /// Binds a [`ScrollState`] so the application can read `offset()`,
+            /// `max_offset()` and `viewport_size()` or call `scroll_to` and
+            /// `animate_scroll_to`.
             pub(crate) fn scroll_state(mut self, state: &ScrollState) -> Self {
                 self.scroll_state = Some(state.clone());
                 self
@@ -874,7 +919,7 @@ macro_rules! scroll_container {
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
-                scroll_state_input(scroll_state, &mut subscription, &mut listeners);
+                scroll_state_input(scroll_state, $vertical, &mut subscription, &mut listeners);
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
                 focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
@@ -906,12 +951,14 @@ macro_rules! scroll_container {
 scroll_container!(
     ScrollColumnScope,
     ScrollColumn,
+    true,
     "compose_rust::ui::ScrollColumn",
     "All of its content, with a vertical scroll the Renderer owns."
 );
 scroll_container!(
     ScrollRowScope,
     ScrollRow,
+    false,
     "compose_rust::ui::ScrollRow",
     "All of its content, with a horizontal scroll the Renderer owns."
 );
