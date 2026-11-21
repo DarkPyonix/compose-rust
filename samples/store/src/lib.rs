@@ -20,7 +20,7 @@ use catalogue::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 /// How wide the page is once the window is wider than a phone. A phone design in a desktop
@@ -1386,10 +1386,10 @@ mod tests {
         }
 
         fn resize(&mut self, width_dp: f32) {
-            self.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            self.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 780.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1399,7 +1399,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
         }
 
         fn send(&mut self, event: HostEvent<'_>) {
@@ -1561,11 +1561,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1593,11 +1589,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1707,14 +1699,14 @@ mod tests {
             };
             assert_eq!(lists.len(), 1, "the catalogue should have one strip");
             for (node_id, handler_id) in lists {
-                self.send(HostEvent {
+                self.send(HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::RangeRequested {
+                    EventPayload::RangeRequested {
                         start: 0,
                         count: Category::STRIP.len() as u32,
                     },
-                });
+                ));
             }
         }
 
@@ -2061,10 +2053,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -2074,7 +2066,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");

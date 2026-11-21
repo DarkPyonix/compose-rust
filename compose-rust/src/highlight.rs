@@ -245,7 +245,7 @@ mod tests {
 
         let mut host = crate::ComposeHost::with_content(move || {
             let encoded_spans = TextSpans::new(spans.clone());
-            crate::ui::Text(source).spans(encoded_spans);
+            crate::ui::widgets::Text(source).spans(encoded_spans);
         });
         let wire = host.rebuild().expect("the batch encodes").to_vec();
         let mutations = decode_batch(&wire).expect("the batch decodes");

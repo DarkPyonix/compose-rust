@@ -76,16 +76,18 @@
     </p>
     <p>
       <code>LazyColumn</code>, <code>LazyRow</code>, <code>LazyGrid</code> 가 이 약속을 함께
-      따릅니다. 작성 API에서 목록은 Compose처럼 빌더를 받습니다. 빌더는 항목이 무엇인지를 하나 이상의
-      묶음으로 말할 뿐, 스스로 하나도 compose하지 않습니다.
+      따릅니다. 작성 API에서 목록의 내용은 Compose의 <code>LazyListScope</code> 람다처럼 목록을
+      넘겨받는 클로저입니다. 그래서 끝의 블록이 아니라 <code>content = |list| ...</code> 처럼
+      이름으로 줍니다. 이 클로저는 항목이 무엇인지를 하나 이상의 묶음으로 말할 뿐, 스스로 하나도
+      compose하지 않습니다.
     </p>
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> ids: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = tasks.<span class="f">with</span>(|tasks| tasks.<span class="f">iter</span>().<span class="f">map</span>(|task| task.id.<span class="f">to_string</span>()).<span class="f">collect</span>());
 <span class="k">let</span> count = ids.<span class="f">len</span>();
-<span class="ty">LazyColumn</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>()).<span class="f">content</span>(<span class="k">move</span> |list| {
-    list.<span class="f">item</span>(|| { <span class="f">Text</span>(<span class="s">"Tasks"</span>).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Headline); });
+<span class="f">LazyColumn!</span>(modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_size</span>(), content = <span class="k">move</span> |list| {
+    list.<span class="f">item</span>(|| { <span class="f">Text!</span>(<span class="s">"Tasks"</span>, type_role = <span class="ty">TypeRole</span>::Headline); });
     list.<span class="f">items_keyed</span>(count, <span class="k">move</span> |index| ids[index].<span class="f">clone</span>(), <span class="k">move</span> |index| {
         <span class="f">task_row</span>(index);
     });
@@ -96,8 +98,8 @@
       <code>item</code> 은 항목 하나를, <code>items(count, ...)</code> 는 위치로 키가 정해지는 묶음을,
       <code>items_keyed(count, key, ...)</code> 는 항목마다 고정된 키를 가진 묶음을 더합니다. 그래서
       자리를 옮긴 항목도 자기 노드와 기억한 값을 지킵니다. 보이는 범위는 항목들만 읽는 상태이므로,
-      스크롤하면 목록의 항목만 다시 실행되고 그 위는 실행되지 않습니다. <code>LazyGrid()</code> 는
-      <code>columns(n)</code> 이나 <code>min_column_width(dp)</code> 를 받습니다.
+      스크롤하면 목록의 항목만 다시 실행되고 그 위는 실행되지 않습니다. <code>LazyGrid!</code> 는
+      <code>columns = n</code> 이나 <code>min_column_width = dp</code> 를 받습니다.
     </p>
     <p>
       <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo"><code>todo</code></a>
@@ -140,7 +142,6 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="c">// On a worker thread: MutableState is Send.</span>
-<span class="k">let</span> reply = reply.<span class="f">clone</span>();
 std::thread::<span class="f">spawn</span>(<span class="k">move</span> || {
     <span class="k">for</span> token <span class="k">in</span> <span class="f">stream_tokens</span>() {
         reply.<span class="f">update</span>(|text| text.<span class="f">push_str</span>(&amp;token));
@@ -148,7 +149,7 @@ std::thread::<span class="f">spawn</span>(<span class="k">move</span> || {
 });
 
 <span class="c">// In the ì»´í¬ì ë¸: sent as the tail, not as the whole message again.</span>
-<span class="f">Text</span>(reply.<span class="f">get</span>());</code></pre>
+<span class="f">Text!</span>(reply.<span class="f">get</span>());</code></pre>
     </figure>
 
     <p>

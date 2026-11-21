@@ -6,7 +6,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{HostEvent, Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree, Vec<u32>) {
@@ -34,11 +34,7 @@ fn focus_requests(batch: &[u8]) -> Vec<u32> {
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str) -> Vec<u32> {
     let (node_id, handler_id) = tree.find("Button", Some(label), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -76,10 +72,10 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
     // Escape in the drawer gives focus back to the button that opened it.
     let (opener, _) = tree.find("Button", Some("Open"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: drawer,
-            handler_id: key_handler,
-            payload: EventPayload::KeyDown {
+        .dispatch(HostEvent::new(
+            drawer,
+            key_handler,
+            EventPayload::KeyDown {
                 key: Key::Other,
                 shift_key: false,
                 ctrl_key: false,
@@ -89,7 +85,7 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
                 code: 0x29,
                 text: "Escape",
             },
-        })
+        ))
         .expect("the key is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);

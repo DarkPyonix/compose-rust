@@ -9,7 +9,7 @@ use compose_rust::protocol::{
     HostEvent, Mutation, ProtocolError, decode_batch, decode_event, encode_event,
 };
 use compose_rust::schema::{EVENT_SCHEMA, EventPayload, PropertyKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::sync::{Arc, Mutex};
 use support::Tree;
 
@@ -20,14 +20,14 @@ const REPORT_AT: usize = 1443;
 const REPORT_LEN: usize = 24;
 
 fn vector_report() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 14,
-        handler_id: 30,
-        payload: EventPayload::MotionFinished {
+    HostEvent::new(
+        14,
+        30,
+        EventPayload::MotionFinished {
             width_dp: 240.5,
             height_dp: 0.0,
         },
-    }
+    )
 }
 
 fn event_tag(name: &str) -> u16 {
@@ -110,14 +110,14 @@ fn fr24_motion_finished_reports_once_with_the_final_size() {
     let (node_id, handler_id) = handled[0];
     assert!(seen.lock().unwrap().is_empty(), "nothing before a report");
 
-    host.dispatch(HostEvent {
+    host.dispatch(HostEvent::new(
         node_id,
         handler_id,
-        payload: EventPayload::MotionFinished {
+        EventPayload::MotionFinished {
             width_dp: 320.0,
             height_dp: 0.0,
         },
-    })
+    ))
     .expect("the report is accepted");
     assert_eq!(
         *seen.lock().unwrap(),
@@ -130,14 +130,14 @@ fn fr24_motion_finished_reports_once_with_the_final_size() {
     // Through the boundary's own entry point, from the bytes the Renderer writes.
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
+        &HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::MotionFinished {
+            EventPayload::MotionFinished {
                 width_dp: 320.0,
                 height_dp: 120.0,
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -236,14 +236,14 @@ fn assert_each_reports(
             width_dp: 100.0 + index as f32,
             height_dp: 20.0 + index as f32,
         };
-        host.dispatch(HostEvent {
+        host.dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::MotionFinished {
+            EventPayload::MotionFinished {
                 width_dp: size.width_dp,
                 height_dp: size.height_dp,
             },
-        })
+        ))
         .unwrap_or_else(|error| panic!("{name}: the report was refused: {error:?}"));
         let heard = heard.lock().unwrap();
         assert_eq!(

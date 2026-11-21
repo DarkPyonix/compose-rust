@@ -5,7 +5,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{ColorRole, PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 
 const LITERAL_GREEN: Paint = Paint::Literal(Color::rgb(0x12_3456));
 const PRIMARY_ROLE: Paint = Paint::Role(ColorRole::Primary);

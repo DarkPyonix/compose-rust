@@ -7,7 +7,7 @@ use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{OverflowWrap, PropertyKind, WidgetKind, WordBreak};
 use compose_rust::spans::{TextSpan, TextSpans};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 #[Composable]

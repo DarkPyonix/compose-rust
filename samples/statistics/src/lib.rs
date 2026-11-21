@@ -17,7 +17,7 @@ mod spending;
 use charts::Bar;
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use spending::{
     ALL_TIME_CENTS, MOBILE_SHARE, RETURNING_SHARE, SOURCES, Source, TODAY, WEEK, YESTERDAY, cost,
     dearest, peak, whole_cost,
@@ -676,10 +676,10 @@ mod tests {
                 frames: vec![first],
             };
             let height_dp = 780.0;
-            screen.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            screen.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -689,7 +689,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
             screen
         }
 
@@ -740,11 +740,7 @@ mod tests {
                 }
                 found.expect("nothing in the bar can be pressed")
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         }
     }
 
