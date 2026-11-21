@@ -89,7 +89,7 @@ fn fr28_every_dp_round_trips_and_refuses_a_bad_flag() {
 #[test]
 fn fr28_the_builder_sends_every_dp_only_when_asked() {
     let (_host, tree) = start(|| {
-        Column().modifier(Modifier.observe_size(9)).content(|| {});
+        Column!(modifier = Modifier.observe_size(9), {});
     });
     let dump = tree.dump();
     assert!(
@@ -98,9 +98,7 @@ fn fr28_the_builder_sends_every_dp_only_when_asked() {
     );
 
     let (_host, tree) = start(|| {
-        Column()
-            .modifier(Modifier.observe_size_every_dp(9))
-            .content(|| {});
+        Column!(modifier = Modifier.observe_size_every_dp(9), {});
     });
     let dump = tree.dump();
     assert!(

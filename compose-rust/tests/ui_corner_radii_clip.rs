@@ -17,9 +17,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 #[test]
 fn fr_60_corner_radii_sends_one_shape_modifier_with_four_corners() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.corner_radii([8.0, 8.0, 0.0, 0.0]))
-            .content(|| {});
+        Box!(modifier = Modifier.corner_radii([8.0, 8.0, 0.0, 0.0]), {});
     });
     let dump = tree.dump();
     assert!(
@@ -33,7 +31,7 @@ fn fr_60_clip_sends_one_clip_modifier_and_clears_when_disabled() {
     let enabled = mutable_state_of(true);
     let state = enabled;
     let (mut host, mut tree) = start(move || {
-        Box().modifier(Modifier.clip(state.get())).content(|| {});
+        Box!(modifier = Modifier.clip(state.get()), {});
     });
     assert!(tree.dump().contains("Clip(true)"), "{}", tree.dump());
     enabled.set(false);

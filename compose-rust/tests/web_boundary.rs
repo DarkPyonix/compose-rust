@@ -662,30 +662,26 @@ fn pr6_an_event_larger_than_the_lent_buffer_arrives_whole() {
     let edit = "line of a pasted document\n".repeat(32 * 1024 / 26 + 1)[..32 * 1024].to_owned();
     let value: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
     let events = [
-        HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: EventPayload::ClipboardText {
+        HostEvent::new(
+            3,
+            9,
+            EventPayload::ClipboardText {
                 request: 1,
                 status: 0,
                 len: clipboard.chars().count() as u32,
                 text: &clipboard,
             },
-        },
-        HostEvent {
-            node_id: 5,
-            handler_id: 2,
-            payload: EventPayload::TextChanged(&edit),
-        },
-        HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::IoAnswer {
+        ),
+        HostEvent::new(5, 2, EventPayload::TextChanged(&edit)),
+        HostEvent::new(
+            0,
+            0,
+            EventPayload::IoAnswer {
                 request: 7,
                 status: IoStatus::Ok,
                 data: &value,
             },
-        },
+        ),
     ];
 
     let mut lender = LentEventBuffer::new();

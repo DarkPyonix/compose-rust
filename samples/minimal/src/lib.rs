@@ -86,28 +86,25 @@ fn step(amount: MutableState<i32>, by: i32) -> impl FnMut() + 'static {
 
 /// One of a stepper's round buttons: a disc of `fill` with `glyph` on it in `ink`.
 fn round_step(glyph: &str, name: &str, fill: Paint, ink: Paint, on_click: impl FnMut() + 'static) {
-    Button(glyph)
-        .accessible_name(name)
-        .variant(ButtonVariant::Text)
-        .color(ink)
-        .modifier(
-            Modifier
-                .size(ROUND, ROUND)
-                .background(fill)
-                .corner_radius(ROUND / 2.0),
-        )
-        .on_click(on_click);
+    Button!(
+        glyph,
+        on_click,
+        accessible_name = name,
+        variant = ButtonVariant::Text,
+        color = ink,
+        modifier = Modifier
+            .size(ROUND, ROUND)
+            .background(fill)
+            .corner_radius(ROUND / 2.0)
+    );
 }
 
 /// A minus and a plus, side by side.
 fn step_buttons(amount: MutableState<i32>, fill: Paint, ink: Paint) {
-    Row()
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            round_step("\u{2212}", "Less", fill, ink, step(amount, -1));
-            round_step("+", "More", fill, ink, step(amount, 1));
-        });
+    Row!(space_role = SpaceRole::Sm, alignment = Alignment::Center, {
+        round_step("\u{2212}", "Less", fill, ink, step(amount, -1));
+        round_step("+", "More", fill, ink, step(amount, 1));
+    });
 }
 
 /// The upright stepper: "Amount" in bold, the number large and thin, and the two round
@@ -116,55 +113,61 @@ fn step_buttons(amount: MutableState<i32>, fill: Paint, ink: Paint) {
 /// one.
 fn upright_stepper(amount: MutableState<i32>, card: Paint, ink: Paint) {
     let shown = amount.get();
-    Column()
-        .modifier(
-            Modifier
-                .weight(1.0)
-                .background(card)
-                .corner_radius(CARD_CORNER)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Text("Amount")
-                .type_role(TypeRole::BodyStrong)
-                .font_weight(BOLD)
-                .color(ink);
-            Text(format!("{shown}"))
-                .type_role(TypeRole::Display)
-                .font_weight(THIN)
-                .color(ink);
+    Column!(
+        modifier = Modifier
+            .weight(1.0)
+            .background(card)
+            .corner_radius(CARD_CORNER)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::Center,
+        {
+            Text!(
+                "Amount",
+                type_role = TypeRole::BodyStrong,
+                font_weight = BOLD,
+                color = ink
+            );
+            Text!(
+                format!("{shown}"),
+                type_role = TypeRole::Display,
+                font_weight = THIN,
+                color = ink
+            );
             step_buttons(amount, ink, card);
-        });
+        }
+    );
 }
 
 /// The stepper on its side: "Amount" over the number on the left, the round buttons on
 /// the right.
 fn wide_stepper(amount: MutableState<i32>) {
     let shown = amount.get();
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::TILE)
-                .corner_radius(CARD_CORNER)
-                .padding_role(SpaceRole::Md),
-        )
-        .arrangement(Arrangement::SpaceBetween)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
-            Column().content(|| {
-                Text("Amount")
-                    .type_role(TypeRole::BodyStrong)
-                    .font_weight(BOLD)
-                    .color(palette::INK);
-                Text(format!("{shown}"))
-                    .type_role(TypeRole::Body)
-                    .color(palette::INK);
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::TILE)
+            .corner_radius(CARD_CORNER)
+            .padding_role(SpaceRole::Md),
+        arrangement = Arrangement::SpaceBetween,
+        alignment = Alignment::CenterStart,
+        {
+            Column!({
+                Text!(
+                    "Amount",
+                    type_role = TypeRole::BodyStrong,
+                    font_weight = BOLD,
+                    color = palette::INK
+                );
+                Text!(
+                    format!("{shown}"),
+                    type_role = TypeRole::Body,
+                    color = palette::INK
+                );
             });
             step_buttons(amount, palette::INK, palette::PAGE);
-        });
+        }
+    );
 }
 
 /// The segmented control: a grey track, and the segment that is chosen as a black pill
@@ -175,162 +178,173 @@ fn wide_stepper(amount: MutableState<i32>) {
 /// is black.
 fn segmented(segment: MutableState<usize>) {
     let chosen = segment.get();
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::TRACK)
-                .corner_radius(TILE_CORNER / 2.0)
-                .padding(2.0),
-        )
-        .content(|| {
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::TRACK)
+            .corner_radius(TILE_CORNER / 2.0)
+            .padding(2.0),
+        {
             for (index, label) in SEGMENTS.into_iter().enumerate() {
                 let picked = index == chosen;
                 key(label, || {
-                    Box()
-                        .modifier(
-                            Modifier
-                                .weight(1.0)
-                                .background_if(picked.then_some(palette::INK))
-                                .corner_radius(TILE_CORNER / 2.0)
-                                .padding_role(SpaceRole::Xs),
-                        )
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Text(label)
-                                .type_role(TypeRole::Label)
-                                .font_weight(if picked { BOLD } else { 400 })
-                                .color(if picked { palette::PAGE } else { palette::INK });
-                            Button("")
-                                .accessible_name(label)
-                                .variant(ButtonVariant::Text)
-                                .modifier(Modifier.match_parent_size().selected(picked))
-                                .on_click(move || segment.set(index));
-                        });
+                    Box!(
+                        modifier = Modifier
+                            .weight(1.0)
+                            .background_if(picked.then_some(palette::INK))
+                            .corner_radius(TILE_CORNER / 2.0)
+                            .padding_role(SpaceRole::Xs),
+                        alignment = Alignment::Center,
+                        {
+                            Text!(
+                                label,
+                                type_role = TypeRole::Label,
+                                font_weight = if picked { BOLD } else { 400 },
+                                color = if picked { palette::PAGE } else { palette::INK }
+                            );
+                            Button!(
+                                "",
+                                move || segment.set(index),
+                                accessible_name = label,
+                                variant = ButtonVariant::Text,
+                                modifier = Modifier.match_parent_size().selected(picked)
+                            );
+                        }
+                    );
                 });
             }
-        });
+        }
+    );
 }
 
 /// The light panel with a title, a subtitle and a paragraph, and the red delete action
 /// beside it.
 fn panel_and_delete() {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .equal_height(true)
-        .space_role(SpaceRole::Sm)
-        .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .weight(1.0)
-                        .background(palette::TILE)
-                        .corner_radius(CARD_CORNER)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Xs)
-                .content(|| {
-                    Text("Title")
-                        .type_role(TypeRole::BodyStrong)
-                        .font_weight(BOLD)
-                        .color(palette::INK);
-                    Text("Subtitle")
-                        .type_role(TypeRole::Body)
-                        .color(palette::INK);
-                    Text("A short paragraph that says what this row is about.")
-                        .type_role(TypeRole::Caption)
-                        .color(palette::MUTED);
-                });
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        intrinsic_size = true,
+        space_role = SpaceRole::Sm,
+        {
+            Column!(
+                modifier = Modifier
+                    .weight(1.0)
+                    .background(palette::TILE)
+                    .corner_radius(CARD_CORNER)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Xs,
+                {
+                    Text!(
+                        "Title",
+                        type_role = TypeRole::BodyStrong,
+                        font_weight = BOLD,
+                        color = palette::INK
+                    );
+                    Text!("Subtitle", type_role = TypeRole::Body, color = palette::INK);
+                    Text!(
+                        "A short paragraph that says what this row is about.",
+                        type_role = TypeRole::Caption,
+                        color = palette::MUTED
+                    );
+                }
+            );
             // A word rather than the reference's bin, because no icon role means
             // deleting yet (#593).
-            Box()
-                .modifier(
-                    Modifier
-                        .width(DELETE_WIDTH)
-                        .fill_max_height()
-                        .background(palette::DELETE)
-                        .corner_radius(CARD_CORNER),
-                )
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text("Delete")
-                        .type_role(TypeRole::Label)
-                        .font_weight(BOLD)
-                        .color(palette::PAGE);
-                    Button("")
-                        .accessible_name("Delete")
-                        .variant(ButtonVariant::Text)
-                        .modifier(Modifier.match_parent_size())
-                        .on_click(|| {});
-                });
-        });
+            Box!(
+                modifier = Modifier
+                    .width(DELETE_WIDTH)
+                    .fill_max_height()
+                    .background(palette::DELETE)
+                    .corner_radius(CARD_CORNER),
+                alignment = Alignment::Center,
+                {
+                    Text!(
+                        "Delete",
+                        type_role = TypeRole::Label,
+                        font_weight = BOLD,
+                        color = palette::PAGE
+                    );
+                    Button!(
+                        "",
+                        || {},
+                        accessible_name = "Delete",
+                        variant = ButtonVariant::Text,
+                        modifier = Modifier.match_parent_size()
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// A small pressable card whose face is laid out by `face`, with the press over all of it.
 fn pressable(name: &str, card: Paint, modifier: Modifier, face: impl FnOnce()) {
-    Box()
-        .modifier(
-            modifier
-                .weight(1.0)
-                .height(TILE_HEIGHT)
-                .background(card)
-                .corner_radius(TILE_CORNER),
-        )
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Sm))
-                .arrangement(Arrangement::SpaceBetween)
-                .content(face);
-            Button("")
-                .accessible_name(name)
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.match_parent_size())
-                .on_click(|| {});
-        });
+    Box!(
+        modifier = modifier
+            .weight(1.0)
+            .height(TILE_HEIGHT)
+            .background(card)
+            .corner_radius(TILE_CORNER),
+        {
+            Column!(
+                modifier = Modifier.fill_max_size().padding_role(SpaceRole::Sm),
+                arrangement = Arrangement::SpaceBetween,
+                content = face
+            );
+            Button!(
+                "",
+                || {},
+                accessible_name = name,
+                variant = ButtonVariant::Text,
+                modifier = Modifier.match_parent_size()
+            );
+        }
+    );
 }
 
 /// The "Button / Description" chips: the coin, a bold name and a quiet line, once on the
 /// light card and once on the dark one.
 fn chips() {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Sm)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Sm,
+        {
             for (chip, card, ink, quiet) in [
                 ("light", palette::TILE, palette::INK, palette::MUTED),
                 ("dark", palette::DARK, palette::PAGE, palette::TRACK),
             ] {
                 key(chip, || {
                     pressable("Button", card, Modifier, || {
-                        Canvas(marks::coin(COIN)).modifier(Modifier.size(COIN, COIN));
-                        Column().content(|| {
-                            Text("Button")
-                                .type_role(TypeRole::BodyStrong)
-                                .font_weight(BOLD)
-                                .color(ink);
-                            Text("Description")
-                                .type_role(TypeRole::Caption)
-                                .color(quiet);
+                        Canvas!(marks::coin(COIN), modifier = Modifier.size(COIN, COIN));
+                        Column!({
+                            Text!(
+                                "Button",
+                                type_role = TypeRole::BodyStrong,
+                                font_weight = BOLD,
+                                color = ink
+                            );
+                            Text!("Description", type_role = TypeRole::Caption, color = quiet);
                         });
                     });
                 });
             }
-        });
+        }
+    );
 }
 
 /// The short bar at the top of a card that says it can be pulled.
 fn grabber(paint: Paint) {
-    Box()
-        .modifier(Modifier.fill_max_width())
-        .alignment(Alignment::Center)
-        .content(|| {
-            Box().modifier(
-                Modifier
+    Box!(
+        modifier = Modifier.fill_max_width(),
+        alignment = Alignment::Center,
+        {
+            Box!(
+                modifier = Modifier
                     .size(GRABBER_WIDTH, GRABBER_HEIGHT)
                     .background(paint)
-                    .corner_radius(GRABBER_HEIGHT / 2.0),
+                    .corner_radius(GRABBER_HEIGHT / 2.0)
             );
-        });
+        }
+    );
 }
 
 /// A letter in the platform's serif, which is how the reference marks the two ends of
@@ -341,48 +355,54 @@ fn grabber(paint: Paint) {
 /// ships only the renderer's fonts has none, the letter is set in the face the platform
 /// falls back to, and nothing is reported: a generic family is the platform's answer.
 fn serif_letter(size: f32) {
-    Text("A")
-        .type_role(TypeRole::None)
-        .font(FontRefs::new([FontRef::Generic(GenericFamily::Serif)]))
-        .font_size(size)
-        .color(palette::PAGE);
+    Text!(
+        "A",
+        type_role = TypeRole::None,
+        font = FontRefs::new([FontRef::Generic(GenericFamily::Serif)]),
+        font_size = size,
+        color = palette::PAGE
+    );
 }
 
 /// The mid grey card: a grabber, "Card" in white bold, and a white slider between a small
 /// and a large serif "A".
 fn slider_card(reading: MutableState<f32>) {
     let value = reading.get();
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::SLATE)
-                .corner_radius(CARD_CORNER)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Sm)
-        .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::SLATE)
+            .corner_radius(CARD_CORNER)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Sm,
+        {
             grabber(palette::SLATE_LINE);
-            Text("Card")
-                .type_role(TypeRole::Title)
-                .font_weight(BOLD)
-                .color(palette::PAGE);
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
+            Text!(
+                "Card",
+                type_role = TypeRole::Title,
+                font_weight = BOLD,
+                color = palette::PAGE
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
                     serif_letter(SMALL_LETTER);
-                    Slider(value)
-                        .accessible_name("Reading size")
-                        .modifier(Modifier.weight(1.0))
-                        .active_track_color(palette::PAGE)
-                        .thumb_color(palette::PAGE)
-                        .track_color(palette::SLATE_LINE)
-                        .on_change(move |next| reading.set(next));
+                    Slider!(
+                        value,
+                        move |next| reading.set(next),
+                        accessible_name = "Reading size",
+                        modifier = Modifier.weight(1.0),
+                        active_track_color = palette::PAGE,
+                        thumb_color = palette::PAGE,
+                        track_color = palette::SLATE_LINE
+                    );
                     serif_letter(LARGE_LETTER);
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// A button tile: the small glyph in its corner and "Button" in bold at its foot.
@@ -396,37 +416,42 @@ fn button_tile(card: Paint, ink: Paint, glyph: Paint, cut: Paint, lifted: bool) 
         Modifier
     };
     pressable("Button", card, modifier, || {
-        Canvas(marks::tile_glyph(GLYPH, glyph, cut)).modifier(Modifier.size(GLYPH, GLYPH * 1.3));
-        Text("Button")
-            .type_role(TypeRole::BodyStrong)
-            .font_weight(BOLD)
-            .color(ink);
+        Canvas!(
+            marks::tile_glyph(GLYPH, glyph, cut),
+            modifier = Modifier.size(GLYPH, GLYPH * 1.3)
+        );
+        Text!(
+            "Button",
+            type_role = TypeRole::BodyStrong,
+            font_weight = BOLD,
+            color = ink
+        );
     });
 }
 
 /// The large light card: a grabber, "Card", two white button tiles and a caption under
 /// them.
 fn tile_card() {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .shadow(Shadow::new(0.0, 10.0, 30.0, 0.0, palette::SHADOW))
-                .background(palette::TILE)
-                .corner_radius(CARD_CORNER)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .shadow(Shadow::new(0.0, 10.0, 30.0, 0.0, palette::SHADOW))
+            .background(palette::TILE)
+            .corner_radius(CARD_CORNER)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             grabber(palette::TRACK);
-            Text("Card")
-                .type_role(TypeRole::Headline)
-                .font_weight(BOLD)
-                .color(palette::INK);
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Md)
-                .content(|| {
+            Text!(
+                "Card",
+                type_role = TypeRole::Headline,
+                font_weight = BOLD,
+                color = palette::INK
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Md,
+                {
                     for tile in 0..2 {
                         key(tile, || {
                             button_tile(
@@ -438,88 +463,97 @@ fn tile_card() {
                             );
                         });
                     }
-                });
-            Text("Brief description or small text about the action of the buttons")
-                .type_role(TypeRole::Caption)
-                .color(palette::MUTED)
-                .text_align(TextAlign::Center)
-                .modifier(Modifier.fill_max_width());
-        });
+                }
+            );
+            Text!(
+                "Brief description or small text about the action of the buttons",
+                type_role = TypeRole::Caption,
+                color = palette::MUTED,
+                text_align = TextAlign::Center,
+                modifier = Modifier.fill_max_width()
+            );
+        }
+    );
 }
 
 /// The inverted bar: a white round back button, "Title" in white bold at the far end, and
 /// a dark grey pill to search in.
 fn inverted_bar() {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::INK)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .arrangement(Arrangement::SpaceBetween)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Button("")
-                        .icon(IconRole::Back)
-                        .accessible_name("Back")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::INK)
-                        .modifier(
-                            Modifier
-                                .size(ROUND, ROUND)
-                                .background(palette::PAGE)
-                                .corner_radius(ROUND / 2.0),
-                        )
-                        .on_click(|| {});
-                    Text("Title")
-                        .type_role(TypeRole::Headline)
-                        .font_weight(BOLD)
-                        .color(palette::PAGE);
-                });
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::INK)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                arrangement = Arrangement::SpaceBetween,
+                alignment = Alignment::CenterStart,
+                {
+                    Button!(
+                        "",
+                        || {},
+                        icon = IconRole::Back,
+                        accessible_name = "Back",
+                        variant = ButtonVariant::Text,
+                        color = palette::INK,
+                        modifier = Modifier
+                            .size(ROUND, ROUND)
+                            .background(palette::PAGE)
+                            .corner_radius(ROUND / 2.0)
+                    );
+                    Text!(
+                        "Title",
+                        type_role = TypeRole::Headline,
+                        font_weight = BOLD,
+                        color = palette::PAGE
+                    );
+                }
+            );
             // The placeholder and the caret are explicit paints matching the inverted bar.
-            TextField()
-                .placeholder("Search")
-                .color(palette::PAGE)
-                .placeholder_color(palette::MUTED)
-                .caret_color(palette::PAGE)
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(FIELD_HEIGHT)
-                        .background(palette::DARK)
-                        .corner_radius(FIELD_HEIGHT / 2.0),
-                );
-        });
+            TextField!(
+                "",
+                |_| {},
+                placeholder = "Search",
+                color = palette::PAGE,
+                placeholder_color = palette::MUTED,
+                caret_color = palette::PAGE,
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(FIELD_HEIGHT)
+                    .background(palette::DARK)
+                    .corner_radius(FIELD_HEIGHT / 2.0)
+            );
+        }
+    );
 }
 
 /// A switch in the reference's colours: green when on, light grey when off, with a white
 /// thumb either way. The Host owns the state, so it hands over the track that goes with it.
 fn switch(name: &str, on: MutableState<bool>) {
     let checked = on.get();
-    Switch(checked)
-        .accessible_name(name)
-        .track_color(if checked {
+    Switch!(
+        checked,
+        move |value| on.set(value),
+        accessible_name = name,
+        track_color = if checked {
             palette::SWITCH
         } else {
             palette::TRACK
-        })
-        .thumb_color(palette::PAGE)
-        .on_change(move |value| on.set(value));
+        },
+        thumb_color = palette::PAGE
+    );
 }
 
 /// The switch pair beside the three button tiles: white, black and dark grey.
 fn switches_and_tiles(sheet: Sheet) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Column().space_role(SpaceRole::Sm).content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::Center,
+        {
+            Column!(space_role = SpaceRole::Sm, {
                 switch("First switch", sheet.first_switch);
                 switch("Second switch", sheet.second_switch);
             });
@@ -544,47 +578,54 @@ fn switches_and_tiles(sheet: Sheet) {
                 palette::DARK,
                 false,
             );
-        });
+        }
+    );
 }
 
 /// The two discs, the title and the line under it.
 fn hero() {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .alignment(Alignment::Center)
-        .space_role(SpaceRole::Sm)
-        .content(|| {
-            Box()
-                .modifier(Modifier.size(HERO_DISC + HERO_OVERLAP, HERO_DISC))
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Box().modifier(
-                        Modifier
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        alignment = Alignment::Center,
+        space_role = SpaceRole::Sm,
+        {
+            Box!(
+                modifier = Modifier.size(HERO_DISC + HERO_OVERLAP, HERO_DISC),
+                alignment = Alignment::CenterStart,
+                {
+                    Box!(
+                        modifier = Modifier
                             .size(HERO_DISC, HERO_DISC)
                             .background(palette::INK)
-                            .corner_radius(HERO_DISC / 2.0),
+                            .corner_radius(HERO_DISC / 2.0)
                     );
                     // Drawn second, so it lies over the solid disc as it does on the
                     // reference, and lifted by a soft shadow.
-                    Box().modifier(
-                        Modifier
+                    Box!(
+                        modifier = Modifier
                             .size(HERO_DISC, HERO_DISC)
                             .offset(HERO_OVERLAP, 0.0)
                             .shadow(Shadow::new(0.0, 16.0, 32.0, 0.0, palette::SHADOW))
                             .background(marks::hero_fade())
-                            .corner_radius(HERO_DISC / 2.0),
+                            .corner_radius(HERO_DISC / 2.0)
                     );
-                });
-            Text("Every component")
-                .type_role(TypeRole::Display)
-                .font_weight(BOLD)
-                .color(palette::INK)
-                .text_align(TextAlign::Center);
-            Text("Including dark theme")
-                .type_role(TypeRole::Body)
-                .color(palette::MUTED)
-                .text_align(TextAlign::Center);
-        });
+                }
+            );
+            Text!(
+                "Every component",
+                type_role = TypeRole::Display,
+                font_weight = BOLD,
+                color = palette::INK,
+                text_align = TextAlign::Center
+            );
+            Text!(
+                "Including dark theme",
+                type_role = TypeRole::Body,
+                color = palette::MUTED,
+                text_align = TextAlign::Center
+            );
+        }
+    );
 }
 
 /// The component sheet.
@@ -605,53 +646,45 @@ pub fn app() {
         second_switch: mutable_state_of(false),
     });
 
-    Scaffold()
-        .modifier(Modifier.background(palette::PAGE))
-        .content(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    ScrollColumn()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none())
-                                .fill_max_height(),
-                        )
-                        .content(|| {
-                            Column()
-                                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                                .space_role(SpaceRole::Lg)
-                                .content(|| {
-                                    hero();
-                                    segmented(sheet.segment);
-                                    Row()
-                                        .modifier(Modifier.fill_max_width())
-                                        .space_role(SpaceRole::Sm)
-                                        .content(|| {
-                                            upright_stepper(
-                                                sheet.amount,
-                                                palette::TILE,
-                                                palette::INK,
-                                            );
-                                            upright_stepper(
-                                                sheet.amount,
-                                                palette::DARK,
-                                                palette::PAGE,
-                                            );
-                                        });
-                                    wide_stepper(sheet.amount);
-                                    panel_and_delete();
-                                    chips();
-                                    slider_card(sheet.reading);
-                                    tile_card();
-                                    inverted_bar();
-                                    switches_and_tiles(sheet);
-                                });
-                        });
-                });
-        });
+    Scaffold!(modifier = Modifier.background(palette::PAGE), {
+        Box!(
+            modifier = Modifier.fill_max_width().weight(1.0),
+            alignment = Alignment::TopCenter,
+            {
+                ScrollColumn!(
+                    modifier = Modifier
+                        .width_if(measure)
+                        .fill_max_width_if(measure.is_none())
+                        .fill_max_height(),
+                    {
+                        Column!(
+                            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                            space_role = SpaceRole::Lg,
+                            {
+                                hero();
+                                segmented(sheet.segment);
+                                Row!(
+                                    modifier = Modifier.fill_max_width(),
+                                    space_role = SpaceRole::Sm,
+                                    {
+                                        upright_stepper(sheet.amount, palette::TILE, palette::INK);
+                                        upright_stepper(sheet.amount, palette::DARK, palette::PAGE);
+                                    }
+                                );
+                                wide_stepper(sheet.amount);
+                                panel_and_delete();
+                                chips();
+                                slider_card(sheet.reading);
+                                tile_card();
+                                inverted_bar();
+                                switches_and_tiles(sheet);
+                            }
+                        );
+                    }
+                );
+            }
+        );
+    });
 }
 
 /// The design this sample draws: one design system everywhere, light.
@@ -779,11 +812,7 @@ mod tests {
             };
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                },
+                &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
                 &mut bytes,
             )
             .expect("the click did not encode");
@@ -1193,10 +1222,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -1204,8 +1233,9 @@ mod tests {
                         safe_area_top: 0.0,
                         safe_area_leading: 0.0,
                         safe_area_trailing: 0.0,
+                        safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");

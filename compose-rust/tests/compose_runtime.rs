@@ -57,11 +57,7 @@ fn frame(host: &mut ComposeHost, tree: &mut Tree) -> Vec<String> {
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str, nth: usize) -> Vec<String> {
     let (node_id, handler_id) = tree.find("Button", Some(label), nth, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -73,19 +69,19 @@ fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str, nth: usize) -> Ve
 #[Composable]
 fn Reader(count: MutableState<i32>) {
     ran("reader");
-    Text(format!("{}", count.get()));
+    Text!(format!("{}", count.get()));
 }
 
 #[Composable]
 fn Sibling() {
     ran("sibling");
-    Text("fixed");
+    Text!("fixed");
 }
 
 #[Composable]
 fn Parent(count: MutableState<i32>) {
     ran("parent");
-    Column().content(|| {
+    Column!({
         Reader(count);
         Sibling();
     });
@@ -121,15 +117,15 @@ fn fr39_a_state_change_runs_only_the_scope_that_read_it() {
 #[Composable]
 fn Label(text: String) {
     ran("label");
-    Text(text);
+    Text!(text);
 }
 
 #[Composable]
 fn Screen(count: MutableState<i32>) {
     ran("screen");
     let shown = count.get();
-    Column().content(|| {
-        Text(format!("{shown}"));
+    Column!({
+        Text!(format!("{shown}"));
         Label("the same every time".to_owned());
     });
 }
@@ -389,14 +385,16 @@ fn fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered() {
     let state = order;
     let (mut host, mut tree) = start(move || {
         let state = state;
-        Column().content(move || {
-            for id in state.get() {
-                key(id, || {
-                    bump(&format!("item{id}"));
-                    Text(format!("item {id}"));
-                });
+        Column!(
+            content = move || {
+                for id in state.get() {
+                    key(id, || {
+                        bump(&format!("item{id}"));
+                        Text!(format!("item {id}"));
+                    });
+                }
             }
-        });
+        );
     });
     take_log();
     order.set(vec![3, 1, 2]);
@@ -467,10 +465,10 @@ fn fr39_a_write_during_composition_waits_for_the_next_frame() {
 #[Composable]
 fn ClickCounter() {
     let count = remember(|| mutable_state_of(0));
-    Column().content(|| {
-        Text(format!("{}", count.get()));
+    Column!({
+        Text!(format!("{}", count.get()));
         let more = count;
-        Button("More").on_click(move || more.update(|count| *count += 1));
+        Button!("More", move || more.update(|count| *count += 1));
     });
 }
 
@@ -490,7 +488,7 @@ fn Parity(count: MutableState<i32>) {
     let source = count;
     let even = remember(move || derived_state_of(move || source.get() % 2 == 0));
     ran("parity");
-    Text(if even.get() { "even" } else { "odd" });
+    Text!(if even.get() { "even" } else { "odd" });
 }
 
 #[test]
@@ -580,7 +578,7 @@ fn FrameClock() {
             writer.set(now);
         }
     });
-    Text(format!("{}", time.get()));
+    Text!(format!("{}", time.get()));
 }
 
 #[test]
@@ -603,7 +601,7 @@ fn Worked() {
         let value = with_worker(|| 21 * 2).await;
         writer.set(value);
     });
-    Text(format!("{}", answer.get()));
+    Text!(format!("{}", answer.get()));
 }
 
 #[test]
@@ -629,21 +627,23 @@ fn fr39_work_handed_to_a_worker_resumes_on_the_ui_thread_and_recomposes() {
 #[Composable]
 fn Rows(count: usize) {
     ran("rows");
-    LazyColumn().content(move |list| {
-        list.items(count, |index| {
-            Text(format!("row {index}"));
-        });
-    });
+    LazyColumn!(
+        content = move |list| {
+            list.items(count, |index| {
+                Text!(format!("row {index}"));
+            });
+        }
+    );
 }
 
 fn request_range(host: &mut ComposeHost, tree: &mut Tree, start: u32, count: u32) -> Vec<String> {
     let (node_id, handler_id) = tree.find("LazyColumn", None, 0, PropertyKind::OnRangeRequested);
     let (batch, _) = host
-        .dispatch(HostEvent {
+        .dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::RangeRequested { start, count },
-        })
+            EventPayload::RangeRequested { start, count },
+        ))
         .unwrap();
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -694,9 +694,9 @@ fn Deleter() {
     let deleted = remember(|| mutable_state_of(false));
     let restore = deleted;
     let delete = deleted;
-    Column().content(|| {
-        Text(if deleted.get() { "gone" } else { "here" });
-        Button("Delete").on_click(move || {
+    Column!({
+        Text!(if deleted.get() { "gone" } else { "here" });
+        Button!("Delete", move || {
             delete.set(true);
             let restore = restore;
             Message::new("Deleted")
@@ -712,11 +712,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
     let (mut host, mut tree) = start(Deleter);
     let (node_id, handler_id) = tree.find("Button", Some("Delete"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .unwrap();
     let action = decode_batch(batch)
         .unwrap()
@@ -731,11 +727,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
     assert_eq!(tree.texts(), vec!["gone", "Delete"]);
 
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: 0,
-            handler_id: action,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(0, action, EventPayload::Clicked))
         .unwrap();
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -744,7 +736,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
 
 #[Composable]
 fn Copier() {
-    Button("Copy").on_click(|| {
+    Button!("Copy", || {
         Message::new("Copied")
             .with_placement(MessagePlacement {
                 vertical: MessageVertical::Bottom,
@@ -764,11 +756,7 @@ fn fr21_message_placement_rides_out_on_the_batch() {
     let (mut host, tree) = start(Copier);
     let (node_id, handler_id) = tree.find("Button", Some("Copy"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .unwrap();
     let said: Vec<_> = decode_batch(batch)
         .unwrap()
@@ -802,7 +790,7 @@ fn fr21_message_placement_rides_out_on_the_batch() {
 #[Composable]
 fn Greeting(name: &'static str) {
     ran("greeting");
-    Text(format!("Hello, {name}"));
+    Text!(format!("Hello, {name}"));
 }
 
 #[test]
@@ -855,11 +843,12 @@ fn fr5_a_text_field_starts_with_its_text_and_typing_is_not_sent_back() {
         // Read, so that typing runs the screen again.
         let _ = shown.get();
         let typed = shown;
-        TextField()
-            .text("Buy milk")
-            .placeholder("Title")
-            .on_value_change(move |value| typed.set(value));
-        TextField().placeholder("Nothing yet");
+        TextField!(
+            "Buy milk",
+            move |value| typed.set(value),
+            placeholder = "Title"
+        );
+        TextField!("", |_| {}, placeholder = "Nothing yet");
     });
     let mut tree = Tree::default();
     let batch = host.rebuild().expect("the first batch encodes").to_vec();
@@ -885,11 +874,11 @@ fn fr5_a_text_field_starts_with_its_text_and_typing_is_not_sent_back() {
     // The user types. The screen runs again, and the field is told nothing.
     let (node_id, handler_id) = tree.find("TextField", None, 0, PropertyKind::OnValueChange);
     let (batch, _) = host
-        .dispatch(HostEvent {
+        .dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::TextChanged("Buy oat milk"),
-        })
+            EventPayload::TextChanged("Buy oat milk"),
+        ))
         .expect("the change is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);

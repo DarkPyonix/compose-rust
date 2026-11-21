@@ -64,6 +64,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Chrome.System the system's caption, otherwise the window gives the caption strip to
     // the content, which draws the title and the three buttons in it.
     val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
+    val fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize
     val window = Win32Window.open(
         title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
@@ -72,6 +73,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
         minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
         systemChrome = systemChrome,
+        appCaption = fullSize,
     )
     if (window == null) {
         java.lang.System.err.println(
@@ -95,12 +97,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         window.setContent {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
+                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
             ) {
                 WindowContent(
                     host,
                     caption = dev.darkpyonix.composerust.runtime.WindowCaption(
                         height = WINDOWS_CAPTION_HEIGHT,
-                        fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
+                        fullSize = fullSize,
                     ),
                 )
             }

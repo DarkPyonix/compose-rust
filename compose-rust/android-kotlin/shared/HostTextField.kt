@@ -19,6 +19,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -369,11 +371,14 @@ internal fun HostTextField(
     val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
     val caretColor = node.paintProp(PropertyKind.CaretColor)?.let { theme.color(it) } ?: frame.cursor
 
+    val readOnly = node.flag(PropertyKind.ReadOnly, default = false)
+
     BasicTextField(
         value = value,
         onValueChange = applyValueChange,
-        modifier = inputModifier,
+        modifier = if (readOnly) inputModifier.semantics { isEditable = false } else inputModifier,
         enabled = enabled,
+        readOnly = readOnly,
         singleLine = !multiline,
         textStyle = textStyle,
         visualTransformation = fieldText,
@@ -410,10 +415,10 @@ internal fun HostTextField(
                             node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)
                         },
                     ),
-                // A bare field is as tall as its text, so the placeholder and the text share
-                // the first line's baseline from the top edge rather than being centred in
-                // a minimum height the field no longer has.
-                contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
+                // Single-line fields centre their text vertically in whatever height they are
+                // given (including bare fields inside a taller search pill or composer); multiline
+                // fields start at the top.
+                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     val placeholderColor = node.paintProp(PropertyKind.PlaceholderColor)?.let { theme.color(it) }

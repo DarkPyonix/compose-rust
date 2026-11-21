@@ -55,14 +55,17 @@ fn fr77_popover_tags_are_appended_and_fixed() {
 #[test]
 fn fr77_popover_writes_its_anchor_first_and_its_content_after() {
     let (_host, tree) = start(|| {
-        Popover(true)
-            .anchor(|| {
-                Button("Model");
-            })
-            .content(|| {
-                Text("Opus");
-                Text("Sonnet");
-            });
+        Popover!(
+            true,
+            || {},
+            anchor = Some(|| {
+                Button!("Model", || {});
+            }),
+            {
+                Text!("Opus");
+                Text!("Sonnet");
+            }
+        );
     });
     let dump = tree.dump();
     let lines: Vec<&str> = dump.lines().map(str::trim).collect();
@@ -81,13 +84,16 @@ fn fr77_popover_writes_its_anchor_first_and_its_content_after() {
 #[test]
 fn fr77_popover_sends_no_placement_it_was_not_given() {
     let (_host, tree) = start(|| {
-        Popover(false)
-            .anchor(|| {
-                Text("Filter");
-            })
-            .content(|| {
-                Text("Unread");
-            });
+        Popover!(
+            false,
+            || {},
+            anchor = Some(|| {
+                Text!("Filter");
+            }),
+            {
+                Text!("Unread");
+            }
+        );
     });
     let dump = tree.dump();
     assert!(dump.contains("Popover "), "{dump}");
@@ -100,17 +106,20 @@ fn fr77_popover_sends_no_placement_it_was_not_given() {
 #[test]
 fn fr77_popover_writes_placement_align_offset_and_scrim() {
     let (_host, tree) = start(|| {
-        Popover(true)
-            .placement(PopoverPlacement::Top)
-            .align(PopoverAlign::End)
-            .offset(6.0)
-            .scrim(true)
-            .anchor(|| {
-                Text("More");
-            })
-            .content(|| {
-                Text("Rename");
-            });
+        Popover!(
+            true,
+            || {},
+            placement = PopoverPlacement::Top,
+            align = PopoverAlign::End,
+            offset = 6.0,
+            scrim = true,
+            anchor = Some(|| {
+                Text!("More");
+            }),
+            {
+                Text!("Rename");
+            }
+        );
     });
     let dump = tree.dump();
     assert!(dump.contains("Placement=Integer(1)"), "{dump}");
@@ -125,24 +134,22 @@ fn fr77_popover_writes_placement_align_offset_and_scrim() {
 fn fr77_popover_dismiss_calls_the_handler_and_leaves_open_alone() {
     static DISMISSED: AtomicUsize = AtomicUsize::new(0);
     let (mut host, mut tree) = start(|| {
-        Popover(true)
-            .on_dismiss(|| {
+        Popover!(
+            true,
+            || {
                 DISMISSED.fetch_add(1, Ordering::SeqCst);
-            })
-            .anchor(|| {
-                Text("Model");
-            })
-            .content(|| {
-                Text("Opus");
-            });
+            },
+            anchor = Some(|| {
+                Text!("Model");
+            }),
+            {
+                Text!("Opus");
+            }
+        );
     });
     let (node_id, handler_id) = tree.handled("Popover", PropertyKind::OnDismiss)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the dismissal is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);

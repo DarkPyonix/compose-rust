@@ -26,29 +26,25 @@ const MUTATIONS: &[u8] = include_bytes!("vectors/mutations.bin");
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the two events sit in the event vector.
-const PARENT_AT: usize = 1775;
+const PARENT_AT: usize = 1779;
 const PARENT_LEN: usize = 32;
-const FOCUS_AT: usize = 1807;
+const FOCUS_AT: usize = 1811;
 const FOCUS_LEN: usize = 24;
 
 fn vector_parent() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 20,
-        handler_id: 0,
-        payload: EventPayload::NativeViewParent {
+    HostEvent::new(
+        20,
+        0,
+        EventPayload::NativeViewParent {
             handle: NativeHandle(codegen::NATIVE_PARENT_VECTOR_HANDLE),
             kind: NativeParentKind::AppKit,
             scale: 2.0,
         },
-    }
+    )
 }
 
 fn vector_focus() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 25,
-        handler_id: 301,
-        payload: EventPayload::NativeViewFocus { focused: true },
-    }
+    HostEvent::new(25, 301, EventPayload::NativeViewFocus { focused: true })
 }
 
 fn native_records(batch: &[u8]) -> Vec<Mutation<'_>> {
@@ -75,11 +71,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree, Vec<
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str) -> Vec<u8> {
     let (node_id, handler_id) = tree.find("Button", Some(label), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -197,9 +189,9 @@ fn fr81_native_view_record_layout_is_fixed() {
 fn fr81_tree_without_native_view_is_unchanged() {
     let (mut host, mut tree, first) = start(|| {
         let count = remember(|| mutable_state_of(0));
-        Column().content(|| {
-            Text(format!("{}", count.get()));
-            Button("Bump").on_click(move || count.update(|count| *count += 1));
+        Column!({
+            Text!(format!("{}", count.get()));
+            Button!("Bump", move || count.update(|count| *count += 1));
         });
     });
     let second = click(&mut host, &mut tree, "Bump");
@@ -222,7 +214,7 @@ fn fr81_tree_without_native_view_is_unchanged() {
     // The events before the two new ones are where they were: they were appended after
     // the last of them, the density report of 20 bytes, which ends at the parent report.
     assert_eq!(
-        decode_event(&EVENTS[1415..1439]).unwrap().payload,
+        decode_event(&EVENTS[1419..1443]).unwrap().payload,
         EventPayload::CodeScrolled { offset_px: 1234.5 }
     );
     assert!(matches!(
@@ -244,12 +236,15 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
     let (mut host, mut tree, first) = start(|| {
         let handle = remember(|| mutable_state_of(0x1000_u64));
         let bump = remember(|| mutable_state_of(0));
-        Column().content(|| {
-            Text(format!("{}", bump.get()));
-            Button("Bump").on_click(move || bump.update(|count| *count += 1));
-            Button("Swap").on_click(move || handle.set(0x2000));
-            Button("Detach").on_click(move || handle.set(0));
-            NativeView(NativeHandle(handle.get())).modifier(Modifier::new().size(200.0, 100.0));
+        Column!({
+            Text!(format!("{}", bump.get()));
+            Button!("Bump", move || bump.update(|count| *count += 1));
+            Button!("Swap", move || handle.set(0x2000));
+            Button!("Detach", move || handle.set(0));
+            NativeView!(
+                NativeHandle(handle.get()),
+                modifier = Modifier::new().size(200.0, 100.0)
+            );
         });
     });
     assert!(tree.widgets().iter().any(|widget| widget == "NativeView"));
@@ -307,7 +302,10 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
 #[test]
 fn fr81_native_view_with_no_handle_writes_no_command() {
     let (_host, _tree, first) = start(|| {
-        NativeView(NativeHandle::NONE).modifier(Modifier::new().size(10.0, 10.0));
+        NativeView!(
+            NativeHandle::NONE,
+            modifier = Modifier::new().size(10.0, 10.0)
+        );
     });
     assert!(native_records(&first).is_empty());
     assert!(
@@ -328,9 +326,9 @@ fn fr81_native_view_with_no_handle_writes_no_command() {
 fn fr81_hidden_native_view_writes_native_visible_false() {
     let (mut host, mut tree, _) = start(|| {
         let shown = remember(|| mutable_state_of(false));
-        Column().content(|| {
-            Button("Show").on_click(move || shown.set(true));
-            NativeView(NativeHandle(0x1000)).visible(shown.get());
+        Column!({
+            Button!("Show", move || shown.set(true));
+            NativeView!(NativeHandle(0x1000), visible = shown.get());
         });
     });
     assert!(
@@ -363,18 +361,21 @@ fn fr81_focus_report_reaches_the_handler() {
     static FOCUSED: AtomicBool = AtomicBool::new(false);
     static HEARD: AtomicUsize = AtomicUsize::new(0);
     let (mut host, tree, _) = start(|| {
-        NativeView(NativeHandle(0x1000)).on_focus_change(|focused| {
-            FOCUSED.store(focused, Ordering::SeqCst);
-            HEARD.fetch_add(1, Ordering::SeqCst);
-        });
+        NativeView!(
+            NativeHandle(0x1000),
+            on_focus_change = Some(|focused: bool| {
+                FOCUSED.store(focused, Ordering::SeqCst);
+                HEARD.fetch_add(1, Ordering::SeqCst);
+            })
+        );
     });
     let (node_id, handler_id) = tree.handled("NativeView", PropertyKind::OnNativeViewFocus)[0];
     for focused in [true, false] {
-        host.dispatch(HostEvent {
+        host.dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::NativeViewFocus { focused },
-        })
+            EventPayload::NativeViewFocus { focused },
+        ))
         .expect("the focus report is accepted");
         assert_eq!(FOCUSED.load(Ordering::SeqCst), focused);
     }
@@ -384,7 +385,7 @@ fn fr81_focus_report_reaches_the_handler() {
 #[test]
 fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
     let (mut host, _tree, _) = start(|| {
-        NativeView(NativeHandle::NONE);
+        NativeView!(NativeHandle::NONE);
     });
     assert_eq!(native_parent(0), None);
     let woken = Arc::new(AtomicUsize::new(0));
@@ -392,14 +393,16 @@ fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
     let _subscription = subscribe_native_parent(Arc::new(move || {
         counter.fetch_add(1, Ordering::SeqCst);
     }));
-    let report = |handle: u64, scale: f32| HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::NativeViewParent {
-            handle: NativeHandle(handle),
-            kind: NativeParentKind::AppKit,
-            scale,
-        },
+    let report = |handle: u64, scale: f32| {
+        HostEvent::new(
+            0,
+            0,
+            EventPayload::NativeViewParent {
+                handle: NativeHandle(handle),
+                kind: NativeParentKind::AppKit,
+                scale,
+            },
+        )
     };
     host.dispatch(report(0xabc0, 2.0))
         .expect("the report is accepted");

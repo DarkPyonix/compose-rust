@@ -17,7 +17,7 @@ use support::Tree;
 
 #[Composable]
 fn App() {
-    Text("scheme");
+    Text!("scheme");
 }
 
 fn start() -> (ComposeHost, Tree) {
@@ -29,11 +29,7 @@ fn start() -> (ComposeHost, Tree) {
 }
 
 fn scheme_changed(scheme: SystemColorScheme) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ColorSchemeChanged(scheme),
-    }
+    HostEvent::new(0, 0, EventPayload::ColorSchemeChanged(scheme))
 }
 
 /// The record is 20 bytes, the header and one word, and both values come back as they went.
@@ -55,9 +51,9 @@ fn fr44_color_scheme_event_round_trips() {
     assert_eq!(u16::from(SystemColorScheme::Dark), 1);
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
     assert_eq!(
-        decode_event(&events[1659..1679]),
+        decode_event(&events[1663..1683]),
         Ok(scheme_changed(SystemColorScheme::Dark))
     );
 

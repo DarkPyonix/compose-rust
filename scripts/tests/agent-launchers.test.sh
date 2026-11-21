@@ -82,7 +82,7 @@ for launcher in "${launchers[@]}"; do
     done
     ! printf '%s' "$normal" | grep -q 'You are the single temporary builder' ||
         note "$launcher tells an ordinary run that it is the builder"
-    for phrase in 'You are the single temporary builder' 'one command at a time' 'CARGO_BUILD_JOBS=2' 'own target/' 'Never set or share CARGO_TARGET_DIR' 'minimal fixes'; do
+    for phrase in 'You are the single temporary builder' 'one command at a time' 'CARGO_BUILD_JOBS=2' 'own target/' 'Never set or share CARGO_TARGET_DIR' 'scripts/fetch-design-systems.sh' 'minimal fixes'; do
         printf '%s' "$built" | grep -q "$phrase" ||
             note "$launcher in builder mode does not say '$phrase'"
     done

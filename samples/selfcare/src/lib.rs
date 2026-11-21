@@ -151,65 +151,70 @@ fn progress(reached: usize, on_panel: bool) {
     } else {
         (palette::INK, palette::OUTLINE)
     };
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Sm)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Sm,
+        {
             for segment in 0..STEPS {
                 key(segment, || {
-                    Box().modifier(
-                        Modifier
+                    Box!(
+                        modifier = Modifier
                             .weight(1.0)
                             .height(SEGMENT_HEIGHT)
                             .background(if segment < reached { done } else { rest })
-                            .shape_role(ShapeRole::Full),
+                            .shape_role(ShapeRole::Full)
                     );
                 });
             }
-        });
+        }
+    );
 }
 
 /// A pill that is a control: a fill, a shape and a press, with whatever is written on it.
 fn pill(modifier: Modifier, on_click: impl FnMut() + 'static, face: impl FnOnce()) {
-    Box()
-        .modifier(modifier.height(PILL_HEIGHT).shape_role(ShapeRole::Full))
-        .alignment(Alignment::Center)
-        .on_click(on_click)
-        .content(face);
+    Box!(
+        modifier = modifier.height(PILL_HEIGHT).shape_role(ShapeRole::Full),
+        alignment = Alignment::Center,
+        on_click = Some(on_click),
+        content = face
+    );
 }
 
 /// "Skip" in plain words on the left, and the white pill that moves on.
 fn foot(on_skip: Action, on_next: Action) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Md)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Box()
-                .modifier(Modifier.height(PILL_HEIGHT).padding_role(SpaceRole::Md))
-                .alignment(Alignment::Center)
-                .on_click(move || on_skip())
-                .content(|| {
-                    Text("Skip").type_role(TypeRole::Body).color(palette::INK);
-                });
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Md,
+        alignment = Alignment::Center,
+        {
+            Box!(
+                modifier = Modifier.height(PILL_HEIGHT).padding_role(SpaceRole::Md),
+                alignment = Alignment::Center,
+                on_click = Some(move || on_skip()),
+                {
+                    Text!("Skip", type_role = TypeRole::Body, color = palette::INK);
+                }
+            );
             pill(
                 Modifier.weight(1.0).background(palette::INK),
                 move || on_next(),
                 || {
-                    Row()
-                        .space_role(SpaceRole::Xs)
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Text("Next")
-                                .type_role(TypeRole::Body)
-                                .color(palette::ON_LIGHT);
-                            Text("\u{203a}")
-                                .type_role(TypeRole::Body)
-                                .color(palette::ON_LIGHT);
-                        });
+                    Row!(space_role = SpaceRole::Xs, alignment = Alignment::Center, {
+                        Text!(
+                            "Next",
+                            type_role = TypeRole::Body,
+                            color = palette::ON_LIGHT
+                        );
+                        Text!(
+                            "\u{203a}",
+                            type_role = TypeRole::Body,
+                            color = palette::ON_LIGHT
+                        );
+                    });
                 },
             );
-        });
+        }
+    );
 }
 
 /// The strip of feelings: a carousel with the chosen one in the middle.
@@ -222,11 +227,11 @@ fn foot(on_skip: Action, on_next: Action) {
 fn mood_strip(chosen: MutableState<Mood>, strip: ScrollState, viewport: f32) {
     let current = chosen.get();
     let lead = ((viewport - SLOT) / 2.0).max(0.0);
-    ScrollRow()
-        .modifier(Modifier.fill_max_width())
-        .scroll_state(&strip)
-        .content(|| {
-            Spacer().modifier(Modifier.width(lead));
+    ScrollRow!(
+        modifier = Modifier.fill_max_width(),
+        scroll_state = &strip,
+        {
+            Spacer!(modifier = Modifier.width(lead));
             for option in Mood::STRIP {
                 let picked = option == current;
                 let (fill, ink) = if picked {
@@ -236,10 +241,10 @@ fn mood_strip(chosen: MutableState<Mood>, strip: ScrollState, viewport: f32) {
                 };
                 let (choose, turn) = (chosen, strip.clone());
                 key(option.label(), || {
-                    Box()
-                        .modifier(Modifier.width(SLOT))
-                        .alignment(Alignment::Center)
-                        .content(|| {
+                    Box!(
+                        modifier = Modifier.width(SLOT),
+                        alignment = Alignment::Center,
+                        {
                             pill(
                                 Modifier.width(PILL_WIDTH).background(fill),
                                 move || {
@@ -247,14 +252,16 @@ fn mood_strip(chosen: MutableState<Mood>, strip: ScrollState, viewport: f32) {
                                     turn.animate_scroll_to(option.index() as f32 * SLOT);
                                 },
                                 || {
-                                    Text(option.label()).type_role(TypeRole::Body).color(ink);
+                                    Text!(option.label(), type_role = TypeRole::Body, color = ink);
                                 },
                             );
-                        });
+                        }
+                    );
                 });
             }
-            Spacer().modifier(Modifier.width(lead));
-        });
+            Spacer!(modifier = Modifier.width(lead));
+        }
+    );
 }
 
 /// The mood picker: the face on its panel, the carousel under it, and the question.
@@ -269,54 +276,58 @@ fn feeling_step(chosen: MutableState<Mood>, viewport: f32, on_skip: Action, on_n
         strip.scroll_to(opening as f32 * SLOT);
         strip
     });
-    Column()
-        .modifier(Modifier.fill_max_size())
-        .space_role(SpaceRole::Lg)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_size(),
+        space_role = SpaceRole::Lg,
+        {
             // The panel fills the top of the screen in a pale tint of the feeling it is
             // showing, which is the reference's whole idea: the answer is the colour. It
             // runs to the window's edges and rounds off at the bottom.
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .height(PANEL_HEIGHT)
-                        .background(current.panel())
-                        .corner_radii([0.0, 0.0, PANEL_CORNER, PANEL_CORNER])
-                        .padding_role(SpaceRole::Md),
-                )
-                .content(|| {
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .height(PANEL_HEIGHT)
+                    .background(current.panel())
+                    .corner_radii([0.0, 0.0, PANEL_CORNER, PANEL_CORNER])
+                    .padding_role(SpaceRole::Md),
+                {
                     progress(Step::Feeling.reached(), true);
-                    Box()
-                        .modifier(Modifier.fill_max_width().weight(1.0))
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Image(asset(AssetKind::Svg, current.picture()))
-                                .modifier(Modifier.size(FACE_SIDE, FACE_SIDE));
-                        });
-                });
+                    Box!(
+                        modifier = Modifier.fill_max_width().weight(1.0),
+                        alignment = Alignment::Center,
+                        {
+                            Image!(
+                                asset(AssetKind::Svg, current.picture()),
+                                modifier = Modifier.size(FACE_SIDE, FACE_SIDE)
+                            );
+                        }
+                    );
+                }
+            );
 
             mood_strip(chosen, strip, viewport);
 
             // Everything under the strip, inset once and spaced once.
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .weight(1.0)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Lg)
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text("How do you\nfeel today?")
-                        .type_role(TypeRole::Headline)
-                        .text_align(TextAlign::Center)
-                        .color(palette::INK);
-                    Spacer().modifier(Modifier.weight(1.0));
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .weight(1.0)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Lg,
+                alignment = Alignment::Center,
+                {
+                    Text!(
+                        "How do you\nfeel today?",
+                        type_role = TypeRole::Headline,
+                        text_align = TextAlign::Center,
+                        color = palette::INK
+                    );
+                    Spacer!(modifier = Modifier.weight(1.0));
                     foot(Rc::clone(&on_skip), Rc::clone(&on_next));
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The worry picker: ten pills, any number of them chosen.
@@ -326,40 +337,45 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
     // Two to a row. There is no wrapping row in the vocabulary, so a grid is rows of a
     // fixed count and the code says how many rather than the layout working it out.
     let rows: Vec<&[&'static str]> = WORRIES.chunks(2).collect();
-    Column()
-        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Lg)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_size().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Lg,
+        {
             progress(Step::Worry.reached(), false);
 
-            Text("What's\nworrying you?")
-                .type_role(TypeRole::Headline)
-                .text_align(TextAlign::Center)
-                .color(palette::INK)
-                .modifier(Modifier.fill_max_width());
+            Text!(
+                "What's\nworrying you?",
+                type_role = TypeRole::Headline,
+                text_align = TextAlign::Center,
+                color = palette::INK,
+                modifier = Modifier.fill_max_width()
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     for (index, row) in rows.iter().enumerate() {
                         key(index, || {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Sm)
-                                .content(|| {
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Sm,
+                                {
                                     for worry in row.iter().copied() {
                                         let on = chosen.contains(&worry);
                                         key(worry, || worry_pill(worry, on, picked));
                                     }
-                                });
+                                }
+                            );
                         });
                     }
-                });
+                }
+            );
 
-            Spacer().modifier(Modifier.weight(1.0));
+            Spacer!(modifier = Modifier.weight(1.0));
             foot(Rc::clone(&on_skip), Rc::clone(&on_next));
-        });
+        }
+    );
 }
 
 /// One worry. Chosen ones are the reference's cyan with black ink, the rest dark grey with
@@ -384,7 +400,7 @@ fn worry_pill(worry: &'static str, on: bool, picked: MutableState<Vec<&'static s
             })
         },
         || {
-            Text(worry).type_role(TypeRole::Body).color(ink);
+            Text!(worry, type_role = TypeRole::Body, color = ink);
         },
     );
 }
@@ -398,44 +414,52 @@ fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: Action) {
     } else {
         worries.join(", ")
     };
-    Column()
-        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_size().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             progress(Step::Done.reached(), false);
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(chosen.panel())
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Lg),
-                )
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Image(asset(AssetKind::Svg, chosen.picture()))
-                        .modifier(Modifier.size(FACE_SIDE * 0.6, FACE_SIDE * 0.6));
-                    Text(format!("Today felt {}.", chosen.label().to_lowercase()))
-                        .type_role(TypeRole::Title)
-                        .color(ink)
-                        .text_align(TextAlign::Center);
-                    Text(summary)
-                        .type_role(TypeRole::Body)
-                        .color(ink)
-                        .text_align(TextAlign::Center);
-                });
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(chosen.panel())
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Lg),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
+                    Image!(
+                        asset(AssetKind::Svg, chosen.picture()),
+                        modifier = Modifier.size(FACE_SIDE * 0.6, FACE_SIDE * 0.6)
+                    );
+                    Text!(
+                        format!("Today felt {}.", chosen.label().to_lowercase()),
+                        type_role = TypeRole::Title,
+                        color = ink,
+                        text_align = TextAlign::Center
+                    );
+                    Text!(
+                        summary,
+                        type_role = TypeRole::Body,
+                        color = ink,
+                        text_align = TextAlign::Center
+                    );
+                }
+            );
             pill(
                 Modifier.fill_max_width().background(palette::CHIP),
                 move || again(),
                 || {
-                    Text("Check in again")
-                        .type_role(TypeRole::Body)
-                        .color(palette::INK);
+                    Text!(
+                        "Check in again",
+                        type_role = TypeRole::Body,
+                        color = palette::INK
+                    );
                 },
             );
-            Spacer().modifier(Modifier.weight(1.0));
-        });
+            Spacer!(modifier = Modifier.weight(1.0));
+        }
+    );
 }
 
 /// Says that playing a session is not part of this sample.
@@ -448,27 +472,29 @@ fn not_playable() {
 /// The triangle is a character rather than an icon because the set has no play meaning
 /// yet (compose-rust issue #539).
 fn play(fill: Paint, ink: Paint) {
-    Box()
-        .modifier(
-            Modifier
-                .size(PLAY, PLAY)
-                .background(fill)
-                .shape_role(ShapeRole::Full),
-        )
-        .alignment(Alignment::Center)
-        .on_click(not_playable)
-        .content(|| {
-            Text("\u{25b6}").type_role(TypeRole::Caption).color(ink);
-        });
+    Box!(
+        modifier = Modifier
+            .size(PLAY, PLAY)
+            .background(fill)
+            .shape_role(ShapeRole::Full),
+        alignment = Alignment::Center,
+        on_click = Some(not_playable),
+        {
+            Text!("\u{25b6}", type_role = TypeRole::Caption, color = ink);
+        }
+    );
 }
 
 /// A small pill saying something about a session: how long, or when.
 fn tag(text: String, fill: Paint, ink: Paint) {
-    Text(text).type_role(TypeRole::Caption).color(ink).modifier(
-        Modifier
+    Text!(
+        text,
+        type_role = TypeRole::Caption,
+        color = ink,
+        modifier = Modifier
             .background(fill)
             .shape_role(ShapeRole::Full)
-            .padding_role(SpaceRole::Sm),
+            .padding_role(SpaceRole::Sm)
     );
 }
 
@@ -485,32 +511,34 @@ fn session_card(session: &Session, dark: bool) {
             palette::ON_LIGHT,
         )
     };
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_size()
-                .background(fill)
-                .shape_role(ShapeRole::Large)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Xs)
-        .content(|| {
-            Text(session.title)
-                .type_role(TypeRole::Title)
-                .color(ink)
-                .max_lines(2)
-                .overflow(TextOverflow::Ellipsis);
-            Spacer().modifier(Modifier.weight(1.0));
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_size()
+            .background(fill)
+            .shape_role(ShapeRole::Large)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Xs,
+        {
+            Text!(
+                session.title,
+                type_role = TypeRole::Title,
+                color = ink,
+                max_lines = 2,
+                overflow = TextOverflow::Ellipsis
+            );
+            Spacer!(modifier = Modifier.weight(1.0));
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
                     tag(format!("{} min", session.minutes), chip, chip_ink);
-                    Spacer().modifier(Modifier.weight(1.0));
+                    Spacer!(modifier = Modifier.weight(1.0));
                     play(palette::CYAN, palette::ON_LIGHT);
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// One of "Special for you": a wide card with the title, two tags and a play button. The
@@ -526,201 +554,232 @@ fn special_card(session: &Session, first: bool) {
             palette::ON_LIGHT,
         )
     };
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(fill)
-                .shape_role(ShapeRole::Large)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::Center)
-        .content(|| {
-            Column()
-                .modifier(Modifier.weight(1.0))
-                .space_role(SpaceRole::Sm)
-                .content(|| {
-                    Text(session.title)
-                        .type_role(TypeRole::Subtitle)
-                        .color(palette::ON_LIGHT)
-                        .max_lines(1)
-                        .overflow(TextOverflow::Ellipsis);
-                    Row().space_role(SpaceRole::Xs).content(|| {
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(fill)
+            .shape_role(ShapeRole::Large)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::Center,
+        {
+            Column!(
+                modifier = Modifier.weight(1.0),
+                space_role = SpaceRole::Sm,
+                {
+                    Text!(
+                        session.title,
+                        type_role = TypeRole::Subtitle,
+                        color = palette::ON_LIGHT,
+                        max_lines = 1,
+                        overflow = TextOverflow::Ellipsis
+                    );
+                    Row!(space_role = SpaceRole::Xs, {
                         tag(format!("{} min", session.minutes), chip, palette::ON_LIGHT);
                         tag(session.when.to_owned(), chip, palette::ON_LIGHT);
                     });
-                });
+                }
+            );
             play(button, button_ink);
-        });
+        }
+    );
 }
 
 /// The listening screen: a greeting, a search field, the pair of cards and the sessions
 /// picked for you.
 #[Composable]
 fn listen_page() {
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Hello, Paul \u{1f44b}")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            TextField()
-                .modifier(Modifier.fill_max_width())
-                .placeholder("Search...");
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Hello, Paul \u{1f44b}",
+                type_role = TypeRole::Headline,
+                color = palette::INK
+            );
+            TextField!(
+                "",
+                |_| {},
+                modifier = Modifier.fill_max_width(),
+                placeholder = "Search..."
+            );
 
-            LazyRow()
-                .modifier(Modifier.fill_max_width().height(CARD_HEIGHT))
-                .content(|list| {
+            LazyRow!(
+                modifier = Modifier.fill_max_width().height(CARD_HEIGHT),
+                content = |list| {
                     list.items_keyed(
                         SESSIONS.len(),
                         |position| SESSIONS[position].title.to_owned(),
                         |position| {
-                            Box()
-                                .modifier(
-                                    Modifier
-                                        .width(CARD_WIDTH)
-                                        .fill_max_height()
-                                        .padding_role(SpaceRole::Xs),
-                                )
-                                .content(|| session_card(&SESSIONS[position], position % 2 == 0));
+                            Box!(
+                                modifier = Modifier
+                                    .width(CARD_WIDTH)
+                                    .fill_max_height()
+                                    .padding_role(SpaceRole::Xs),
+                                content = || session_card(&SESSIONS[position], position % 2 == 0)
+                            );
                         },
                     );
-                });
+                }
+            );
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text("Special for you")
-                        .type_role(TypeRole::Title)
-                        .color(palette::INK)
-                        .modifier(Modifier.weight(1.0));
-                    Text("See all \u{203a}")
-                        .type_role(TypeRole::Caption)
-                        .color(palette::MUTED);
-                });
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Text!(
+                        "Special for you",
+                        type_role = TypeRole::Title,
+                        color = palette::INK,
+                        modifier = Modifier.weight(1.0)
+                    );
+                    Text!(
+                        "See all \u{203a}",
+                        type_role = TypeRole::Caption,
+                        color = palette::MUTED
+                    );
+                }
+            );
             for (index, session) in SESSIONS.iter().skip(2).enumerate() {
                 key(session.title, || special_card(session, index == 0));
             }
-        });
+        }
+    );
 }
 
 /// Everything there is, as a plain list.
 #[Composable]
 fn library_page() {
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Library")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Library",
+                type_role = TypeRole::Headline,
+                color = palette::INK
+            );
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     for session in SESSIONS.iter() {
                         key(session.title, || {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Sm)
-                                .alignment(Alignment::Center)
-                                .content(|| {
-                                    Box().modifier(
-                                        Modifier
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                space_role = SpaceRole::Sm,
+                                alignment = Alignment::Center,
+                                {
+                                    Box!(
+                                        modifier = Modifier
                                             .size(48.0, 48.0)
                                             .background(session.mood.pair().0)
-                                            .shape_role(ShapeRole::Medium),
+                                            .shape_role(ShapeRole::Medium)
                                     );
-                                    Column().modifier(Modifier.weight(1.0)).content(|| {
-                                        Text(session.title)
-                                            .type_role(TypeRole::Body)
-                                            .color(palette::INK)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
-                                        Text(format!(
-                                            "{} min \u{00b7} {}",
-                                            session.minutes, session.when
-                                        ))
-                                        .type_role(TypeRole::Caption)
-                                        .color(palette::MUTED);
+                                    Column!(modifier = Modifier.weight(1.0), {
+                                        Text!(
+                                            session.title,
+                                            type_role = TypeRole::Body,
+                                            color = palette::INK,
+                                            max_lines = 1,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
+                                        Text!(
+                                            format!(
+                                                "{} min \u{00b7} {}",
+                                                session.minutes, session.when
+                                            ),
+                                            type_role = TypeRole::Caption,
+                                            color = palette::MUTED
+                                        );
                                     });
-                                });
+                                }
+                            );
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// The profile: who this is, how the week went, a quote, and the settings under it.
 #[Composable]
 fn profile_page(chosen: Mood) {
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Xs)
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Image(asset(AssetKind::Svg, chosen.picture()))
-                        .modifier(Modifier.size(96.0, 96.0));
-                    Text("Paul Wilson")
-                        .type_role(TypeRole::Title)
-                        .color(palette::INK);
-                });
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Xs,
+                alignment = Alignment::Center,
+                {
+                    Image!(
+                        asset(AssetKind::Svg, chosen.picture()),
+                        modifier = Modifier.size(96.0, 96.0)
+                    );
+                    Text!(
+                        "Paul Wilson",
+                        type_role = TypeRole::Title,
+                        color = palette::INK
+                    );
+                }
+            );
 
             // The week sits on the page itself, as in the reference, rather than on a card.
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Canvas(week_line(CHART.0, CHART.1)).modifier(Modifier.size(CHART.0, CHART.1));
-                });
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Canvas!(
+                        week_line(CHART.0, CHART.1),
+                        modifier = Modifier.size(CHART.0, CHART.1)
+                    );
+                }
+            );
 
             // The quote card: a dark card, the quote mark on a cyan tile, and the quote in
             // white beside it.
-            Row()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::CARD)
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Md)
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Box()
-                        .modifier(
-                            Modifier
-                                .size(QUOTE_TILE, QUOTE_TILE)
-                                .background(palette::CYAN)
-                                .shape_role(ShapeRole::Medium),
-                        )
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Text("\u{201d}")
-                                .type_role(TypeRole::Title)
-                                .color(palette::ON_LIGHT);
-                        });
-                    Text("Every day is a new opportunity for growth and positive change.")
-                        .type_role(TypeRole::Body)
-                        .color(palette::INK)
-                        .modifier(Modifier.weight(1.0));
-                });
+            Row!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::CARD)
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Md,
+                alignment = Alignment::Center,
+                {
+                    Box!(
+                        modifier = Modifier
+                            .size(QUOTE_TILE, QUOTE_TILE)
+                            .background(palette::CYAN)
+                            .shape_role(ShapeRole::Medium),
+                        alignment = Alignment::Center,
+                        {
+                            Text!(
+                                "\u{201d}",
+                                type_role = TypeRole::Title,
+                                color = palette::ON_LIGHT
+                            );
+                        }
+                    );
+                    Text!(
+                        "Every day is a new opportunity for growth and positive change.",
+                        type_role = TypeRole::Body,
+                        color = palette::INK,
+                        modifier = Modifier.weight(1.0)
+                    );
+                }
+            );
 
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::CARD)
-                        .shape_role(ShapeRole::Large),
-                )
-                .content(|| {
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::CARD)
+                    .shape_role(ShapeRole::Large),
+                {
                     // Settings and FAQ wear the reference's gear. Language has a glyph of
                     // its own there that the set has no meaning for yet (compose-rust issue
                     // #539), so its row keeps the slot and leaves it empty.
@@ -734,35 +793,44 @@ fn profile_page(chosen: Mood) {
                             settings_row(entry, glyph, index + 1 < entries.len())
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// One entry under the profile, with the hairline under every entry but the last.
 #[Composable]
 fn settings_row(entry: &'static str, glyph: Option<&'static [u8]>, separated: bool) {
-    Column().modifier(Modifier.fill_max_width()).content(|| {
-        Row()
-            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-            .space_role(SpaceRole::Sm)
-            .alignment(Alignment::Center)
-            .content(|| {
-                Box()
-                    .modifier(Modifier.size(ICON, ICON))
-                    .alignment(Alignment::Center)
-                    .content(|| {
+    Column!(modifier = Modifier.fill_max_width(), {
+        Row!(
+            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+            space_role = SpaceRole::Sm,
+            alignment = Alignment::Center,
+            {
+                Box!(
+                    modifier = Modifier.size(ICON, ICON),
+                    alignment = Alignment::Center,
+                    {
                         if let Some(glyph) = glyph {
-                            Icon(asset(AssetKind::VectorIcon, glyph)).color(palette::INK);
+                            Icon!(asset(AssetKind::VectorIcon, glyph), color = palette::INK);
                         }
-                    });
-                Text(entry)
-                    .type_role(TypeRole::Body)
-                    .color(palette::INK)
-                    .modifier(Modifier.weight(1.0));
-                Icon(asset(AssetKind::VectorIcon, &icon::CHEVRON)).color(palette::MUTED);
-            });
+                    }
+                );
+                Text!(
+                    entry,
+                    type_role = TypeRole::Body,
+                    color = palette::INK,
+                    modifier = Modifier.weight(1.0)
+                );
+                Icon!(
+                    asset(AssetKind::VectorIcon, &icon::CHEVRON),
+                    color = palette::MUTED
+                );
+            }
+        );
         if separated {
-            Separator(Some(palette::OUTLINE));
+            Separator!(Some(palette::OUTLINE));
         }
     });
 }
@@ -775,20 +843,19 @@ fn settings_row(entry: &'static str, glyph: Option<&'static [u8]>, separated: bo
 /// this window call for"; this is the shape one picture calls for.
 #[Composable]
 fn bottom_bar(current: Destination, go: MutableState<Destination>) {
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .height(BAR_HEIGHT)
-                .background(palette::PAGE),
-        )
-        .arrangement(Arrangement::SpaceAround)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .height(BAR_HEIGHT)
+            .background(palette::PAGE),
+        arrangement = Arrangement::SpaceAround,
+        alignment = Alignment::Center,
+        {
             for choice in Destination::STRIP {
                 key(choice.label(), || bar_item(choice, choice == current, go));
             }
-        });
+        }
+    );
 }
 
 /// One destination along the bottom.
@@ -802,25 +869,31 @@ fn bar_item(choice: Destination, selected: bool, go: MutableState<Destination>) 
     } else {
         place
     };
-    Box()
-        .modifier(place)
-        .alignment(Alignment::Center)
-        .on_click(move || go.set(choice))
-        .content(|| {
+    Box!(
+        modifier = place,
+        alignment = Alignment::Center,
+        on_click = Some(move || go.set(choice)),
+        {
             if selected {
-                Column()
-                    .space_role(SpaceRole::Xs)
-                    .alignment(Alignment::Center)
-                    .content(|| {
-                        Icon(asset(AssetKind::VectorIcon, choice.icon())).color(palette::ON_LIGHT);
-                        Text(choice.label())
-                            .type_role(TypeRole::Caption)
-                            .color(palette::ON_LIGHT);
-                    });
+                Column!(space_role = SpaceRole::Xs, alignment = Alignment::Center, {
+                    Icon!(
+                        asset(AssetKind::VectorIcon, choice.icon()),
+                        color = palette::ON_LIGHT
+                    );
+                    Text!(
+                        choice.label(),
+                        type_role = TypeRole::Caption,
+                        color = palette::ON_LIGHT
+                    );
+                });
             } else {
-                Icon(asset(AssetKind::VectorIcon, choice.icon())).color(palette::INK);
+                Icon!(
+                    asset(AssetKind::VectorIcon, choice.icon()),
+                    color = palette::INK
+                );
             }
-        });
+        }
+    );
 }
 
 /// The page for one destination, and for the check-in the step it is on.
@@ -875,39 +948,42 @@ pub fn app() {
         .fill_max_width_if(measure.is_none())
         .fill_max_height();
 
-    Scaffold()
-        .modifier(Modifier.background(palette::PAGE))
-        .bottom_bar(|| {
-            Box()
-                .modifier(Modifier.fill_max_width().background(palette::PAGE))
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(|| bottom_bar(current, destination));
-                });
-        })
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_size().background(palette::PAGE))
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.fill_max_size())
-                        .alignment(Alignment::TopCenter)
-                        .content(|| {
+    Scaffold!(
+        modifier = Modifier.background(palette::PAGE),
+        bottom_bar = Some(|| {
+            Box!(
+                modifier = Modifier.fill_max_width().background(palette::PAGE),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none()),
+                        content = || bottom_bar(current, destination)
+                    );
+                }
+            );
+        }),
+        {
+            Column!(
+                modifier = Modifier.fill_max_size().background(palette::PAGE),
+                {
+                    Box!(
+                        modifier = Modifier.fill_max_size(),
+                        alignment = Alignment::TopCenter,
+                        {
                             let body = || page(current, step, chosen, picked, viewport);
                             if scrolls {
-                                ScrollColumn().modifier(frame).content(body);
+                                ScrollColumn!(modifier = frame, content = body);
                             } else {
-                                Column().modifier(frame).content(body);
+                                Column!(modifier = frame, content = body);
                             }
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The design this sample draws, named once.
@@ -1022,10 +1098,10 @@ mod tests {
         }
 
         fn resize(&mut self, width_dp: f32) {
-            self.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            self.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 860.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1033,8 +1109,9 @@ mod tests {
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
-            });
+            ));
         }
 
         fn send(&mut self, event: HostEvent<'_>) {
@@ -1146,11 +1223,7 @@ mod tests {
             let mut at = Some(node);
             while let Some(next) = at {
                 if let Some(handler_id) = self.handler_of(next) {
-                    self.send(HostEvent {
-                        node_id: next,
-                        handler_id,
-                        payload: EventPayload::Clicked,
-                    });
+                    self.send(HostEvent::new(next, handler_id, EventPayload::Clicked));
                     return true;
                 }
                 at = self.parent_of(next);
@@ -1362,11 +1435,7 @@ mod tests {
         let Some((node_id, handler_id)) = found else {
             return false;
         };
-        screen.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        screen.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 

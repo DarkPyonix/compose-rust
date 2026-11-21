@@ -28,14 +28,14 @@ extern "C" fn request_frame() {
 fn sweep() {
     let count = remember(|| mutable_state_of(0_u64));
     let slots = SLOTS.load(Ordering::Relaxed);
-    Column().content(|| {
+    Column!({
         for slot in 0..slots {
             key(slot, || {
-                Text(format!("{}-{slot}", count.get()));
+                Text!(format!("{}-{slot}", count.get()));
             });
         }
         let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+        Button!("Increment", move || more.update(|count| *count += 1));
     });
 }
 
@@ -92,13 +92,10 @@ impl Path for ComposePath {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
-        let event = HostEvent {
-            node_id: event.node,
-            handler_id: event.handler,
-            payload,
-        };
+        let event = HostEvent::new(event.node, event.handler, payload);
         let host = self.host();
         let started = Instant::now();
         let (bytes, _) = host.dispatch(event).expect("the event is accepted");

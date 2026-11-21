@@ -615,11 +615,11 @@ private fun ComposeRustTree(
             reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
-    // Whether anything in the tree asked to be made of a material, and so whether the
-    // window is stood up with the platform's own material behind it. The design system is
-    // told the answer, because chrome that sits straight on the desktop is drawn
-    // differently from chrome over the application's own page.
-    val asked = host.table.asksForWindowMaterial(pageRoots)
+    // Whether anything in the tree asked to be made of a material when the window opened.
+    // The desktop window decides once at creation whether to stand up a platform backdrop,
+    // so latching the answer here keeps the theme and page fill in agreement with the window
+    // even if a material node is mounted after the first frame.
+    val asked = remember(host, windowNodeId) { host.table.asksForWindowMaterial(pageRoots) }
     // The theme is the same object until something it is made from changes. Every node
     // reads it, so a theme made again on each pass through here composed the whole tree
     // again whenever this function ran: on every change of window class, which is one
@@ -784,12 +784,16 @@ private fun ComposeRustTree(
     // shape: the application lays its bar out around what is drawn here, and on Windows the
     // native hit test answers for the same three cells.
     val captionStyle = remember(theme) { platformCaption(theme) }
-    val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
+    // The bottom is the system's strip at the bottom edge, measured where the top strip is
+    // and with the keyboard left out, so it is the navigation bar or the home indicator
+    // whether or not a keyboard is up. A desktop window has no such strip and sends 0.
+    val safeBottom = safeBars.bottom.value
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(bottom = safeBottom) else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
         val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
             captionStyle.side == CaptionSide.Start
-        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
+        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
     }
     // Read through a derived state so a recomposition does not repeat the map lookup (which
     // boxes the node id) and the read only runs again when the property itself changes.
@@ -895,7 +899,7 @@ private fun ComposeRustTree(
                     .onKeyEvent { event ->
                         overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
                     }
-                    .background(host.table.windowFill(pageRoots, theme)),
+                    .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
                     // Beside the roots, under the same locals, so a node measured here is
@@ -1182,10 +1186,14 @@ internal fun NodeTable.openingNavigation(roots: List<Int>): Node? {
  * which reads as a leftover title bar. This is the rule a container already follows, that
  * the fill the application named wins, applied to the window.
  */
-internal fun NodeTable.windowFill(roots: List<Int>, theme: ResolvedTheme): Color {
+internal fun NodeTable.windowFill(
+    roots: List<Int>,
+    theme: ResolvedTheme,
+    hasWindowBackdrop: Boolean = asksForWindowMaterial(roots),
+): Color {
     val named = paintAtTheTopOfTheWindow(roots)
     val fill = named?.let(theme::color) ?: theme.color(ColorRole.Background)
-    return if (asksForWindowMaterial(roots)) fill.letTheWindowShowThrough() else fill
+    return if (hasWindowBackdrop) fill.letTheWindowShowThrough() else fill
 }
 
 /**

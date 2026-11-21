@@ -25,15 +25,15 @@ fn outcomes() -> Vec<Result<(), ClipboardError>> {
 
 #[Composable]
 fn Copiers() {
-    Button("invite").on_click(|| {
+    Button!("invite", || {
         let outcome = clipboard::set_text("초대 링크");
         OUTCOMES.with_borrow_mut(|outcomes| outcomes.push(outcome));
     });
-    Button("oversized").on_click(|| {
+    Button!("oversized", || {
         let outcome = clipboard::set_text(&"a".repeat(MAX_TEXT_BYTES + 1));
         OUTCOMES.with_borrow_mut(|outcomes| outcomes.push(outcome));
     });
-    Button("limit").on_click(|| {
+    Button!("limit", || {
         let outcome = clipboard::set_text(&"a".repeat(MAX_TEXT_BYTES));
         OUTCOMES.with_borrow_mut(|outcomes| outcomes.push(outcome));
     });
@@ -74,11 +74,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         batch.to_vec()
     }

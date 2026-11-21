@@ -69,49 +69,51 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
 
 #[Composable]
 fn Plain() {
-    Column().content(|| {
-        Box().modifier(Modifier.padding(4.0)).content(|| {
-            Text("plain");
+    Column!({
+        Box!(modifier = Modifier.padding(4.0), {
+            Text!("plain");
         });
-        Button("Save").on_click(|| {});
-        Switch(true);
+        Button!("Save", || {});
+        Switch!(true, |_| {});
     });
 }
 
 #[Composable]
 fn Named() {
-    Column().content(|| {
-        Box()
-            .modifier(Modifier.label("Refresh").role(Role::Button))
-            .on_click(|| {})
-            .content(|| {
-                Text("↻");
-            });
-        Button("")
-            .icon(IconRole::Add)
-            .accessible_name("Import")
-            .on_click(|| {});
-        Button("Save")
-            .modifier(Modifier.label("From the modifier"))
-            .accessible_name("Save the draft")
-            .on_click(|| {});
-        Switch(true).accessible_name("Notifications");
-        Checkbox(false).accessible_name("Remember me");
-        RadioButton(true).accessible_name("Small");
-        Slider(0.5).accessible_name("Volume");
+    Column!({
+        Box!(
+            modifier = Modifier.label("Refresh").role(Role::Button),
+            on_click = Some(|| {}),
+            {
+                Text!("↻");
+            }
+        );
+        Button!("", || {}, icon = IconRole::Add, accessible_name = "Import");
+        Button!(
+            "Save",
+            || {},
+            modifier = Modifier.label("From the modifier"),
+            accessible_name = "Save the draft"
+        );
+        Switch!(true, |_| {}, accessible_name = "Notifications");
+        Checkbox!(false, |_| {}, accessible_name = "Remember me");
+        RadioButton!(true, |_| {}, accessible_name = "Small");
+        Slider!(0.5, |_| {}, accessible_name = "Volume");
     });
 }
 
 #[Composable]
 fn Stated() {
-    Column().content(|| {
-        Box()
-            .modifier(Modifier.semantics(Role::Tab, "Files", SemanticsState::selected(true)))
-            .content(|| {});
-        Box().modifier(Modifier.checked(false)).content(|| {});
-        Box()
-            .modifier(Modifier.role(Role::Button).label("More").has_popup(true))
-            .content(|| {});
+    Column!({
+        Box!(
+            modifier = Modifier.semantics(Role::Tab, "Files", SemanticsState::selected(true)),
+            {}
+        );
+        Box!(modifier = Modifier.checked(false), {});
+        Box!(
+            modifier = Modifier.role(Role::Button).label("More").has_popup(true),
+            {}
+        );
     });
 }
 
@@ -182,19 +184,17 @@ fn fr68_the_widget_name_wins_over_the_modifier_label_and_the_icon() {
 #[Composable]
 fn Renaming() {
     let named = remember(|| mutable_state_of(true));
-    Column().content(|| {
+    Column!({
         let flip = named;
-        Row()
-            .on_click(move || flip.update(|n| *n = !*n))
-            .content(|| {
-                Text("flip");
-            });
-        let button = Button("").icon(IconRole::Add).on_click(|| {});
-        if named.get() {
-            button.accessible_name("Import")
-        } else {
-            button
-        };
+        Row!(on_click = Some(move || flip.update(|n| *n = !*n)), {
+            Text!("flip");
+        });
+        Button!(
+            "",
+            || {},
+            icon = IconRole::Add,
+            accessible_name = named.get().then_some("Import"),
+        );
     });
 }
 
@@ -211,11 +211,7 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let mut batches = Vec::new();
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     batches.push(batch.to_vec());
     batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
@@ -242,19 +238,17 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
 #[Composable]
 fn Described() {
     let described = remember(|| mutable_state_of(true));
-    Column().content(|| {
+    Column!({
         let flip = described;
-        Row()
-            .on_click(move || flip.update(|d| *d = !*d))
-            .content(|| {
-                Text("flip");
-            });
+        Row!(on_click = Some(move || flip.update(|d| *d = !*d)), {
+            Text!("flip");
+        });
         let modifier = if described.get() {
             Modifier.semantics(Role::Heading, "Title", SemanticsState::expanded(true))
         } else {
             Modifier
         };
-        Box().modifier(modifier).content(|| {});
+        Box!(modifier = modifier, {});
     });
 }
 
@@ -274,11 +268,7 @@ fn fr71_removing_semantics_restores_the_defaults() {
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batches = [
         batch.to_vec(),
@@ -314,7 +304,7 @@ fn fr71_removing_semantics_restores_the_defaults() {
 
 #[Composable]
 fn EveryNewRole() {
-    Column().content(|| {
+    Column!({
         for role in [
             Role::TabList,
             Role::Tree,
@@ -328,9 +318,10 @@ fn EveryNewRole() {
             Role::ListItem,
             Role::Group,
         ] {
-            Box()
-                .modifier(Modifier.role(role).disabled(false).click_action(true))
-                .content(|| {});
+            Box!(
+                modifier = Modifier.role(role).disabled(false).click_action(true),
+                {}
+            );
         }
     });
 }
@@ -361,7 +352,7 @@ fn fr71_every_new_role_round_trips_and_is_exposed() {
 #[Composable]
 fn DynamicLabelBox(name: MutableState<String>) {
     let current = name.get();
-    Box().modifier(Modifier.label(&current)).content(|| {});
+    Box!(modifier = Modifier.label(&current), {});
 }
 
 #[test]
@@ -399,17 +390,13 @@ fn label_frame_allocations(with_labels: bool) -> usize {
     let state = count;
     let mut host = ComposeHost::with_content(move || {
         let _ = state.get();
-        Column().content(|| {
+        Column!({
             if with_labels {
-                Box()
-                    .modifier(Modifier.padding(4.0).label("Refresh"))
-                    .content(|| {});
-                Box()
-                    .modifier(Modifier.padding(4.0).label("Save"))
-                    .content(|| {});
+                Box!(modifier = Modifier.padding(4.0).label("Refresh"), {});
+                Box!(modifier = Modifier.padding(4.0).label("Save"), {});
             } else {
-                Box().modifier(Modifier.padding(4.0)).content(|| {});
-                Box().modifier(Modifier.padding(4.0)).content(|| {});
+                Box!(modifier = Modifier.padding(4.0), {});
+                Box!(modifier = Modifier.padding(4.0), {});
             }
         });
     });

@@ -280,7 +280,7 @@ class CodeEditorModelTest {
         val model = CodeEditorModel("fn main() {}\n")
         model.edit(p(0, 0), p(0, 0), "\n\n")
         model.setDecorations(listOf(decoration(DecorationKind.HoverAnchor, 0, 0, 3, 0, 7, id = 5)))
-        model.setSyntaxSpans(listOf(SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary))))
+        model.setSyntaxSpans(listOf(SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary), 0)))
         assertEquals(p(2, 3), model.decorations.single().start)
         assertEquals(p(2, 0), model.spans.single().start)
         assertEquals(p(2, 2), model.spans.single().end)

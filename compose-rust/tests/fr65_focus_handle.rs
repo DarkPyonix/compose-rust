@@ -34,11 +34,7 @@ fn focus_requests(batch: &[u8]) -> Vec<u32> {
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str) -> Vec<u32> {
     let (node_id, handler_id) = tree.find("Button", Some(label), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -50,23 +46,22 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
     let (mut host, mut tree, first) = start(|| {
         let drawer = use_focus_handle();
         let opener = use_focus_handle();
-        Column().content(|| {
+        Column!({
             let take = drawer.clone();
-            Button("Open")
-                .focus_handle(&opener)
-                .on_click(move || take.request());
+            Button!("Open", move || take.request(), focus_handle = &opener);
             let back = opener.clone();
-            Column()
-                .focus_handle(&drawer)
-                .on_key_down(move |key| {
+            Column!(
+                focus_handle = &drawer,
+                on_key_down = Some(move |key: ::compose_rust::KeyEvent| {
                     if key.text() == "Escape" {
                         key.consume();
                         back.request();
                     }
-                })
-                .content(|| {
-                    Text("Drawer");
-                });
+                }),
+                {
+                    Text!("Drawer");
+                }
+            );
         });
     });
     assert!(first.is_empty(), "nothing asked for focus yet: {first:?}");
@@ -77,10 +72,10 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
     // Escape in the drawer gives focus back to the button that opened it.
     let (opener, _) = tree.find("Button", Some("Open"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: drawer,
-            handler_id: key_handler,
-            payload: EventPayload::KeyDown {
+        .dispatch(HostEvent::new(
+            drawer,
+            key_handler,
+            EventPayload::KeyDown {
                 key: Key::Other,
                 shift_key: false,
                 ctrl_key: false,
@@ -90,7 +85,7 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
                 code: 0x29,
                 text: "Escape",
             },
-        })
+        ))
         .expect("the key is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -101,10 +96,10 @@ fn fr65_ui_focus_handle_requests_focus_for_its_node() {
 fn fr65_ui_focus_handle_text_field_takes_focus() {
     let (mut host, mut tree, _) = start(|| {
         let field = use_focus_handle();
-        Column().content(|| {
+        Column!({
             let take = field.clone();
-            Button("Edit").on_click(move || take.request());
-            TextField().focus_handle(&field);
+            Button!("Edit", move || take.request());
+            TextField!("", |_| {}, focus_handle = &field);
         });
     });
     let (field, _) = tree.find("TextField", None, 0, PropertyKind::OnKeyDown);
@@ -118,10 +113,10 @@ fn fr65_ui_focus_handle_request_before_mount_does_nothing() {
         let never = use_focus_handle();
         // Asked before the widget that takes the handle is composed.
         early.request();
-        Column().content(|| {
+        Column!({
             let ask = never.clone();
-            Button("Ask").on_click(move || ask.request());
-            Column().focus_handle(&early).content(|| {});
+            Button!("Ask", move || ask.request());
+            Column!(focus_handle = &early, {});
         });
     });
     assert!(
@@ -140,16 +135,17 @@ fn fr65_ui_focus_handle_request_before_mount_does_nothing() {
 fn fr65_ui_focus_handle_two_requests_in_one_frame_give_one_record() {
     let (mut host, mut tree, _) = start(|| {
         let target = use_focus_handle();
-        Column().content(|| {
+        Column!({
             let ask = target.clone();
-            Button("Twice").on_click(move || {
+            Button!("Twice", move || {
                 ask.request();
                 ask.clone().request();
             });
-            Box()
-                .focus_handle(&target)
-                .on_key_down(|_| {})
-                .content(|| {});
+            Box!(
+                focus_handle = &target,
+                on_key_down = Some(|_: ::compose_rust::KeyEvent| {}),
+                {}
+            );
         });
     });
     let (node, _) = tree.find("Box", None, 0, PropertyKind::OnKeyDown);
@@ -168,22 +164,24 @@ fn fr65_ui_focus_handle_follows_its_node_across_a_re_render() {
         let target = use_focus_handle();
         let wide = remember(|| mutable_state_of(false));
         let count = remember(|| mutable_state_of(0));
-        Column().content(|| {
-            Text(format!("{}", count.get()));
-            Button("Bump").on_click(move || count.update(|count| *count += 1));
-            Button("Swap").on_click(move || wide.update(|wide| *wide = !*wide));
+        Column!({
+            Text!(format!("{}", count.get()));
+            Button!("Bump", move || count.update(|count| *count += 1));
+            Button!("Swap", move || wide.update(|wide| *wide = !*wide));
             let ask = target.clone();
-            Button("Ask").on_click(move || ask.request());
+            Button!("Ask", move || ask.request());
             if wide.get() {
-                Row()
-                    .focus_handle(&target)
-                    .on_key_down(|_| {})
-                    .content(|| {});
+                Row!(
+                    focus_handle = &target,
+                    on_key_down = Some(|_: ::compose_rust::KeyEvent| {}),
+                    {}
+                );
             } else {
-                Column()
-                    .focus_handle(&target)
-                    .on_key_down(|_| {})
-                    .content(|| {});
+                Column!(
+                    focus_handle = &target,
+                    on_key_down = Some(|_: ::compose_rust::KeyEvent| {}),
+                    {}
+                );
             }
         });
     });

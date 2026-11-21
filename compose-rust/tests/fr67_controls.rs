@@ -20,28 +20,37 @@ const SURFACE: Paint = Paint::Literal(Color::rgb(0xffffff));
 
 #[Composable]
 fn Plain() {
-    Column().content(|| {
-        Switch(true);
-        Slider(0.5);
-        Checkbox(true);
+    Column!({
+        Switch!(true, |_| {});
+        Slider!(0.5, |_| {});
+        Checkbox!(true, |_| {});
     });
 }
 
 #[Composable]
 fn Styled() {
-    Column().content(|| {
-        Switch(true)
-            .size(36.0, 20.0)
-            .track_color(INK)
-            .thumb_color(SURFACE);
-        Slider(0.5)
-            .active_track_color(INK)
-            .track_color(SURFACE)
-            .thumb_color(INK);
-        Checkbox(true)
-            .size(18.0)
-            .container_color(INK)
-            .check_color(SURFACE);
+    Column!({
+        Switch!(
+            true,
+            |_| {},
+            size = (36.0, 20.0),
+            track_color = INK,
+            thumb_color = SURFACE
+        );
+        Slider!(
+            0.5,
+            |_| {},
+            active_track_color = INK,
+            track_color = SURFACE,
+            thumb_color = INK
+        );
+        Checkbox!(
+            true,
+            |_| {},
+            size = 18.0,
+            container_color = INK,
+            check_color = SURFACE
+        );
     });
 }
 
@@ -101,26 +110,27 @@ fn fr67_the_checkbox_sends_its_container_check_and_side() {
 #[Composable]
 fn Dropping() {
     let styled = remember(|| mutable_state_of(true));
-    Column().content(|| {
+    Column!({
         let flip = styled;
-        Row()
-            .on_click(move || flip.update(|n| *n = !*n))
-            .content(|| {
-                Text("flip");
-            });
+        Row!(on_click = Some(move || flip.update(|n| *n = !*n)), {
+            Text!("flip");
+        });
         // Each widget is finished by its own statement, so they compose in source order.
-        let switch = Switch(true).thumb_color(SURFACE);
-        if styled.get() {
-            switch.size(36.0, 20.0).track_color(INK)
-        } else {
-            switch
-        };
-        let checkbox = Checkbox(true).container_color(INK);
-        if styled.get() {
-            checkbox.size(18.0).check_color(SURFACE)
-        } else {
-            checkbox
-        };
+        let styled = styled.get();
+        Switch!(
+            true,
+            |_| {},
+            thumb_color = SURFACE,
+            size = styled.then_some((36.0, 20.0)),
+            track_color = styled.then_some(INK),
+        );
+        Checkbox!(
+            true,
+            |_| {},
+            container_color = INK,
+            size = styled.then_some(18.0),
+            check_color = styled.then_some(SURFACE),
+        );
     });
 }
 
@@ -135,11 +145,7 @@ fn fr67_dropping_a_colour_or_size_sends_a_removal() {
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let mut batches = vec![batch.to_vec()];
     batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
@@ -169,15 +175,18 @@ fn fr67_dropping_a_colour_or_size_sends_a_removal() {
 
 #[Composable]
 fn Radios() {
-    Column().radio_group(true).content(|| {
-        RadioButton(true)
-            .size(18.0)
-            .ring_color(INK)
-            .dot_color(SURFACE);
-        RadioButton(false);
+    Column!(radio_group = true, {
+        RadioButton!(
+            true,
+            |_| {},
+            size = 18.0,
+            ring_color = INK,
+            dot_color = SURFACE
+        );
+        RadioButton!(false, |_| {});
     });
-    Row().content(|| {
-        RadioButton(false);
+    Row!({
+        RadioButton!(false, |_| {});
     });
 }
 
@@ -260,9 +269,9 @@ fn fr67_radio_group_and_radio_look_round_trip() {
 
 #[Composable]
 fn SmallThumb() {
-    Column().content(|| {
-        Slider(0.5).thumb_size(12.0);
-        Slider(0.5);
+    Column!({
+        Slider!(0.5, |_| {}, thumb_size = 12.0);
+        Slider!(0.5, |_| {});
     });
 }
 

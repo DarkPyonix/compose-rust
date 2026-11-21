@@ -18,11 +18,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 
 fn click(host: &mut ComposeHost, tree: &mut Tree, node_id: u32, handler_id: u64) {
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -36,36 +32,30 @@ fn frame(host: &mut ComposeHost, tree: &mut Tree) {
 #[Composable]
 fn Clickables() {
     let count = remember(|| mutable_state_of(0));
-    Column().content(|| {
-        Text(format!("{}", count.get()));
+    Column!({
+        Text!(format!("{}", count.get()));
         let c = count;
-        Row().on_click(move || c.update(|n| *n += 1)).content(|| {
-            Text("row");
+        Row!(on_click = Some(move || c.update(|n| *n += 1)), {
+            Text!("row");
         });
         let c = count;
-        Box().on_click(move || c.update(|n| *n += 10)).content(|| {
-            Text("box");
+        Box!(on_click = Some(move || c.update(|n| *n += 10)), {
+            Text!("box");
         });
         let c = count;
-        Card()
-            .on_click(move || c.update(|n| *n += 100))
-            .content(|| {
-                Text("card");
-            });
+        Card!(on_click = Some(move || c.update(|n| *n += 100)), {
+            Text!("card");
+        });
         let c = count;
-        Surface()
-            .on_click(move || c.update(|n| *n += 1000))
-            .content(|| {
-                Text("surface");
-            });
+        Surface!(on_click = Some(move || c.update(|n| *n += 1000)), {
+            Text!("surface");
+        });
         let c = count;
-        Column()
-            .on_click(move || c.update(|n| *n += 10000))
-            .content(|| {
-                Text("column");
-            });
-        Row().content(|| {
-            Text("plain row");
+        Column!(on_click = Some(move || c.update(|n| *n += 10000)), {
+            Text!("column");
+        });
+        Row!({
+            Text!("plain row");
         });
     });
 }

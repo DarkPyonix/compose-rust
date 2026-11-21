@@ -45,42 +45,52 @@ thread_local! {
 
 #[Composable]
 fn Screen() {
-    Column().content(|| {
+    Column!({
         // Subscribed to presses and moves. A press is consumed, a move is not.
-        Box()
-            .modifier(Modifier.cursor(Cursor::Grab).user_select(UserSelect::None))
-            .on_pointer(PointerKinds::DOWN | PointerKinds::MOVE, |event| {
-                SEEN.with(|seen| {
-                    seen.borrow_mut().push((
-                        event.kind(),
-                        event.x(),
-                        event.y(),
-                        event.buttons(),
-                        event.button(),
-                        event.click_count(),
-                    ));
-                });
-                if event.kind() == PointerKind::Down {
-                    event.consume();
+        Box!(
+            modifier = Modifier.cursor(Cursor::Grab).user_select(UserSelect::None),
+            on_pointer = Some((
+                PointerKinds::DOWN | PointerKinds::MOVE,
+                |event: ::compose_rust::PointerEvent| {
+                    SEEN.with(|seen| {
+                        seen.borrow_mut().push((
+                            event.kind(),
+                            event.x(),
+                            event.y(),
+                            event.buttons(),
+                            event.button(),
+                            event.click_count(),
+                        ));
+                    });
+                    if event.kind() == PointerKind::Down {
+                        event.consume();
+                    }
                 }
-            })
-            .content(|| {
-                Text("subscribed");
-            });
+            )),
+            {
+                Text!("subscribed");
+            }
+        );
         // Never subscribed.
-        Box().content(|| {
-            Text("plain");
+        Box!({
+            Text!("plain");
         });
         // Text takes a subscription too.
-        Text("link").on_pointer(PointerKinds::ENTER, |_| {});
+        Text!(
+            "link",
+            on_pointer = Some((PointerKinds::ENTER, |_: ::compose_rust::PointerEvent| {}))
+        );
         // A subscription of no kinds is not one.
-        Box().on_pointer(PointerKinds::NONE, |_| {}).content(|| {
-            Text("empty mask");
-        });
+        Box!(
+            on_pointer = Some((PointerKinds::NONE, |_: ::compose_rust::PointerEvent| {})),
+            {
+                Text!("empty mask");
+            }
+        );
         // A list row that hears every kind: a double press opens it, the secondary button
         // asks for its menu, and the menu is the row's own, so that one is consumed.
-        Row()
-            .on_pointer(PointerKinds::ALL, |event| {
+        Row!(
+            on_pointer = Some((PointerKinds::ALL, |event: ::compose_rust::PointerEvent| {
                 ROW_SEEN.with(|seen| {
                     seen.borrow_mut().push((
                         event.kind(),
@@ -96,18 +106,19 @@ fn Screen() {
                 if event.kind() == PointerKind::ContextMenu {
                     event.consume();
                 }
-            })
-            .content(|| {
-                Text("row");
-            });
+            })),
+            {
+                Text!("row");
+            }
+        );
     });
 }
 
 fn pointer(kind: PointerKind, node_id: u32, handler_id: u64) -> HostEvent<'static> {
-    HostEvent {
+    HostEvent::new(
         node_id,
         handler_id,
-        payload: EventPayload::Pointer {
+        EventPayload::Pointer {
             kind,
             pointer_id: 1,
             pointer_type: PointerType::Mouse,
@@ -122,7 +133,7 @@ fn pointer(kind: PointerKind, node_id: u32, handler_id: u64) -> HostEvent<'stati
             delta_mode: WheelDeltaMode::Pixel,
             timestamp_nanos: 42,
         },
-    }
+    )
 }
 
 fn batch_of(output: &MutationBatch) -> Vec<u8> {
@@ -340,10 +351,10 @@ fn fr46_row_hears_double_press_context_menu_and_wheel() {
         // The button, the buttons held, the click count and the modifiers, then the wheel.
         let send =
             |kind: PointerKind, press: (u32, u32, u32, u32), wheel: (f32, f32, WheelDeltaMode)| {
-                dispatch(&HostEvent {
+                dispatch(&HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::Pointer {
+                    EventPayload::Pointer {
                         kind,
                         pointer_id: 1,
                         pointer_type: PointerType::Mouse,
@@ -358,7 +369,7 @@ fn fr46_row_hears_double_press_context_menu_and_wheel() {
                         delta_mode: wheel.2,
                         timestamp_nanos: 7,
                     },
-                })
+                ))
             };
         let still = (0.0, 0.0, WheelDeltaMode::Pixel);
         let results = [

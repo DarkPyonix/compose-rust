@@ -68,7 +68,7 @@ internal class MacosNativeViewWindow(private val window: MacosWindow) : NativeVi
         views.setVisibleRegion(
             id,
             clip?.let { PixelRect(it.x, it.y, it.width, it.height) },
-            holes.map { PixelRoundRect(it.rect.x, it.rect.y, it.rect.width, it.rect.height, it.cornerRadius) },
+            pixelHoles(holes),
         )
     }
 
@@ -80,9 +80,14 @@ internal class MacosNativeViewWindow(private val window: MacosWindow) : NativeVi
             frame.width,
             frame.height,
             clip?.let { PixelRect(it.x, it.y, it.width, it.height) },
-            holes.map { PixelRoundRect(it.rect.x, it.rect.y, it.rect.width, it.rect.height, it.cornerRadius) },
+            pixelHoles(holes),
         )
     }
+
+    /** The holes in the window's own type; none, the usual case while scrolling, makes no list. */
+    private fun pixelHoles(holes: List<NativeHole>): List<PixelRoundRect> =
+        if (holes.isEmpty()) emptyList()
+        else holes.map { PixelRoundRect(it.rect.x, it.rect.y, it.rect.width, it.rect.height, it.cornerRadius) }
 
     override fun setVisible(id: Int, visible: Boolean) = views.setVisible(id, visible)
 

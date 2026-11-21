@@ -801,7 +801,7 @@ object ScrollWire {
             EventPayloadType::Double => output.push_str(", val value: Double"),
             EventPayloadType::WindowSize => {
                 output.push_str(
-                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float",
+                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float, val safeAreaBottom: kotlin.Float",
                 );
             }
             EventPayloadType::DesignSystem => output.push_str(", val system: DesignSystem"),
@@ -1746,7 +1746,7 @@ object Protocol {
             EventPayloadType::KeyDown => 32,
             EventPayloadType::Range => 24,
             EventPayloadType::Double => 24,
-            EventPayloadType::WindowSize => 44,
+            EventPayloadType::WindowSize => 48,
             // A tag and the padding that keeps the record a multiple of four.
             EventPayloadType::DesignSystem => 20,
             // A word and a string reference, the protocol error's shape.
@@ -2245,6 +2245,7 @@ object Protocol {
                 output.push_str("                    out.putFloat(event.safeAreaTop)\n");
                 output.push_str("                    out.putFloat(event.safeAreaLeading)\n");
                 output.push_str("                    out.putFloat(event.safeAreaTrailing)\n");
+                output.push_str("                    out.putFloat(event.safeAreaBottom)\n");
                 output.push_str("                }\n");
             }
         }
@@ -2520,6 +2521,9 @@ object Protocol {
             else -> throw ProtocolException("unknown paint kind $kind", offset)
         }
     }
+
+    /** A paint that may be absent: a zero word is none, because no paint kind is zero. */
+    private fun optionalPaint(bits: Long, offset: Int): Paint? = if (bits == 0L) null else paint(bits, offset)
 
     /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
     private fun flag(word: Long, offset: Int): Boolean = when (word) {
@@ -4461,6 +4465,7 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         },
         HostEvent {
@@ -4909,50 +4914,50 @@ pub fn generate_vector_description() -> String {
       {{ "type": "KeyDown", "offset": 125, "length": 37, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true, "repeat": true, "code": 40, "text": "Enter" }},
       {{ "type": "RangeRequested", "offset": 162, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
       {{ "type": "ValueChanged", "offset": 186, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 210, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
-      {{ "type": "NotificationActivated", "offset": 254, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 291, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "CodeChanged", "offset": 311, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
-      {{ "type": "CodeEditRejected", "offset": 359, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
-      {{ "type": "CodeHovered", "offset": 403, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
-      {{ "type": "CodeSaveRequested", "offset": 439, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
-      {{ "type": "DecorationActivated", "offset": 463, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
-      {{ "type": "AnimationEvent", "offset": 487, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 527, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 547, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
-      {{ "type": "SelectionChanged", "offset": 619, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 655, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 683, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 707, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 731, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
-      {{ "type": "WindowCloseRequested", "offset": 755, "length": 16, "nodeId": 20, "handlerId": 201 }},
-      {{ "type": "WindowFocusChanged", "offset": 771, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
-      {{ "type": "WindowMoved", "offset": 791, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
-      {{ "type": "WindowDrag", "offset": 823, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
-      {{ "type": "WindowDragOver", "offset": 855, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
-      {{ "type": "WindowUnavailable", "offset": 887, "length": 16, "nodeId": 20, "handlerId": 205 }},
-      {{ "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 }},
-      {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
-      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
-      {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
-      {{ "type": "IoAnswer", "offset": 1093, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
-      {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
-      {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
-      {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
-      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
-      {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
-      {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
-      {{ "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
-      {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
-      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
-      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
-      {{ "type": "DensityChanged", "offset": 1755, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
-      {{ "type": "NativeViewParent", "offset": 1775, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1807, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
+      {{ "type": "WindowSizeChanged", "offset": 210, "length": 48, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0, "safeAreaBottom": 0.0 }},
+      {{ "type": "NotificationActivated", "offset": 258, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
+      {{ "type": "NotificationPermissionChanged", "offset": 295, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
+      {{ "type": "CodeChanged", "offset": 315, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 363, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 407, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 443, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 467, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 491, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 531, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 551, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 623, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 659, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 687, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 711, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 735, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 759, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 775, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 795, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 827, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 859, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 891, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 907, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 923, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 957, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "FileDialogResult", "offset": 973, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
+      {{ "type": "ClipboardText", "offset": 1046, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
+      {{ "type": "IoAnswer", "offset": 1097, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
+      {{ "type": "IoAnswer", "offset": 1134, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
+      {{ "type": "FileHandles", "offset": 1170, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
+      {{ "type": "StorageLocation", "offset": 1241, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
+      {{ "type": "ScrollChanged", "offset": 1323, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
+      {{ "type": "CodeMetrics", "offset": 1395, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1419, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "MotionFinished", "offset": 1443, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
+      {{ "type": "CaretRect", "offset": 1467, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "PositionRect", "offset": 1507, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "CodePointer", "offset": 1547, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
+      {{ "type": "CodeEditGroupResult", "offset": 1627, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
+      {{ "type": "ColorSchemeChanged", "offset": 1663, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
+      {{ "type": "SelectionsChanged", "offset": 1683, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
+      {{ "type": "DensityChanged", "offset": 1759, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
+      {{ "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
     ]
   }}
 }}
@@ -4982,6 +4987,7 @@ fn kotlin_type(ty: FieldType) -> String {
         FieldType::Role(name) => format!("{KOTLIN_PACKAGE}.{name}"),
         FieldType::Bool => "Boolean".to_owned(),
         FieldType::FiniteFloat => "kotlin.Float".to_owned(),
+        FieldType::OptionalPaint => "Paint?".to_owned(),
     }
 }
 
@@ -5013,6 +5019,7 @@ fn modifier_decode_expression(field: &FieldSchema) -> String {
         FieldType::Role(name) => format!("{}({narrow}, offset)", lower_camel(name)),
         FieldType::Bool => format!("flag({word}, offset)"),
         FieldType::FiniteFloat => format!("finite(kotlin.Float.fromBits({narrow}), offset)"),
+        FieldType::OptionalPaint => format!("optionalPaint({word}, offset)"),
     }
 }
 
@@ -5074,11 +5081,11 @@ object DrawCommands {
             if (length != COMMAND_LENGTH) break
             val paintBits = buffer.getLong(offset + 4)
             val kind = (paintBits ushr 32).toInt()
-            if (kind != 1 && kind != 2) break
-            val paint = if (kind == 1) {
-                Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
-            } else {
-                Paint.Literal(paintBits.toInt())
+            val paint = when (kind) {
+                1 -> Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
+                2 -> Paint.Literal(paintBits.toInt())
+                3 -> Paint.Asset(paintBits.toInt())
+                else -> break
             }
             fun word(index: Int): Int = buffer.getInt(offset + 12 + index * 4)
             fun real(index: Int): kotlin.Float = kotlin.Float.fromBits(word(index))
@@ -6855,7 +6862,7 @@ fn wasm_section(id: u8, payload: &[u8], output: &mut Vec<u8>) {
 /// cannot declare an imported table, so it cannot call through one itself. This module
 /// can: it imports `env.table`, and for every call exports a function of the call's own
 /// type that passes its arguments on with `call_indirect` through the call's slot, which is
-/// its place in [`web_calls`]. Kotlin imports these, and the Renderer's `main` fills the
+/// its place in `web_calls`. Kotlin imports these, and the Renderer's `main` fills the
 /// slots with the Host's exports once the Host exists. A call is then one wasm `call` and
 /// one `call_indirect`.
 ///

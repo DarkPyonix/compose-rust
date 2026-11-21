@@ -7,7 +7,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,9 +58,12 @@ import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Children
+import dev.darkpyonix.composerust.ui.node.InheritedTextStyle
 import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
+import dev.darkpyonix.composerust.ui.node.LocalInheritedTextStyle
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.hoverAndFocusRing
 import dev.darkpyonix.composerust.ui.pressFeedback
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
@@ -102,6 +107,13 @@ internal fun HostButton(
     }
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
+    val hovered by interactions.collectIsHoveredAsState()
+    val hoverStyle = node.modifiers.lastOrNull { it is ProtocolModifier.HoverStyle } as? ProtocolModifier.HoverStyle
+    val focusRing = node.modifiers.lastOrNull { it is ProtocolModifier.FocusRing } as? ProtocolModifier.FocusRing
+    val pressStyle = node.modifiers.lastOrNull { it is ProtocolModifier.PressStyle } as? ProtocolModifier.PressStyle
+    // A hover style that names a border colour gives the variant's border that colour
+    // while the mouse is over the button. A press still shows the pressed border.
+    val hoverBorder = hoverStyle?.border?.let { theme.color(it) }
     val motion = theme.rules.motion
     val spec = tween<Float>(
         durationMillis = if (pressed) motion.pressMillis else motion.releaseMillis,
@@ -112,7 +124,11 @@ internal fun HostButton(
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
     val borderColor by animateColorAsState(
-        targetValue = if (pressed) style.pressedBorderColor else style.borderColor,
+        targetValue = when {
+            pressed -> style.pressedBorderColor
+            hovered && enabled && hoverBorder != null -> hoverBorder
+            else -> style.borderColor
+        },
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
     val contentAlpha by animateFloatAsState(
@@ -189,12 +205,18 @@ internal fun HostButton(
                 interactions, enabled, theme, shape,
                 node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
                 node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
-            ).clickable(
+                pressStyle,
+            )
+            .hoverable(interactions, enabled)
+            .clickable(
                 interactionSource = interactions,
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
             ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
+            // The hover layer and the keyboard focus ring follow the rules every pressable
+            // container follows, drawn over the fill, the border and the label.
+            .hoverAndFocusRing(interactions, enabled, theme, shape, hoverStyle, focusRing)
     }
 
     // A Host that named its own Background has already had it applied to this node's
@@ -279,7 +301,14 @@ internal fun HostButton(
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
             // a weighted Spacer pushes whatever follows it to the button's inner edge.
-            CompositionLocalProvider(LocalInheritedTextColor provides ColorProducer { tint }) {
+            val inheritedStyle = InheritedTextStyle(
+                typeRole = node.role(PropertyKind.TypeRole, dev.darkpyonix.composerust.protocol.TypeRole.entries.toTypedArray()),
+                fontWeight = node.intProp(PropertyKind.FontWeight)?.toInt(),
+            )
+            CompositionLocalProvider(
+                LocalInheritedTextColor provides ColorProducer { tint },
+                LocalInheritedTextStyle provides inheritedStyle,
+            ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Children(node, table, dispatcher)
                 }

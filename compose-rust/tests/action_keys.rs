@@ -36,8 +36,8 @@ use compose_rust::ui::*;
 
 #[Composable]
 fn Pad() {
-    Button("7").kind(ButtonKind::ActionKey);
-    Button("plain");
+    Button!("7", || {}, kind = ButtonKind::ActionKey);
+    Button!("plain", || {});
 }
 
 /// Only a button that names a kind sends one.

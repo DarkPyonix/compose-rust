@@ -17,13 +17,13 @@ thread_local! {
 
 #[Composable]
 fn Strips() {
-    ScrollRow().snap(CHOICE.with(Cell::get)).content(|| {
-        Box().modifier(Modifier.width(390.0)).content(|| {});
-        Box().modifier(Modifier.width(390.0)).content(|| {});
+    ScrollRow!(snap = CHOICE.with(Cell::get), {
+        Box!(modifier = Modifier.width(390.0), {});
+        Box!(modifier = Modifier.width(390.0), {});
     });
-    ScrollColumn().snap(CHOICE.with(Cell::get)).content(|| {
-        Text("one");
-        Text("two");
+    ScrollColumn!(snap = CHOICE.with(Cell::get), {
+        Text!("one");
+        Text!("two");
     });
 }
 

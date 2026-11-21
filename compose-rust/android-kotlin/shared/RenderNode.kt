@@ -425,7 +425,7 @@ fun RenderNode(
                     if (horizontal) laidOut.height(IntrinsicSize.Min) else laidOut.width(IntrinsicSize.Min)
                 } else laidOut
                 val weights = node.children.map { table.node(it)?.modifiers?.weightOf() }
-                val intrinsicSafe = node.children.map { child -> !table.hasScrollingDescendant(child) }
+                val intrinsicSafe = node.children.map { child -> !table.hasUnboundedScrollingDescendant(child, horizontal) }
                 if (weights.any { it != null }) {
                     WeightedStack(
                         node, table, dispatcher, sizedModifier, horizontal, weights, intrinsicSafe,
@@ -706,6 +706,14 @@ fun RenderNode(
  * recomposed or sent a record of its own.
  */
 val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
+
+/** Type role and font weight inherited from an enclosing Button when a child Text sets neither. */
+internal data class InheritedTextStyle(
+    val typeRole: dev.darkpyonix.composerust.protocol.TypeRole? = null,
+    val fontWeight: Int? = null,
+)
+
+internal val LocalInheritedTextStyle = compositionLocalOf<InheritedTextStyle?> { null }
 
 val LocalScrollState = compositionLocalOf<ScrollState?> { null }
 val LocalScrollIsHorizontal = compositionLocalOf { true }
@@ -1283,20 +1291,27 @@ private class WeightedStackPolicy(
     }
 
     private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
-        val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
-        val fixed = children.indices.filter { weights[it] == null }.map { index ->
-            val child = children[index]
-            intrinsic(index) { if (horizontal) child.maxIntrinsicWidth(Constraints.Infinity) else child.maxIntrinsicHeight(Constraints.Infinity) }
-        }.fold(0L) { sum, value -> sum + value }
-        val remaining = if (main == Constraints.Infinity) Constraints.Infinity else (main.toLong() - fixed - gap).coerceAtLeast(0).toInt()
         val total = weights.filterNotNull().sum()
+        val remaining = if (main == Constraints.Infinity || total <= 0f) {
+            Constraints.Infinity
+        } else {
+            val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
+            val fixed = children.indices.filter { weights[it] == null }.map { index ->
+                val child = children[index]
+                intrinsic(index) { if (horizontal) child.maxIntrinsicWidth(Constraints.Infinity) else child.maxIntrinsicHeight(Constraints.Infinity) }
+            }.fold(0L) { sum, value -> sum + value }
+            (main.toLong() - fixed - gap).coerceAtLeast(0).toInt()
+        }
         return children.indices.maxOfOrNull { index ->
             val child = children[index]
             val weight = weights[index]
-            val available = if (weight == null || remaining == Constraints.Infinity) Constraints.Infinity
-                else (remaining * weight / total).roundToInt()
-            val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
-            val size = if (weight == null) available else maxOf(available, minimum)
+            val size = if (weight == null || remaining == Constraints.Infinity) {
+                Constraints.Infinity
+            } else {
+                val available = (remaining * weight / total).roundToInt()
+                val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+                maxOf(available, minimum)
+            }
             intrinsic(index) { if (horizontal) {
                 if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
             } else {
@@ -1320,10 +1335,23 @@ private class WeightedStackPolicy(
     }
 }
 
-private fun NodeTable.hasScrollingDescendant(id: Int): Boolean {
+private fun List<ProtocolModifier>.hasDefiniteCrossAxisSize(horizontal: Boolean): Boolean = any {
+    if (horizontal) {
+        (it is ProtocolModifier.Height && it.value >= 0f && it.value.isFinite()) ||
+            (it is ProtocolModifier.Size && it.height >= 0f && it.height.isFinite()) ||
+            (it is ProtocolModifier.RequiredSize && it.height >= 0f && it.height.isFinite())
+    } else {
+        (it is ProtocolModifier.Width && it.value >= 0f && it.value.isFinite()) ||
+            (it is ProtocolModifier.Size && it.width >= 0f && it.width.isFinite()) ||
+            (it is ProtocolModifier.RequiredSize && it.width >= 0f && it.width.isFinite())
+    }
+}
+
+private fun NodeTable.hasUnboundedScrollingDescendant(id: Int, horizontal: Boolean): Boolean {
     val node = node(id) ?: return false
+    if (node.modifiers.hasDefiniteCrossAxisSize(horizontal)) return false
     if (node.widget in setOf(WidgetKind.LazyColumn, WidgetKind.LazyRow, WidgetKind.LazyGrid, WidgetKind.ScrollColumn, WidgetKind.ScrollRow)) return true
-    return node.children.any { hasScrollingDescendant(it) }
+    return node.children.any { hasUnboundedScrollingDescendant(it, horizontal) }
 }
 
 /**

@@ -257,6 +257,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         X11Upcalls.clearFramePainter()
         LatencyTrace.summary()
         if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(window.resizeReport())
+        scene.forgetPointer()
         scene.close()
         context.close()
         host.shutdown()

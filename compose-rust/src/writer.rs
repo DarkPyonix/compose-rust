@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 38;
+const MODIFIER_SLOTS: usize = 42;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -449,11 +449,25 @@ impl NodeWriter {
         // plain padding slot.
         const CONTENT_PADDING: u16 = 36;
         const UNBOUNDED_WIDTH: u16 = 37;
+        const BORDER_DASH: u16 = 38;
+        const HOVER_STYLE: u16 = 39;
+        const FOCUS_RING: u16 = 40;
+        const PRESS_STYLE: u16 = 41;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
             AttrValue::Int(number) => Some(*number as f32),
             _ => None,
+        };
+        // A paint in eight bytes, where all zero is none. The outer None is a paint that
+        // does not decode, which leaves the attribute unwritten.
+        let optional_paint = |bytes: &[u8]| -> Option<Option<crate::Paint>> {
+            let bits = u64::from_le_bytes(bytes.try_into().ok()?);
+            if bits == 0 {
+                Some(None)
+            } else {
+                crate::Paint::from_bits(bits).map(Some)
+            }
         };
         let integer = |value: &AttrValue<'_>| match value {
             AttrValue::Int(number) => Some(*number),
@@ -476,9 +490,13 @@ impl NodeWriter {
             "alpha" | "animated_alpha" => Some(ALPHA),
             "offset" => Some(OFFSET),
             "border_width" | "border_color" | "border_each" => Some(BORDER),
+            "border_dash" => Some(BORDER_DASH),
+            "hover_style" => Some(HOVER_STYLE),
+            "focus_ring" => Some(FOCUS_RING),
+            "press_style" => Some(PRESS_STYLE),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
-            "padding" | "padding_role" => Some(PADDING),
+            "padding" | "padding_role" | "padding_each" => Some(PADDING),
             "content_padding" => Some(CONTENT_PADDING),
             "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
@@ -586,6 +604,25 @@ impl NodeWriter {
                     crate::SpaceRole::try_from(u16::try_from(integer(value)?).ok()?).ok()?,
                 ),
             ))),
+            "padding_each" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut words = [0.0_f32; 4];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word =
+                        f32::from_le_bytes(bytes.get(index * 4..index * 4 + 4)?.try_into().ok()?);
+                }
+                Some(Some((
+                    PADDING,
+                    Modifier::PaddingEach {
+                        start: words[0],
+                        top: words[1],
+                        end: words[2],
+                        bottom: words[3],
+                    },
+                )))
+            }
             // Two words in dp: the room at each side of the content, then the room above
             // and below it. They go out as the four-sided padding, the record a control
             // reads as the room inside it.
@@ -718,6 +755,72 @@ impl NodeWriter {
                     *paint = crate::Paint::from_bits(bits)?;
                 }
                 Some(Some((BORDER, Modifier::border_sides(widths, paints))))
+            }
+            "border_dash" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let dash_dp = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let gap_dp = f32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+                Some(Some((
+                    BORDER_DASH,
+                    Modifier::BorderDash { dash_dp, gap_dp },
+                )))
+            }
+            "hover_style" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let fill = optional_paint(bytes.get(0..8)?)?;
+                let border = optional_paint(bytes.get(8..16)?)?;
+                let fill_alpha = f32::from_le_bytes(bytes.get(16..20)?.try_into().ok()?);
+                let content_alpha = f32::from_le_bytes(bytes.get(20..24)?.try_into().ok()?);
+                Some(Some((
+                    HOVER_STYLE,
+                    Modifier::HoverStyle {
+                        fill,
+                        fill_alpha,
+                        border,
+                        content_alpha,
+                    },
+                )))
+            }
+            "focus_ring" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let bits = u64::from_le_bytes(bytes.get(0..8)?.try_into().ok()?);
+                let paint = crate::Paint::from_bits(bits)?;
+                let width_dp = f32::from_le_bytes(bytes.get(8..12)?.try_into().ok()?);
+                let offset_dp = f32::from_le_bytes(bytes.get(12..16)?.try_into().ok()?);
+                Some(Some((
+                    FOCUS_RING,
+                    Modifier::FocusRing {
+                        paint,
+                        width_dp,
+                        offset_dp,
+                    },
+                )))
+            }
+            "press_style" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let tint = optional_paint(bytes.get(0..8)?)?;
+                let mut points = [0.0_f32; 4];
+                for (index, point) in points.iter_mut().enumerate() {
+                    let at = 8 + 4 * index;
+                    *point = f32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?);
+                }
+                let press_easing = if points[0].is_nan() {
+                    None
+                } else {
+                    Some(points)
+                };
+                Some(Some((
+                    PRESS_STYLE,
+                    Modifier::PressStyle { tint, press_easing },
+                )))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
             "overlay" => Some(Some((

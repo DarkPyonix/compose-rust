@@ -22,13 +22,12 @@ fn ink() -> Paint {
 #[test]
 fn fr_42_a_modifier_with_two_shadow_layers_sends_two_shadow_modifiers() {
     let (_host, tree) = start(|| {
-        Column()
-            .modifier(
-                Modifier
-                    .shadow(Shadow::new(0.0, 1.0, 2.0, 0.0, ink()))
-                    .shadow(Shadow::new(0.0, 8.0, 24.0, -4.0, ink())),
-            )
-            .content(|| {});
+        Column!(
+            modifier = Modifier
+                .shadow(Shadow::new(0.0, 1.0, 2.0, 0.0, ink()))
+                .shadow(Shadow::new(0.0, 8.0, 24.0, -4.0, ink())),
+            {}
+        );
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Shadow").count(), 2, "{dump}");
@@ -39,7 +38,7 @@ fn fr_42_shadows_from_an_iterator_keep_their_order_and_stop_at_the_limit() {
     let layers = (0..6).map(|n| Shadow::new(0.0, n as f32, 1.0, 0.0, ink()));
     let modifier = Modifier.shadows(layers);
     let (_host, tree) = start(move || {
-        Column().modifier(modifier.clone()).content(|| {});
+        Column!(modifier = modifier.clone(), {});
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Shadow").count(), MAX_SHADOWS, "{dump}");
@@ -48,7 +47,7 @@ fn fr_42_shadows_from_an_iterator_keep_their_order_and_stop_at_the_limit() {
 #[test]
 fn fr_42_a_node_that_asks_for_no_shadow_and_no_offset_sends_neither() {
     let (_host, tree) = start(|| {
-        Column().content(|| {});
+        Column!({});
     });
     let dump = tree.dump();
     assert!(
@@ -60,7 +59,7 @@ fn fr_42_a_node_that_asks_for_no_shadow_and_no_offset_sends_neither() {
 #[test]
 fn fr_42_an_offset_is_one_offset_modifier() {
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.offset(3.0, -4.0)).content(|| {});
+        Box!(modifier = Modifier.offset(3.0, -4.0), {});
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Offset").count(), 1, "{dump}");
@@ -75,7 +74,7 @@ fn fr_42_removing_a_shadow_layer_clears_its_slot() {
         let modifier = (0..count).fold(Modifier, |modifier, n| {
             modifier.shadow(Shadow::new(0.0, n as f32, 1.0, 0.0, ink()))
         });
-        Column().modifier(modifier).content(|| {});
+        Column!(modifier = modifier, {});
     });
     assert_eq!(tree.dump().matches("Shadow").count(), 2);
     layers.set(1);
@@ -92,10 +91,12 @@ fn remember_layers() -> MutableState<i32> {
 fn fr_40_text_and_a_text_field_send_the_fonts_they_were_given() {
     let (_host, tree) = start(|| {
         let fonts = FontRefs::new([FontRef::Asset(7)]);
-        Text("가나다")
-            .font(fonts.clone())
-            .word_break(WordBreak::BreakAll);
-        TextField().font(fonts.clone());
+        Text!(
+            "가나다",
+            font = fonts.clone(),
+            word_break = WordBreak::BreakAll
+        );
+        TextField!("", |_| {}, font = fonts.clone());
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Font=").count(), 2, "{dump}");
@@ -105,8 +106,8 @@ fn fr_40_text_and_a_text_field_send_the_fonts_they_were_given() {
 #[test]
 fn fr_40_text_that_names_no_font_sends_no_font() {
     let (_host, tree) = start(|| {
-        Text("a");
-        TextField();
+        Text!("a");
+        TextField!("", |_| {});
     });
     let dump = tree.dump();
     assert!(
@@ -128,9 +129,11 @@ fn line_of<'a>(dump: &'a str, widget: &str) -> &'a str {
 #[test]
 fn fr58_text_sends_overflow_wrap_beside_word_break() {
     let (_host, tree) = start(|| {
-        Text("/Users/someone/projects/a-very-long-file-name.rs")
-            .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere);
+        Text!(
+            "/Users/someone/projects/a-very-long-file-name.rs",
+            word_break = WordBreak::KeepAll,
+            overflow_wrap = OverflowWrap::Anywhere
+        );
     });
     let dump = tree.dump();
     let text = line_of(&dump, "Text");
@@ -150,10 +153,13 @@ fn fr58_text_sends_overflow_wrap_beside_word_break() {
 #[test]
 fn fr58_text_field_sends_word_break_and_overflow_wrap() {
     let (_host, tree) = start(|| {
-        TextField()
-            .placeholder("검색어를 입력하세요")
-            .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere);
+        TextField!(
+            "",
+            |_| {},
+            placeholder = "검색어를 입력하세요",
+            word_break = WordBreak::KeepAll,
+            overflow_wrap = OverflowWrap::Anywhere
+        );
     });
     let dump = tree.dump();
     let field = line_of(&dump, "TextField");
@@ -173,8 +179,8 @@ fn fr58_text_field_sends_word_break_and_overflow_wrap() {
 #[test]
 fn fr58_text_and_text_field_that_name_no_breaking_send_none() {
     let (_host, tree) = start(|| {
-        Text("a");
-        TextField().placeholder("b");
+        Text!("a");
+        TextField!("", |_| {}, placeholder = "b");
     });
     let dump = tree.dump();
     assert!(
@@ -188,10 +194,10 @@ fn fr58_overflow_wrap_set_back_to_none_is_cleared() {
     let wrap = mutable_state_of(true);
     let state = wrap;
     let (mut host, mut tree) = start(move || {
-        let text = Text("token");
-        if state.get() {
-            text.overflow_wrap(OverflowWrap::Anywhere);
-        }
+        Text!(
+            "token",
+            overflow_wrap = state.get().then_some(OverflowWrap::Anywhere),
+        );
     });
     assert!(tree.dump().contains("OverflowWrap="), "{}", tree.dump());
     wrap.set(false);

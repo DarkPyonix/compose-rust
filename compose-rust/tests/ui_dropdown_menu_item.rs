@@ -16,9 +16,9 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 #[test]
 fn fr64_select_marks_the_dropdown_as_a_closed_field() {
     let (_host, tree) = start(|| {
-        Select(1).content(|| {
-            Text("Opus 4.7");
-            Text("Sonnet 4.6");
+        Select!(1, |_| {}, {
+            Text!("Opus 4.7");
+            Text!("Sonnet 4.6");
         });
     });
     let dump = tree.dump();
@@ -30,16 +30,22 @@ fn fr64_select_marks_the_dropdown_as_a_closed_field() {
 #[test]
 fn fr64_menu_item_writes_left_aligned_text_button_with_checked_state() {
     let (_host, tree) = start(|| {
-        Menu(true)
-            .anchor(|| {
-                Button("File");
-            })
-            .content(|| {
-                MenuItem("Open")
-                    .icon(IconRole::Search)
-                    .selected(true)
-                    .modifier(Modifier.fill_max_width());
-            });
+        Menu!(
+            true,
+            || {},
+            anchor = Some(|| {
+                Button!("File", || {});
+            }),
+            {
+                MenuItem!(
+                    "Open",
+                    || {},
+                    icon = IconRole::Search,
+                    selected = true,
+                    modifier = Modifier.fill_max_width()
+                );
+            }
+        );
     });
     let dump = tree.dump();
     assert!(dump.contains("Text=\"Open\""), "{dump}");

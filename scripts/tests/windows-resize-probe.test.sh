@@ -8,6 +8,8 @@
 # What this checks, without Windows:
 #   - the probe job drags the hand-check its own run built, and every dispatch of ci.yml
 #     runs it, so a moved pin is dragged by the run that checks the move;
+#   - that hand-check links the renderer kit windows-static.yml built in the same run, the
+#     release build that ships, and the workflow builds no renderer of its own;
 #   - every edge, the window states, the markers and the frames are asked for, at 100% and
 #     200%, and the job fails when the late control passes or a CPU path drag shows a
 #     fault, or when more than 10% of the CPU path's window state changes show one;
@@ -65,7 +67,7 @@ job() { awk -v key="  $1:" '$0 == key { on = 1; print; next } on && /^  [a-z][a-
 # Each step of a job, flattened to one line per step: its name and its if, if any.
 step_ifs() { awk '/^      - (name|uses):/ { if (n) print n " | " c; n = $0; c = ""; next } /^        if:/ { c = $0 } END { if (n) print n " | " c }' <<<"$1"; }
 gate_problem=""
-for key in compose windows probe; do
+for key in windows probe; do
     body="$(job "$key")"
     [[ -n "$body" ]] || { gate_problem="the $key job is missing"; break; }
     if grep -qE '^    (if|continue-on-error):' <<<"$body"; then
@@ -73,10 +75,9 @@ for key in compose windows probe; do
     fi
 done
 grep -qF 'inputs.metrics' <<<"$(job requested)" && gate_problem="the requested job reads inputs.metrics"
-grep -qE '^    needs: requested$' <<<"$(job compose)" || gate_problem="${gate_problem:-the compose job does not wait for the requested job}"
-grep -qE '^    needs: compose$' <<<"$(job windows)" || gate_problem="${gate_problem:-the windows job does not wait for compose}"
+grep -qE '^    needs: requested$' <<<"$(job windows)" || gate_problem="${gate_problem:-the windows job does not wait for the requested job}"
 # The steps the gate judges, and the steps whose output it judges, read no switch.
-for step in "Build the static renderer" "Build hand-check against the renderer" "Scripted resize, measured" \
+for step in "Receive the renderer kit" "Build hand-check against the renderer" "Scripted resize, measured" \
     "What is on screen during a resize must be the frame drawn for it" "CPU and GPU frames must match"; do
     line="$(step_ifs "$(job windows)" | grep -F "name: $step |")"
     [[ -n "$line" ]] || { gate_problem="${gate_problem:-the windows job has no step \"$step\"}"; continue; }
@@ -96,7 +97,8 @@ fi
 # The measuring parts are behind the switch.
 measure_problem=""
 grep -qE '^    if: inputs\.metrics$' <<<"$(job macos)" || measure_problem="the macos job runs without metrics"
-for pair in "windows|Resize frames on the CPU at 200%, each way of drawing them" "probe|Report the drags" "probe|Report memory"; do
+for pair in "windows|Resize frames on the CPU at 200%, each way of drawing them" "windows|Release link, diagnosed" \
+    "probe|Report the drags" "probe|Report memory"; do
     line="$(step_ifs "$(job "${pair%%|*}")" | grep -F "name: ${pair#*|} |")"
     grep -qF 'inputs.metrics' <<<"$line" || measure_problem="${measure_problem:-the ${pair%%|*} step \"${pair#*|}\" runs without metrics}"
 done
@@ -105,8 +107,8 @@ if ! grep -qE '^WINDOW_REVISION=' "$compose_pin"; then
     fail "$name" "renderer/scripts/build-compose.sh no longer sets WINDOW_REVISION"
 elif ! grep -qE '^    uses: \./\.github/workflows/test-windows-resize-metrics\.yml$' <<<"$ci_job"; then
     fail "$name" "ci.yml does not call the resize workflow, so a dispatch drags nothing"
-elif [[ "$(grep -E '^    (if|needs):' <<<"$ci_job")" != "    if: needs.plan.outputs.test_windows_resize == 'true'"$'\n'"    needs: plan" ]]; then
-    fail "$name" "ci.yml calls the resize workflow on a condition other than the plan, or after another suite"
+elif [[ "$(grep -E '^    (if|needs):' <<<"$ci_job")" != "    if: needs.plan.outputs.test_windows_resize == 'true'"$'\n'"    needs: [plan, windows_static_kit]" ]]; then
+    fail "$name" "ci.yml calls the resize workflow on a condition other than the plan, or other than after the plan and the Windows kit it drags"
 elif ! grep -qx 'test_windows_resize=true' <<<"$("$repo_root/scripts/ci-suites.sh" all)"; then
     fail "$name" "scripts/ci-suites.sh leaves the resize workflow out of all, the default dispatch"
 elif ! grep -qE '^  workflow_call:' <<<"$workflow_on"; then
@@ -119,6 +121,34 @@ elif [[ -n "$gate_problem" ]]; then
     fail "$name" "$gate_problem"
 elif [[ -n "$measure_problem" ]]; then
     fail "$name" "$measure_problem"
+else
+    ok "$name"
+fi
+
+# The renderer is built once per ci.yml run, by windows-static.yml for windows_static_kit,
+# and the resize workflow takes that kit. Building it here as well was a second, debug build
+# of the same commit that took almost two hours of the suite's three, and what it resized was
+# not the renderer that ships. So: no Windows renderer or mingwX64 Compose build in the
+# workflow, the windows job receives the kit under the name windows-static.yml uploads it as,
+# that upload is of the release build, and ci.yml runs the suite after the kit job, which the
+# plan turns on whenever the suite is chosen.
+name=fr19_8_4_the_gate_drags_the_renderer_kit_this_run_ships
+static="$repo_root/.github/workflows/windows-static.yml"
+windows_job="$(job windows)"
+receive="$(awk '/^      - name: Receive the renderer kit$/ { on = 1; print; next } on && /^      - / { exit } on { print }' <<<"$windows_job")"
+static_renderer="$(awk '/^  renderer:$/ { on = 1; print; next } on && /^  [a-z][a-z-]*:$/ { exit } on { print }' "$static")"
+if grep -qE 'build-windows\.sh|build-compose\.sh --target mingwX64' "$workflow"; then
+    fail "$name" "the resize workflow builds the Windows renderer or Compose for mingwX64 itself"
+elif [[ -n "$(job compose)" ]]; then
+    fail "$name" "the resize workflow still has a compose job"
+elif ! grep -qF 'name: windows-static-renderer-kit' <<<"$receive" || ! grep -qF 'path: renderer/build/windows' <<<"$receive"; then
+    fail "$name" "the windows job does not receive windows-static-renderer-kit into renderer/build/windows"
+elif ! grep -qF 'name: windows-static-renderer-kit' <<<"$static_renderer"; then
+    fail "$name" "windows-static.yml's renderer job does not upload windows-static-renderer-kit"
+elif ! grep -qE '^        run: \./renderer/desktop/scripts/build-windows\.sh --release$' <<<"$static_renderer"; then
+    fail "$name" "the kit windows-static.yml uploads is not the release build"
+elif ! grep -qx 'windows_static_kit=true' <<<"$("$repo_root/scripts/ci-suites.sh" test_windows_resize)"; then
+    fail "$name" "choosing test_windows_resize alone does not build the kit it needs"
 else
     ok "$name"
 fi

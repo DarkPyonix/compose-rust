@@ -60,7 +60,7 @@ fn Child() {
         HANDLE.with(|handle| handle.set(Some(state)));
         state
     });
-    Text(format!("child {}", state.with(|tracked| tracked.0)));
+    Text!(format!("child {}", state.with(|tracked| tracked.0)));
 }
 
 #[Composable]
@@ -68,7 +68,7 @@ fn Gate(show: MutableState<bool>) {
     if show.get() {
         Child();
     }
-    Text("after");
+    Text!("after");
 }
 
 /// Starts a Gate that shows its child and returns the child's handle.
@@ -146,7 +146,7 @@ fn Item(id: u32) {
         HANDLES.with_borrow_mut(|handles| handles.push((id, state)));
         state
     });
-    Text(format!("item {} {}", id, state.with(|tracked| tracked.0)));
+    Text!(format!("item {} {}", id, state.with(|tracked| tracked.0)));
 }
 
 #[Composable]
@@ -278,7 +278,7 @@ fn fr39_state_worker_handle_is_send_and_sync() {
 #[Composable]
 fn Reader(count: MutableState<i32>) {
     READER_RUNS.with(|runs| runs.set(runs.get() + 1));
-    Text(format!("{}", count.get()));
+    Text!(format!("{}", count.get()));
 }
 
 #[test]

@@ -42,7 +42,7 @@ compose-rust is four things put together:
 What the 0.0.2 crate contains:
 
 - **The authoring API.** `#[Composable]`, `remember`, the states and effects, the `Recomposer`,
-  `launch` and one function per widget
+  `launch`, and one function and one call macro per widget
   ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   It is new in 0.0.2, with animation: `Modifier.graphics_layer`, `Modifier.alpha`, and
   `animate_float_as_state`, `animate_color_as_state` and `animate_offset_as_state`, whose
@@ -79,10 +79,9 @@ use compose_rust::ui::*;
 #[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
-    Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
-        Text(format!("Count: {}", count.get())).type_role(TypeRole::Title);
-        let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+    Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
+        Text!(format!("Count: {}", count.get()), type_role = TypeRole::Title);
+        Button!("Increment", move || count.update(|count| *count += 1));
     });
 }
 
@@ -91,8 +90,10 @@ fn main() {
 }
 ```
 
-A widget is a statement: `Text("Hello")` describes a widget, its methods set what Compose takes
-as named arguments, and a container's children are the closure given to `content`.
+A widget is a statement: `Text!("Hello")` composes a text where the call stands. Every widget is
+a function and a call macro of the same name. The macro takes what the widget cannot do without
+and its handler by position, what Compose takes as named arguments as `name = value`, and a
+container's children as a trailing `{ ... }` block.
 `#[Composable]` inserts the groups, so you never write them by hand, and they close correctly
 through branches, early `return`, `?` and unwinding. Names follow Compose. The widget vocabulary
 is the one in the schema; nothing is defined twice. The
@@ -214,7 +215,15 @@ default, and `org.thisisthepy.compose.designsystem` for the contract both layers
 ### Using the crate
 
 ```bash
-cargo add compose-rust@0.0.10
+cargo add compose-rust@0.0.12
+```
+
+The programs in this README are written for the version after 0.0.12, in which every widget is
+a function and a call macro (`Column!(..)`). 0.0.12 does not build them as they are. Until that
+version ships, take the crate from the `develop` branch:
+
+```toml
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "develop" }
 ```
 
 `cargo build` works out which renderer the target needs, downloads the release artifact for the

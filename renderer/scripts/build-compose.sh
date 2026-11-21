@@ -120,14 +120,12 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # which already sends a scroll where the last pointer event was, and the macOS renderer goes
 # through the fork's scene, so nothing here changes with it. The new scene code is Kotlin the
 # window build already compiles; the Windows C keeps its symbols.
-# Past 96ae925 (the v1.11.1-ext.5 commit, which this one still publishes as) it holds the
-# Windows window keeping its size in dp when the display scale changes: on WM_DPICHANGED it
-# restates the size it remembers at the new scale, instead of taking the rectangle Windows
-# scaled from the outer frame without knowing this window's caption strip (200% to 125% gave
-# 398 by 297 pixels for a 400 by 300 dp window). The arithmetic is in the new win32_dpi.h, tested in win32_shared_test.c
-# (fork #243). It is window C only; the Windows C keeps its symbols, and REVISION and
-# MINGW_REVISION stay at 96ae925.
-WINDOW_REVISION="ea0880c90fbf0368b7c8065a849fa690fb203888"
+# At 07ab59e, past the Windows pin, the macOS native view moves with `setFrameOrigin:` when only
+# its place changes and resizes with `setFrameSize:` when only its size does, which costs less
+# per view per frame while scrolling than a full `setFrame:` (fork #247), and the scene's
+# accessibility honours `DeclaredElementRoles` (fork #248). Both are Kotlin the window build
+# already compiles.
+WINDOW_REVISION="98002181bd6e0c719ca4fbc7bcfccd7b34a8209a"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
@@ -135,7 +133,7 @@ WINDOW_REVISION="ea0880c90fbf0368b7c8065a849fa690fb203888"
 # pin's commit, the one the v1.11.1-ext.5 tag goes on, as the window pin is.
 # The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
+MINGW_REVISION="146d920bf428db556f4a6e7e09f9bfd86ec67777"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned

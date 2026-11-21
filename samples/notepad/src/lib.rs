@@ -67,25 +67,24 @@ fn editor(stamp: u64, contents: String, type_role: TypeRole, on_edit: Rc<dyn Fn(
         // What the field was built with, kept for as long as this key lives. Later writes
         // to the document are the field's own typing coming back, not something to send.
         let initial = remember(|| contents.clone());
-        TextField()
-            .text(initial)
+        TextField!(
+            initial,
+            move |value| on_edit(value),
             // A page, not a field on a page. Both memo references write straight onto the
             // sheet of paper, with no box round the words. A field that names its own fill,
             // line and inset is drawn as it asked instead of in the design system's frame,
             // so this one names the window's own colour for both and no inset: the words
             // start where the title above them starts, and nothing is drawn round them.
-            .modifier(
-                Modifier
-                    .fill_max_width()
-                    .fill_max_height()
-                    .background(Paint::Role(ColorRole::Background))
-                    .border(PAGE_LINE, Paint::Role(ColorRole::Background))
-                    .padding_role(SpaceRole::None),
-            )
-            .multiline(true)
-            .type_role(type_role)
-            .placeholder("Type here, or open a file")
-            .on_value_change(move |value| on_edit(value));
+            modifier = Modifier
+                .fill_max_width()
+                .fill_max_height()
+                .background(Paint::Role(ColorRole::Background))
+                .border(PAGE_LINE, Paint::Role(ColorRole::Background))
+                .padding_role(SpaceRole::None),
+            multiline = true,
+            type_role = type_role,
+            placeholder = "Type here, or open a file"
+        );
     });
 }
 
@@ -99,17 +98,15 @@ fn editor(stamp: u64, contents: String, type_role: TypeRole, on_edit: Rc<dyn Fn(
 /// so disagree with nothing either.
 #[Composable]
 fn document_bar(working: bool, children: impl FnOnce()) {
-    Column().modifier(Modifier.fill_max_width()).content(|| {
-        TopAppBar()
-            .modifier(Modifier.fill_max_width())
-            .content(children);
+    Column!(modifier = Modifier.fill_max_width(), {
+        TopAppBar!(modifier = Modifier.fill_max_width(), content = children);
         // Reading and writing happen off the UI thread, so the window stays live while they
         // run and there has to be something that says they are running. Indeterminate,
         // because a file system does not report how far through a read it is.
         // The bar spans its container without being told to: how wide a rule or a
         // progress track is on the axis it runs along is the design system's.
         if working {
-            IndeterminateProgressIndicator();
+            IndeterminateProgressIndicator!();
         }
     });
 }
@@ -378,48 +375,54 @@ fn document_list(
     choose: Rc<dyn Fn(u64)>,
     new_document: Rc<dyn Fn()>,
 ) {
-    Column()
-        .modifier(Modifier.fill_max_width().fill_max_height())
-        .space_role(SpaceRole::Sm)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text("Documents")
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
+    Column!(
+        modifier = Modifier.fill_max_width().fill_max_height(),
+        space_role = SpaceRole::Sm,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        "Documents",
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
                     // The round "+" at the head of Loop's page list.
                     let new_document = Rc::clone(&new_document);
-                    Button("")
-                        .icon(IconRole::Add)
-                        .accessible_name(NEW)
-                        .variant(ButtonVariant::Tonal)
-                        .on_click(move || new_document());
-                });
-            Separator(None);
-            ScrollColumn()
-                .modifier(Modifier.fill_max_width().weight(1.0))
-                .content(|| {
-                    for (id, name) in entries.iter().cloned() {
-                        let choose = Rc::clone(&choose);
-                        key(id, || {
-                            Button(display_name(&name))
-                                .modifier(Modifier.fill_max_width())
-                                // The one being edited is the filled one. A list where
-                                // every row looks the same is a list that does not say
-                                // where you are.
-                                .variant(if id == current {
-                                    ButtonVariant::Tonal
-                                } else {
-                                    ButtonVariant::Text
-                                })
-                                .color(Paint::Role(ColorRole::OnSurface))
-                                .on_click(move || choose(id));
-                        });
-                    }
-                });
-        });
+                    Button!(
+                        "",
+                        move || new_document(),
+                        icon = IconRole::Add,
+                        accessible_name = NEW,
+                        variant = ButtonVariant::Tonal
+                    );
+                }
+            );
+            Separator!(None);
+            ScrollColumn!(modifier = Modifier.fill_max_width().weight(1.0), {
+                for (id, name) in entries.iter().cloned() {
+                    let choose = Rc::clone(&choose);
+                    key(id, || {
+                        Button!(
+                            display_name(&name),
+                            move || choose(id),
+                            modifier = Modifier.fill_max_width(),
+                            // The one being edited is the filled one. A list where
+                            // every row looks the same is a list that does not say
+                            // where you are.
+                            variant = if id == current {
+                                ButtonVariant::Tonal
+                            } else {
+                                ButtonVariant::Text
+                            },
+                            color = Paint::Role(ColorRole::OnSurface)
+                        );
+                    });
+                }
+            });
+        }
+    );
 }
 
 /// The document styles the format sheet offers, in the order the iOS reference lists them,
@@ -445,17 +448,19 @@ fn style_choice(
     chosen: TypeRole,
     pick: MutableState<TypeRole>,
 ) {
-    Button("")
-        .accessible_name(label)
-        .variant(if chosen == role {
+    Button!(
+        "",
+        move || pick.set(role),
+        accessible_name = label,
+        variant = if chosen == role {
             ButtonVariant::Filled
         } else {
             ButtonVariant::Text
-        })
-        .on_click(move || pick.set(role))
-        .content(|| {
-            Text(label).type_role(role).max_lines(1);
-        });
+        },
+        {
+            Text!(label, type_role = role, max_lines = 1);
+        }
+    );
 }
 
 /// The editor.
@@ -671,8 +676,8 @@ pub fn app() {
     // The frame is named rather than built. Whether this bar is the window's own caption
     // or a bar beneath the system's, and where the page starts under it, are answers this
     // screen never has to know.
-    Scaffold()
-        .top_bar(|| {
+    Scaffold!(
+        top_bar = Some(|| {
             document_bar(working, || {
                 // Every action is a glyph, as in both references, so all of them fit the
                 // narrowest window. Five worded buttons did not: at phone width the bar
@@ -686,79 +691,97 @@ pub fn app() {
                 // you are looking at is a button that does nothing.
                 if !list_beside {
                     let open = list_open;
-                    Button("")
-                        .icon(IconRole::Sidebar)
-                        .accessible_name(DOCUMENTS)
-                        .variant(ButtonVariant::Text)
-                        .on_click(move || open.set(true));
+                    Button!(
+                        "",
+                        move || open.set(true),
+                        icon = IconRole::Sidebar,
+                        accessible_name = DOCUMENTS,
+                        variant = ButtonVariant::Text
+                    );
                 }
-                Spacer().modifier(Modifier.weight(1.0));
+                Spacer!(modifier = Modifier.weight(1.0));
                 // Whether there is anything to lose, said where the actions that could
                 // lose it are. Not the error colour: unsaved work is an ordinary state of
                 // a document being written, not a fault.
                 if edited {
-                    Text("Edited")
-                        .type_role(TypeRole::Label)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .max_lines(1);
+                    Text!(
+                        "Edited",
+                        type_role = TypeRole::Label,
+                        color = Paint::Role(ColorRole::OnSurfaceVariant),
+                        max_lines = 1
+                    );
                 }
                 // Starting a document no longer throws one away: the one that was on
                 // screen is in the list, which is why this offers nothing back.
                 let start = Rc::clone(&new_document);
-                Button("")
-                    .icon(IconRole::Compose)
-                    .accessible_name(NEW)
-                    .variant(ButtonVariant::Text)
-                    .enabled(!working)
-                    .on_click(move || start());
+                Button!(
+                    "",
+                    move || start(),
+                    icon = IconRole::Compose,
+                    accessible_name = NEW,
+                    variant = ButtonVariant::Text,
+                    enabled = !working
+                );
                 // What acts on files, and the format sheet. Neither memo reference keeps a
                 // file strip or a path on the page: a note is a page with a name on it,
                 // and where the bytes live is something you go and ask for.
                 let (dismiss, open) = (more_open, more_open);
-                Menu(more_open.get())
-                    .on_dismiss(move || dismiss.set(false))
-                    .anchor(move || {
-                        Button("")
-                            .icon(IconRole::More)
-                            .accessible_name(MORE)
-                            .variant(ButtonVariant::Text)
-                            .on_click(move || open.set(true));
-                    })
-                    .content(|| {
+                Menu!(
+                    more_open.get(),
+                    move || dismiss.set(false),
+                    anchor = Some(move || {
+                        Button!(
+                            "",
+                            move || open.set(true),
+                            icon = IconRole::More,
+                            accessible_name = MORE,
+                            variant = ButtonVariant::Text
+                        );
+                    }),
+                    {
                         let open = Rc::clone(&open_file);
-                        Button("Open")
-                            .variant(ButtonVariant::Text)
-                            .modifier(Modifier.fill_max_width())
-                            .enabled(!working)
-                            .on_click(move || open());
+                        Button!(
+                            "Open",
+                            move || open(),
+                            variant = ButtonVariant::Text,
+                            modifier = Modifier.fill_max_width(),
+                            enabled = !working
+                        );
                         let save_as = Rc::clone(&save_as);
-                        Button("Save as")
-                            .variant(ButtonVariant::Text)
-                            .modifier(Modifier.fill_max_width())
-                            .enabled(!working)
-                            .on_click(move || save_as());
+                        Button!(
+                            "Save as",
+                            move || save_as(),
+                            variant = ButtonVariant::Text,
+                            modifier = Modifier.fill_max_width(),
+                            enabled = !working
+                        );
                         let (menu, sheet) = (more_open, format_open);
-                        Button("Format")
-                            .variant(ButtonVariant::Text)
-                            .modifier(Modifier.fill_max_width())
-                            .on_click(move || {
+                        Button!(
+                            "Format",
+                            move || {
                                 menu.set(false);
                                 sheet.set(true);
-                            });
-                    });
+                            },
+                            variant = ButtonVariant::Text,
+                            modifier = Modifier.fill_max_width()
+                        );
+                    }
+                );
                 // The accent control at the trailing end, which is the filled check in the
                 // iOS reference and the filled button in Loop's. There is no save glyph
                 // yet (#539), so the check that confirms the note stands for it.
                 let save = Rc::clone(&save);
-                Button("")
-                    .icon(IconRole::Check)
-                    .accessible_name(SAVE)
-                    .variant(ButtonVariant::Filled)
-                    .enabled(!working)
-                    .on_click(move || save());
+                Button!(
+                    "",
+                    move || save(),
+                    icon = IconRole::Check,
+                    accessible_name = SAVE,
+                    variant = ButtonVariant::Filled,
+                    enabled = !working
+                );
             });
-        })
-        .content(|| {
+        }),
+        {
             // The iOS reference keeps document formatting in a sheet rather than adding
             // another permanent strip around the page: a heading "Format" with a round
             // close button, then the paragraph styles in a row, each set in its own style.
@@ -769,53 +792,63 @@ pub fn app() {
             // lists, indent). A text field holds plain text, so those wait on rich text in
             // `TextField` (#638), and the style here is the whole document's.
             let dismiss = format_open;
-            Sheet(format_open.get())
-                .on_dismiss(move || dismiss.set(false))
-                .modifier(Modifier.fill_max_width())
-                .content(|| {
-                    Column()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Md)
-                        .content(|| {
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .alignment(Alignment::CenterStart)
-                                .content(|| {
-                                    Text("Format")
-                                        .type_role(TypeRole::Title)
-                                        .modifier(Modifier.weight(1.0));
+            Sheet!(
+                format_open.get(),
+                move || dismiss.set(false),
+                modifier = Modifier.fill_max_width(),
+                {
+                    Column!(
+                        modifier = Modifier.fill_max_width(),
+                        space_role = SpaceRole::Md,
+                        {
+                            Row!(
+                                modifier = Modifier.fill_max_width(),
+                                alignment = Alignment::CenterStart,
+                                {
+                                    Text!(
+                                        "Format",
+                                        type_role = TypeRole::Title,
+                                        modifier = Modifier.weight(1.0)
+                                    );
                                     let close = format_open;
-                                    Button("")
-                                        .icon(IconRole::Close)
-                                        .accessible_name(CLOSE)
-                                        .variant(ButtonVariant::Tonal)
-                                        .on_click(move || close.set(false));
-                                });
+                                    Button!(
+                                        "",
+                                        move || close.set(false),
+                                        icon = IconRole::Close,
+                                        accessible_name = CLOSE,
+                                        variant = ButtonVariant::Tonal
+                                    );
+                                }
+                            );
                             // A row that scrolls rather than squeezes, as the reference's
                             // runs off its edge: five styles, each in its own size, do not
                             // fit a phone, and a squeezed one would lose its own name.
-                            ScrollRow().modifier(Modifier.fill_max_width()).content(|| {
-                                Row()
-                                    .space_role(SpaceRole::Sm)
-                                    .alignment(Alignment::CenterStart)
-                                    .content(|| {
+                            ScrollRow!(modifier = Modifier.fill_max_width(), {
+                                Row!(
+                                    space_role = SpaceRole::Sm,
+                                    alignment = Alignment::CenterStart,
+                                    {
                                         for (label, role) in STYLES {
                                             key(label, || {
                                                 style_choice(label, role, style, document_type);
                                             });
                                         }
-                                    });
+                                    }
+                                );
                             });
-                        });
-                });
+                        }
+                    );
+                }
+            );
 
             // The same list, arriving from an edge, for the windows with no room beside
             // the document. Which edge is the Renderer's decision.
             let dismiss = list_open;
-            Sheet(list_open.get() && !list_beside)
-                .on_dismiss(move || dismiss.set(false))
-                .modifier(Modifier.fill_max_width())
-                .content(|| {
+            Sheet!(
+                list_open.get() && !list_beside,
+                move || dismiss.set(false),
+                modifier = Modifier.fill_max_width(),
+                {
                     let start = Rc::clone(&new_document);
                     document_list(
                         entries.clone(),
@@ -823,141 +856,145 @@ pub fn app() {
                         Rc::clone(&choose),
                         Rc::new(move || start()),
                     );
-                });
+                }
+            );
 
             // The list and the document, side by side where there is room. Both memo
             // references do this on a wide window: Loop keeps its documents down the left
             // and iOS opens the note over the list it came from.
-            Row()
-                .modifier(Modifier.fill_max_width().fill_max_height())
-                .content(|| {
-                    if list_beside {
-                        Column()
-                            .modifier(
-                                Modifier
-                                    .weight(LIST_SHARE)
-                                    .fill_max_height()
-                                    .padding_role(SpaceRole::Md),
-                            )
-                            .content(|| {
-                                let start = Rc::clone(&new_document);
-                                document_list(
-                                    entries.clone(),
-                                    current_id,
-                                    Rc::clone(&choose),
-                                    Rc::new(move || start()),
-                                );
-                            });
-                        Divider().vertical(true);
-                    }
+            Row!(modifier = Modifier.fill_max_width().fill_max_height(), {
+                if list_beside {
+                    Column!(
+                        modifier = Modifier
+                            .weight(LIST_SHARE)
+                            .fill_max_height()
+                            .padding_role(SpaceRole::Md),
+                        {
+                            let start = Rc::clone(&new_document);
+                            document_list(
+                                entries.clone(),
+                                current_id,
+                                Rc::clone(&choose),
+                                Rc::new(move || start()),
+                            );
+                        }
+                    );
+                    Divider!(vertical = true);
+                }
 
-                    // The page defines a column, and everything on the page lines up
-                    // with it: the title, the text and the status line share one edge.
-                    //
-                    // The page alone used to be centred and measured while the file strip
-                    // and the status line ran to the window edges, so the three things a
-                    // document window is made of shared no edge at all. A page is a
-                    // measure: what belongs to the document sits on the same measure or
-                    // the document is not a page, it is a rectangle floating between two
-                    // full width strips.
-                    Box()
-                        .modifier(
-                            Modifier
-                                .weight(DOCUMENT_SHARE)
-                                .fill_max_width()
-                                .fill_max_height(),
-                        )
-                        .alignment(Alignment::TopCenter)
-                        .content(|| {
-                            Column()
-                                .modifier(
-                                    Modifier
-                                        .fill_max_width_if(page_width.is_none())
-                                        .width_if(page_width)
-                                        .fill_max_height()
-                                        // The medium step, so the page keeps the same
-                                        // margin from the list beside it as from the
-                                        // window's edge.
-                                        .padding_role(SpaceRole::Md),
-                                )
-                                .space_role(SpaceRole::Md)
-                                .content(|| {
-                                    // The document's name, which is the first thing on the
-                                    // page in both memo references. A document is a thing
-                                    // with a name, and a page that opens straight into body
-                                    // text is a page you cannot tell from the one beside it.
-                                    //
-                                    // The name without its extension: "note.txt" reads
-                                    // as a path, and neither reference shows one. Where
-                                    // the file is, on a platform with paths, is help for
-                                    // the name rather than a second heading.
-                                    let title = || {
-                                        Text(display_name(&current_name))
-                                            .modifier(Modifier.fill_max_width())
-                                            .type_role(TypeRole::Headline)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
-                                    };
-                                    match &current_path {
-                                        Some(path) => Tooltip(path.clone())
-                                            .modifier(Modifier.fill_max_width())
-                                            .content(title),
-                                        None => title(),
-                                    }
+                // The page defines a column, and everything on the page lines up
+                // with it: the title, the text and the status line share one edge.
+                //
+                // The page alone used to be centred and measured while the file strip
+                // and the status line ran to the window edges, so the three things a
+                // document window is made of shared no edge at all. A page is a
+                // measure: what belongs to the document sits on the same measure or
+                // the document is not a page, it is a rectangle floating between two
+                // full width strips.
+                Box!(
+                    modifier = Modifier
+                        .weight(DOCUMENT_SHARE)
+                        .fill_max_width()
+                        .fill_max_height(),
+                    alignment = Alignment::TopCenter,
+                    {
+                        Column!(
+                            modifier = Modifier
+                                .fill_max_width_if(page_width.is_none())
+                                .width_if(page_width)
+                                .fill_max_height()
+                                // The medium step, so the page keeps the same
+                                // margin from the list beside it as from the
+                                // window's edge.
+                                .padding_role(SpaceRole::Md),
+                            space_role = SpaceRole::Md,
+                            {
+                                // The document's name, which is the first thing on the
+                                // page in both memo references. A document is a thing
+                                // with a name, and a page that opens straight into body
+                                // text is a page you cannot tell from the one beside it.
+                                //
+                                // The name without its extension: "note.txt" reads
+                                // as a path, and neither reference shows one. Where
+                                // the file is, on a platform with paths, is help for
+                                // the name rather than a second heading.
+                                let title = || {
+                                    Text!(
+                                        display_name(&current_name),
+                                        modifier = Modifier.fill_max_width(),
+                                        type_role = TypeRole::Headline,
+                                        max_lines = 1,
+                                        overflow = TextOverflow::Ellipsis
+                                    );
+                                };
+                                match &current_path {
+                                    Some(path) => Tooltip!(
+                                        path.clone(),
+                                        modifier = Modifier.fill_max_width(),
+                                        content = title
+                                    ),
+                                    None => title(),
+                                }
 
-                                    // The page: the field itself, taking everything the
-                                    // title above it and the status line below it leave.
-                                    //
-                                    // Height cannot reach a field through a scrolling
-                                    // column, because what a scroll offers its content is
-                                    // unbounded, so the field is not inside one. It scrolls
-                                    // itself once it is taller than the window.
-                                    Box()
-                                        .modifier(Modifier.fill_max_width().weight(1.0))
-                                        .content(|| {
-                                            editor(
-                                                generation,
-                                                contents.clone(),
-                                                style,
-                                                Rc::new(move |value| {
-                                                    docs.text.set(value);
-                                                    docs.changed();
-                                                }),
-                                            );
-                                        });
-
-                                    // The status line is not part of the page, so a rule
-                                    // separates them. Its thickness and colour are the
-                                    // design system's.
-                                    Separator(None);
-
-                                    // The status line: what the last file operation did on
-                                    // the left, the document's measurements on the right.
-                                    Row()
-                                        .modifier(Modifier.fill_max_width())
-                                        .space_role(SpaceRole::Md)
-                                        .alignment(Alignment::CenterStart)
-                                        .content(|| {
-                                            Text(status.get())
-                                                .modifier(Modifier.weight(1.0))
-                                                .type_role(TypeRole::Caption)
-                                                .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                                                .max_lines(1)
-                                                .overflow(TextOverflow::Ellipsis);
-                                            for counter in [
-                                                format!("{words} words"),
-                                                format!("{characters} characters"),
-                                                format!("{lines} lines"),
-                                            ] {
-                                                Text(counter).type_role(TypeRole::Caption).color(
-                                                    Paint::Role(ColorRole::OnSurfaceVariant),
-                                                );
-                                            }
-                                        });
+                                // The page: the field itself, taking everything the
+                                // title above it and the status line below it leave.
+                                //
+                                // Height cannot reach a field through a scrolling
+                                // column, because what a scroll offers its content is
+                                // unbounded, so the field is not inside one. It scrolls
+                                // itself once it is taller than the window.
+                                Box!(modifier = Modifier.fill_max_width().weight(1.0), {
+                                    editor(
+                                        generation,
+                                        contents.clone(),
+                                        style,
+                                        Rc::new(move |value| {
+                                            docs.text.set(value);
+                                            docs.changed();
+                                        }),
+                                    );
                                 });
-                        });
-                });
-        });
+
+                                // The status line is not part of the page, so a rule
+                                // separates them. Its thickness and colour are the
+                                // design system's.
+                                Separator!(None);
+
+                                // The status line: what the last file operation did on
+                                // the left, the document's measurements on the right.
+                                Row!(
+                                    modifier = Modifier.fill_max_width(),
+                                    space_role = SpaceRole::Md,
+                                    alignment = Alignment::CenterStart,
+                                    {
+                                        Text!(
+                                            status.get(),
+                                            modifier = Modifier.weight(1.0),
+                                            type_role = TypeRole::Caption,
+                                            color = Paint::Role(ColorRole::OnSurfaceVariant),
+                                            max_lines = 1,
+                                            overflow = TextOverflow::Ellipsis
+                                        );
+                                        for counter in [
+                                            format!("{words} words"),
+                                            format!("{characters} characters"),
+                                            format!("{lines} lines"),
+                                        ] {
+                                            Text!(
+                                                counter,
+                                                type_role = TypeRole::Caption,
+                                                color = Paint::Role(ColorRole::OnSurfaceVariant)
+                                            );
+                                        }
+                                    }
+                                );
+                            }
+                        );
+                    }
+                );
+            });
+        }
+    );
 }
 
 /// Runs the sample as a program of its own. The desktop binary is one line of this.
@@ -1272,11 +1309,7 @@ mod tests {
         fn dispatch(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) {
             let (batch, _) = self
                 .host
-                .dispatch(HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                })
+                .dispatch(HostEvent::new(node_id, handler_id, payload))
                 .expect("the event failed");
             // The borrow of the Host's buffer has to end before the next call, so the
             // frame is copied out here.
@@ -1439,6 +1472,7 @@ mod tests {
                     safe_area_top: 0.0,
                     safe_area_leading: 0.0,
                     safe_area_trailing: 0.0,
+                    safe_area_bottom: 0.0,
                 },
             );
         }

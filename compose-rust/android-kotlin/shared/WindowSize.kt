@@ -74,7 +74,12 @@ fun windowHeightClassOf(heightDp: Float): WindowHeightClass = when {
  */
 val LocalWindowDrag = staticCompositionLocalOf<() -> Unit> { {} }
 
-data class WindowSafeArea(val top: Float = 0f, val leading: Float = 0f, val trailing: Float = 0f)
+/**
+ * The room the content keeps clear of, in dp. [top], [leading] and [trailing] are the
+ * window controls; [bottom] is what the system keeps at the bottom edge, the navigation bar
+ * or gesture handle on Android and the home indicator on iOS, and 0 on a desktop window.
+ */
+data class WindowSafeArea(val top: Float = 0f, val leading: Float = 0f, val trailing: Float = 0f, val bottom: Float = 0f)
 
 /**
  * One number that changes exactly when [WindowSizeReporter.report] would send for a new
@@ -146,6 +151,7 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
                 safeAreaTop = safeArea.top,
                 safeAreaLeading = safeArea.leading,
                 safeAreaTrailing = safeArea.trailing,
+                safeAreaBottom = safeArea.bottom,
             ),
         )
         return true

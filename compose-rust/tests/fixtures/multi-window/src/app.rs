@@ -121,58 +121,63 @@ fn window(
     open: [MutableState<bool>; MAX_WINDOWS],
 ) {
     let close = open[index];
-    Window(move || {
-        println!("event: window {} asked to close", index + 1);
-        close.set(false);
-    })
-    .title(TITLES[index])
-    .size(WINDOW_SIZE.0, WINDOW_SIZE.1)
-    .min_size(360.0, 360.0)
-    .report_size(true)
-    .on_focus_changed(move |focused| {
-        println!("event: window {} focused = {focused}", index + 1);
-    })
-    .content(move || {
-        let size = current_window_size();
-        if size.width_dp > 0.0 {
-            MEASURED[index].store(true, Ordering::SeqCst);
-        }
-        let count = clicks.get();
-        SEEN[index].store(count, Ordering::SeqCst);
-        Column()
-            .modifier(Modifier.padding(16.0).fill_max_width())
-            .space_role(SpaceRole::Sm)
-            .content(move || {
-                Text(TITLES[index]).type_role(TypeRole::Title);
-                Text(format!("Clicks, shared by both windows: {count}"));
-                Button("Add one").on_click(move || {
-                    clicks.update(|clicks| *clicks += 1);
-                    println!("event: window {} added a click", index + 1);
-                });
-                TextField()
-                    .placeholder(format!("Type in window {} (Korean too)", index + 1))
-                    .on_value_change(move |text| {
-                        println!("event: window {} field = {text}", index + 1);
-                        typed.set(text);
+    Window!(
+        move || {
+            println!("event: window {} asked to close", index + 1);
+            close.set(false);
+        },
+        title = AsRef::<str>::as_ref(&(TITLES[index])),
+        size = (WINDOW_SIZE.0, WINDOW_SIZE.1),
+        min_size = (360.0, 360.0),
+        report_size = true,
+        on_focus_changed = Some(move |focused: bool| {
+            println!("event: window {} focused = {focused}", index + 1);
+        }),
+        content = move || {
+            let size = current_window_size();
+            if size.width_dp > 0.0 {
+                MEASURED[index].store(true, Ordering::SeqCst);
+            }
+            let count = clicks.get();
+            SEEN[index].store(count, Ordering::SeqCst);
+            Column!(
+                modifier = Modifier.padding(16.0).fill_max_width(),
+                space_role = SpaceRole::Sm,
+                content = move || {
+                    Text!(TITLES[index], type_role = TypeRole::Title);
+                    Text!(format!("Clicks, shared by both windows: {count}"));
+                    Button!("Add one", move || {
+                        clicks.update(|clicks| *clicks += 1);
+                        println!("event: window {} added a click", index + 1);
                     });
-                Text(format!("Typed in either window: {}", typed.get()));
-                Text(format!(
-                    "This window: {:.0} x {:.0} dp",
-                    size.width_dp, size.height_dp
-                ));
-                Button("Close this window").on_click(move || {
-                    println!("event: window {} closed from its button", index + 1);
-                    close.set(false);
-                });
-                if index == 0 && !open[1].get() {
-                    let second = open[1];
-                    Button("Open the second window").on_click(move || {
-                        println!("event: the second window opened again");
-                        second.set(true);
+                    TextField!(
+                        "",
+                        move |text| {
+                            println!("event: window {} field = {text}", index + 1);
+                            typed.set(text);
+                        },
+                        placeholder = format!("Type in window {} (Korean too)", index + 1)
+                    );
+                    Text!(format!("Typed in either window: {}", typed.get()));
+                    Text!(format!(
+                        "This window: {:.0} x {:.0} dp",
+                        size.width_dp, size.height_dp
+                    ));
+                    Button!("Close this window", move || {
+                        println!("event: window {} closed from its button", index + 1);
+                        close.set(false);
                     });
+                    if index == 0 && !open[1].get() {
+                        let second = open[1];
+                        Button!("Open the second window", move || {
+                            println!("event: the second window opened again");
+                            second.set(true);
+                        });
+                    }
                 }
-            });
-    });
+            );
+        }
+    );
 }
 
 /// Waits for frames until `done` holds. Each wait asks for a frame, so the renderer keeps

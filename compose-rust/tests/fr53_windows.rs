@@ -45,11 +45,7 @@ fn window_ids(batch: &[u8]) -> Vec<u32> {
 }
 
 fn event(node_id: u32, handler_id: u64, payload: EventPayload<'static>) -> HostEvent<'static> {
-    HostEvent {
-        node_id,
-        handler_id,
-        payload,
-    }
+    HostEvent::new(node_id, handler_id, payload)
 }
 
 // ----- a single window is what it was -------------------------------------------------
@@ -127,9 +123,9 @@ fn Shared() {
     for name in ["a", "b"] {
         key(name, || {
             let more = count;
-            Window(|| {}).title(name).content(|| {
-                Text(format!("{name}: {}", count.get()));
-                Button("add").on_click(move || more.update(|count| *count += 1));
+            Window!(|| {}, title = AsRef::<str>::as_ref(&(name)), {
+                Text!(format!("{name}: {}", count.get()));
+                Button!("add", move || more.update(|count| *count += 1));
             });
         });
     }
@@ -180,13 +176,13 @@ static PANE_RUNS: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
 fn Pane(index: usize) {
     PANE_RUNS[index].fetch_add(1, Ordering::SeqCst);
     let size = current_window_size();
-    Text(format!("{index}:{:?}", size.class));
+    Text!(format!("{index}:{:?}", size.class));
 }
 
 fn two_panes() {
     for index in 0..2_usize {
         key(index, || {
-            Window(|| {}).content(|| Pane(index));
+            Window!(|| {}, content = || Pane(index));
         });
     }
 }
@@ -220,6 +216,7 @@ fn fr53_window_events_name_their_window() {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         ))
         .expect("the size report dispatches");
@@ -287,17 +284,19 @@ fn Closable() {
     let open = remember(|| mutable_state_of(true));
     if open.get() {
         let close = open;
-        Window(|| {
-            CLOSE_REQUESTS.fetch_add(1, Ordering::SeqCst);
-        })
-        .on_focus_changed(|focused| {
-            if focused {
-                FOCUS_CHANGES.fetch_add(1, Ordering::SeqCst);
+        Window!(
+            || {
+                CLOSE_REQUESTS.fetch_add(1, Ordering::SeqCst);
+            },
+            on_focus_changed = Some(|focused: bool| {
+                if focused {
+                    FOCUS_CHANGES.fetch_add(1, Ordering::SeqCst);
+                }
+            }),
+            {
+                Button!("close it", move || close.set(false));
             }
-        })
-        .content(|| {
-            Button("close it").on_click(move || close.set(false));
-        });
+        );
     }
 }
 
@@ -629,11 +628,7 @@ fn fr53_window_records_round_trip() {
         (0, 0, EventPayload::ApplicationReopen),
     ];
     for (node_id, handler_id, payload) in events {
-        let sent = HostEvent {
-            node_id,
-            handler_id,
-            payload,
-        };
+        let sent = HostEvent::new(node_id, handler_id, payload);
         let mut wire = Vec::new();
         encode_event(&sent, &mut wire).expect("the event encodes");
         assert_eq!(decode_event(&wire), Ok(sent.clone()), "{sent:?}");
@@ -700,9 +695,9 @@ fn fr53_malformed_window_wire_is_a_protocol_error() {
 
 #[Composable]
 fn WindowInAColumn() {
-    Column().content(|| {
-        Window(|| {}).content(|| {
-            Text("lost");
+    Column!({
+        Window!(|| {}, {
+            Text!("lost");
         });
     });
 }
@@ -786,18 +781,20 @@ fn fr53_wire_numbers_are_the_ones_the_spec_lists() {
 
 #[Composable]
 fn Roaming() {
-    Text(format!("{:?}", current_window_size().class));
+    Text!(format!("{:?}", current_window_size().class));
 }
 
 #[Composable]
 fn Opener() {
     let open = remember(|| mutable_state_of(false));
     let toggle = open;
-    Button("toggle").on_click(move || toggle.update(|open| *open = !*open));
+    Button!("toggle", move || toggle.update(|open| *open = !*open));
     if open.get() {
-        Window(|| {})
-            .theme(Theme::unified(DesignSystem::Cupertino))
-            .content(Roaming);
+        Window!(
+            || {},
+            theme = Theme::unified(DesignSystem::Cupertino),
+            content = Roaming
+        );
     }
 }
 
@@ -830,6 +827,7 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         ))
         .expect("the size dispatches");
@@ -865,7 +863,7 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
 
 #[Composable]
 fn ReportingWindow() {
-    Window(|| {}).report_size(true).content(Nothing);
+    Window!(|| {}, report_size = true, content = Nothing);
 }
 
 /// A window that opts in writes `report_size` as a boolean property on its node.
@@ -903,16 +901,14 @@ fn fr20_8_window_report_size_writes_the_property() {
 fn TogglingWindow() {
     let on = remember(|| mutable_state_of(true));
     let toggle = on;
-    let window = Window(|| {});
-    let window = if on.get() {
-        window.report_size(true)
-    } else {
-        window
-    };
-    window.content(move || {
-        let toggle = toggle;
-        Button("toggle").on_click(move || toggle.update(|on| *on = !*on));
-    });
+    Window!(
+        || {},
+        report_size = on.get().then_some(true),
+        content = move || {
+            let toggle = toggle;
+            Button!("toggle", move || toggle.update(|on| *on = !*on));
+        }
+    );
 }
 
 /// A window that stops saying `report_size` has the property taken away, so the Renderer
