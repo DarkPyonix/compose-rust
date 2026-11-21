@@ -28,7 +28,7 @@ internal class LinuxNativeViewWindow(
         get() = NativeViewWire.PARENT_X11
 
     override val scale: Float
-        get() = window.x11.density.takeIf { it > 0f } ?: 1f
+        get() = window.x11.measure().scale.takeIf { it > 0f } ?: 1f
 
     override fun attach(id: Int, handle: Long): Boolean = views?.attach(id, handle) ?: false
 
