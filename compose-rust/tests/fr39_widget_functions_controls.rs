@@ -402,6 +402,8 @@ mod functions {
             PRIMARY,
             OUTLINE,
             20.0,
+            true,
+            ERROR,
             Some(|_: MotionFinished| {}),
         );
         RadioButton(
