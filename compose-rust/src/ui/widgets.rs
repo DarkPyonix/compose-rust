@@ -1583,6 +1583,10 @@ struct ControlLook {
     container: Option<Paint>,
     check: Option<Paint>,
     size: Option<(f32, f32)>,
+    /// How high a Switch lifts its thumb, in dp.
+    thumb_elevation: Option<f32>,
+    /// The width in dp and the paint of the line around a Switch's track.
+    track_border: Option<(f32, Paint)>,
 }
 
 impl ControlLook {
@@ -1604,6 +1608,16 @@ impl ControlLook {
             bytes.extend_from_slice(&width.to_bits().to_le_bytes());
             bytes.extend_from_slice(&height.to_bits().to_le_bytes());
             attrs.push(("control_size", OwnedAttr::Bytes(bytes)));
+        }
+        if let Some(dp) = self.thumb_elevation {
+            attrs.push(("thumb_elevation", OwnedAttr::Float(f64::from(dp))));
+        }
+        if let Some((width, paint)) = self.track_border {
+            // The `Border` modifier's two fields, in its order: the width, then the paint.
+            let mut bytes = Vec::with_capacity(12);
+            bytes.extend_from_slice(&width.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
+            attrs.push(("track_border", OwnedAttr::Bytes(bytes)));
         }
     }
 }
@@ -1947,6 +1961,20 @@ impl SwitchScope {
     /// The track's width and height in dp. The thumb scales with the height.
     pub(crate) fn size(mut self, width: f32, height: f32) -> Self {
         self.look.size = Some((width, height));
+        self
+    }
+
+    /// How high the thumb is lifted, in dp: a soft shadow under it that travels with it.
+    /// Zero is no shadow; not calling this leaves the design system's.
+    pub(crate) fn thumb_elevation(mut self, dp: f32) -> Self {
+        self.look.thumb_elevation = Some(dp);
+        self
+    }
+
+    /// A line of `width` dp in `paint` around the track, in both states. A width of zero is
+    /// no line; not calling this leaves the design system's.
+    pub(crate) fn track_border(mut self, (width, paint): (f32, Paint)) -> Self {
+        self.look.track_border = Some((width, paint));
         self
     }
 }
