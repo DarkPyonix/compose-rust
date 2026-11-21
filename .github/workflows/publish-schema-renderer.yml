@@ -21,17 +21,20 @@
 #
 # What it does not do. It creates, moves and deletes no tag and no release: renderer-dev
 # was made once by the owner, and when it is not there the upload says so and ends green.
-# It publishes only from develop, and builds nothing when every asset for the schema is
+# It deletes assets on renderer-dev only; the script refuses any other release. It
+# publishes only from develop, and builds nothing when every asset for the schema is
 # already there.
 #
-# When it runs: by hand, for now. Development CI runs only when dispatched, so this is
-# dispatched on develop after a merge that changes compose-rust/schema-hash.txt. To run it
-# on every such merge instead, add this under `on:` (the owner's call, because it starts
-# five renderer builds, Windows' alone near three hours, on every schema change):
+# When it runs: only when the leader dispatches it, like all development CI. It has no
+# push trigger on purpose.
 #
-#   push:
-#     branches: [develop]
-#     paths: [compose-rust/schema-hash.txt]
+# Merge checklist for a pull request that changes compose-rust/schema-hash.txt:
+#   1. Merge it into develop.
+#   2. Dispatch this workflow on develop right away (Actions, "Publish schema renderer",
+#      branch develop). Until it has run, a git dependency on that revision finds no
+#      renderer for its schema.
+#   3. Check that its plan job reported publish=true and its publish job uploaded five
+#      renderers and the .source file to renderer-dev.
 
 name: Publish schema renderer
 

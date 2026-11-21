@@ -15,6 +15,7 @@ mkdir -p "$work/bin"
 cat > "$work/bin/gh" <<'GH'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_LOG"
+echo "$*" >> "$FAKE_ALL_LOG"
 case "$1 $2" in
     "release view")
         if [[ -n "${FAKE_NO_RELEASE:-}" ]]; then echo "release not found" >&2; exit 1; fi
@@ -32,6 +33,9 @@ GH
 chmod +x "$work/bin/gh"
 export GH="$work/bin/gh"
 export FAKE_LOG="$work/gh.log"
+# Every call of every test, never cleared, for the check at the end.
+export FAKE_ALL_LOG="$work/gh-all.log"
+: > "$FAKE_ALL_LOG"
 
 failures=0
 ok() { echo "ok   - $1"; }
@@ -192,6 +196,41 @@ nfr16_publish_uploads_with_clobber_and_prunes() {
         bash -c "! grep -qE '^(release (create|delete|edit) |tag|api)' '$FAKE_LOG'"
 }
 
+# Deleting assets is allowed on renderer-dev and nowhere else. Asked to work on another
+# release, the script refuses before it calls GitHub at all.
+nfr16_prune_only_on_renderer_dev() {
+    local dir="$work/upload-elsewhere" out status
+    mkdir -p "$dir"
+    echo x > "$dir/compose-rust-renderer-schema-62b9a55ed371acad-linux-x64.tar.gz"
+    : > "$work/released"
+    local release
+    for release in v0.0.13 renderer-dev2 ""; do
+        : > "$FAKE_LOG"
+        out="$(SCHEMA_RENDERER_RELEASE="$release" "$script" upload "$dir" "$work/released" 2>&1)"
+        status=$?
+        expect "upload refuses the release '$release'" test "$status" -ne 0
+        expect "and says which release it works on" grep -q "renderer-dev" <<< "$out"
+        expect "and calls GitHub for nothing" test ! -s "$FAKE_LOG"
+        out="$(SCHEMA_RENDERER_RELEASE="$release" "$script" promote 0x62b9a55ed371acad v0.0.13 tree "$work/promoted-elsewhere" 2>&1)"
+        expect "promote refuses the release '$release' too" test $? -ne 0
+    done
+}
+
+# The workflow runs when the leader dispatches it and on nothing else.
+nfr16_publish_runs_only_when_dispatched() {
+    local triggers
+    triggers="$(awk '/^on:/ { inside = 1; next } inside && /^[^ #]/ { exit } inside && /^  [a-z_]+:/ { sub(/:.*/, ""); sub(/^ +/, ""); print }' \
+        "$repo_root/.github/workflows/publish-schema-renderer.yml")"
+    expect "Publish schema renderer has workflow_dispatch and no other trigger" test "$triggers" = workflow_dispatch
+}
+
+# Over every call any test above made: none created, edited or deleted a tag or a release.
+nfr16_no_tag_or_release_is_ever_changed() {
+    expect "the fake gh recorded calls at all" test -s "$FAKE_ALL_LOG"
+    expect "no tag or release was created, edited or deleted" \
+        bash -c "! grep -qE '^(release (create|delete|edit) |tag |api )' '$FAKE_ALL_LOG'"
+}
+
 nfr16_promote_without_build() {
     local hash=62b9a55ed371acad target
     export FAKE_SERVED="$work/served"
@@ -236,6 +275,9 @@ nfr16_prune_keeps_recent_and_released
 nfr16_publish_skips_without_release
 nfr16_publish_uploads_with_clobber_and_prunes
 nfr16_promote_without_build
+nfr16_prune_only_on_renderer_dev
+nfr16_publish_runs_only_when_dispatched
+nfr16_no_tag_or_release_is_ever_changed
 
 [[ "$failures" -eq 0 ]] || exit 1
 echo "all passed"

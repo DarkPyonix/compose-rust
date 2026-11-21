@@ -42,10 +42,15 @@
 #       the names the release for <version> carries. Prints promoted=true when every one
 #       was there and right, promoted=false (and writes nothing) otherwise.
 #
-# GH names the gh executable (default gh), so the tests can stand a fake in for GitHub.
+# SCHEMA_RENDERER_RELEASE, when set, has to be renderer-dev; upload and promote refuse any
+# other value. GH names the gh executable (default gh), so the tests can stand a fake in for GitHub.
 set -euo pipefail
 
+# The one release this script may change. SCHEMA_RENDERER_RELEASE can name another only to be
+# refused: deleting assets is allowed on renderer-dev alone, so asking for any other release
+# stops the script before it calls GitHub.
 RELEASE=renderer-dev
+REQUESTED_RELEASE="${SCHEMA_RENDERER_RELEASE-$RELEASE}"
 KEEP_RECENT=20
 TARGETS=(macos-aarch64 linux-x64 linux-arm64 windows-x64 ios)
 GH="${GH:-gh}"
@@ -198,8 +203,15 @@ release_exists() {
     fail "gh could not read the $RELEASE release: $err"
 }
 
+# Refuse to work on any release but renderer-dev, before anything is asked of GitHub.
+only_renderer_dev() {
+    [[ "$REQUESTED_RELEASE" == "$RELEASE" ]] ||
+        fail "this script uploads to and prunes only the $RELEASE release, and '$REQUESTED_RELEASE' was asked for. Version releases are attached by test-native-renderer.yml and are never pruned; unset SCHEMA_RENDERER_RELEASE."
+}
+
 cmd_upload() { # dir released-hashes-file
     local dir="$1" released="$2"
+    only_renderer_dev
     if ! release_exists; then
         echo "::notice::the $RELEASE release does not exist, so nothing was uploaded. The owner creates it once; this workflow never creates a tag or a release."
         return 0
@@ -221,6 +233,7 @@ cmd_upload() { # dir released-hashes-file
 
 cmd_promote() { # hash version tree out
     local hash="$1" version="${2#v}" tree="$3" out="$4"
+    only_renderer_dev
     local work
     work="$(mktemp -d)"
     # Nothing is written to <out> until every renderer has been checked, so a release that
