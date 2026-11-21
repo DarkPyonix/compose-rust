@@ -2253,7 +2253,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
-> **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
+> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
 >
 > **1.0 뒤([leader, 2026-11-21]).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어가지 않습니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 

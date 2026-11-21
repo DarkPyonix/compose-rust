@@ -403,10 +403,15 @@ fun ComposeRustContent(
      * for all of them (the window manager's `awaitFrame`), not once per window.
      */
     windowNodeId: Int = 0,
+    /**
+     * Called when the opening `TopAppBar` carries a non-empty title so the platform window can
+     * mirror it into the system caption (FR-30.2).
+     */
+    onCaptionTitle: (String) -> Unit = {},
 ) {
     if (windowNodeId != 0) {
         CompositionLocalProvider(LocalWindowNodeId provides windowNodeId) {
-            ComposeRustContent(host, modifier, caption, 0)
+            ComposeRustContent(host, modifier, caption, 0, onCaptionTitle)
         }
         return
     }
@@ -432,6 +437,12 @@ fun ComposeRustContent(
     ) {
         ZoomReporter(host, zoom)
         DensityReporter(host)
+        val captionTitle = host.table.openingBarTitle(host.table.roots)
+        LaunchedEffect(captionTitle) {
+            if (captionTitle != null) {
+                onCaptionTitle(captionTitle)
+            }
+        }
         // `onKeyEvent` rather than the preview: it runs after everything inside has had the
         // key, so a key the application consumed never reaches it.
         ComposeRustTree(
@@ -1101,6 +1112,16 @@ internal fun NodeTable.openingTopBar(roots: List<Int>): Int? {
         }
     }
     return null
+}
+
+/**
+ * The non-empty title declared on the page's opening `TopAppBar`, or null when there is no
+ * opening bar or its title is blank (FR-30.2).
+ */
+internal fun NodeTable.openingBarTitle(roots: List<Int>): String? {
+    val barId = openingTopBar(roots) ?: return null
+    val title = node(barId)?.text(PropertyKind.Text).orEmpty()
+    return title.ifEmpty { null }
 }
 
 /**
