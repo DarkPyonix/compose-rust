@@ -1582,6 +1582,7 @@ struct ControlLook {
     active_track: Option<Paint>,
     container: Option<Paint>,
     check: Option<Paint>,
+    outline: Option<Paint>,
     size: Option<(f32, f32)>,
 }
 
@@ -1593,6 +1594,7 @@ impl ControlLook {
             ("active_track_color", self.active_track),
             ("container_color", self.container),
             ("check_color", self.check),
+            ("outline_color", self.outline),
         ];
         for (name, paint) in paints {
             if let Some(paint) = paint {
@@ -1857,6 +1859,8 @@ macro_rules! toggle {
         pub(crate) struct $name {
             modifier: Modifier,
             checked: bool,
+            // Only a Checkbox has a third state; the other two never set it.
+            indeterminate: bool,
             enabled: bool,
             accessible_name: Option<String>,
             look: ControlLook,
@@ -1870,6 +1874,7 @@ macro_rules! toggle {
             $name {
                 modifier: Modifier::new(),
                 checked: $setter,
+                indeterminate: false,
                 enabled: true,
                 accessible_name: None,
                 look: ControlLook::default(),
@@ -1897,6 +1902,7 @@ macro_rules! toggle {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = std::mem::take(&mut self.modifier);
                 let (checked, enabled) = (self.checked, self.enabled);
+                let indeterminate = self.indeterminate;
                 let accessible_name = self.accessible_name.take();
                 let look = self.look;
                 let handler: EventCallback = match self.on_change.take() {
@@ -1917,6 +1923,11 @@ macro_rules! toggle {
                         attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                         push_accessible_name(accessible_name, attrs);
                         look.push(attrs);
+                        // Sent only while it is mixed, so a box that never is writes no
+                        // record, and one that stops being mixed sends a removal.
+                        if indeterminate {
+                            attrs.push(("indeterminate", OwnedAttr::Bool(true)));
+                        }
                     },
                     with_motion(vec![("onchange", handler)], motion),
                     content,
@@ -1955,14 +1966,32 @@ control_colour!(
     CheckboxScope,
     container,
     container_color,
-    "The box when it is checked."
+    "The box when it is checked or mixed."
 );
-control_colour!(CheckboxScope, check, check_color, "The check mark.");
+control_colour!(
+    CheckboxScope,
+    check,
+    check_color,
+    "The check mark, or the dash of a mixed box."
+);
+control_colour!(
+    CheckboxScope,
+    outline,
+    outline_color,
+    "The box's border, in every state alike."
+);
 
 impl CheckboxScope {
     /// The length of the box's side in dp.
     pub(crate) fn size(mut self, side: f32) -> Self {
         self.look.size = Some((side, side));
+        self
+    }
+
+    /// Whether the box is mixed: filled, with a dash instead of a check, whatever
+    /// `checked` says.
+    pub(crate) fn indeterminate(mut self, indeterminate: bool) -> Self {
+        self.indeterminate = indeterminate;
         self
     }
 }

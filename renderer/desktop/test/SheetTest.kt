@@ -67,9 +67,11 @@ import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpRect
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private fun assertNear(expected: Dp, actual: Dp, what: String) {
@@ -1104,6 +1106,76 @@ class SheetTest {
             val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
             assertEquals(1, dismissals.size, "a sheet without its handle still drags shut once")
         }
+    }
+
+    /** Where a compact bottom sheet, its handle (null where none is drawn) and its first child are. */
+    private class HandleLayout(val sheet: DpRect, val handle: DpRect?, val content: DpRect)
+
+    private fun handleLayout(system: DesignSystem, handle: Boolean? = null): HandleLayout {
+        var layout: HandleLayout? = null
+        runDesktopComposeUiTest(400, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(Theme(system, system, ColorScheme.Light, adaptive = false)),
+            ) + sheetBatch(open = true).drop(1) +
+                listOfNotNull(handle?.let { Mutation.SetProp(SHEET, PropertyKind.SheetHandle, PropertyValue.Bool(it)) })
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.requiredSize(400.dp, 800.dp))
+                }
+            }
+            waitForIdle()
+            val handles = onAllNodesWithTag(sheetHandleTestTag(SHEET)).fetchSemanticsNodes()
+            layout = HandleLayout(
+                sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot(),
+                handle = if (handles.isEmpty()) null else onNodeWithTag(sheetHandleTestTag(SHEET)).getBoundsInRoot(),
+                content = onNodeWithTag(nodeTestTag(CONTENT)).getBoundsInRoot(),
+            )
+        }
+        return layout!!
+    }
+
+    /**
+     * Material 3's drag handle keeps 22 dp above and below its bar, as Compose's
+     * `BottomSheetDefaults.DragHandle` does, so the first line of the sheet starts below the
+     * handle instead of level with it.
+     */
+    @Test
+    fun fr21_sheet_content_starts_below_the_handle() {
+        val layout = handleLayout(DesignSystem.Material3)
+        val handle = assertNotNull(layout.handle, "a Material 3 bottom sheet draws its handle")
+        assertNear(22.dp, handle.top - layout.sheet.top, "the space above the handle")
+        val below = layout.content.top - handle.bottom
+        assertTrue(
+            below.value >= 22f - 1f,
+            "the first child starts ${below.value}dp below the handle, less than 22dp",
+        )
+    }
+
+    /**
+     * Outside Material 3 the gap below the handle is the sheet's own content padding, the
+     * same distance the content keeps from the sheet's leading edge. GNOME, because Breeze
+     * and Fluent draw no handle on a sheet at all.
+     */
+    @Test
+    fun fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3() {
+        val layout = handleLayout(DesignSystem.Gnome)
+        val handle = assertNotNull(layout.handle, "a GNOME bottom sheet draws its handle")
+        val padding = layout.content.left - layout.sheet.left
+        assertTrue(padding.value > 0f, "the GNOME sheet pads its content")
+        assertNear(padding, layout.content.top - handle.bottom, "the gap below the handle")
+        assertNear(padding, handle.top - layout.sheet.top, "the space above the handle")
+    }
+
+    /** Without its handle a sheet keeps no space for one: the content starts at its padding. */
+    @Test
+    fun fr21_sheet_without_handle_leaves_no_gap() {
+        val layout = handleLayout(DesignSystem.Material3, handle = false)
+        assertEquals(null, layout.handle, "a sheet told not to draw its handle drew one")
+        val padding = layout.content.left - layout.sheet.left
+        assertNear(padding, layout.content.top - layout.sheet.top, "the first child's distance from the sheet's top")
     }
 
     /**

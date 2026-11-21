@@ -3,17 +3,21 @@ package dev.darkpyonix.composerust.test
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.SemanticsRole
+import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
@@ -219,6 +223,41 @@ class PlatformRoleTest {
             val column = onNodeWithTag(nodeTestTag(COLUMN)).fetchSemanticsNode()
             assertNull(column.config.getOrNull(SemanticsProperties.IsTraversalGroup))
             assertTrue(column.config.getOrNull(SemanticsProperties.CollectionInfo) == null)
+        }
+    }
+
+    /**
+     * A mixed Checkbox is mixed to assistive technology in every design system: Compose's
+     * indeterminate toggle state on the node, and the platform's mixed state, not checked, on
+     * the element the window hands the platform.
+     */
+    @Test
+    fun fr68_mixed_checkbox_is_mixed_in_the_accessibility_tree() {
+        for (system in DesignSystem.entries) {
+            for (checked in listOf(false, true)) {
+                runComposeUiTest {
+                    val mutations = listOf(
+                        Mutation.SetTheme(Theme(system, system, ColorScheme.Light, false)),
+                        Mutation.Create(BOX, WidgetKind.Checkbox),
+                        Mutation.SetProp(BOX, PropertyKind.Checked, PropertyValue.Bool(checked)),
+                        Mutation.SetProp(BOX, PropertyKind.Indeterminate, PropertyValue.Bool(true)),
+                        Mutation.SetProp(BOX, PropertyKind.OnValueChange, PropertyValue.Integer(71L)),
+                        Mutation.SetProp(BOX, PropertyKind.AccessibleName, PropertyValue.Text("Staged")),
+                    )
+                    setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+                    waitForIdle()
+                    val node = onNodeWithTag(nodeTestTag(BOX)).fetchSemanticsNode()
+                    assertEquals(
+                        ToggleableState.Indeterminate,
+                        node.config.getOrNull(SemanticsProperties.ToggleableState),
+                        "$system (checked: $checked)",
+                    )
+                    val element = assertNotNull(node.describe(-1, 1f), "$system: the checkbox was left out")
+                    assertEquals(ElementRole.CHECKBOX, element.role, "$system")
+                    assertEquals(AccessibleState.MIXED, element.states and AccessibleState.MIXED, "$system: not mixed")
+                    assertEquals(0, element.states and AccessibleState.CHECKED, "$system: mixed is not checked")
+                }
+            }
         }
     }
 }

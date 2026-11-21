@@ -175,6 +175,9 @@ impl BackgroundBrush {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SemanticsState {
     pub checked: Option<bool>,
+    /// Whether the node is mixed: a box standing for a set of which only some are checked.
+    /// It wins over `checked`, and is sent as the checked field's fourth value.
+    pub mixed: bool,
     pub selected: Option<bool>,
     pub expanded: Option<bool>,
     pub disabled: Option<bool>,
@@ -188,6 +191,7 @@ pub struct SemanticsState {
 impl SemanticsState {
     const NONE: Self = Self {
         checked: None,
+        mixed: false,
         selected: None,
         expanded: None,
         disabled: None,
@@ -201,6 +205,15 @@ impl SemanticsState {
     pub const fn checked(checked: bool) -> Self {
         Self {
             checked: Some(checked),
+            ..Self::NONE
+        }
+    }
+
+    /// A node that is neither checked nor unchecked, as a box that stands for a partly
+    /// checked set announces itself.
+    pub const fn mixed() -> Self {
+        Self {
+            mixed: true,
             ..Self::NONE
         }
     }
@@ -265,7 +278,12 @@ impl SemanticsState {
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
         let tri = |value: Option<bool>| value.map_or(0_u32, |on| if on { 2 } else { 1 });
-        (tri(self.checked) << SEMANTICS_CHECKED_SHIFT)
+        let checked = if self.mixed {
+            SEMANTICS_CHECKED_MIXED
+        } else {
+            tri(self.checked)
+        };
+        (checked << SEMANTICS_CHECKED_SHIFT)
             | (tri(self.selected) << SEMANTICS_SELECTED_SHIFT)
             | (tri(self.expanded) << SEMANTICS_EXPANDED_SHIFT)
             | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
