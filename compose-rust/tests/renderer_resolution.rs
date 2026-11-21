@@ -2658,6 +2658,37 @@ fn nfr16_a_renderer_of_this_schema_is_not_refused_for_its_version() {
         .expect_err("without a schema hash the version still has to match");
 }
 
+/// A version that has no release yet, which a git dependency on a revision after a version
+/// bump is, still finds the renderer published for its schema: the 404 on the version's
+/// release is not the end of the lookup.
+#[test]
+fn nfr16_a_version_release_that_is_not_published_falls_through_to_the_schema_renderer() {
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let schema_artifact = schema_artifact_file_name(CRATE_HASH, SAMPLE_TARGET);
+    let version_url = version_artifact_url(RELEASE_BASE_URL, SAMPLE_VERSION, &version_artifact);
+    let schema_url = schema_artifact_url(RELEASE_BASE_URL, &schema_artifact);
+
+    let temp = TempDir::new("schema-version-404");
+    let release = temp.path().join("release");
+    let server = Server::new(vec![(
+        schema_url.clone(),
+        schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+    )]);
+    let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+    let renderer = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+        .expect("the renderer published for this schema is there");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert!(renderer.schema_release);
+    assert_eq!(
+        server.asked(),
+        vec![
+            version_url.clone(),
+            schema_url.clone(),
+            format!("{schema_url}.sha256"),
+        ]
+    );
+}
+
 /// A renderer tree with `schema-hash.txt` in its root, as every artifact carries it.
 fn hashed_tree(root: &Path, hash: Option<&str>) -> PathBuf {
     renderer_tree(root);
