@@ -273,3 +273,52 @@ fn fr62_a_report_with_no_viewport_reads_as_zero() {
     );
     assert_eq!(tree.texts(), vec!["offset=0/max=400/viewport=0"]);
 }
+
+/// The system text size is in the zoom's `k` but scales text alone, so the three values stay
+/// in layout dp whatever it is. At a display scale of 1.5 and zoom level 2 (1.44) a layout dp
+/// is 2.16 pixels. The same report reads the same before and after the reader's text size
+/// goes from 1.0 to 1.3, which moves `k` from 1.44 to 1.872; read with `k`, the offset would
+/// be 38.462 dp after the change instead of 50.
+#[test]
+fn fr62_scroll_state_values_do_not_move_with_the_system_text_size() {
+    let (mut host, mut tree) = start(|| {
+        let state = remember_scroll_state();
+        Column!({
+            Text!(format!(
+                "offset={:.3}/max={:.3}/viewport={:.3}",
+                state.offset(),
+                state.max_offset(),
+                state.viewport_size()
+            ));
+            ScrollColumn!(scroll_state = &state, {});
+        });
+    });
+    let zoom = |os: f32| {
+        HostEvent::new(
+            0,
+            0,
+            EventPayload::ZoomChanged {
+                k: os * 1.2 * 1.2,
+                os,
+                level: 2,
+            },
+        )
+    };
+    dispatch(
+        &mut host,
+        &mut tree,
+        &HostEvent::new(0, 0, EventPayload::DensityChanged { scale: 1.5 }),
+    );
+    dispatch(&mut host, &mut tree, &zoom(1.0));
+    let (node, handler) = tree.find("ScrollColumn", None, 0, PropertyKind::OnScrollChanged);
+    let same_place = report(node, handler, (0.0, 0.0, 480.0), (108.0, 864.0, 540.0));
+    dispatch(&mut host, &mut tree, &same_place);
+    let expected = vec!["offset=50.000/max=400.000/viewport=250.000"];
+    assert_eq!(tree.texts(), expected);
+
+    // The reader enlarges their text. Layout is not resized by it, so the Renderer reports
+    // the same pixels, and the state reads the same dp.
+    dispatch(&mut host, &mut tree, &zoom(1.3));
+    dispatch(&mut host, &mut tree, &same_place);
+    assert_eq!(tree.texts(), expected);
+}

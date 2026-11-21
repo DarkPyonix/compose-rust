@@ -815,6 +815,23 @@ pub fn remember_scroll_state() -> ScrollState {
     crate::runtime::remember(ScrollState::new)
 }
 
+/// A length from a `ScrollChanged` report, in physical pixels, as layout dp: the dp widgets
+/// are laid out and scrolled in, which `ScrollState::scroll_to` takes.
+///
+/// One layout dp is the display scale times the application's zoom step (`1.2^level`), which
+/// is the density the Renderer draws native widgets with. It is not the zoom's whole factor
+/// `k`: `k` also carries the system text size, and the Renderer applies that to text alone
+/// (as the font scale), so a dp of layout does not grow with it. Dividing by `k` would make
+/// every offset shrink when the reader enlarges their text.
+///
+/// Read inside a handler, the density and zoom are those of the window the handler's node is
+/// in. `None` for a value that is not a number; a value below zero is zero.
+pub(crate) fn scroll_px_to_layout_dp(px: f64) -> Option<f32> {
+    let px_per_dp = f64::from(crate::density::density()) * f64::from(crate::zoom::zoom().app());
+    let dp = px / px_per_dp;
+    dp.is_finite().then(|| dp.max(0.0) as f32)
+}
+
 fn scroll_state_input(
     state: Option<ScrollState>,
     vertical: bool,
@@ -837,28 +854,19 @@ fn scroll_state_input(
         "onscrollchanged",
         EventCallback::Scroll(Rc::new(RefCell::new(
             move |report: crate::runtime::composer::ScrollReport| {
-                // The handler runs as the window its node is in, so these are that window's.
-                // Native widgets are drawn at the display scale times the application's zoom
-                // step; the system text size only scales text, so it is not part of a dp.
-                let px_per_dp =
-                    f64::from(crate::density::density()) * f64::from(crate::zoom::zoom().app());
                 let (along, furthest, visible) = if vertical {
                     (report.y_px, report.max_y_px, report.viewport_height_px)
                 } else {
                     (report.x_px, report.max_x_px, report.viewport_width_px)
                 };
-                // A value that is not a number leaves what was there; one below zero is zero.
-                let dp = |px: f64| {
-                    let dp = px / px_per_dp;
-                    dp.is_finite().then(|| dp.max(0.0) as f32)
-                };
-                if let Some(value) = dp(along) {
+                // A value that is not a number leaves what was there.
+                if let Some(value) = scroll_px_to_layout_dp(along) {
                     offset.set(value);
                 }
-                if let Some(value) = dp(furthest) {
+                if let Some(value) = scroll_px_to_layout_dp(furthest) {
                     max_offset.set(value);
                 }
-                if let Some(value) = dp(visible) {
+                if let Some(value) = scroll_px_to_layout_dp(visible) {
                     viewport.set(value);
                 }
             },
