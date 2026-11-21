@@ -226,6 +226,7 @@ mod macros {
             color = Paint::Role(ColorRole::Primary),
             enabled = false,
             section = "Main",
+            count = 4,
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
     }
@@ -425,6 +426,7 @@ mod functions {
             Paint::Role(ColorRole::Primary),
             false,
             "Main",
+            4,
             Some(|_: MotionFinished| {}),
         );
     }
