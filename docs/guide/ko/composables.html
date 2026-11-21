@@ -359,6 +359,15 @@
       때문입니다.
     </p>
     <p>
+      <strong>앱이 정한 경계.</strong> 클래스와 다른 너비에서 화면이 모양을 바꿔야 하면
+      <code>current_window_breakpoint(&amp;[560.0, 900.0, 1279.0])</code> 가 창이 속한 구간 번호를
+      돌려줍니다. 너비가 이른 경계의 개수이므로, 경계와 같은 너비는 그 위 구간입니다. 컴포저블은 구간이
+      바뀔 때만 다시 실행됩니다. 창이 더 자주 알리게 하지는 않습니다. 클래스 경계가 아닌 경계를 넘는
+      순간을 보려면 창을 <code>report_size(true)</code>(단일 창은
+      <code>Window::new().with_report_size(true)</code>)로 여세요. 끄는 동안 정수 dp마다 Rust 호출이
+      하나씩 늡니다.
+    </p>
+    <p>
       <code>Navigation</code>, <code>Sheet</code>, <code>Scaffold</code> 는 렌더러가 이미 가진 노드를
       옮겨서 스스로 적응합니다. 창 크기는 위젯이 대신 정해 줄 수 없는 결정, 예를 들어 한 열 대신 두
       열로 놓는 데 씁니다.

@@ -1672,6 +1672,27 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. 아래 안전 영역만 바뀌어도 `WindowSizeChanged`가 한 번 오고, 그 값의 `safe_area_bottom`이 새 값입니다(fr19_9_safe_area_change_alone_resends를 아래 값까지 넓힘).
 2. 데스크톱 창은 `safe_area_bottom = 0`을 보냅니다(fr19_9_desktop_reports_no_bottom_safe_area).
 
+#### 20.10 앱이 정한 폭 경계 (`Agreed`, 이슈 #301, [leader, 2026-11-21])
+
+크기 클래스의 경계(600, 840dp)와 다른 폭에서 배치를 바꿔야 하는 화면이 있습니다. darkpyonix-ember의 목업은 560, 900, 1279px에서 CSS 미디어 쿼리로 배치를 바꿉니다. `current_window_size()`로 폭을 직접 비교하면 그 composable은 창 크기 보고가 올 때마다 다시 실행되므로, 경계를 넘을 때만 다시 실행되는 함수를 둡니다.
+
+- **API**: `current_window_breakpoint(breakpoints: &[f32]) -> usize`. 폭 경계(dp)를 받아 현재 창 폭이 속한 구간 번호를 돌려줍니다. `compose_rust::runtime`에 `current_window_size()`와 나란히 있습니다.
+- **구간 규칙**: 번호는 `width_dp >= b`인 경계 `b`의 개수입니다. 폭이 경계와 같으면 그 경계 위의 구간입니다(`WindowSizeClass`와 같은 방향, CSS의 `min-width`). `[560, 900, 1279]`에서 559.9dp는 0, 560dp는 1, 900dp는 2, 1279dp는 3입니다. CSS의 `max-width: 560px`처럼 경계를 아래 구간에 넣는 쪽은 561처럼 한 칸 위의 값을 넘깁니다.
+- **목록 다루기**: 번호가 개수이므로 목록의 순서는 결과를 바꾸지 않습니다. 유한하지 않은 값(NaN, 무한대)과 0 이하의 값은 세지 않습니다. 그런 값이 있거나 목록이 엄격한 오름차순이 아니면 패닉 없이 계산하고, 디버그 빌드에서만 그 호출 자리마다 한 번 경고합니다. 빈 목록은 늘 0입니다.
+- **측정 전**: Renderer가 아직 아무것도 보고하지 않은 창의 폭은 0dp(20.4)이므로 번호는 0입니다. 0 이하의 경계를 세지 않는 것이 이 성질을 지킵니다.
+- **다시 실행**: 그 함수를 부른 composable은 **구간 번호가 바뀔 때만** 다시 실행됩니다. 같은 구간 안의 크기 변화나 같은 구간 안의 클래스 변화로는 다시 실행되지 않습니다. 호출 자리마다 기억한 파생 상태(`derived_state_of`)가 창 크기를 읽고, composable은 그 번호만 읽습니다. 같은 호출 자리에 다른 목록을 넘기면 그 목록으로 다시 계산합니다.
+- **다중 창**: 그 composable이 있는 창의 폭입니다(FR-53). 다른 창의 크기 보고로는 다시 실행되지 않습니다.
+- **`report_size`는 켜지 않습니다**: 클래스 경계가 아닌 곳에서 번호가 바뀌려면 창이 같은 클래스 안의 크기 변화도 보내야 합니다. 그것은 20.8의 옵트인(`Window(report_size: true)`, 암묵적 창은 `Window::new().with_report_size(true)`)이고, 이 함수가 대신 켜지 않습니다. 드래그 중 정수 dp마다 Host 호출이 느는 비용은 앱이 고르는 것이기 때문입니다. 켜지 않은 창에서는 클래스나 안전 영역이 바뀌어 보고가 올 때만 번호가 갱신되고, 그때의 폭으로 계산합니다.
+- 와이어, 스키마, Renderer는 바뀌지 않습니다. Host 함수 하나입니다.
+
+수용 기준:
+
+1. 암묵적 창을 `with_report_size(true)`로 열고 `current_window_breakpoint(&[560.0, 900.0, 1279.0])`를 읽으면, 폭 559.9/560/899/900/1278.9/1279dp의 보고에서 0/1/1/2/2/3입니다(fr20_10_breakpoint_index_follows_the_window_width).
+2. 그 composable은 폭을 700dp에서 880dp까지 1dp씩 넓히는 동안(840dp의 클래스 전환 포함) 다시 실행되지 않고, 900dp에 이르면 한 번 다시 실행됩니다. 같은 창에서 이 함수를 읽지 않는 형제는 어느 보고에서도 다시 실행되지 않습니다(fr20_10_reader_reruns_only_on_a_bucket_change).
+3. 두 창에서 각 composable이 자기 창의 폭으로 번호를 얻고, 한 창의 보고는 다른 창의 composable을 다시 실행하지 않습니다(fr20_10_breakpoint_reads_its_own_window).
+4. 측정 전 번호는 0이고, 경계 목록이 비어 있으면 어느 폭에서나 0입니다(fr20_10_breakpoint_defaults_to_zero).
+5. `[1279, 560, 900]`처럼 순서가 섞인 목록은 정렬한 목록과 같은 번호를 주고, NaN, 무한대, 0 이하의 값은 세지 않으며, 어느 경우에도 패닉하지 않습니다(fr20_10_breakpoint_list_order_and_bad_values).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
