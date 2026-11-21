@@ -413,4 +413,36 @@ class PlatformNavigationShellTest {
         onNodeWithTag(navigationStripTestTag(NAVIGATION)).assertDoesNotExist()
         assertTrue(shell.presentations > 0)
     }
+
+    /**
+     * A destination's count reaches the platform's own bar as its badge, written the way
+     * the design system's badge writes it, and a destination with no count has no badge.
+     */
+    @Test
+    fun fr21_2_4_the_shell_badges_a_destination_with_its_count() = runComposeUiTest {
+        val shell = RecordingShell()
+        platformNavigationShell = shell
+        val batch = navigationBatch(DesignSystem.LiquidGlass) +
+            Mutation.SetProp(FIRST, PropertyKind.Count, PropertyValue.Integer(120))
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch)),
+                    Modifier.requiredSize(500.dp, 800.dp),
+                )
+            }
+        }
+        waitForIdle()
+
+        val theme = dev.darkpyonix.composerust.design.resolveTheme(
+            Theme(DesignSystem.LiquidGlass, DesignSystem.LiquidGlass, ColorScheme.Light, false),
+            HostPlatform.Ios,
+            systemDark = false,
+        )
+        assertEquals(theme.rules.badge(theme).label(120), shell.handed[0].badge)
+        assertNull(shell.handed[1].badge, "a destination with no count was given a badge")
+    }
 }

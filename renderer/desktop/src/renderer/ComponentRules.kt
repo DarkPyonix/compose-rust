@@ -429,6 +429,10 @@ internal object Material3Rules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             // Material's bars sit flush against the content and are separated by tone.
             separator = null,
+            // A destination's count is the quiet ink beside its label, and the selected
+            // row's mark is the same tonal fill that ink is paired with.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 80.dp,
             railWidth = 80.dp,
             drawerWidth = 280.dp,
@@ -1015,6 +1019,10 @@ internal object CupertinoRules : ComponentRules {
             indicatorExtent = NavigationExtent.Destination,
             // A tab bar and a sidebar are both divided from the content by a hairline.
             separator = theme.color(ColorRole.OutlineVariant),
+            // A sidebar's trailing count is the secondary label colour, on the grey row
+            // fill as much as off it.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 50.dp,
             railWidth = 76.dp,
             drawerWidth = 260.dp,
@@ -1618,6 +1626,10 @@ internal object FluentRules : ComponentRules {
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.LeadingEdgeBar,
             separator = theme.color(ColorRole.OutlineVariant),
+            // The selected row is marked by a bar at its edge rather than a fill, so its
+            // count reads in the same secondary ink as any other row's.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 56.dp,
             railWidth = 48.dp,
             drawerWidth = 320.dp,
@@ -2169,6 +2181,10 @@ internal object GnomeRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = theme.color(ColorRole.OutlineVariant),
+            // The selected row is a faint tint of the accent, light enough that the
+            // secondary ink still reads on it.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 60.dp,
             railWidth = 68.dp,
             drawerWidth = 240.dp,
@@ -2750,6 +2766,10 @@ internal object BreezeRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = theme.color(ColorRole.Outline),
+            // The selected row is filled with the accent, so its count takes the ink made
+            // to read on the accent, as its label does.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnPrimary),
             barHeight = 48.dp,
             railWidth = 56.dp,
             drawerWidth = 220.dp,
@@ -3326,6 +3346,10 @@ internal object DeepinRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = null,
+            // The selected row is filled with the accent, so its count takes the ink made
+            // to read on the accent, as its label does.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnPrimary),
             barHeight = 68.dp,
             railWidth = 72.dp,
             drawerWidth = 200.dp,
@@ -4153,6 +4177,10 @@ internal object LiquidGlassRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = null,
+            // A sidebar's trailing count is the secondary label colour, which the faint
+            // fill of the selected row leaves readable.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 56.dp,
             railWidth = 76.dp,
             // Measured off the application this is drawn from rather than rounded to a
