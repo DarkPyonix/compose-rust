@@ -30,10 +30,13 @@ import dev.darkpyonix.composerust.protocol.TransformFunction
 import dev.darkpyonix.composerust.protocol.TransformFunctionKind
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cbrt
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -160,10 +163,16 @@ internal object WebAnimationTiming {
 
     /**
      * One keyframe's timing function applied to the progress through its segment. [curve]
-     * is the keyframe's cubic-bezier, made once when the animation arrives, so easing a
-     * frame allocates nothing.
+     * is the keyframe's cubic-bezier and [springMs] its spring's settle time, both worked
+     * out once when the animation arrives, so easing a frame allocates nothing.
      */
-    fun ease(timing: Timing, input: Float, beforeFlag: Boolean, curve: CubicBezierEasing? = null): Float = when (timing) {
+    fun ease(
+        timing: Timing,
+        input: Float,
+        beforeFlag: Boolean,
+        curve: CubicBezierEasing? = null,
+        springMs: Double = Double.NaN,
+    ): Float = when (timing) {
         Timing.Linear -> input
         is Timing.CubicBezier -> when {
             // Outside 0..1 a cubic-bezier is extended along its end tangents; inside, it is
@@ -174,6 +183,175 @@ internal object WebAnimationTiming {
             else -> if (timing.x2 < 1f) 1f + (input - 1f) * (1f - timing.y2) / (1f - timing.x2) else 1f
         }
         is Timing.Steps -> steps(input, timing.count, timing.position, beforeFlag)
+        is Timing.Spring -> SpringTiming.ease(
+            timing.stiffness,
+            timing.dampingRatio,
+            input,
+            if (springMs.isNaN()) SpringTiming.settleMs(timing.stiffness, timing.dampingRatio) else springMs,
+        )
+    }
+}
+
+/**
+ * Compose's spring as a timing function: a damped oscillator of mass 1 that starts at rest
+ * at 0 and settles at 1.
+ *
+ * A segment's progress `u` is the time `u × T`, where `T` ([settleMs]) is how long the
+ * spring takes to come within 0.001 of 1 and stay there. The position follows Compose's
+ * `SpringSimulation` and the settle time its `estimateAnimationDurationMillis`, both
+ * ported here step for step rather than called, because the one is internal to Compose and
+ * the other restricted to its own libraries. The Host computes the same settle time for
+ * `AnimationSpec::spring`, which is why it never travels on the wire.
+ */
+internal object SpringTiming {
+    /** How close to 1 the spring has to stay to have settled. */
+    const val THRESHOLD = 0.001
+
+    /** The position at [input], exactly 0 at the start and exactly 1 at the end. */
+    fun ease(stiffness: Float, dampingRatio: Float, input: Float, settleMs: Double): Float = when {
+        input <= 0f -> 0f
+        input >= 1f -> 1f
+        else -> position(stiffness, dampingRatio, input * settleMs / 1000.0).toFloat()
+    }
+
+    /**
+     * Where the spring is [seconds] after it starts: Compose's `SpringSimulation` moving from
+     * 0 at rest to a final position of 1, without its rounding of the time to milliseconds.
+     */
+    fun position(stiffness: Float, dampingRatio: Float, seconds: Double): Double {
+        val naturalFrequency = sqrt(stiffness.toDouble())
+        val displacement0 = -1.0
+        val velocity0 = 0.0
+        val dampingSquared = dampingRatio * dampingRatio.toDouble()
+        val r = -dampingRatio * naturalFrequency
+        val displacement = if (dampingRatio > 1f) {
+            val s = naturalFrequency * sqrt(dampingSquared - 1)
+            val gammaPlus = r + s
+            val gammaMinus = r - s
+            val coefficientB = (gammaMinus * displacement0 - velocity0) / (gammaMinus - gammaPlus)
+            val coefficientA = displacement0 - coefficientB
+            coefficientA * exp(gammaMinus * seconds) + coefficientB * exp(gammaPlus * seconds)
+        } else if (dampingRatio == 1f) {
+            val coefficientA = displacement0
+            val coefficientB = velocity0 + naturalFrequency * displacement0
+            (coefficientA + coefficientB * seconds) * exp(-naturalFrequency * seconds)
+        } else {
+            val dampedFrequency = naturalFrequency * sqrt(1 - dampingSquared)
+            val cosCoefficient = displacement0
+            val sinCoefficient = (1 / dampedFrequency) * ((-r * displacement0) + velocity0)
+            val angle = dampedFrequency * seconds
+            exp(r * seconds) * (cosCoefficient * cos(angle) + sinCoefficient * sin(angle))
+        }
+        return displacement + 1.0
+    }
+
+    /**
+     * How long, in ms, the spring takes to come within [THRESHOLD] of 1 and stay there.
+     * Compose's `estimateAnimationDurationMillis` with the distance measured in units of the
+     * threshold, as Compose measures it, and the fraction of a millisecond kept.
+     */
+    fun settleMs(stiffness: Float, dampingRatio: Float): Double {
+        val k = stiffness.toDouble()
+        val zeta = dampingRatio.toDouble()
+        val p0 = 1.0 / THRESHOLD
+        val v0 = 0.0
+        val delta = 1.0
+        // The roots of x^2 + c x + k = 0, the first of which may be complex.
+        val damping = 2.0 * zeta * sqrt(k)
+        val partial = damping * damping - 4.0 * k
+        val partialReal = if (partial < 0.0) 0.0 else sqrt(partial)
+        val partialImaginary = if (partial < 0.0) sqrt(abs(partial)) else 0.0
+        val firstReal = (-damping + partialReal) * 0.5
+        val firstImaginary = partialImaginary * 0.5
+        val secondReal = (-damping - partialReal) * 0.5
+        val seconds = when {
+            zeta > 1.0 -> overDamped(firstReal, secondReal, p0, v0, delta)
+            zeta < 1.0 -> underDamped(firstReal, firstImaginary, p0, v0, delta)
+            else -> criticallyDamped(firstReal, p0, v0, delta)
+        }
+        return seconds * 1000.0
+    }
+
+    private fun underDamped(r: Double, imaginary: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c1 = p0
+        val c2 = (v0 - r * c1) / imaginary
+        val c = sqrt(c1 * c1 + c2 * c2)
+        return ln(delta / c) / r
+    }
+
+    private fun criticallyDamped(r: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c1 = p0
+        val c2 = v0 - r * c1
+        // The first guess is the later of c1 e^(rt) = delta and c2 t e^(rt) = delta, the
+        // second solved with a few rounds of Lambert's W.
+        val t1 = ln(abs(delta / c1)) / r
+        val guess = ln(abs(delta / c2))
+        var lambert = guess
+        repeat(6) { lambert = guess - ln(abs(lambert / r)) }
+        val t2 = lambert / r
+        var t = when {
+            !t1.isFinite() -> t2
+            !t2.isFinite() -> t1
+            else -> max(t1, t2)
+        }
+        val tInflection = -(r * c1 + c2) / (r * c2)
+        val xInflection = c1 * exp(r * tInflection) + c2 * tInflection * exp(r * tInflection)
+        val signedDelta = if (tInflection.isNaN() || tInflection <= 0.0) {
+            -delta
+        } else if (-xInflection < delta) {
+            if (c2 < 0 && c1 > 0) t = 0.0
+            -delta
+        } else {
+            // Three crossings of the threshold: start between the change of concavity and
+            // the inflection, so that Newton's method lands on the last one.
+            t = -(2.0 / r) - (c1 / c2)
+            delta
+        }
+        var step = Double.MAX_VALUE
+        var iterations = 0
+        while (step > 0.001 && iterations < 100) {
+            iterations++
+            val last = t
+            val value = (c1 + c2 * t) * exp(r * t) + signedDelta
+            val slope = (c2 * (r * t + 1) + c1 * r) * exp(r * t)
+            t -= value / slope
+            step = abs(last - t)
+        }
+        return t
+    }
+
+    private fun overDamped(r1: Double, r2: Double, p0: Double, v0: Double, delta: Double): Double {
+        val c2 = (r1 * p0 - v0) / (r1 - r2)
+        val c1 = p0 - c2
+        val t1 = ln(abs(delta / c1)) / r1
+        val t2 = ln(abs(delta / c2)) / r2
+        var t = when {
+            !t1.isFinite() -> t2
+            !t2.isFinite() -> t1
+            else -> max(t1, t2)
+        }
+        val tInflection = ln((c1 * r1) / (-c2 * r2)) / (r2 - r1)
+        val signedDelta = if (tInflection.isNaN() || tInflection <= 0.0) {
+            -delta
+        } else if (-(c1 * exp(r1 * tInflection) + c2 * exp(r2 * tInflection)) < delta) {
+            if (c2 > 0.0 && c1 < 0.0) t = 0.0
+            -delta
+        } else {
+            t = ln(-(c2 * r2 * r2) / (c1 * r1 * r1)) / (r1 - r2)
+            delta
+        }
+        if (abs(c1 * r1 * exp(r1 * t) + c2 * r2 * exp(r2 * t)) < 0.0001) return t
+        var step = Double.MAX_VALUE
+        var iterations = 0
+        while (step > 0.001 && iterations < 100) {
+            iterations++
+            val last = t
+            val value = c1 * exp(r1 * t) + c2 * exp(r2 * t) + signedDelta
+            val slope = c1 * r1 * exp(r1 * t) + c2 * r2 * exp(r2 * t)
+            t -= value / slope
+            step = abs(last - t)
+        }
+        return t
     }
 }
 
@@ -208,6 +386,24 @@ class AnimatedNode internal constructor() {
 
     /** The colour every side of the border shows, as `Color.value`, or [NO_COLOR]. */
     internal val borderColor = mutableLongStateOf(NO_COLOR)
+
+    /**
+     * The 4x4 matrix a 3D transform animation shows, column-major like the `Transform3D`
+     * modifier's, valid while [transform3DShown]. Written in place, so a frame allocates none.
+     */
+    internal val matrix3D = FloatArray(16)
+    internal var transform3DShown = false
+
+    /** Bumped whenever [matrix3D] or [transform3DShown] changes, so the layers reading it redraw. */
+    internal val transform3DVersion = mutableIntStateOf(0)
+
+    /**
+     * Whether the node's `Transform3D` has to be drawn by the layers that can follow a matrix
+     * that changes every frame. Read in composition, and set once, the first time a 3D
+     * transform animation plays on the node, so a matrix nothing animates keeps the fewest
+     * layers.
+     */
+    internal val transform3DAnimated = mutableStateOf(false)
 
     /**
      * Whether a uniform `Border` has to be drawn by the layer that can repaint it. Read in
@@ -264,6 +460,12 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         val curves: Array<CubicBezierEasing?> = Array(animation.keyframes.size) { index ->
             (animation.keyframes[index].timing as? Timing.CubicBezier)?.let { CubicBezierEasing(it.x1, it.y1, it.x2, it.y2) }
         }
+        /** Each keyframe's spring settle time in ms, NaN where it is not a spring. Worked out once here. */
+        val springMs = DoubleArray(animation.keyframes.size) { index ->
+            (animation.keyframes[index].timing as? Timing.Spring)
+                ?.let { SpringTiming.settleMs(it.stiffness, it.dampingRatio) }
+                ?: Double.NaN
+        }
         /** Resolved on the first frame where the record said zero. Nanoseconds. */
         var startNanos: Long = animation.startTimeNanos
         var pausedAtNanos: Long = if (animation.playState == PlayState.Paused) PAUSED_AT_START else NOT_PAUSED
@@ -309,6 +511,9 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         }
         if (animation.property == AnimatedProperty.BorderColor) {
             holder.borderAnimated.value = true
+        }
+        if (animation.property == AnimatedProperty.Transform3D) {
+            holder.transform3DAnimated.value = true
         }
         generation.intValue += 1
     }
@@ -391,6 +596,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             AnimatedProperty.Alpha -> if (node.modifiers.none { it is ProtocolModifier.Alpha }) "no Alpha modifier" else null
             AnimatedProperty.Background -> if (node.modifiers.none { it is ProtocolModifier.Background }) "no Background modifier" else null
             AnimatedProperty.Transform -> if (node.modifiers.none { it is ProtocolModifier.Transform }) "no Transform modifier" else null
+            AnimatedProperty.Transform3D -> if (node.modifiers.none { it is ProtocolModifier.Transform3D }) "no Transform3D modifier" else null
             AnimatedProperty.Color ->
                 if (!NodeTable.supportsProperty(node.widget, PropertyKind.Color)) "${node.widget} has no color" else null
             AnimatedProperty.BorderColor ->
@@ -524,7 +730,7 @@ class AnimationTable internal constructor(private val table: NodeTable) {
         val to = keyframes[segment + 1]
         val span = to.offset - from.offset
         val local = if (span == 0f) 0f else (p - from.offset) / span
-        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag, winner.curves[segment])
+        val eased = WebAnimationTiming.ease(from.timing, local, sample.beforeFlag, winner.curves[segment], winner.springMs[segment])
         val fromValue: Any = if (segment == 0 && winner.fromPresented != null) winner.fromPresented!! else from.value
         when (property) {
             AnimatedProperty.Alpha -> {
@@ -547,6 +753,14 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                 transformBetween(fromValue, to.value as KeyframeValue.Transform, eased, node.matrix)
                 node.transformShown = true
                 node.transformVersion.intValue += 1
+            }
+            // Not clamped: a spring or a cubic-bezier that overshoots carries the matrix past
+            // its end and back, as CSS does with a transform.
+            AnimatedProperty.Transform3D -> {
+                val start = (fromValue as? KeyframeValue.Matrix3D)?.m ?: (fromValue as FloatArray)
+                Matrix3DInterpolation.interpolate(start, (to.value as KeyframeValue.Matrix3D).m, eased, node.matrix3D)
+                node.transform3DShown = true
+                node.transform3DVersion.intValue += 1
             }
         }
     }
@@ -575,6 +789,10 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             AnimatedProperty.Transform -> if (node.transformShown) {
                 node.transformShown = false
                 node.transformVersion.intValue += 1
+            }
+            AnimatedProperty.Transform3D -> if (node.transform3DShown) {
+                node.transform3DShown = false
+                node.transform3DVersion.intValue += 1
             }
         }
     }
@@ -662,6 +880,18 @@ class AnimationTable internal constructor(private val table: NodeTable) {
                     } else {
                         matrix[0] = base.a; matrix[1] = base.b; matrix[2] = base.c
                         matrix[3] = base.d; matrix[4] = base.e; matrix[5] = base.f
+                    }
+                }
+            }
+            AnimatedProperty.Transform3D -> FloatArray(16).also { matrix ->
+                if (shown != null && shown.transform3DShown) {
+                    shown.matrix3D.copyInto(matrix)
+                } else {
+                    val base = node.modifiers.firstOrNull { it is ProtocolModifier.Transform3D } as ProtocolModifier.Transform3D?
+                    if (base == null) {
+                        Matrix3DInterpolation.identity(matrix)
+                    } else {
+                        Matrix3DInterpolation.matrixOf(base, matrix)
                     }
                 }
             }
@@ -966,6 +1196,277 @@ class AnimationTable internal constructor(private val table: NodeTable) {
             out[3] = row1y.toFloat()
             out[4] = translateX.toFloat()
             out[5] = translateY.toFloat()
+        }
+    }
+}
+
+/**
+ * Interpolation of two 4x4 matrices as CSS Transforms Level 2 does it ("Interpolation of 3D
+ * matrices"): each is taken apart into a translation, a scale, a skew, a perspective and a
+ * rotation as a quaternion, the parts are interpolated (the quaternion along the sphere),
+ * and the result is put back together. A matrix that cannot be taken apart (its upper 3x3
+ * is singular, or its `m15` is zero) is not interpolated: the value switches from one end to
+ * the other at progress 0.5, as CSS does.
+ *
+ * Matrices are column-major, `m[4 * column + row]`, the order of CSS `matrix3d()` and of the
+ * `Transform3D` modifier. Indexed that way, the arrays are the matrices the specification's
+ * pseudo-code works on, so the steps below follow it line for line.
+ *
+ * The scratch it works in is made once. Animations are played on the UI thread and nowhere
+ * else, so one set is enough and a frame allocates none.
+ */
+internal object Matrix3DInterpolation {
+    private val from = Decomposed3D()
+    private val to = Decomposed3D()
+    private val result = Decomposed3D()
+
+    fun identity(m: FloatArray) {
+        for (index in 0 until 16) m[index] = if (index % 5 == 0) 1f else 0f
+    }
+
+    /** The sixteen values of a `Transform3D` modifier, in its order. */
+    fun matrixOf(value: ProtocolModifier.Transform3D, into: FloatArray) {
+        into[0] = value.m0; into[1] = value.m1; into[2] = value.m2; into[3] = value.m3
+        into[4] = value.m4; into[5] = value.m5; into[6] = value.m6; into[7] = value.m7
+        into[8] = value.m8; into[9] = value.m9; into[10] = value.m10; into[11] = value.m11
+        into[12] = value.m12; into[13] = value.m13; into[14] = value.m14; into[15] = value.m15
+    }
+
+    /** The matrix between [a] and [b] at progress [t], written into [out]. */
+    fun interpolate(a: FloatArray, b: FloatArray, t: Float, out: FloatArray) {
+        if (!from.of(a) || !to.of(b)) {
+            (if (t < 0.5f) a else b).copyInto(out)
+            return
+        }
+        val progress = t.toDouble()
+        fun lerp(x: Double, y: Double) = x + (y - x) * progress
+        for (index in 0 until 3) {
+            result.translate[index] = lerp(from.translate[index], to.translate[index])
+            result.scale[index] = lerp(from.scale[index], to.scale[index])
+            result.skew[index] = lerp(from.skew[index], to.skew[index])
+        }
+        for (index in 0 until 4) result.perspective[index] = lerp(from.perspective[index], to.perspective[index])
+        // Spherical linear interpolation of the two rotations.
+        val qa = from.quaternion
+        val qb = to.quaternion
+        val product = (qa[0] * qb[0] + qa[1] * qb[1] + qa[2] * qb[2] + qa[3] * qb[3]).coerceIn(-1.0, 1.0)
+        if (abs(product) == 1.0) {
+            for (index in 0 until 4) result.quaternion[index] = qa[index]
+        } else {
+            val theta = acos(product)
+            val w = sin(progress * theta) / sqrt(1 - product * product)
+            val keep = cos(progress * theta) - product * w
+            for (index in 0 until 4) result.quaternion[index] = qa[index] * keep + qb[index] * w
+        }
+        result.into(out)
+    }
+}
+
+/** A 4x4 matrix taken apart as CSS Transforms Level 2 takes one apart. */
+internal class Decomposed3D {
+    val translate = DoubleArray(3)
+    val scale = DoubleArray(3)
+    val skew = DoubleArray(3)
+    val perspective = DoubleArray(4)
+    val quaternion = DoubleArray(4)
+
+    // Scratch, `[4 * i + j]` standing for the specification's `matrix[i][j]`.
+    private val matrix = DoubleArray(16)
+    private val perspectiveMatrix = DoubleArray(16)
+    private val inverse = DoubleArray(16)
+    private val product = DoubleArray(16)
+
+    // The three "rows" of the specification, `[3 * i + j]`.
+    private val row = DoubleArray(9)
+
+    /** Takes [m] apart, or answers false where it cannot be. */
+    fun of(m: FloatArray): Boolean {
+        // Normalize the matrix.
+        val w = m[15].toDouble()
+        if (w == 0.0) return false
+        for (index in 0 until 16) matrix[index] = m[index] / w
+        // The perspective matrix solves for the perspective, and tests the upper 3x3 for
+        // singularity.
+        matrix.copyInto(perspectiveMatrix)
+        perspectiveMatrix[3] = 0.0
+        perspectiveMatrix[7] = 0.0
+        perspectiveMatrix[11] = 0.0
+        perspectiveMatrix[15] = 1.0
+        if (!invert(perspectiveMatrix, inverse)) return false
+        // First, isolate the perspective: the right-hand side times the transposed inverse.
+        if (matrix[3] != 0.0 || matrix[7] != 0.0 || matrix[11] != 0.0) {
+            val r0 = matrix[3]
+            val r1 = matrix[7]
+            val r2 = matrix[11]
+            val r3 = matrix[15]
+            for (i in 0 until 4) {
+                perspective[i] = inverse[4 * i] * r0 + inverse[4 * i + 1] * r1 + inverse[4 * i + 2] * r2 + inverse[4 * i + 3] * r3
+            }
+        } else {
+            perspective[0] = 0.0
+            perspective[1] = 0.0
+            perspective[2] = 0.0
+            perspective[3] = 1.0
+        }
+        // Next, the translation.
+        for (i in 0 until 3) translate[i] = matrix[12 + i]
+        // Now the scale and the shear.
+        for (i in 0 until 3) for (j in 0 until 3) row[3 * i + j] = matrix[4 * i + j]
+        // The X scale, and the first row normalized.
+        scale[0] = length(0)
+        normalize(0)
+        // The XY shear, and the second row made orthogonal to the first.
+        skew[0] = dot(0, 1)
+        combine(1, 0, -skew[0])
+        // The Y scale, and the second row normalized.
+        scale[1] = length(1)
+        normalize(1)
+        skew[0] /= scale[1]
+        // The XZ and YZ shears, and the third row made orthogonal to both.
+        skew[1] = dot(0, 2)
+        combine(2, 0, -skew[1])
+        skew[2] = dot(1, 2)
+        combine(2, 1, -skew[2])
+        // The Z scale, and the third row normalized.
+        scale[2] = length(2)
+        normalize(2)
+        skew[1] /= scale[2]
+        skew[2] /= scale[2]
+        // The rows are now orthonormal. Where they make a left-handed system, the matrix and
+        // the scale are negated.
+        val crossX = row[4] * row[8] - row[5] * row[7]
+        val crossY = row[5] * row[6] - row[3] * row[8]
+        val crossZ = row[3] * row[7] - row[4] * row[6]
+        if (row[0] * crossX + row[1] * crossY + row[2] * crossZ < 0) {
+            for (i in 0 until 3) {
+                scale[i] = -scale[i]
+                row[3 * i] = -row[3 * i]
+                row[3 * i + 1] = -row[3 * i + 1]
+                row[3 * i + 2] = -row[3 * i + 2]
+            }
+        }
+        // Finally, the rotation.
+        quaternion[0] = 0.5 * sqrt(max(1 + row[0] - row[4] - row[8], 0.0))
+        quaternion[1] = 0.5 * sqrt(max(1 - row[0] + row[4] - row[8], 0.0))
+        quaternion[2] = 0.5 * sqrt(max(1 - row[0] - row[4] + row[8], 0.0))
+        quaternion[3] = 0.5 * sqrt(max(1 + row[0] + row[4] + row[8], 0.0))
+        if (row[7] > row[5]) quaternion[0] = -quaternion[0]
+        if (row[2] > row[6]) quaternion[1] = -quaternion[1]
+        if (row[3] > row[1]) quaternion[2] = -quaternion[2]
+        return translate.all { it.isFinite() } && scale.all { it.isFinite() } &&
+            skew.all { it.isFinite() } && perspective.all { it.isFinite() } && quaternion.all { it.isFinite() }
+    }
+
+    /** Puts the parts back together into [out]. */
+    fun into(out: FloatArray) {
+        for (index in 0 until 16) matrix[index] = if (index % 5 == 0) 1.0 else 0.0
+        // The perspective.
+        for (i in 0 until 4) matrix[4 * i + 3] = perspective[i]
+        // The translation.
+        for (i in 0 until 4) {
+            for (j in 0 until 3) matrix[12 + i] += translate[j] * matrix[4 * j + i]
+        }
+        // The rotation, built from the quaternion and applied ahead of what is there.
+        val x = quaternion[0]
+        val y = quaternion[1]
+        val z = quaternion[2]
+        val w = quaternion[3]
+        for (index in 0 until 16) product[index] = if (index % 5 == 0) 1.0 else 0.0
+        product[0] = 1 - 2 * (y * y + z * z)
+        product[1] = 2 * (x * y + z * w)
+        product[2] = 2 * (x * z - y * w)
+        product[4] = 2 * (x * y - z * w)
+        product[5] = 1 - 2 * (x * x + z * z)
+        product[6] = 2 * (y * z + x * w)
+        product[8] = 2 * (x * z + y * w)
+        product[9] = 2 * (y * z - x * w)
+        product[10] = 1 - 2 * (x * x + y * y)
+        multiplyInto(product, matrix, inverse)
+        inverse.copyInto(matrix)
+        // The skews, each a matrix that adds a multiple of one row to another, applied ahead.
+        addRow(target = 2, source = 1, factor = skew[2])
+        addRow(target = 2, source = 0, factor = skew[1])
+        addRow(target = 1, source = 0, factor = skew[0])
+        // The scale.
+        for (i in 0 until 3) for (j in 0 until 4) matrix[4 * i + j] *= scale[i]
+        for (index in 0 until 16) out[index] = matrix[index].toFloat()
+    }
+
+    private fun addRow(target: Int, source: Int, factor: Double) {
+        if (factor == 0.0) return
+        for (j in 0 until 4) matrix[4 * target + j] += factor * matrix[4 * source + j]
+    }
+
+    private fun length(i: Int): Double =
+        sqrt(row[3 * i] * row[3 * i] + row[3 * i + 1] * row[3 * i + 1] + row[3 * i + 2] * row[3 * i + 2])
+
+    private fun normalize(i: Int) {
+        val length = length(i)
+        if (length == 0.0) return
+        row[3 * i] /= length
+        row[3 * i + 1] /= length
+        row[3 * i + 2] /= length
+    }
+
+    private fun dot(i: Int, j: Int): Double =
+        row[3 * i] * row[3 * j] + row[3 * i + 1] * row[3 * j + 1] + row[3 * i + 2] * row[3 * j + 2]
+
+    /** `row[i] = row[i] + factor × row[j]`. */
+    private fun combine(i: Int, j: Int, factor: Double) {
+        row[3 * i] += factor * row[3 * j]
+        row[3 * i + 1] += factor * row[3 * j + 1]
+        row[3 * i + 2] += factor * row[3 * j + 2]
+    }
+
+    private companion object {
+        /** `out[4i + j] = Σ a[4i + k] b[4k + j]`. [out] is neither [a] nor [b]. */
+        fun multiplyInto(a: DoubleArray, b: DoubleArray, out: DoubleArray) {
+            for (i in 0 until 4) {
+                for (j in 0 until 4) {
+                    var sum = 0.0
+                    for (k in 0 until 4) sum += a[4 * i + k] * b[4 * k + j]
+                    out[4 * i + j] = sum
+                }
+            }
+        }
+
+        /**
+         * The inverse of [m] into [out], or false where [m] has none. Cofactors, which give
+         * the inverse in whichever order the matrix is stored.
+         */
+        fun invert(m: DoubleArray, out: DoubleArray): Boolean {
+            val a0 = m[0] * m[5] - m[1] * m[4]
+            val a1 = m[0] * m[6] - m[2] * m[4]
+            val a2 = m[0] * m[7] - m[3] * m[4]
+            val a3 = m[1] * m[6] - m[2] * m[5]
+            val a4 = m[1] * m[7] - m[3] * m[5]
+            val a5 = m[2] * m[7] - m[3] * m[6]
+            val b0 = m[8] * m[13] - m[9] * m[12]
+            val b1 = m[8] * m[14] - m[10] * m[12]
+            val b2 = m[8] * m[15] - m[11] * m[12]
+            val b3 = m[9] * m[14] - m[10] * m[13]
+            val b4 = m[9] * m[15] - m[11] * m[13]
+            val b5 = m[10] * m[15] - m[11] * m[14]
+            val determinant = a0 * b5 - a1 * b4 + a2 * b3 + a3 * b2 - a4 * b1 + a5 * b0
+            if (determinant == 0.0 || !determinant.isFinite()) return false
+            val inverse = 1.0 / determinant
+            out[0] = (m[5] * b5 - m[6] * b4 + m[7] * b3) * inverse
+            out[1] = (-m[1] * b5 + m[2] * b4 - m[3] * b3) * inverse
+            out[2] = (m[13] * a5 - m[14] * a4 + m[15] * a3) * inverse
+            out[3] = (-m[9] * a5 + m[10] * a4 - m[11] * a3) * inverse
+            out[4] = (-m[4] * b5 + m[6] * b2 - m[7] * b1) * inverse
+            out[5] = (m[0] * b5 - m[2] * b2 + m[3] * b1) * inverse
+            out[6] = (-m[12] * a5 + m[14] * a2 - m[15] * a1) * inverse
+            out[7] = (m[8] * a5 - m[10] * a2 + m[11] * a1) * inverse
+            out[8] = (m[4] * b4 - m[5] * b2 + m[7] * b0) * inverse
+            out[9] = (-m[0] * b4 + m[1] * b2 - m[3] * b0) * inverse
+            out[10] = (m[12] * a4 - m[13] * a2 + m[15] * a0) * inverse
+            out[11] = (-m[8] * a4 + m[9] * a2 - m[11] * a0) * inverse
+            out[12] = (-m[4] * b3 + m[5] * b1 - m[6] * b0) * inverse
+            out[13] = (m[0] * b3 - m[1] * b1 + m[2] * b0) * inverse
+            out[14] = (-m[12] * a3 + m[13] * a1 - m[14] * a0) * inverse
+            out[15] = (m[8] * a3 - m[9] * a1 + m[10] * a0) * inverse
+            return true
         }
     }
 }
