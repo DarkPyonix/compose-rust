@@ -50,7 +50,7 @@ enum class ColorScheme { Light, Dark, FollowSystem }
 
 enum class AssetKind { Png, Jpeg, Svg, VectorIcon, Font, Brush }
 
-enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh }
+enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh, Delete }
 
 enum class MessageDuration { Short, Long }
 
@@ -1932,7 +1932,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8231975907812482968L
+    const val SCHEMA_HASH: Long = -6472594915190799861L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3749,6 +3749,7 @@ object Protocol {
         37 -> IconRole.CompactOverlay
         38 -> IconRole.Calculator
         39 -> IconRole.Refresh
+        40 -> IconRole.Delete
         else -> throw ProtocolException("unknown IconRole tag $tag", offset)
     }
 
