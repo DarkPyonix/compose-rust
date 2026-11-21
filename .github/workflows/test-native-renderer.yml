@@ -415,21 +415,7 @@ jobs:
         run: |
           set -euo pipefail
           name="compose-rust-renderer-${GITHUB_REF_NAME}-ios"
-          build=renderer/build/ios
-          for slice in device simulator; do
-            mkdir -p "$build/$slice/include"
-            cp "$build/$slice"/*.h "$build/$slice/include/"
-          done
-          rm -rf "$name.xcframework"
-          xcodebuild -create-xcframework \
-            -library "$build/device/libcompose_rust_renderer.a" \
-            -headers "$build/device/include" \
-            -library "$build/simulator/libcompose_rust_renderer.a" \
-            -headers "$build/simulator/include" \
-            -output "$name.xcframework"
-          tar -czf "$name.tar.gz" "$name.xcframework"
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-          cat "$name.tar.gz.sha256"
+          ./.github/scripts/package-ios-renderer.sh "$name" renderer/build/ios .
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Upload the release artifact
