@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -31,6 +32,7 @@ import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
+import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.adaptiveSystem
 import dev.darkpyonix.composerust.design.detectHostPlatform
@@ -55,6 +57,19 @@ private fun theme(
 
 private fun resolved(system: DesignSystem, dark: Boolean = false) =
     resolveTheme(theme(system, if (dark) ColorScheme.Dark else ColorScheme.Light), HostPlatform.MacOs, false)
+
+/** A brand colour no design system's palette comes near: a loud orange. */
+private const val NEUTRAL_TEST_BRAND = 0xFFE8590C.toInt()
+
+/** Every colour a button paints, named, in a fixed order. */
+private fun buttonPaints(style: ButtonStyle): List<Pair<String, Color>> = listOfNotNull(
+    "container" to style.container,
+    "pressed container" to style.pressedContainer,
+    "ink" to style.content,
+    "line" to style.borderColor,
+    "pressed line" to style.pressedBorderColor,
+    style.topHighlight?.let { "top highlight" to it },
+)
 
 class ThemeResolutionTest {
     @Test
@@ -239,8 +254,16 @@ class DesignTokenWiringTest {
     fun fr14_2_every_variant_is_distinct_within_a_system() {
         DesignSystem.entries.forEach { system ->
             val theme = resolved(system)
+            // The calculator's keys are left out: a system may draw an operator as one of
+            // its buttons, and its digit as its standard grey button (Material 3, GNOME and
+            // Deepin do). The neutral tiers are checked by the test beside this one.
+            val calculatorKeys = setOf(
+                ButtonVariant.Operator,
+                ButtonVariant.Neutral,
+                ButtonVariant.NeutralSecondary,
+            )
             val styles = ButtonVariant.entries
-                .filterNot { it == ButtonVariant.Operator }
+                .filterNot { it in calculatorKeys }
                 .map { theme.rules.button(it, theme) }
             assertEquals(styles.size, styles.distinct().size, "$system draws two variants identically")
         }
@@ -266,6 +289,74 @@ class DesignTokenWiringTest {
         assertEquals(deepinNumber.container, deepinOperator.container)
         assertEquals(deepin.color(ColorRole.Primary), deepinOperator.content)
         assertNotEquals(deepinNumber.content, deepinOperator.content)
+    }
+
+    /**
+     * The calculator's digit and function keys are grey in every system, and no part of
+     * either tier is the accent: not the fill, the ink, the line, or any of them pressed.
+     *
+     * Checked two ways. No paint equals the theme's own primary, and a theme whose
+     * primary is replaced by a loud brand orange draws both tiers exactly as before, which
+     * also catches a primary mixed into a grey rather than used as it is. Beside each
+     * other the two tiers are two different greys, except in Deepin, whose calculator
+     * draws both kinds of key alike.
+     */
+    @Test
+    fun fr22_2_neutral_button_tiers_carry_no_accent() {
+        val tiers = listOf(ButtonVariant.Neutral, ButtonVariant.NeutralSecondary)
+        DesignSystem.entries.forEach { system ->
+            listOf(false, true).forEach { dark ->
+                val scheme = if (dark) ColorScheme.Dark else ColorScheme.Light
+                val mode = if (dark) "dark" else "light"
+                val own = resolveTheme(
+                    Theme(system, system, scheme, false),
+                    HostPlatform.MacOs,
+                    systemDark = dark,
+                    highContrast = { false },
+                )
+                val branded = resolveTheme(
+                    Theme(
+                        system,
+                        system,
+                        scheme,
+                        false,
+                        palette = listOf(PaletteEntry(ColorRole.Primary, dark, NEUTRAL_TEST_BRAND)),
+                    ),
+                    HostPlatform.MacOs,
+                    systemDark = dark,
+                    highContrast = { false },
+                )
+                assertEquals(
+                    Color(NEUTRAL_TEST_BRAND),
+                    branded.color(ColorRole.Primary),
+                    "$system $mode did not take the replaced primary, so the comparison below proves nothing",
+                )
+                val accent = own.color(ColorRole.Primary).copy(alpha = 1f)
+                val styles = tiers.map { variant ->
+                    val where = "$system $mode $variant"
+                    val plain = own.rules.button(variant, own)
+                    for ((part, paint) in buttonPaints(plain)) {
+                        if (paint.alpha == 0f) continue
+                        assertNotEquals(accent, paint.copy(alpha = 1f), "$where draws its $part in the accent")
+                    }
+                    assertEquals(
+                        buttonPaints(plain),
+                        buttonPaints(branded.rules.button(variant, branded)),
+                        "$where changed when only the primary colour did",
+                    )
+                    plain
+                }
+                if (system != DesignSystem.Deepin) {
+                    assertNotEquals(
+                        styles[0].container,
+                        styles[1].container,
+                        "$system $mode draws its digit and function keys in the same grey",
+                    )
+                } else {
+                    assertEquals(styles[0], styles[1], "Deepin $mode tells its calculator keys apart")
+                }
+            }
+        }
     }
 
     /**
