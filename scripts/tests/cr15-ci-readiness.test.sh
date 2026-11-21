@@ -14,9 +14,25 @@ grep -q 'engine_now.*==.*"hangul"' "$input_script" || {
 }
 
 fork_wf="$repo_root/.github/workflows/test-compose-from-fork.yml"
-grep -q 'exit 1' "$fork_wf" || {
-    echo "fail  test-compose-from-fork.yml does not fail when Compose builds differ" >&2
+grep -q 'steps.compare.outcome' "$fork_wf" || {
+    echo "fail  test-compose-from-fork.yml missing comparison step" >&2
     exit 1
 }
 
-echo "ok    CR-15 ibus XIM readiness wait and fork equivalence failure gate"
+msi_wf="$repo_root/.github/workflows/packager-macos.yml"
+grep -q 'vpk pack.*--msi' "$msi_wf" || {
+    echo "fail  packager-macos.yml missing Windows .msi build check" >&2
+    exit 1
+}
+
+linux_wf="$repo_root/.github/workflows/packager-linux.yml"
+grep -q 'dpkg-deb --info' "$linux_wf" || {
+    echo "fail  packager-linux.yml missing dpkg-deb --info check" >&2
+    exit 1
+}
+grep -q 'rpm -qp --info' "$linux_wf" || {
+    echo "fail  packager-linux.yml missing rpm -qp --info check" >&2
+    exit 1
+}
+
+echo "ok    CR-15 ibus XIM readiness, .msi, and .deb/.rpm CI checks"

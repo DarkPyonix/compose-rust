@@ -286,6 +286,62 @@ jobs:
             work/*.log
             work/*.png
 
+  deb-rpm:
+    name: Build and inspect .deb and .rpm packages (Linux, x64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dpkg and rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg rpm
+
+      - name: Build demo executable
+        run: cargo build --release -p packager-linux-demo
+
+      - name: Build and verify .deb with dpkg-deb --info
+        run: |
+          stage="$RUNNER_TEMP/deb-stage"
+          mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
+          cp target/release/update-demo "$stage/usr/bin/update-demo"
+          chmod 0755 "$stage/usr/bin/update-demo"
+          cat > "$stage/DEBIAN/control" <<'EOF'
+          Package: compose-rust-demo
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: DarkPyonix <dev@darkpyonix.dev>
+          Description: compose-rust Linux packaging fixture
+          EOF
+          dpkg-deb --build "$stage" "$RUNNER_TEMP/compose-rust-demo_1.0.0_amd64.deb"
+          dpkg-deb --info "$RUNNER_TEMP/compose-rust-demo_1.0.0_amd64.deb"
+
+      - name: Build and verify .rpm with rpm -qp --info
+        run: |
+          topdir="$RUNNER_TEMP/rpmbuild"
+          mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp target/release/update-demo "$topdir/SOURCES/update-demo"
+          cat > "$topdir/SPECS/compose-rust-demo.spec" <<'EOF'
+          Name: compose-rust-demo
+          Version: 1.0.0
+          Release: 1
+          Summary: compose-rust Linux packaging fixture
+          License: MIT
+          %description
+          compose-rust Linux packaging fixture.
+          %install
+          mkdir -p %{buildroot}/usr/bin
+          install -m 0755 %{_sourcedir}/update-demo %{buildroot}/usr/bin/update-demo
+          %files
+          /usr/bin/update-demo
+          EOF
+          rpmbuild --define "_topdir $topdir" -bb "$topdir/SPECS/compose-rust-demo.spec"
+          rpm_file="$(find "$topdir/RPMS" -name '*.rpm' | head -1)"
+          test -n "$rpm_file"
+          rpm -qp --info "$rpm_file"
+
   flatpak:
     name: Flatpak builds and updates
     needs: [requested, calculator]
@@ -459,3 +515,59 @@ jobs:
             work/flatpak-calculator/lint-*.json
             work/*.log
             work/*.png
+
+  deb-rpm:
+    name: Build and inspect .deb and .rpm packages (Linux, x64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dpkg and rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg rpm
+
+      - name: Build demo executable
+        run: cargo build --release -p packager-linux-demo
+
+      - name: Build and verify .deb with dpkg-deb --info
+        run: |
+          stage="$RUNNER_TEMP/deb-stage"
+          mkdir -p "$stage/DEBIAN" "$stage/usr/bin"
+          cp target/release/update-demo "$stage/usr/bin/update-demo"
+          chmod 0755 "$stage/usr/bin/update-demo"
+          cat > "$stage/DEBIAN/control" <<'EOF'
+          Package: compose-rust-demo
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: DarkPyonix <dev@darkpyonix.dev>
+          Description: compose-rust Linux packaging fixture
+          EOF
+          dpkg-deb --build "$stage" "$RUNNER_TEMP/compose-rust-demo_1.0.0_amd64.deb"
+          dpkg-deb --info "$RUNNER_TEMP/compose-rust-demo_1.0.0_amd64.deb"
+
+      - name: Build and verify .rpm with rpm -qp --info
+        run: |
+          topdir="$RUNNER_TEMP/rpmbuild"
+          mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp target/release/update-demo "$topdir/SOURCES/update-demo"
+          cat > "$topdir/SPECS/compose-rust-demo.spec" <<'EOF'
+          Name: compose-rust-demo
+          Version: 1.0.0
+          Release: 1
+          Summary: compose-rust Linux packaging fixture
+          License: MIT
+          %description
+          compose-rust Linux packaging fixture.
+          %install
+          mkdir -p %{buildroot}/usr/bin
+          install -m 0755 %{_sourcedir}/update-demo %{buildroot}/usr/bin/update-demo
+          %files
+          /usr/bin/update-demo
+          EOF
+          rpmbuild --define "_topdir $topdir" -bb "$topdir/SPECS/compose-rust-demo.spec"
+          rpm_file="$(find "$topdir/RPMS" -name '*.rpm' | head -1)"
+          test -n "$rpm_file"
+          rpm -qp --info "$rpm_file"
