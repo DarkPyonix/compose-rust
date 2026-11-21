@@ -276,7 +276,10 @@ internal class LinuxWindow private constructor(
         }
     }
 
+    internal val nativeViewWindow: LinuxNativeViewWindow = LinuxNativeViewWindow(this)
+
     override fun onEvent(event: WindowEvent) {
+        nativeViewWindow.onWindowEvent(event)
         if (event.kind == WindowEvent.RESIZE) {
             // The window is waiting for the frame that belongs to this size.
             frames.draw()
