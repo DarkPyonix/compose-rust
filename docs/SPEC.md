@@ -1255,6 +1255,14 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
 3. iOS 시스템 탭 막대도 각 역할을 시스템 심볼로 변환합니다. 아이콘 버튼은 빈 글자일 때도 역할에 맞는 접근성 이름을 갖습니다.
 4. 가벼운 테마와 어두운 테마에서 전 역할을 검사하고, 계산기와 팟캐스트 참조에 필요한 역할을 각 화면이 사용할 수 있습니다.
 
+**삭제 아이콘 역할** (이슈 #593). 지우는 동작의 뜻 `Delete=40`을 `IconRole` 끝에 추가합니다. 기존 태그 1–39(`Refresh=39`까지)는 그대로입니다. 그림은 휴지통이고, iOS 시스템 심볼은 `trash`입니다. 목록 행, 메일, 파일 관리자처럼 지우는 동작이 있는 화면이 글자 대신 이 뜻을 보냅니다.
+
+수용 기준:
+1. `Delete`가 태그 40으로 인코딩·디코딩되며 기존 태그와 미지의 태그 동작이 변하지 않습니다(fr16_sample_icon_roles_have_stable_tags_and_reach_buttons).
+2. 일곱 디자인 시스템 모두 `Delete`에 휴지통 아이콘을 그리며, 글자가 빈 아이콘 버튼도 빈 글리프로 남지 않고 접근성 이름을 갖습니다(fr16_sample_roles_have_artwork_in_every_system_and_scheme, fr16_sample_icon_buttons_draw_and_have_accessible_names).
+3. iOS 시스템 탭 막대는 `Delete`를 `trash` 심볼로 변환합니다.
+4. `samples/minimal`의 삭제 동작은 "Delete" 글자 대신 빨간 사각형(`palette::DELETE`) 위의 흰 `Delete` 아이콘으로 그려집니다.
+
 **SVG 에셋 아이콘**(이슈 #303). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
 
 ### FR-17 커스텀 드로잉 (`Agreed`)
