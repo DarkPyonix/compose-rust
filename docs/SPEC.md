@@ -1797,7 +1797,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
    - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, 1080x2640, 밀도 3, develop, Material3): 손잡이와 시트 표면의 대비는 밝은 테마 1.98:1, 어두운 테마 2.69:1입니다. 시트 내용의 마지막 행은 y 2474에서 끝나고, 시스템의 아래 제스처 영역은 y 2544부터라서 내용이 그보다 23dp 위에서 끝납니다. 시트 표면은 화면 아래 끝까지 닿습니다. 캡처는 이슈 #843에 있습니다.
 5. Material3 아래 시트에서 손잡이의 위 끝은 시트의 위 끝에서 22dp 아래에 있고, 첫 자식의 위 끝은 손잡이의 아래 끝에서 22dp 이상 아래에 있습니다(fr21_sheet_content_starts_below_the_handle).
-6. Material3가 아닌 디자인 시스템(Breeze)의 아래 시트에서 손잡이 아래 끝과 첫 자식 위 끝 사이의 간격이 그 시스템의 시트 내용 여백(시트의 왼쪽 끝에서 첫 자식까지의 거리)과 같습니다(fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3).
+6. Material3가 아니면서 손잡이를 그리는 디자인 시스템(GNOME)의 아래 시트에서 손잡이 아래 끝과 첫 자식 위 끝 사이의 간격이 그 시스템의 시트 내용 여백(시트의 왼쪽 끝에서 첫 자식까지의 거리)과 같습니다(fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3).
 7. `handle(false)`인 Material3 아래 시트에서 첫 자식은 시트의 위 끝에서 시트 내용 여백만큼 아래에서 시작하고, 손잡이 몫의 간격이 남지 않습니다(fr21_sheet_without_handle_leaves_no_gap).
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
