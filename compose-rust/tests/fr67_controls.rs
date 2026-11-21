@@ -417,10 +417,7 @@ fn fr67_checkbox_sends_indeterminate_only_when_mixed() {
     use compose_rust::schema::PropertyKind;
 
     assert_eq!(PropertyKind::Indeterminate as u16, 216);
-    assert_eq!(
-        PropertyKind::try_from(216),
-        Ok(PropertyKind::Indeterminate)
-    );
+    assert_eq!(PropertyKind::try_from(216), Ok(PropertyKind::Indeterminate));
     let (sent, removed) = mixing_records(PropertyKind::Indeterminate);
     assert_eq!(sent, [(0, PropertyValue::Bool(true))]);
     assert_eq!(removed, 1);
