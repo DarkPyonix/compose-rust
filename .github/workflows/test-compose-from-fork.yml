@@ -347,16 +347,12 @@ jobs:
 
       - name: Fail if the two Compose builds differ
         # The comparison runs before the renderer and does not stop it, so that one failing
-        # does not hide the other's result. This is where a difference fails the job.
+        # does not hide the other's result. This is where a difference against the pinned
+        # ext baseline fails the job.
         if: always() && steps.compare.outcome == 'failure'
-        # The comparison proved the fork equals the old patched build while the pin was the
-        # commit that held the same tree. The pin has moved on to the fork's ext line, whose
-        # Compose differs on purpose (new metadata, new sources), so a difference is reported
-        # in the comparison step and no longer fails the job. The renderer built against the
-        # fork's publication below is the proof that matters now. The guard is to come back as a
-        # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
-          echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
+          echo "the fork build and the pinned ext baseline published different contents; see the comparison step" >&2
+          exit 1
 
       - name: Save the fork's Compose publication (develop and main only)
         # Saved from develop and main only: a cache saved on another branch is not visible
