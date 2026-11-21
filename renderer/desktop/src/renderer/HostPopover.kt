@@ -387,7 +387,7 @@ private fun PopoverContent(
         } else {
             null
         }
-        ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null)
+        ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null, isModal = false)
         // The recorded page does not reach into a popup, for the reason a menu gives.
         CompositionLocalProvider(
             LocalGlassBackdrop provides null,
