@@ -264,6 +264,11 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                 if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
                     LatencyTrace.mark("window heard ${event.kind}")
                 }
+                // A reader's request goes to the control it names, not to the scene as input.
+                if (semantics.receive(event)) {
+                    heard = true
+                    continue
+                }
                 // The window's C puts the slider's percent in a text size change; the
                 // scene's font scale is the multiplier.
                 if (event.isTextScaleChanged) {

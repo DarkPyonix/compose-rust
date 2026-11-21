@@ -136,7 +136,15 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # test of a one-step height resize (fork #250), CSS half leading in skiko's paragraphs (fork
 # #251, Compose text, which this pin does not build) and CI retries (fork #252). The window's
 # exported calls and its cinterop header are unchanged.
-WINDOW_REVISION="12d04e0dfdc10c31cfcb15496ea4ba5694662918"
+# Past it the Windows window answers UI Automation with control patterns (Invoke, Toggle,
+# Value, RangeValue, SelectionItem, ExpandCollapse), states, focus and the tree the elements'
+# parent ids describe, and a reader's request reaches the renderer as an event
+# (`WindowEvent.ACCESSIBILITY_ACTION`, with a new value in its text), which the Windows
+# renderers hand to the control (fork #261, for #419). `struct dxc_element` grows to 500
+# bytes to carry the id, parent, states, actions, range, value and hint; both Kotlin layers
+# write it, and `dxc_native_take_accessibility_argument` is now real on Windows. No exported
+# call is added or removed.
+WINDOW_REVISION="eaa0f3172f52844e5d182b50560ff8061211fdbd"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
