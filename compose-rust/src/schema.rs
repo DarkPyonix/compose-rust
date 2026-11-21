@@ -1335,12 +1335,15 @@ define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
 // its `color` property, its first `Background`, its first `Transform`, and the colour of
 // every side of its first `Border` or `BorderEach`. A container's `color` is the colour
 // the text inside it inherits, so one animation on it recolours all of that text.
+// `Transform3D` is the 4x4 matrix of the node's first `Transform3D`: a 3D transform
+// arrives folded into one matrix, so it is animated as a matrix rather than a list.
 define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
     Alpha = 1,
     Color = 2,
     Background = 3,
     Transform = 4,
     BorderColor = 5,
+    Transform3D = 6,
 });
 
 define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
@@ -2984,6 +2987,9 @@ pub enum KeyframeValue {
     Paint(Paint),
     /// A list of functions, the same kinds in the same order in every keyframe.
     Transform(std::borrow::Cow<'static, [TransformFunction]>),
+    /// For `Transform3D`: a 4x4 matrix, column-major like `Modifier::Transform3D`'s `m`
+    /// (`m[4 * column + row]`).
+    Matrix3D([f32; 16]),
 }
 
 #[derive(Clone, Debug, PartialEq)]

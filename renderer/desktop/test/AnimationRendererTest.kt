@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.runComposeUiTest
@@ -519,5 +520,63 @@ class AnimationRendererTest {
         )
         val ended = pixels[120, 20]
         assertTrue(ended.red > 0.98f && ended.green < 0.02f, "the end value is exactly 1, found $ended")
+    }
+
+    /**
+     * A 3D matrix animation is drawn through the node's layers without composing or measuring
+     * it again: a box held half way from rotateY(0) to rotateY(60deg) is drawn, and bounded,
+     * as rotateY(30deg) about its centre, and a box playing the same turn is neither
+     * recomposed nor measured while it plays.
+     */
+    @Test
+    fun fr41_2_1_transform3d_animation_draws_without_recomposition() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val compositions = mutableMapOf<Int, Int>()
+        val measures = mutableMapOf<Int, Int>()
+        RenderNodeObserver.onCompose = { id -> compositions[id] = (compositions[id] ?: 0) + 1 }
+        RenderNodeObserver.onMeasure = { id -> measures[id] = (measures[id] ?: 0) + 1 }
+        val identity = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
+        fun rotateY(degrees: Double): FloatArray {
+            val radians = degrees * Math.PI / 180.0
+            val c = kotlin.math.cos(radians).toFloat()
+            val s = kotlin.math.sin(radians).toFloat()
+            return floatArrayOf(c, 0f, -s, 0f, 0f, 1f, 0f, 0f, s, 0f, c, 0f, 0f, 0f, 0f, 1f)
+        }
+        val base = ProtocolModifier.Transform3D(
+            1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0.5f, 0.5f, false,
+        )
+        fun turning(node: Int, id: Int, playState: PlayState, delayMs: Float) = Mutation.StartAnimation(
+            played(node, id, AnimatedProperty.Transform3D, KeyframeValue.Matrix3D(identity),
+                KeyframeValue.Matrix3D(rotateY(60.0)), delayMs = delayMs, playState = playState)
+                .animation.copy(originX = 0f, originY = 0f),
+        )
+        show(
+            FakeHostConnection(
+                page {
+                    node(2, ProtocolModifier.Offset(50f, 50f), ProtocolModifier.RequiredSize(100f, 40f), base,
+                        ProtocolModifier.Background(Paint.Literal(RED)))
+                    node(3, ProtocolModifier.Offset(50f, 120f), ProtocolModifier.RequiredSize(100f, 40f), base,
+                        ProtocolModifier.Background(Paint.Literal(RED)))
+                    add(turning(2, 1, PlayState.Paused, -500f))
+                    add(turning(3, 2, PlayState.Running, 0f))
+                },
+            ),
+        )
+        frames(2)
+        val composed = compositions.toMap()
+        val measured = measures.toMap()
+        frames(30)
+        assertEquals(composed[3], compositions[3], "the turning box was recomposed while it played")
+        assertEquals(measured[3], measures[3], "the turning box was measured while it played")
+
+        // rotateY(30deg) about the centre narrows the 100 dp box to 100 cos 30 = 86.6 dp.
+        val half = 50f * kotlin.math.cos(Math.PI / 6).toFloat()
+        val bounds = onNodeWithTag(nodeTestTag(2)).getBoundsInRoot()
+        assertTrue(abs(bounds.left.value - (100f - half)) < 0.5f, "left edge at ${100f - half}, found $bounds")
+        assertTrue(abs(bounds.right.value - (100f + half)) < 0.5f, "right edge at ${100f + half}, found $bounds")
+        assertTrue(abs(bounds.top.value - 50f) < 0.5f && abs(bounds.bottom.value - 90f) < 0.5f, "height unchanged, found $bounds")
+        val pixels = onNodeWithTag(nodeTestTag(ROOT)).captureToImage().toPixelMap()
+        assertTrue(pixels[100, 70].green < 0.02f, "the centre is drawn, found ${pixels[100, 70]}")
+        assertTrue(pixels[53, 70].green > 0.98f, "the edge the turned box has left is not, found ${pixels[53, 70]}")
     }
 }

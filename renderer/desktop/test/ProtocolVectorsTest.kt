@@ -911,10 +911,10 @@ class ProtocolVectorsTest {
     fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
         val mutations = decodeVector("mutations.bin")
         val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
-        assertEquals(11, animations.size)
+        assertEquals(12, animations.size)
         // The border colour came after every record that was there before it, and a spring
-        // after that.
-        val border = animations[animations.size - 2]
+        // and a 3D matrix after that.
+        val border = animations[animations.size - 3]
         assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, border.property)
         assertEquals(
             dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
@@ -988,7 +988,7 @@ class ProtocolVectorsTest {
     @Test
     fun fr41_spring_timing_round_trips() {
         val animations = decodeVector("mutations.bin").filterIsInstance<Mutation.StartAnimation>().map { it.animation }
-        val spring = animations.last()
+        val spring = animations[animations.size - 2]
         assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, spring.property)
         assertEquals(11, spring.animationId)
         assertEquals(364f, spring.durationMs)
@@ -1008,6 +1008,33 @@ class ProtocolVectorsTest {
                 ),
             ),
             spring.keyframes,
+        )
+    }
+
+    /**
+     * The 3D matrix animation the vector ends its animations with: property 6, no origin of
+     * its own, and sixteen column-major values in each keyframe, read from the Host's bytes.
+     */
+    @Test
+    fun fr41_2_1_transform3d_animation_round_trips() {
+        val animations = decodeVector("mutations.bin").filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        val matrix = animations.last()
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Transform3D, matrix.property)
+        assertEquals(12, matrix.animationId)
+        assertEquals(0f, matrix.originX)
+        assertEquals(0f, matrix.originY)
+        assertEquals(null, matrix.interpolation)
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.Matrix3D(
+                floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f),
+            ),
+            matrix.keyframes.first().value,
+        )
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.Matrix3D(
+                floatArrayOf(0.75f, 0f, -0.5f, 0.00125f, 0f, 1f, 0f, 0f, 0.5f, 0f, 0.75f, -0.0025f, 12f, -6f, 3f, 1f),
+            ),
+            matrix.keyframes.last().value,
         )
     }
 
@@ -1041,7 +1068,7 @@ class ProtocolVectorsTest {
     @Test
     fun fr41_spring_with_invalid_parameters_is_a_protocol_error() {
         val batch = vectorFile("mutations.bin").readBytes()
-        val spring = animationRecordOffsets(batch).last()
+        val spring = animationRecordOffsets(batch).let { it[it.size - 2] }
         val keyframe = spring + 52
         assertEquals(4, batch[keyframe + 4].toInt(), "the vector's spring is timing kind 4")
         for (stiffness in listOf(0f, -1500f, Float.NaN, Float.POSITIVE_INFINITY)) {
@@ -1053,6 +1080,26 @@ class ProtocolVectorsTest {
         assertRefused(batch, "a third number") { it.putFloat(keyframe + 16, 0.5f) }
         assertRefused(batch, "a fourth number") { it.putFloat(keyframe + 20, 0.5f) }
         assertRefused(batch, "a step position") { it.put(keyframe + 5, 2.toByte()) }
+    }
+
+    /**
+     * The vector's 3D matrix animation with a value that is not a number, or with an origin
+     * of its own, is refused the way the Host refuses it.
+     */
+    @Test
+    fun fr41_2_1_a_transform3d_record_that_cannot_be_played_is_a_protocol_error() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val matrix = animationRecordOffsets(batch).last()
+        assertEquals(6, batch[matrix + 12].toInt(), "the vector's last animation is property 6")
+        // The second keyframe's value: after the head, one 88 byte keyframe and a keyframe head.
+        val value = matrix + 52 + 88 + 24
+        for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            for (cell in listOf(0, 3, 11, 15)) {
+                assertRefused(batch, "$bad in cell $cell") { it.putFloat(value + 4 * cell, bad) }
+            }
+        }
+        assertRefused(batch, "an origin x") { it.putFloat(matrix + 40, 0.5f) }
+        assertRefused(batch, "an origin y") { it.putFloat(matrix + 44, 0.5f) }
     }
 
     /** The animation event and the motion setting encode to the bytes the Host decodes. */

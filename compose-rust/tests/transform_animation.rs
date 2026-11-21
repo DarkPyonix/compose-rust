@@ -279,7 +279,7 @@ fn fr41_start_animation_round_trips() {
         .iter()
         .filter(|mutation| matches!(mutation, Mutation::StartAnimation(_)))
         .count();
-    assert_eq!(animations, 11, "the vector carries eleven animations");
+    assert_eq!(animations, 12, "the vector carries twelve animations");
     assert!(
         mutations
             .iter()
@@ -391,7 +391,7 @@ fn fr41_border_color_animation_round_trips() {
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
 
     let mutations = decode_batch(include_bytes!("vectors/mutations.bin")).unwrap();
-    // Records added later (a spring) come after it, so it is the last one of
+    // Records added later (a spring, a 3D matrix) come after it, so it is the last one of
     // its own property rather than the last animation.
     let last = mutations
         .iter()
@@ -418,7 +418,7 @@ fn fr41_border_color_animation_round_trips() {
     );
 }
 
-/// The animations the vector ends with, the spring last.
+/// The animations the vector ends with, newest last: a spring, then a 3D matrix.
 fn vector_animations() -> Vec<Animation<'static>> {
     decode_batch(include_bytes!("vectors/mutations.bin"))
         .unwrap()
@@ -459,7 +459,7 @@ fn fr41_spring_timing_round_trips() {
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
 
     let animations = vector_animations();
-    let spring = animations.last().expect("the vector carries animations");
+    let spring = &animations[animations.len() - 2];
     assert_eq!(spring.property, AnimatedProperty::Alpha);
     assert_eq!(
         spring.keyframes[0].timing,
@@ -544,6 +544,138 @@ fn fr41_spring_spec_duration_is_the_settle_time() {
                 stiffness,
                 damping_ratio
             }
+        );
+    }
+}
+
+/// `rotateY(30deg)` in front of `perspective(400px)`, column-major.
+fn turned_matrix() -> [f32; 16] {
+    let (sin, cos) = 30.0_f32.to_radians().sin_cos();
+    // The perspective row is (0, 0, -1/400, 1), which takes the rotation's third row into w.
+    [
+        cos,
+        0.0,
+        -sin,
+        sin / 400.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        sin,
+        0.0,
+        cos,
+        -cos / 400.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ]
+}
+
+fn matrix_animation(values: Vec<KeyframeValue>) -> Animation<'static> {
+    let mut animation = animation(AnimatedProperty::Transform3D, values);
+    // A spring among the keyframes as well, so every timing kind travels with a matrix.
+    animation.keyframes.to_mut()[0].timing = Timing::Spring {
+        stiffness: 400.0,
+        damping_ratio: 0.75,
+    };
+    animation
+}
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+/// A 3D matrix animation is property 6 with sixteen `f32` in each keyframe, an 88 byte
+/// keyframe, and no origin of its own. It decodes back to what was encoded, and the vector
+/// carries one as its last animation.
+#[test]
+fn fr41_2_1_transform3d_animation_round_trips() {
+    let to = turned_matrix();
+    let record = Mutation::StartAnimation(matrix_animation(vec![
+        KeyframeValue::Matrix3D(IDENTITY),
+        KeyframeValue::Matrix3D(to),
+        KeyframeValue::Matrix3D(IDENTITY),
+    ]));
+    let bytes = encode(std::slice::from_ref(&record));
+    assert_eq!(bytes.len(), 12 + 52 + 3 * 88, "a keyframe is 88 bytes");
+    assert_eq!(bytes[12 + 12], 6, "property Transform3D");
+    let second = 12 + 52 + 88 + 24;
+    let values: Vec<f32> = bytes[second..second + 64]
+        .chunks(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    assert_eq!(values, to, "column-major, in the modifier's order");
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
+
+    let animations = vector_animations();
+    let last = animations.last().expect("the vector carries animations");
+    assert_eq!(last.property, AnimatedProperty::Transform3D);
+    assert_eq!((last.origin_x, last.origin_y), (0.0, 0.0));
+    assert!(matches!(
+        last.keyframes.last().map(|keyframe| &keyframe.value),
+        Some(KeyframeValue::Matrix3D(m)) if m[3] == 0.00125 && m[11] == -0.0025 && m[12] == 12.0
+    ));
+}
+
+/// A matrix with a value that is not a number, and a record that names an origin of its own,
+/// are protocol errors. Whether the node has the `Transform3D` modifier the animation plays
+/// on, and whether a `Transform` animation names a node that has one, is the Renderer's
+/// question once the batch is in, and is tested there.
+#[test]
+fn fr41_2_1_transform3d_animation_needs_its_base_modifier() {
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for cell in [0, 3, 11, 15] {
+            let mut m = IDENTITY;
+            m[cell] = bad;
+            let bytes = encode(&[Mutation::StartAnimation(matrix_animation(vec![
+                KeyframeValue::Matrix3D(IDENTITY),
+                KeyframeValue::Matrix3D(m),
+            ]))]);
+            assert_eq!(
+                decode_batch(&bytes),
+                Err(ProtocolError::InvalidAnimation),
+                "{bad} in cell {cell} was accepted"
+            );
+        }
+    }
+    for (origin_x, origin_y) in [(0.5, 0.0), (0.0, 0.5)] {
+        let mut animation = matrix_animation(vec![
+            KeyframeValue::Matrix3D(IDENTITY),
+            KeyframeValue::Matrix3D(turned_matrix()),
+        ]);
+        animation.origin_x = origin_x;
+        animation.origin_y = origin_y;
+        let bytes = encode(&[Mutation::StartAnimation(animation)]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidAnimation),
+            "origin ({origin_x}, {origin_y}) was accepted"
+        );
+    }
+    // A matrix where a list of functions belongs, and the other way round.
+    let mut list_in_matrix = matrix_animation(vec![
+        KeyframeValue::Matrix3D(IDENTITY),
+        KeyframeValue::Matrix3D(IDENTITY),
+    ]);
+    list_in_matrix.keyframes.to_mut()[1].value = functions(&[TransformFunction::rotate(0.0)]);
+    let mut matrix_in_list = animation(
+        AnimatedProperty::Transform,
+        vec![
+            functions(&[TransformFunction::rotate(0.0)]),
+            functions(&[TransformFunction::rotate(90.0)]),
+        ],
+    );
+    matrix_in_list.keyframes.to_mut()[1].value = KeyframeValue::Matrix3D(IDENTITY);
+    for (what, animation) in [
+        ("a function list in a matrix animation", list_in_matrix),
+        ("a matrix in a function list animation", matrix_in_list),
+    ] {
+        let bytes = encode(&[Mutation::StartAnimation(animation)]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidAnimation),
+            "{what} was accepted"
         );
     }
 }
