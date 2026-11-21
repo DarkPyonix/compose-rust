@@ -170,6 +170,62 @@ impl BackgroundBrush {
     }
 }
 
+/// How an alpha mask repeats across the node's reference box.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum MaskRepeat {
+    #[default]
+    Repeat = 0,
+    RepeatX = 1,
+    RepeatY = 2,
+    NoRepeat = 3,
+    Space = 4,
+    Round = 5,
+}
+
+/// How an alpha mask is sized relative to the node's reference box.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum MaskSize {
+    #[default]
+    Auto = 0,
+    Cover = 1,
+    Contain = 2,
+    Explicit = 3,
+}
+
+/// An alpha mask applied to a node and its children as one composited layer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mask {
+    /// Registered brush asset id (gradient or image brush).
+    pub brush: u32,
+    pub repeat: MaskRepeat,
+    pub size_mode: MaskSize,
+    /// Width in dp when `size_mode` is [`MaskSize::Explicit`]; negative means auto.
+    pub size_width: f32,
+    /// Height in dp when `size_mode` is [`MaskSize::Explicit`]; negative means auto.
+    pub size_height: f32,
+    /// Horizontal offset in dp from the node's top-left corner.
+    pub pos_x: f32,
+    /// Vertical offset in dp from the node's top-left corner.
+    pub pos_y: f32,
+}
+
+impl Mask {
+    /// A mask using `brush` with default repeat, auto sizing and zero offset.
+    pub const fn new(brush: u32) -> Self {
+        Self {
+            brush,
+            repeat: MaskRepeat::Repeat,
+            size_mode: MaskSize::Auto,
+            size_width: -1.0,
+            size_height: -1.0,
+            pos_x: 0.0,
+            pos_y: 0.0,
+        }
+    }
+}
+
 /// How a node presents itself to assistive technology. Each tri-state field is unset until
 /// it is given a value, and an unset one sends nothing. The flags are off until set.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -504,6 +560,7 @@ pub struct Modifier {
     border_each: Option<[(f32, Paint); 4]>,
     elevation: Option<f32>,
     alpha: Option<f32>,
+    mask: Option<Mask>,
     press_feedback: Option<(f32, f32)>,
     hover_style: Option<HoverStyle>,
     focus_ring: Option<(Paint, f32, f32)>,
@@ -562,6 +619,7 @@ impl Modifier {
             border_each: None,
             elevation: None,
             alpha: None,
+            mask: None,
             press_feedback: None,
             hover_style: None,
             focus_ring: None,
@@ -1005,6 +1063,12 @@ impl Modifier {
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// An alpha mask applied to the node and its children as one composited group.
+    pub const fn mask(mut self, mask: Mask) -> Self {
+        self.mask = Some(mask);
         self
     }
 
@@ -1456,6 +1520,22 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             None
         } else {
             modifier.alpha
+        }),
+    );
+    push(
+        false,
+        "mask",
+        modifier.mask.map_or(OwnedAttr::None, |mask| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&mask.brush.to_le_bytes());
+            bytes.push(mask.repeat as u8);
+            bytes.push(mask.size_mode as u8);
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+            bytes.extend_from_slice(&mask.size_width.to_le_bytes());
+            bytes.extend_from_slice(&mask.size_height.to_le_bytes());
+            bytes.extend_from_slice(&mask.pos_x.to_le_bytes());
+            bytes.extend_from_slice(&mask.pos_y.to_le_bytes());
+            OwnedAttr::Bytes(bytes)
         }),
     );
     push(

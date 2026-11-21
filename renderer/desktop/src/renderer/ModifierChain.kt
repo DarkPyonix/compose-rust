@@ -280,25 +280,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     chain.composed { reportUnknownBrush(nodeId, maskPaint, dispatcher) }
                 } else {
                     chain.drawWithContent {
-                        val layerBounds = androidx.compose.ui.geometry.Rect(
-                            androidx.compose.ui.geometry.Offset.Zero,
-                            size,
-                        )
-                        drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
-                        try {
-                            drawContent()
-                            drawRect(
-                                brush = maskBrush,
-                                topLeft = androidx.compose.ui.geometry.Offset(value.posX.dp.toPx(), value.posY.dp.toPx()),
-                                size = androidx.compose.ui.geometry.Size(
-                                    width = if (value.sizeWidth > 0f && ((value.flags shr 8) and 0xff) == 3) value.sizeWidth.dp.toPx() else size.width,
-                                    height = if (value.sizeHeight > 0f && ((value.flags shr 8) and 0xff) == 3) value.sizeHeight.dp.toPx() else size.height,
-                                ),
-                                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-                            )
-                        } finally {
-                            drawContext.canvas.restore()
-                        }
+                        drawMask(maskBrush, value)
                     }
                 }
             }
@@ -1541,3 +1523,232 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
             }
         }
     }
+
+private const val MASK_REPEAT_BOTH = 0
+private const val MASK_REPEAT_X = 1
+private const val MASK_REPEAT_Y = 2
+private const val MASK_REPEAT_NONE = 3
+private const val MASK_REPEAT_SPACE = 4
+private const val MASK_REPEAT_ROUND = 5
+
+private const val MASK_SIZE_AUTO = 0
+private const val MASK_SIZE_COVER = 1
+private const val MASK_SIZE_CONTAIN = 2
+private const val MASK_SIZE_EXPLICIT = 3
+
+private fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.drawMask(
+    maskBrush: androidx.compose.ui.graphics.Brush,
+    value: ProtocolModifier.Mask,
+) {
+    val boxW = size.width
+    val boxH = size.height
+    if (boxW <= 0f || boxH <= 0f) {
+        drawContent()
+        return
+    }
+    val layerBounds = androidx.compose.ui.geometry.Rect(
+        androidx.compose.ui.geometry.Offset.Zero,
+        size,
+    )
+    val repeat = value.flags and 0xff
+    val sizeMode = (value.flags ushr 8) and 0xff
+    val originX = value.posX.dp.toPx()
+    val originY = value.posY.dp.toPx()
+    drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
+    try {
+        drawContent()
+        drawContext.canvas.saveLayer(
+            layerBounds,
+            androidx.compose.ui.graphics.Paint().apply {
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
+            },
+        )
+        try {
+            if (maskBrush is dev.darkpyonix.composerust.ui.node.ImageBrush) {
+                drawImageMask(
+                    maskBrush.bitmap,
+                    repeat,
+                    sizeMode,
+                    value.sizeWidth,
+                    value.sizeHeight,
+                    originX,
+                    originY,
+                    boxW,
+                    boxH,
+                )
+            } else {
+                drawBrushMask(
+                    maskBrush,
+                    repeat,
+                    sizeMode,
+                    value.sizeWidth,
+                    value.sizeHeight,
+                    originX,
+                    originY,
+                    boxW,
+                    boxH,
+                )
+            }
+        } finally {
+            drawContext.canvas.restore()
+        }
+    } finally {
+        drawContext.canvas.restore()
+    }
+}
+
+private fun maskAxisPositions(
+    boxLen: Float,
+    tileLen: Float,
+    origin: Float,
+    repeatAxis: Boolean,
+    space: Boolean,
+    round: Boolean,
+): Pair<Float, List<Float>> {
+    if (tileLen <= 0f) return tileLen to emptyList()
+    if (round) {
+        val count = maxOf(1, kotlin.math.round(boxLen / tileLen).toInt())
+        val scaled = boxLen / count
+        return scaled to List(count) { i -> i * scaled }
+    }
+    if (space) {
+        if (tileLen >= boxLen) return tileLen to listOf(origin)
+        val count = kotlin.math.floor(boxLen / tileLen).toInt()
+        if (count <= 1) return tileLen to listOf(origin)
+        val gap = (boxLen - count * tileLen) / (count - 1)
+        return tileLen to List(count) { i -> i * (tileLen + gap) }
+    }
+    if (!repeatAxis) return tileLen to listOf(origin)
+    val start = origin - kotlin.math.ceil(origin / tileLen) * tileLen
+    val out = ArrayList<Float>()
+    var pos = start
+    while (pos < boxLen) {
+        out.add(pos)
+        pos += tileLen
+    }
+    return tileLen to out
+}
+
+private fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.drawImageMask(
+    bitmap: androidx.compose.ui.graphics.ImageBitmap,
+    repeat: Int,
+    sizeMode: Int,
+    sizeW: Float,
+    sizeH: Float,
+    originX: Float,
+    originY: Float,
+    boxW: Float,
+    boxH: Float,
+) {
+    val imgW = bitmap.width.toFloat()
+    val imgH = bitmap.height.toFloat()
+    if (imgW <= 0f || imgH <= 0f) return
+    val (baseW, baseH) = when (sizeMode) {
+        MASK_SIZE_COVER -> {
+            val s = maxOf(boxW / imgW, boxH / imgH)
+            (imgW * s) to (imgH * s)
+        }
+        MASK_SIZE_CONTAIN -> {
+            val s = minOf(boxW / imgW, boxH / imgH)
+            (imgW * s) to (imgH * s)
+        }
+        MASK_SIZE_EXPLICIT -> {
+            val hasW = sizeW >= 0f
+            val hasH = sizeH >= 0f
+            when {
+                hasW && hasH -> sizeW.dp.toPx() to sizeH.dp.toPx()
+                hasW -> {
+                    val w = sizeW.dp.toPx()
+                    w to (w * imgH / imgW)
+                }
+                hasH -> {
+                    val h = sizeH.dp.toPx()
+                    (h * imgW / imgH) to h
+                }
+                else -> imgW to imgH
+            }
+        }
+        else -> imgW to imgH
+    }
+    val (tileW, xs) = maskAxisPositions(
+        boxW,
+        baseW,
+        originX,
+        repeatAxis = repeat == MASK_REPEAT_BOTH || repeat == MASK_REPEAT_X,
+        space = repeat == MASK_REPEAT_SPACE,
+        round = repeat == MASK_REPEAT_ROUND,
+    )
+    val (tileH, ys) = maskAxisPositions(
+        boxH,
+        baseH,
+        originY,
+        repeatAxis = repeat == MASK_REPEAT_BOTH || repeat == MASK_REPEAT_Y,
+        space = repeat == MASK_REPEAT_SPACE,
+        round = repeat == MASK_REPEAT_ROUND,
+    )
+    if (tileW <= 0f || tileH <= 0f) return
+    val dstSize = androidx.compose.ui.unit.IntSize(
+        maxOf(1, kotlin.math.round(tileW).toInt()),
+        maxOf(1, kotlin.math.round(tileH).toInt()),
+    )
+    for (y in ys) {
+        for (x in xs) {
+            drawImage(
+                image = bitmap,
+                dstOffset = androidx.compose.ui.unit.IntOffset(
+                    kotlin.math.round(x).toInt(),
+                    kotlin.math.round(y).toInt(),
+                ),
+                dstSize = dstSize,
+            )
+        }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.ContentDrawScope.drawBrushMask(
+    maskBrush: androidx.compose.ui.graphics.Brush,
+    repeat: Int,
+    sizeMode: Int,
+    sizeW: Float,
+    sizeH: Float,
+    originX: Float,
+    originY: Float,
+    boxW: Float,
+    boxH: Float,
+) {
+    val baseW = if (sizeMode == MASK_SIZE_EXPLICIT && sizeW >= 0f) sizeW.dp.toPx() else boxW
+    val baseH = if (sizeMode == MASK_SIZE_EXPLICIT && sizeH >= 0f) sizeH.dp.toPx() else boxH
+    val (tileW, xs) = maskAxisPositions(
+        boxW,
+        baseW,
+        originX,
+        repeatAxis = repeat == MASK_REPEAT_BOTH || repeat == MASK_REPEAT_X,
+        space = repeat == MASK_REPEAT_SPACE,
+        round = repeat == MASK_REPEAT_ROUND,
+    )
+    val (tileH, ys) = maskAxisPositions(
+        boxH,
+        baseH,
+        originY,
+        repeatAxis = repeat == MASK_REPEAT_BOTH || repeat == MASK_REPEAT_Y,
+        space = repeat == MASK_REPEAT_SPACE,
+        round = repeat == MASK_REPEAT_ROUND,
+    )
+    if (tileW <= 0f || tileH <= 0f) return
+    val tileSize = androidx.compose.ui.geometry.Size(tileW, tileH)
+    for (y in ys) {
+        for (x in xs) {
+            drawContext.canvas.save()
+            drawContext.canvas.translate(x, y)
+            try {
+                drawRect(
+                    brush = maskBrush,
+                    topLeft = androidx.compose.ui.geometry.Offset.Zero,
+                    size = tileSize,
+                )
+            } finally {
+                drawContext.canvas.restore()
+            }
+        }
+    }
+}

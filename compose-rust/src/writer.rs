@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 42;
+const MODIFIER_SLOTS: usize = 43;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -453,6 +453,7 @@ impl NodeWriter {
         const HOVER_STYLE: u16 = 39;
         const FOCUS_RING: u16 = 40;
         const PRESS_STYLE: u16 = 41;
+        const MASK: u16 = 42;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -488,6 +489,7 @@ impl NodeWriter {
             "background" | "animated_background" => Some(BACKGROUND),
             "transform" | "animated_offset" => Some(TRANSFORM),
             "alpha" | "animated_alpha" => Some(ALPHA),
+            "mask" => Some(MASK),
             "offset" => Some(OFFSET),
             "border_width" | "border_color" | "border_each" => Some(BORDER),
             "border_dash" => Some(BORDER_DASH),
@@ -823,6 +825,33 @@ impl NodeWriter {
                 )))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
+            "mask" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                if bytes.len() != 24 {
+                    return Some(None);
+                }
+                let brush = u32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let repeat = bytes[4];
+                let size_mode = bytes[5];
+                let size_width = f32::from_le_bytes(bytes.get(8..12)?.try_into().ok()?);
+                let size_height = f32::from_le_bytes(bytes.get(12..16)?.try_into().ok()?);
+                let pos_x = f32::from_le_bytes(bytes.get(16..20)?.try_into().ok()?);
+                let pos_y = f32::from_le_bytes(bytes.get(20..24)?.try_into().ok()?);
+                Some(Some((
+                    MASK,
+                    Modifier::Mask {
+                        brush,
+                        repeat,
+                        size_mode,
+                        size_width,
+                        size_height,
+                        pos_x,
+                        pos_y,
+                    },
+                )))
+            }
             "overlay" => Some(Some((
                 OVERLAY,
                 Modifier::Overlay(crate::Paint::from_bits(integer(value)? as u64)?),

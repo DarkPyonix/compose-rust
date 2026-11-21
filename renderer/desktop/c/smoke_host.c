@@ -260,7 +260,7 @@ static void build_label_update(const char *label) {
  * The records here are zeroed first, so a field added at the end (the font features at 72, the
  * runs' font feature table at 80) reads as absent: its length or count is zero.
  * scripts/tests/smoke-host-measure-record.test.sh holds the two lengths equal. */
-#define MEASURE_RECORD 88
+#define MEASURE_RECORD 96
 #define MEASURE_WIDTH 1000.0f
 #define HTML_NODE 6
 #define HTML_TEXT "Measured as CSS text"

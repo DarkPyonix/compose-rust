@@ -212,6 +212,15 @@ fn every_modifier() -> Vec<Modifier> {
             tint: None,
             press_easing: None,
         },
+        Modifier::Mask {
+            brush: 9,
+            repeat: 3,
+            size_mode: 2,
+            size_width: 64.0,
+            size_height: 32.0,
+            pos_x: 4.0,
+            pos_y: 2.0,
+        },
     ]
 }
 

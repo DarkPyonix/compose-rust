@@ -1,16 +1,22 @@
+mod support;
+
+use compose_rust::ComposeHost;
 use compose_rust::measure::{
     MEASURE_RECORD_LEN, MeasureRequests, TEXT_SPAN_METRICS_COUNT_AT, TEXT_SPAN_METRICS_OFFSET_AT,
     TextConstraint, TextStyle,
 };
-use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
-use compose_rust::schema::{Modifier, PropertyKind};
+use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
+use compose_rust::runtime::mutable_state_of;
+use compose_rust::schema::{Modifier as SchemaModifier, PropertyKind};
 use compose_rust::spans::{
     SpanMetric, TextSpan, TextSpans, decode_metrics_table, encode_metrics_table,
 };
+use compose_rust::ui::{Box, Mask, MaskRepeat, MaskSize, Modifier, Text};
+use support::Tree;
 
 #[test]
 fn fr10_mask_modifier_round_trips() {
-    let modifier = Modifier::Mask {
+    let modifier = SchemaModifier::Mask {
         brush: 42,
         repeat: 3,
         size_mode: 2,
@@ -37,6 +43,70 @@ fn fr10_mask_modifier_round_trips() {
             modifier,
         }]
     );
+
+    // Checked-in protocol vector carries a Mask modifier on node 4.
+    let checked_in = decode_batch(include_bytes!("vectors/mask_and_span_metrics.bin")).unwrap();
+    assert!(
+        checked_in.iter().any(|m| matches!(
+            m,
+            Mutation::SetModifier {
+                node_id: 4,
+                index: 0,
+                modifier: SchemaModifier::Mask {
+                    brush: 9,
+                    repeat: 3,
+                    size_mode: 2,
+                    size_width,
+                    size_height,
+                    pos_x,
+                    pos_y,
+                },
+            } if *size_width == 64.0 && *size_height == 32.0 && *pos_x == 4.0 && *pos_y == 2.0
+        )),
+        "checked-in mask_and_span_metrics vector must include Mask"
+    );
+}
+
+#[test]
+fn fr49_mask_change_sends_one_modifier() {
+    let pos_x = mutable_state_of(0.0_f32);
+    let state = pos_x;
+    let mut host = ComposeHost::with_content(move || {
+        let mut mask = Mask::new(9);
+        mask.repeat = MaskRepeat::NoRepeat;
+        mask.size_mode = MaskSize::Explicit;
+        mask.size_width = 40.0;
+        mask.size_height = 20.0;
+        mask.pos_x = state.get();
+        Box!(modifier = Modifier.mask(mask), {
+            Text!("child");
+        });
+    });
+    let mut tree = Tree::default();
+    tree.apply(host.rebuild().expect("initial batch encodes"));
+
+    pos_x.set(12.0);
+    let batch = host.render_frame(0).expect("update batch encodes").to_vec();
+    let mutations = decode_batch(&batch).expect("update batch decodes");
+    tree.apply(&batch);
+    assert_eq!(mutations.len(), 1, "{mutations:?}");
+    assert!(
+        matches!(
+            mutations[0],
+            Mutation::SetModifier {
+                modifier: SchemaModifier::Mask {
+                    brush: 9,
+                    repeat: 3,
+                    size_mode: 3,
+                    pos_x,
+                    ..
+                },
+                ..
+            } if pos_x == 12.0
+        ),
+        "{mutations:?}"
+    );
+    assert_eq!(tree.texts(), vec!["child".to_owned()]);
 }
 
 #[test]
@@ -65,6 +135,24 @@ fn fr40_span_metrics_round_trip() {
     ])
     .unwrap();
     assert!(decode_metrics_table(&dup).is_none());
+
+    // Checked-in protocol vector carries SpanMetrics on node 24.
+    let checked_in = decode_batch(include_bytes!("vectors/mask_and_span_metrics.bin")).unwrap();
+    let vector_blob = checked_in.iter().find_map(|m| match m {
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::SpanMetrics,
+            value: PropertyValue::Bytes(bytes),
+        } => Some(*bytes),
+        _ => None,
+    });
+    let vector_entries = decode_metrics_table(vector_blob.expect("vector has SpanMetrics"))
+        .expect("vector SpanMetrics decodes");
+    assert_eq!(vector_entries.len(), 2);
+    assert_eq!(vector_entries[0].span, 1);
+    assert_eq!(vector_entries[0].font_size, 28.0);
+    assert_eq!(vector_entries[1].span, 4);
+    assert_eq!(vector_entries[1].letter_spacing, 2.0);
 }
 
 #[test]

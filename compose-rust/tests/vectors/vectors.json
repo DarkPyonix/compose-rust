@@ -38,6 +38,11 @@
     "tileWidth": 56.0,
     "tileHeight": 30.0
   },
+  "maskAndSpanMetrics": {
+    "file": "mask_and_span_metrics.bin",
+    "description": "One batch with a 36 byte Mask modifier on node 4 and a SpanMetrics property on node 24",
+    "recordCount": 2
+  },
   "events": {
     "file": "events.bin",
     "description": "Fifty-two independently decodable event records concatenated in schema order",
