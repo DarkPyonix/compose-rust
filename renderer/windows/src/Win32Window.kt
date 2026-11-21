@@ -232,6 +232,11 @@ internal class Win32Window private constructor(
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                // A reader's request goes to the control it names, not to the scene as input.
+                if (semantics.receive(event)) {
+                    heard = true
+                    continue
+                }
                 textScale.receive(event)
                 // Files let go over the window go to the node under them.
                 routeFileDrop(event)
@@ -275,6 +280,12 @@ internal class Win32Window private constructor(
         for (event in Win32Loop.drainEvents()) {
             if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                 System.err.println("compose-rust: window heard $event")
+            }
+            // A reader's request goes to the control it names, not to the scene as input.
+            if (semantics.receive(event)) {
+                heard = true
+                if (gone) return true
+                continue
             }
             textScale.receive(event)
             routeFileDrop(event)

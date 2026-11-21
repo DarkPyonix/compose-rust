@@ -6,6 +6,10 @@
 
 The Compose fork's window pin moves to `12d04e0d`. The Windows window has no GDI surface any more: each frame, its size and its clip reach DWM in one DirectComposition commit, so a maximise, restore or snap no longer shows the new size with the old picture now and then (fork #253). This is the fork's default route. `DXC_DCOMP=0`, or a machine without a composition device, gives the previous GDI route. The window's DirectComposition calls are a C++ file, `win32_dcomp.cpp`, which the Windows builds now compile with `/std:c++17 /GR- /EHs-c-` beside the window's C; `dcomp.dll` is loaded at run time, so an application links no new library ([#157](https://github.com/DarkPyonix/compose-rust/issues/157)).
 
+### Windows screen readers can act on controls
+
+The Compose fork's window pin moves to `eaa0f317`. The Windows window now answers UI Automation with control patterns (Invoke, Toggle, Value, RangeValue, SelectionItem, ExpandCollapse), states (enabled, focusable, focused, password), help text, the element that has focus and the parent and child structure of the screen. Narrator and other UI Automation clients can press a button, toggle a checkbox, set a field's or a slider's value and move focus; the request reaches the control as a click or an edit would, and the Host gets the same event. Switches, radio buttons, tabs, sliders, progress bars, combo boxes and links have their own control types instead of reading as groups, and element bounds are right at display scales above 100% ([#419](https://github.com/DarkPyonix/compose-rust/issues/419)).
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues
