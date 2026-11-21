@@ -150,6 +150,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK="${DXC_COMPOSE_BUILD:-$(dirname "$RENDERER_DIR")/compose-build}"
 SKIKO_WORK="${DXC_SKIKO_BUILD:-$(dirname "$RENDERER_DIR")/.scratch/skiko-build}"
+# Every Gradle build below resolves from Maven Central and the plugin portal, which sometimes
+# answer "not found" for a moment. The wrapper runs a build again only when it failed fetching
+# a dependency (scripts/tests/dependency-download-retries.test.sh).
+RETRY="$SCRIPT_DIR/retry-resolution.sh"
+export DXC_RETRY_LOG="${DXC_RETRY_LOG:-$WORK/build/retry-resolution.log}"
 
 die() {
     echo "error: $1" >&2
@@ -219,7 +224,7 @@ if [[ "$target" == mingwX64 ]]; then
     [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
         "The Windows pin has to be a commit of the fork that carries the skiko build."
     echo "==> building skiko for mingwX64 into $SKIKO_WORK"
-    bash "$skiko_script" "$SKIKO_WORK"
+    "$RETRY" bash "$skiko_script" "$SKIKO_WORK"
 fi
 
 publish="$WORK/extended/compose/publish-local.sh"
@@ -237,7 +242,7 @@ for line in "COMPOSE=$COMPOSE_AS" "COMPOSE_MATERIAL3=$MATERIAL3_AS"; do
 done
 
 echo "==> publishing the fork's Compose for ${publish_targets[*]} as $COMPOSE_AS"
-"$publish" "${publish_targets[@]}"
+"$RETRY" "$publish" "${publish_targets[@]}"
 
 # Every sibling a published module names is there, nothing names JetBrains' copy of a module the
 # fork publishes, and nothing at JetBrains' coordinates carries a fork version.
