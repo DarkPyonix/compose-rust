@@ -824,15 +824,8 @@ mod tests {
         /// Hands the Host an event, the way the Renderer does, and keeps the batch.
         fn dispatch(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) {
             let mut bytes = Vec::new();
-            encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                },
-                &mut bytes,
-            )
-            .expect("the event did not encode");
+            encode_event(&HostEvent::new(node_id, handler_id, payload), &mut bytes)
+                .expect("the event did not encode");
             let (batch, _) = self.host.dispatch_event(&bytes).expect("the event failed");
             if !batch.is_empty() {
                 self.frames.push(batch.to_vec());

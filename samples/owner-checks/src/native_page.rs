@@ -4,7 +4,9 @@
 //! In 1.0 a platform view can be placed only by the macOS Kotlin/Native renderer. Elsewhere
 //! the screen says so instead of placing anything.
 
-use crate::{header, reading, steps};
+use crate::header;
+#[cfg(target_os = "macos")]
+use crate::{reading, steps};
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 
