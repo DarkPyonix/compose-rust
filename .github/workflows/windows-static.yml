@@ -352,6 +352,14 @@ jobs:
       - name: Build, check, move and run an application
         run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
+      - name: Build the sample for the UI Automation check
+        run: cargo build --locked -p sample-minimal --bin sample-minimal
+
+      - name: Read the sample's Windows UI Automation tree
+        shell: powershell
+        timeout-minutes: 2
+        run: ./.github/scripts/check-windows-uia.ps1 -Executable ./target/debug/sample-minimal.exe
+
       - name: Keep the application
         if: always()
         # multi-window.exe is the two-window application for the hand check of an input
