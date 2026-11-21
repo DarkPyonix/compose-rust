@@ -362,8 +362,7 @@ fn spring_critically_damped(r: f64, p0: f64, v0: f64, delta: f64) -> f64 {
 
     // Where the curve bends matters when it bends after the start.
     let t_inflection = -(r * c1 + c2) / (r * c2);
-    let x_inflection =
-        c1 * (r * t_inflection).exp() + c2 * t_inflection * (r * t_inflection).exp();
+    let x_inflection = c1 * (r * t_inflection).exp() + c2 * t_inflection * (r * t_inflection).exp();
     let signed_delta = if t_inflection.is_nan() || t_inflection <= 0.0 {
         -delta
     } else if -x_inflection < delta {

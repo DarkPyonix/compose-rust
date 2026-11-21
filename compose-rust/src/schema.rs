@@ -2933,7 +2933,10 @@ pub enum Timing {
     /// the spring takes to come within 0.001 of 1 and stay there, so the curve ends at
     /// exactly 1. Below a damping ratio of 1 it overshoots. Both numbers are finite and
     /// positive.
-    Spring { stiffness: f32, damping_ratio: f32 },
+    Spring {
+        stiffness: f32,
+        damping_ratio: f32,
+    },
 }
 
 /// One CSS transform function: its kind and up to six values, the unused ones zero.

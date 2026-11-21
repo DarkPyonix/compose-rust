@@ -859,7 +859,10 @@ mod tests {
                         );
                     }
                 }
-                assert_eq!(digits, 11, "{system:?} at {width} does not show ten digits and a point");
+                assert_eq!(
+                    digits, 11,
+                    "{system:?} at {width} does not show ten digits and a point"
+                );
                 assert!(functions > 0, "{system:?} at {width} has no function keys");
             }
         }

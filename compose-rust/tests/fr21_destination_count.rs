@@ -68,9 +68,21 @@ fn fr21_2_4_navigation_item_count_writes_the_count_property() {
     let first = decode_batch(&first).expect("the first frame decodes");
     let items = destinations(&first);
     assert_eq!(items.len(), 3, "three declarations, three destinations");
-    assert_eq!(counts(&first, items[0]), vec![Some(4)], "Inbox did not send its count");
-    assert_eq!(counts(&first, items[1]), vec![Some(0)], "a count of nothing is still a count");
-    assert_eq!(counts(&first, items[2]), Vec::<Option<i64>>::new(), "Archive named no count");
+    assert_eq!(
+        counts(&first, items[0]),
+        vec![Some(4)],
+        "Inbox did not send its count"
+    );
+    assert_eq!(
+        counts(&first, items[1]),
+        vec![Some(0)],
+        "a count of nothing is still a count"
+    );
+    assert_eq!(
+        counts(&first, items[2]),
+        Vec::<Option<i64>>::new(),
+        "Archive named no count"
+    );
 }
 
 /// A changed count is one record on that destination, and the destinations beside it are
@@ -84,7 +96,10 @@ fn fr21_2_4_a_changed_count_writes_only_its_destination() {
     let items = destinations(&decode_batch(&first).expect("the first frame decodes"));
 
     inbox.set(Some(5));
-    let changed = host.render_frame(1).expect("the second frame encodes").to_vec();
+    let changed = host
+        .render_frame(1)
+        .expect("the second frame encodes")
+        .to_vec();
     let changed = decode_batch(&changed).expect("the second frame decodes");
     assert_eq!(counts(&changed, items[0]), vec![Some(5)]);
     let elsewhere: Vec<&Mutation<'_>> = changed
@@ -103,9 +118,15 @@ fn fr21_2_4_a_changed_count_writes_only_its_destination() {
     );
 
     inbox.set(None);
-    let cleared = host.render_frame(2).expect("the third frame encodes").to_vec();
+    let cleared = host
+        .render_frame(2)
+        .expect("the third frame encodes")
+        .to_vec();
     assert_eq!(
-        counts(&decode_batch(&cleared).expect("the third frame decodes"), items[0]),
+        counts(
+            &decode_batch(&cleared).expect("the third frame decodes"),
+            items[0]
+        ),
         vec![None],
         "a count that goes away is removed, not turned into a count of nothing"
     );
