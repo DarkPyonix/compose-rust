@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.foundation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.design.CaptionTitleAlignment
+import dev.darkpyonix.composerust.design.CaptionTitlePlacement
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -311,9 +312,12 @@ internal fun HostTopAppBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val title = node.text(PropertyKind.Text)
+            val captionStyle = theme.rules.caption(theme)
+            val titleInBar = title.isNotEmpty() &&
+                !(caption.height > 0.dp && captionStyle.titlePlacement == CaptionTitlePlacement.SystemCaption)
             val centred = caption.height > 0.dp &&
-                theme.rules.caption(theme).titleAlignment == CaptionTitleAlignment.Center
-            if (title.isNotEmpty() && centred) {
+                captionStyle.titleAlignment == CaptionTitleAlignment.Center
+            if (titleInBar && centred) {
                 // Centred in the window rather than between the bar's other children.
                 // GNOME, Breeze and Deepin all put the window title in the middle of the
                 // caption and everything else at the leading edge, and a title that
@@ -334,7 +338,7 @@ internal fun HostTopAppBar(
                     BarTitle(node, title, theme)
                 }
             } else {
-                if (title.isNotEmpty()) {
+                if (titleInBar) {
                     BarTitle(node, title, theme)
                 }
                 val children = node.children.toList()
@@ -437,7 +441,9 @@ private fun FloatingTopAppBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val title = node.text(PropertyKind.Text)
-        if (title.isNotEmpty()) {
+        val titleInBar = title.isNotEmpty() &&
+            !(caption.height > 0.dp && theme.rules.caption(theme).titlePlacement == CaptionTitlePlacement.SystemCaption)
+        if (titleInBar) {
             BarTitle(node, title, theme)
         }
         val children = node.children.toList()
