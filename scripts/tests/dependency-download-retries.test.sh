@@ -32,12 +32,19 @@ echo "BUILD SUCCESSFUL"
 SH
 chmod +x "$work/stub-build"
 
-run() { # fails_before_success message -> sets status and runs
-    rm -f "$work/count"
-    STUB_DIR="$work" DXC_RETRY_BACKOFF=0 DXC_RETRY_LOG="$work/retry.log" \
+# A sleep that only writes down how long it was asked to wait, so the backoff is checked
+# without waiting it out.
+mkdir -p "$work/bin"
+printf '#!/usr/bin/env bash\necho "$1" >> "$STUB_DIR/waits"\n' > "$work/bin/sleep"
+chmod +x "$work/bin/sleep"
+
+run() { # fails_before_success message -> sets status, runs and waits
+    rm -f "$work/count" "$work/waits"
+    PATH="$work/bin:$PATH" STUB_DIR="$work" DXC_RETRY_LOG="$work/retry.log" \
         "$retry" "$work/stub-build" "$1" "$2" >"$work/out" 2>&1
     status=$?
     runs=$(cat "$work/count" 2>/dev/null || echo 0)
+    waits=$(paste -sd' ' "$work/waits" 2>/dev/null || true)
 }
 
 test -x "$retry"; check $? "renderer/scripts/retry-resolution.sh exists and is executable"
@@ -62,6 +69,16 @@ check $? "an Amper dependency that could not be resolved is retried (status $sta
 run 9 "> Could not find com.google.protobuf:protobuf-java:3.25.5."
 [ "$status" -ne 0 ] && [ "$runs" -eq 3 ]
 check $? "a resolution failure that persists stops after three attempts and fails (status $status, runs $runs)"
+[ "$waits" = "15 30" ]
+check $? "a resolution failure waits 15s, then 30s (waited: $waits)"
+
+run 9 "> Could not GET 'https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.0.21/kotlin-stdlib-2.0.21.pom'. Received status code 429 from server: Too Many Requests"
+[ "$status" -ne 0 ] && [ "$runs" -eq 4 ] && [ "$waits" = "60 120 240" ]
+check $? "a 429 from the repository is retried four times in all, waiting 60s, 120s, 240s (status $status, runs $runs, waited: $waits)"
+
+run 2 "> Could not GET 'https://repo.maven.apache.org/maven2/x.pom'. Received status code 429 from server: Too Many Requests"
+[ "$status" -eq 0 ] && [ "$runs" -eq 3 ]
+check $? "a rate limit that lifts lets the build pass (status $status, runs $runs)"
 
 run 1 "e: file:///x/Main.kt:3:5 Unresolved reference 'foo'."
 [ "$status" -ne 0 ] && [ "$runs" -eq 1 ]
@@ -70,6 +87,46 @@ check $? "a compile error is not retried (status $status, runs $runs)"
 run 0 ""
 [ "$status" -eq 0 ] && [ "$runs" -eq 1 ] && grep -q "BUILD SUCCESSFUL" "$work/out"
 check $? "a passing build runs once and its output still reaches the log (status $status, runs $runs)"
+
+# The Maven Central mirror: on a GitHub runner build-compose.sh installs the init script into
+# the Gradle user home before it builds anything, and installs nothing elsewhere. The bogus
+# target stops it right after that, so nothing is fetched or built.
+mirror_init="$repo/renderer/scripts/maven-central-mirror.gradle"
+grep -q "@MIRROR@" "$mirror_init" && grep -q "repo.maven.apache.org" "$mirror_init"
+check $? "maven-central-mirror.gradle points Maven Central at @MIRROR@ and keeps Central behind it"
+compose_at() { # env... -> runs build-compose.sh up to its argument check
+    env -u GITHUB_ACTIONS -u DXC_MAVEN_CENTRAL_MIRROR "$@" GRADLE_USER_HOME="$work/gh" \
+        DXC_COMPOSE_BUILD="$work/compose-build" \
+        "$repo/renderer/scripts/build-compose.sh" --bogus >/dev/null 2>&1
+}
+rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true
+installed="$work/gh/init.d/dxc-maven-central-mirror.gradle"
+grep -q "def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'" "$installed" 2>/dev/null
+check $? "on a GitHub runner build-compose.sh installs the Google Maven Central mirror into init.d"
+rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true DXC_MAVEN_CENTRAL_MIRROR=https://mirror.example/m2/
+grep -q "def mirror = 'https://mirror.example/m2/'" "$installed" 2>/dev/null
+check $? "DXC_MAVEN_CENTRAL_MIRROR names another mirror"
+rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true DXC_MAVEN_CENTRAL_MIRROR=off
+[ ! -e "$installed" ]
+check $? "DXC_MAVEN_CENTRAL_MIRROR=off installs no mirror"
+rm -rf "$work/gh"; compose_at
+[ ! -e "$installed" ]
+check $? "off CI build-compose.sh leaves the Gradle user home alone"
+
+# The Gradle downloads of the fork build are kept between runs in every job that builds the
+# fork's Compose without setup-gradle (which keeps the Gradle home itself), restored from an
+# older key when build-compose.sh changed, and saved only off pull requests.
+for wf in test-kn-desktop-renderer.yml static-renderer.yml windows-static.yml test-windows-resize-metrics.yml; do
+    f="$repo/.github/workflows/$wf"
+    n_build=$(grep -c 'run: ./renderer/scripts/build-compose.sh' "$f")
+    n_restore=$(grep -c 'id: gradle-downloads' "$f")
+    [ "$n_restore" -ge 1 ] && [ "$n_restore" -le "$n_build" ] &&
+        grep -q 'key: gradle-downloads-.*hashFiles(.renderer/scripts/build-compose.sh.' "$f" &&
+        grep -q 'gradle-downloads-.*-$' "$f" &&
+        grep -q '~/.gradle/caches/modules-2' "$f" &&
+        grep -q 'key: ${{ steps.gradle-downloads.outputs.cache-primary-key }}' "$f"
+    check $? "$wf keeps the fork build's Gradle downloads between runs"
+done
 
 # Wiring: every dependency-resolving build CI runs goes through the wrapper.
 build_compose="$repo/renderer/scripts/build-compose.sh"

@@ -12,6 +12,9 @@
 # DXC_RETRY_ATTEMPTS how many times to run in all (default 3).
 # DXC_RETRY_BACKOFF  seconds to wait after the first failure; the wait grows by as much each
 #                   attempt (default 15: 15s, then 30s), as the fork desktop-module workflows do.
+# DXC_RETRY_429_ATTEMPTS, DXC_RETRY_429_BACKOFF
+#                   the same when the repository answered 429 Too Many Requests, a rate limit
+#                   that lasts minutes: 4 runs in all, waiting 60s, 120s, then 240s.
 #
 # The command's stdout and stderr both go to stdout, as they are read in a CI log.
 set -uo pipefail
@@ -20,9 +23,12 @@ set -uo pipefail
 log="${DXC_RETRY_LOG:?DXC_RETRY_LOG names the file the build output is kept in}"
 attempts="${DXC_RETRY_ATTEMPTS:-3}"
 backoff="${DXC_RETRY_BACKOFF:-15}"
+attempts_429="${DXC_RETRY_429_ATTEMPTS:-4}"
+backoff_429="${DXC_RETRY_429_BACKOFF:-60}"
 
 # What Gradle and Amper print when a dependency or plugin could not be fetched.
-pattern='Could not resolve all (artifacts|files|dependencies|task dependencies)|Could not resolve [^ ]+:[^ ]+|Could not find [^ ]+:[^ ]+:|Could not (GET|HEAD|download) |Plugin \[id: .*\] was not found|Unable to (resolve|download)|Read timed out|Connect(ion)? timed out|Connection reset|Remote host terminated the handshake|Received status code (429|5[0-9][0-9])'
+pattern='Could not resolve all (artifacts|files|dependencies|task dependencies)|Could not resolve [^ ]+:[^ ]+|Could not find [^ ]+:[^ ]+:|Could not (GET|HEAD|download) |Plugin \[id: .*\] was not found|Unable to (resolve|download)|Read timed out|Connect(ion)? timed out|Connection reset|Remote host terminated the handshake|Received status code (429|5[0-9][0-9])|Too Many Requests'
+rate_limited='status code 429|Too Many Requests'
 
 mkdir -p "$(dirname "$log")"
 attempt=1
@@ -33,12 +39,16 @@ while :; do
     if ! grep -Eq "$pattern" "$log"; then
         exit "$status"
     fi
-    if [[ $attempt -ge $attempts ]]; then
-        echo "==> $1 still failed resolving dependencies after $attempt attempts" >&2
+    if grep -Eq "$rate_limited" "$log"; then
+        limit=$attempts_429 wait=$((backoff_429 * (1 << (attempt - 1)))) why="rate limited (429)"
+    else
+        limit=$attempts wait=$((attempt * backoff)) why="failed resolving dependencies"
+    fi
+    if [[ $attempt -ge $limit ]]; then
+        echo "==> $1 still $why after $attempt attempts" >&2
         exit "$status"
     fi
-    wait=$((attempt * backoff))
-    echo "==> $1 failed resolving dependencies on attempt $attempt; retrying in ${wait}s" >&2
+    echo "==> $1 $why on attempt $attempt; retrying in ${wait}s" >&2
     sleep "$wait"
     attempt=$((attempt + 1))
 done

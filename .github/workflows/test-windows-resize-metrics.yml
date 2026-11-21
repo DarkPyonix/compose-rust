@@ -768,9 +768,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Restore the fork build's Gradle downloads
+        id: gradle-downloads
+        # What the fork's Gradle build fetched, so a miss on the published Compose does not
+        # fetch it all again from Maven Central, which rate-limits runners (429). An older key
+        # is taken when build-compose.sh changed: Gradle then fetches only what moved.
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-downloads-macosarm64-${{ hashFiles('renderer/scripts/build-compose.sh') }}
+          restore-keys: |
+            gradle-downloads-macosarm64-
+
       - name: Build Compose for macosArm64 from the fork
         if: steps.kit-cache.outputs.cache-hit != 'true'
         run: ./renderer/scripts/build-compose.sh --target macosArm64
+
+      - name: Keep the fork build's Gradle downloads for the next run
+        if: github.event_name != 'pull_request' && steps.gradle-downloads.outputs.cache-hit != 'true' && steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.gradle-downloads.outputs.cache-primary-key }}
 
       - name: Keep it for the next run
         if: github.event_name != 'pull_request' && (steps.kit-cache.outputs.cache-hit != 'true')
