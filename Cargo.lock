@@ -311,6 +311,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sample-owner-checks"
+version = "0.1.0"
+dependencies = [
+ "compose-rust",
+ "sample-frames",
+]
+
+[[package]]
 name = "sample-podcast"
 version = "0.1.0"
 dependencies = [
