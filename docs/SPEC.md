@@ -5025,8 +5025,8 @@ pub mod storage {
       2. Windows GraalVM (`renderer/desktop/src/Win32Window.kt`): 동일한 `win32_window.c` / `win32_dpi.h` 경유, per-monitor v2 및 `WM_DPICHANGED` 반영.
       3. Linux Kotlin/Native (`renderer/linux/src/LinuxWindow.kt`): `Xft.dpi` 변경 시 즉시 재그리기, 기준 1-6을 PR #726 CI(`fr82_*`)에서 검증.
       4. Linux GraalVM (`renderer/desktop/src/LinuxWindow.kt` + 포크 `1.11.1-ext.4` X11 창): 동일한 `Xft.dpi` 배율 추적 경로 사용.
-      5. macOS Kotlin/Native (`renderer/macos` + 포크 `MacosWindow.kt`): 백킹 배율 변경 알림(`NSWindowDidChangeBackingPropertiesNotification`)을 포크 PR에서 추가하며, 실제 다중 모니터 손 확인은 darkpyonix#141에 남깁니다.
-      6. macOS GraalVM (`renderer/desktop/src/AppKitWindow.kt` + 포크 `appkit_window.m`): `WindowBackingScale`로 매 프레임 및 크기/배율 변경을 추적(`WindowBackingScaleTest`), 백킹 배율 변경 알림을 포크 PR에서 추가합니다. 제외된 경로는 없습니다.
+      5. macOS Kotlin/Native (`renderer/macos` + 포크 `MacosWindow.kt`): 백킹 배율 변경 알림(`viewDidChangeBackingProperties` / `backingChanged()`, 포크 커밋 `fb10df02c0a`, `WINDOW_REVISION=98002181`에 포함)으로 즉시 재그리기, 실제 다중 모니터 손 확인은 darkpyonix#141에 남깁니다.
+      6. macOS GraalVM (`renderer/desktop/src/AppKitWindow.kt` + 포크 `appkit_window.m`): `WindowBackingScale`로 매 프레임 및 크기/배율 변경을 추적(`WindowBackingScaleTest`), 포크 `appkit_window.m`의 `viewDidChangeBackingProperties`(`fb10df02c0a`)가 즉시 `contentsScale`/`drawableSize`를 갱신하고 재그리기를 요청합니다. 제외된 경로는 없습니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
