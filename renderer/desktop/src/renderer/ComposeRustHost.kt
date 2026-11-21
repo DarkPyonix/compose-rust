@@ -405,7 +405,7 @@ fun ComposeRustContent(
     windowNodeId: Int = 0,
     /**
      * Called when the opening `TopAppBar` carries a non-empty title so the platform window can
-     * mirror it into the system caption (FR-30.2).
+     * mirror it into the system caption.
      */
     onCaptionTitle: (String) -> Unit = {},
 ) {
@@ -1116,7 +1116,7 @@ internal fun NodeTable.openingTopBar(roots: List<Int>): Int? {
 
 /**
  * The non-empty title declared on the page's opening `TopAppBar`, or null when there is no
- * opening bar or its title is blank (FR-30.2).
+ * opening bar or its title is blank.
  */
 internal fun NodeTable.openingBarTitle(roots: List<Int>): String? {
     val barId = openingTopBar(roots) ?: return null

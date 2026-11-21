@@ -129,9 +129,8 @@ class BarTitleTest {
     }
 
     /**
-     * FR-30.2 (criterion 1): when a window has a caption strip, Cupertino and Liquid Glass leave
-     * the title to the system caption and do not draw a title node in the bar, while Fluent 2
-     * draws it in the bar.
+     * When a window has a caption strip, Cupertino and Liquid Glass leave the title to the
+     * system caption and do not draw a title node in the bar, while Fluent 2 draws it in the bar.
      */
     @Test
     fun fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height() = runComposeUiTest {
@@ -159,8 +158,8 @@ class BarTitleTest {
     }
 
     /**
-     * FR-30.2 (criterion 2): on a Cupertino screen with no caption strip (height 0, e.g. mobile),
-     * the bar draws the title itself.
+     * On a Cupertino screen with no caption strip (height 0, e.g. mobile), the bar draws the
+     * title itself.
      */
     @Test
     fun fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero() = runComposeUiTest {
@@ -176,8 +175,8 @@ class BarTitleTest {
     }
 
     /**
-     * FR-30.2: the opening bar's title is reported to the platform window via `onCaptionTitle` so
-     * the system caption displays the bar's title even when the bar omits it.
+     * The opening bar's title is reported to the platform window via `onCaptionTitle` so the
+     * system caption displays the bar's title even when the bar omits it.
      */
     @Test
     fun fr30_2_opening_bar_title_propagates_to_caption_title_callback() = runComposeUiTest {

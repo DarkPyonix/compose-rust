@@ -33,7 +33,7 @@ private const val SCENE_W_DP = 160
 private const val SCENE_H_DP = 120
 
 /**
- * FR-82 diagnostic scene: on a white background, (a) a 1dp vertical black bar at x = 10dp,
+ * HiDPI diagnostic scene: on a white background, (a) a 1dp vertical black bar at x = 10dp,
  * (b) a 1dp horizontal black bar at y = 10dp, (c) a 40dp-diameter black circle, (d) a black
  * square clipped with a 12dp corner radius, and (e) 16sp black "Hg".
  */
@@ -161,7 +161,7 @@ private fun compareBuffers(a: PixelBuffer, b: PixelBuffer): DiffStats {
 }
 
 /**
- * FR-82 HiDPI sharpness acceptance tests (issue #18).
+ * HiDPI sharpness acceptance tests across integer and fractional display scales.
  */
 class HiDpiCaptureTest {
 

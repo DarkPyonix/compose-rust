@@ -218,7 +218,7 @@ internal class LinuxWindow private constructor(
 
     init {
         // How far the start got, in the words the native image's window uses: the window is
-        // open and the scene is made, at the size and density it was made with (FR-82).
+        // open and the scene is made, at the size and density it was made with.
         val opened = x11.measure()
         WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
         WindowStartReport.sceneCreated(opened.width, opened.height, scene.density.density)

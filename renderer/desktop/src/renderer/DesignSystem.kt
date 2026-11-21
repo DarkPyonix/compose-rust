@@ -884,7 +884,7 @@ enum class CaptionTitleAlignment { Start, Center }
 
 /**
  * Whether a top app bar draws its title inside the bar or leaves it to the platform caption
- * when the window has a caption strip (FR-30.2).
+ * when the window has a caption strip.
  */
 enum class CaptionTitlePlacement { Bar, SystemCaption }
 
@@ -927,7 +927,7 @@ data class CaptionStyle(
     val spacing: Dp,
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
-    /** Whether the top bar draws its title or leaves it to the platform caption (FR-30.2). */
+    /** Whether the top bar draws its title or leaves it to the platform caption. */
     val titlePlacement: CaptionTitlePlacement = CaptionTitlePlacement.Bar,
     /**
      * How tall the caption is where the application draws it.
