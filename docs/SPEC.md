@@ -1548,7 +1548,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 - Kotlin/Native 데스크톱 창: 렌더러의 `macos/`, `linux/` 모듈과 D18의 `windows/` 모듈의 창 부분
 - 이슈 #26이 함께 꼽는 것: GraalVM native-image에서 AWT를 걷어내는 경로, macOS 창 재질(FR-29)
 
-지금 이 코드는 `renderer/desktop/c/`와 렌더러의 Kotlin 소스, 플랫폼 모듈에 있습니다. 옮긴 뒤 이 저장소에는 포크가 내놓는 창을 쓰는 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다. 옮기는 동안 창이 빌드되지 않거나 나빠지는 기간이 생기면 안 되므로, 이 저장소의 사본은 포크가 아래 기준을 통과할 때까지 남깁니다.
+지금 이 코드는 포크의 `extended/window/` 모듈(`common`, `windows-shared`, `native/macos`, `native/linux`, `graalvm`)로 옮겨졌고, 이 저장소의 중복 사본은 지워졌습니다(`ffa9cd60`). 이 저장소에는 포크가 내놓는 창을 부르는 연결 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다.
 
 수용 기준 (이슈 #26):
 
@@ -2481,7 +2481,9 @@ if design.is_apple() {
 
 > [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
 
-- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows는 Win32 팝업 메뉴(`TrackPopupMenuEx`)입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다. **[leader, 2026-11-22]** 소유자의 2025-10-05 원칙은 기본 OS 네이티브 메뉴이지만, Linux(X11)에는 툴킷 없는 표준 OS 팝업 메뉴가 없으므로 데스크톱 메뉴 경로가 생기기 전까지 디자인 시스템이 그린 메뉴를 기본값으로 쓰며 다른 OS와 같은 항목과 사용 가능 상태를 유지합니다.
+- **붙여넣기(Paste) 사용 가능 상태는 클립보드를 따릅니다([leader, 2026-11-22]).** 클립보드에 텍스트가 있을 때만 붙여넣기 항목이 활성화되고, 비어 있거나 텍스트가 아니면 비활성화됩니다.
+- **`Menu`와 `Dropdown` 팝업은 디자인 시스템이 그린 팝업을 유지합니다([leader, 2026-11-22]).** 텍스트 우클릭 메뉴와 달리 `Menu`와 `Dropdown`은 아이콘, 보조 설명, 선택 표시, 맞춤 행(Ember의 모델·브랜치 선택기 등)을 담으므로 디자인 시스템 팝업으로 그리고, 메뉴 키보드(화살표 순환, Home/End, Enter, Escape, 키보드 포커스 표시)를 제공합니다.
 - **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
 - **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
 - **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
@@ -2495,6 +2497,9 @@ if design.is_apple() {
 4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
 5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
 6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
+7. Linux(X11) 기본 텍스트 메뉴는 다른 OS와 같은 항목과 사용 가능 상태로 디자인 시스템 메뉴를 냅니다(시험 이름 `fr33_1_linux_drawn_text_menu_matches_items_and_enabled_state`).
+8. 클립보드가 비어 있으면 붙여넣기 항목이 비활성화되고, 클립보드에 텍스트가 있으면 활성화됩니다(시험 이름 `fr33_1_paste_enabled_state_follows_clipboard`).
+9. `Menu`와 `Dropdown` 팝업은 디자인 시스템 팝업으로 그려지며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape)를 가집니다(시험 이름 `fr33_1_menu_and_dropdown_popups_use_design_system_popup`).
 
 ### FR-36 OS 알림 (`Draft`)
 
