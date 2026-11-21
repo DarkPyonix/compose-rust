@@ -4338,7 +4338,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 1. 두 매개변수를 주지 않은 `Switch`는 `ThumbElevation`도 `TrackBorder`도 보내지 않습니다(`fr67_switch_sends_no_thumb_elevation_or_track_border_unless_given`).
 2. `thumb_elevation = 2.0`은 `ThumbElevation`을 `f32` 2.0으로, `track_border = (1.5, ink)`는 `TrackBorder`를 폭 1.5의 비트와 `ink`의 `Paint` 비트를 이은 12바이트로 보냅니다(`fr67_switch_thumb_elevation_and_track_border_travel_with_their_bytes`).
 3. 같은 값으로 다시 그리면 아무 레코드도 나가지 않고(`fr67_switch_same_thumb_elevation_and_track_border_send_nothing_again`), 값을 바꾸면 그 속성의 `SetProp` 하나만 나갑니다(`fr67_switch_changed_thumb_elevation_sends_one_set_prop`).
-4. 일곱 디자인 시스템 모두에서 `thumb_elevation`을 준 꺼진 스위치는 손잡이와 트랙 아래 끝 사이의 픽셀이 주지 않은 스위치보다 어둡고, 손잡이에서 먼 트랙 끝의 픽셀은 같습니다(`fr67_switch_thumb_elevation_draws_a_shadow_under_the_thumb`).
+4. 일곱 디자인 시스템 모두에서 `thumb_elevation = 4.0`인 꺼진 스위치는 손잡이와 트랙 아래 끝 사이의 픽셀이 `thumb_elevation = 0.0`인 스위치보다 어둡고, 손잡이에서 먼 트랙 끝의 픽셀은 같습니다. 공용 컨트롤 그리기로 그리는 여섯 시스템에서는 주지 않은 스위치와 `0.0`인 스위치의 픽셀이 같습니다(`fr67_switch_thumb_elevation_draws_a_shadow_under_the_thumb`).
 5. 일곱 디자인 시스템 모두에서 `track_border = (2.0, red)`인 스위치의 트랙 가장자리가 빨간색입니다(`fr67_switch_track_border_draws_in_the_width_and_colour_named`). 폭 `0`이면 가장자리가 빨갛지 않습니다(`fr67_switch_track_border_of_zero_width_draws_none`).
 6. 두 속성을 모두 받은 뒤 제거된 스위치는 처음부터 주지 않은 스위치와 같은 픽셀로 그려집니다(`fr67_removing_thumb_elevation_and_track_border_restores_the_default`).
 
