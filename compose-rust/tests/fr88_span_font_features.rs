@@ -490,7 +490,7 @@ fn fr88_measure_record_carries_span_font_features() {
         TEXT_SPAN_FEATURES_OFFSET_AT, TextConstraint, TextStyle,
     };
 
-    assert_eq!(MEASURE_RECORD_LEN, 88);
+    assert_eq!(MEASURE_RECORD_LEN, 96);
     let featured = TextSpans::new_with_features([
         (TextSpan::new(0, 6), vec![]),
         (TextSpan::new(6, 4), vec![FontFeature::TABULAR_NUMS]),

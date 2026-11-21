@@ -79,6 +79,8 @@ internal class TextInput(
      * strings by run index. Taken by a run with or without a role, after the text's own.
      */
     val runFontFeatures: Map<Int, String> = emptyMap(),
+    /** Per-span font size and letter spacing overrides, by run index. */
+    val runMetrics: Map<Int, SpanMetric> = emptyMap(),
     /**
      * True for text with no rung of the ladder at all, which takes its size, weight,
      * line height, letter spacing and font from its own values and nothing from the
@@ -249,12 +251,15 @@ internal fun resolveText(
     // of runs, so none of it is trusted. Runs that were left out have said so already.
     val badRunFeatures = if (badRuns == null) runFeaturesProblem(input.runFontFeatures, runs.size) else null
     val runFeatures = if (badRuns == null && badRunFeatures == null) input.runFontFeatures else emptyMap()
+    val badRunMetrics = if (badRuns == null) runMetricsProblem(input.runMetrics, runs.size) else null
+    if (badRunMetrics != null) problems += badRunMetrics
+    val runMetrics = if (badRuns == null && badRunMetrics == null) input.runMetrics else emptyMap()
     val mode = when (intrinsicWordBreak ?: input.wordBreak) {
         WordBreak.KeepAll -> BreakMode.KeepAll
         WordBreak.BreakAll -> BreakMode.BreakAll
         WordBreak.Normal, null -> BreakMode.Normal
     }
-    val text = annotate(input, runs, runFeatures, mode, chain, tracking, theme, assets, density, ::sized, link, problems)
+    val text = annotate(input, runs, runFeatures, runMetrics, mode, chain, tracking, theme, assets, density, ::sized, link, problems)
     val (placeholders, inline) = tabStops(text, style, input.tabSize, density, fontFamilyResolver)
 
     // Breaking anywhere only matters to the narrowest width: laid out at any width, a word
@@ -262,7 +267,7 @@ internal fun resolveText(
     // made only for that question, and only where the answer differs.
     val anywhere = input.overflowWrap == OverflowWrap.Anywhere && mode != BreakMode.BreakAll
     val minContent = if (anywhere) {
-        annotate(input, runs, runFeatures, BreakMode.BreakAll, chain, tracking, theme, assets, density, ::sized, null, mutableListOf())
+        annotate(input, runs, runFeatures, runMetrics, BreakMode.BreakAll, chain, tracking, theme, assets, density, ::sized, null, mutableListOf())
     } else {
         null
     }
@@ -552,6 +557,8 @@ private fun annotate(
     runs: List<TextRun>,
     /** The features of the runs that name any, by index into [runs]. */
     runFeatures: Map<Int, String>,
+    /** Per-span font size and letter spacing overrides, by index into [runs]. */
+    runMetrics: Map<Int, SpanMetric>,
     mode: BreakMode,
     chain: FontChain?,
     tracking: TextTracking?,
@@ -598,14 +605,20 @@ private fun annotate(
             // own after them, where a tag both name takes the run's value. A run that names
             // none sets nothing and is drawn with the text's.
             val features = runFeatures[index]?.let { appendFontFeatures(input.fontFeatures, it) }
+            val runMetric = runMetrics[index]?.takeIf { input.noRole && run.role == null }
             val style = spanStyle(
                 run,
                 runChain?.primary,
                 theme,
                 sized,
-                spacing?.let(sized) ?: TextUnit.Unspecified,
+                runMetric?.letterSpacing?.takeIf { !it.isNaN() }?.let(sized)
+                    ?: spacing?.let(sized)
+                    ?: TextUnit.Unspecified,
                 features,
-            )
+            ).let { baseStyle ->
+                val metricSize = runMetric?.fontSize?.takeIf { !it.isNaN() }?.let(sized)
+                if (metricSize != null) baseStyle.copy(fontSize = metricSize) else baseStyle
+            }
             addStyle(style, from, to)
             runChain?.spans(broken.text.substring(from, to))?.forEach { span ->
                 addStyle(span.item, from + span.start, from + span.end)
@@ -771,6 +784,7 @@ internal fun Node.textInput(
         // Made when the table arrived and kept on the node. Never read from the bytes here:
         // this runs on every composition, and a table that was refused stays refused.
         runFontFeatures = spanFontFeatures ?: emptyMap(),
+        runMetrics = spanMetrics ?: emptyMap(),
         noRole = noRole,
         role = if (noRole) null else (typeRole() ?: inheritedStyle?.typeRole),
         fontSize = floatProp(PropertyKind.FontSize),
@@ -918,4 +932,70 @@ internal fun appendFontFeatures(base: String?, own: String?): String? = when {
     own.isNullOrEmpty() -> base
     base.isNullOrEmpty() -> own
     else -> "$base, $own"
+}
+
+/** Per-span font size (dp, NaN = unset) and letter spacing (dp, NaN = unset). */
+internal data class SpanMetric(
+    val fontSize: Float,
+    val letterSpacing: Float,
+)
+
+private fun runMetricsProblem(metrics: Map<Int, SpanMetric>, runs: Int): String? {
+    for (run in metrics.keys) {
+        if (run < 0 || run >= runs) {
+            return "span metrics named run $run where the text has $runs runs"
+        }
+    }
+    return null
+}
+
+private fun leInt(bytes: ByteArray, at: Int): Int =
+    (bytes[at].toInt() and 0xff) or
+        ((bytes[at + 1].toInt() and 0xff) shl 8) or
+        ((bytes[at + 2].toInt() and 0xff) shl 16) or
+        ((bytes[at + 3].toInt() and 0xff) shl 24)
+
+/** Decodes a `SpanMetrics` property blob (`count: u32` followed by 16-byte entries). */
+internal fun decodeSpanMetricsBlob(bytes: ByteArray, onError: (String) -> Unit): Map<Int, SpanMetric>? {
+    if (bytes.isEmpty()) return emptyMap()
+    if (bytes.size < 4) {
+        onError("blob shorter than 4-byte count")
+        return null
+    }
+    val count = leInt(bytes, 0)
+    if (count < 0 || bytes.size != 4 + count * 16) {
+        onError("blob length ${bytes.size} does not match count $count")
+        return null
+    }
+    return decodeSpanMetricsEntries(bytes.copyOfRange(4, bytes.size), count, onError)
+}
+
+/** Decodes [count] contiguous 16-byte `SpanMetric` entries from [bytes]. */
+internal fun decodeSpanMetricsEntries(
+    bytes: ByteArray,
+    count: Int,
+    onError: (String) -> Unit,
+): Map<Int, SpanMetric>? {
+    if (count == 0) return emptyMap()
+    if (count < 0 || bytes.size != count * 16) {
+        onError("entries length ${bytes.size} does not match count $count")
+        return null
+    }
+    val out = HashMap<Int, SpanMetric>(count)
+    for (i in 0 until count) {
+        val at = i * 16
+        val span = leInt(bytes, at)
+        val fontSize = Float.fromBits(leInt(bytes, at + 4))
+        val letterSpacing = Float.fromBits(leInt(bytes, at + 8))
+        val reserved = leInt(bytes, at + 12)
+        if (reserved != 0) {
+            onError("non-zero reserved word in entry $i")
+            return null
+        }
+        if (out.put(span, SpanMetric(fontSize, letterSpacing)) != null) {
+            onError("duplicate span index $span")
+            return null
+        }
+    }
+    return out
 }

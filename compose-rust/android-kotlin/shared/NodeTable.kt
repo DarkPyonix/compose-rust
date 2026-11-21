@@ -75,6 +75,9 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      */
     internal var spanFontFeatures by mutableStateOf<Map<Int, String>?>(null)
 
+    /** Per-span font size and letter spacing overrides, keyed by run index. */
+    internal var spanMetrics by mutableStateOf<Map<Int, dev.darkpyonix.composerust.foundation.SpanMetric>?>(null)
+
     /**
      * A code editor's document and everything over it. Created with the node and kept for
      * its life, because the document is the Renderer's from the moment it opens: the Host
@@ -1128,6 +1131,16 @@ class NodeTable {
                 }
             }
         }
+        if (mutation.property == PropertyKind.SpanMetrics) {
+            node.spanMetrics = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                dev.darkpyonix.composerust.foundation.decodeSpanMetricsBlob(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "span metrics on node ${node.id}: $why; the text is drawn without span metrics",
+                    )
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -1718,6 +1731,7 @@ class NodeTable {
 
                 PropertyKind.SpanFonts,
                 PropertyKind.SpanFontFeatures,
+                PropertyKind.SpanMetrics,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,

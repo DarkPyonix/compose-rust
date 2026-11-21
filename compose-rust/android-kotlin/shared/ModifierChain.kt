@@ -273,6 +273,35 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.HoverStyle -> chain
             is ProtocolModifier.FocusRing -> chain
             is ProtocolModifier.PressStyle -> chain
+            is ProtocolModifier.Mask -> {
+                val maskPaint = dev.darkpyonix.composerust.protocol.Paint.Asset(value.brush)
+                val maskBrush = theme.brush(maskPaint)
+                if (maskBrush == null) {
+                    chain.composed { reportUnknownBrush(nodeId, maskPaint, dispatcher) }
+                } else {
+                    chain.drawWithContent {
+                        val layerBounds = androidx.compose.ui.geometry.Rect(
+                            androidx.compose.ui.geometry.Offset.Zero,
+                            size,
+                        )
+                        drawContext.canvas.saveLayer(layerBounds, androidx.compose.ui.graphics.Paint())
+                        try {
+                            drawContent()
+                            drawRect(
+                                brush = maskBrush,
+                                topLeft = androidx.compose.ui.geometry.Offset(value.posX.dp.toPx(), value.posY.dp.toPx()),
+                                size = androidx.compose.ui.geometry.Size(
+                                    width = if (value.sizeWidth > 0f && ((value.flags shr 8) and 0xff) == 3) value.sizeWidth.dp.toPx() else size.width,
+                                    height = if (value.sizeHeight > 0f && ((value.flags shr 8) and 0xff) == 3) value.sizeHeight.dp.toPx() else size.height,
+                                ),
+                                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                            )
+                        } finally {
+                            drawContext.canvas.restore()
+                        }
+                    }
+                }
+            }
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
             // Read through `shape` and `curve` above: it bends the corners the other

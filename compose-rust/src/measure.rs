@@ -26,7 +26,7 @@ use crate::spans::{SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_LEN, TextSpans
 use std::marker::PhantomData;
 
 /// Bytes of one request record, whichever kind it is.
-pub const MEASURE_RECORD_LEN: usize = 88;
+pub const MEASURE_RECORD_LEN: usize = 96;
 /// Bytes of one result record.
 pub const MEASURE_RESULT_LEN: usize = 32;
 
@@ -68,6 +68,11 @@ pub const TEXT_FONT_FEATURES_COUNT_AT: usize = 76;
 pub const TEXT_SPAN_FEATURES_OFFSET_AT: usize = 80;
 /// How many bytes that table takes. Zero where no run names a feature.
 pub const TEXT_SPAN_FEATURES_LENGTH_AT: usize = 84;
+/// Where the runs' own metrics table starts: 16-byte `SpanMetric` entries (`span`, `font_size`,
+/// `letter_spacing`, `reserved`).
+pub const TEXT_SPAN_METRICS_OFFSET_AT: usize = 88;
+/// How many 16-byte `SpanMetric` entries follow `TEXT_SPAN_METRICS_OFFSET_AT`.
+pub const TEXT_SPAN_METRICS_COUNT_AT: usize = 92;
 
 pub const NODE_ID_AT: usize = 4;
 pub const NODE_MIN_WIDTH_AT: usize = 8;
@@ -116,15 +121,16 @@ pub const MEASURE_UNAVAILABLE: i32 = -5;
 /// Hash input for the record layouts above, so a Renderer generated from another layout
 /// is refused at the handshake rather than reading the wrong bytes.
 pub(crate) const SCHEMA_DESCRIPTOR: &str = concat!(
-    "measure=v1;record=88;result=32;",
+    "measure=v1;record=96;result=32;",
     "text=kind@0,type_role@2,text@4,spans@12,span_fonts@20,font@28,font_size@36,",
     "font_weight@40,italic@42,wrap@43,letter_spacing@44,line_height@48,max_lines@52,",
     "tab_size@56,word_break@57,overflow_wrap@58,absolute_size@59,constraint@60,width@64,",
-    "zoom@68,font_features@72,span_features@80;",
+    "zoom@68,font_features@72,span_features@80,span_metrics@88;",
     "node=kind@0,node@4,min_width@8,max_width@12,min_height@16,max_height@20,zoom@24;",
     "result=width@0,height@4,first_baseline@8,last_baseline@12,last_line_width@16,",
     "line_count@20,flags@24,status@28;",
     "fontref=12,kind@0,value@4,length@8;spanfont=12,span@0,offset@4,count@8;",
+    "spanmetrics=16,span@0,font_size@4,letter_spacing@8,reserved@12;",
 );
 
 /// The Renderer's answer to one request, in dp.
@@ -450,6 +456,20 @@ impl MeasureRequests {
             TEXT_SPAN_FEATURES_LENGTH_AT,
             table.len() as u32,
         );
+        let metrics_blob = spans.metrics_table();
+        let metrics_entries = if metrics_blob.len() >= 4 {
+            &metrics_blob[4..]
+        } else {
+            &[]
+        };
+        let span_metrics_at = self.payload.len() as u32;
+        self.payload.extend_from_slice(metrics_entries);
+        put_u32(&mut record, TEXT_SPAN_METRICS_OFFSET_AT, span_metrics_at);
+        put_u32(
+            &mut record,
+            TEXT_SPAN_METRICS_COUNT_AT,
+            spans.metrics_entry_count() as u32,
+        );
         self.records.push(PendingRecord { bytes: record });
         self.records.len() - 1
     }
@@ -566,6 +586,7 @@ impl MeasureRequests {
                     TEXT_FONT_OFFSET_AT,
                     TEXT_FONT_FEATURES_OFFSET_AT,
                     TEXT_SPAN_FEATURES_OFFSET_AT,
+                    TEXT_SPAN_METRICS_OFFSET_AT,
                 ] {
                     let value = read_u32(&bytes, field) + base;
                     put_u32(&mut bytes, field, value);

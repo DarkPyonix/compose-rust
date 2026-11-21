@@ -1126,6 +1126,7 @@ impl TextScope {
                 // Left out entirely when there are none, as the rsx widget leaves it out.
                 let span_fonts = spans.font_table().to_vec();
                 let span_features = spans.shared_feature_table();
+                let span_metrics = spans.shared_metrics_table();
                 attrs.push((
                     "spans",
                     if spans.is_empty() {
@@ -1148,6 +1149,9 @@ impl TextScope {
                 // cleared because it left the list.
                 if let Some(table) = span_features {
                     attrs.push(("span_font_features", OwnedAttr::Shared(table)));
+                }
+                if let Some(table) = span_metrics {
+                    attrs.push(("span_metrics", OwnedAttr::Shared(table)));
                 }
                 // The font list, the break rules and the features are each left out when
                 // unset, for the same reason: their tags are outside the range the writer
