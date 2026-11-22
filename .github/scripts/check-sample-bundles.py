@@ -7,8 +7,9 @@
 For every sample in `--built` (one name per line, the ones that compiled), the formats
 its platform ships are looked for in `--artifacts`, named `<sample>-<target>.<ext>`:
 
-    macos-aarch64              .tar.gz, .app.zip, .dmg
-    linux-x64, linux-arm64     .tar.gz, .AppImage
+    macos-aarch64              .tar.gz, .app.zip, .dmg, .pkg
+    linux-x64                  .tar.gz, .AppImage, .deb, .rpm, .flatpak
+    linux-arm64                .tar.gz, .AppImage, .deb, .rpm
     windows-x64                .tar.gz, .zip, .msix
 
 Each one that is there is opened and has to hold the sample's one executable, its icon
@@ -32,6 +33,7 @@ checked for presence and digest alone, and the check says so.
 
 import argparse
 import hashlib
+import io
 import os
 import plistlib
 import re
@@ -51,9 +53,10 @@ if sys.version_info < (3, 11):
 import tomllib
 
 FORMATS = {
-    "macos-aarch64": ["tar.gz", "app.zip", "dmg"],
-    "linux-x64": ["tar.gz", "AppImage"],
-    "linux-arm64": ["tar.gz", "AppImage"],
+    "macos-aarch64": ["tar.gz", "app.zip", "dmg", "pkg"],
+    # Flatpak on x64 only: Flathub builds the other architectures from the same manifest.
+    "linux-x64": ["tar.gz", "AppImage", "deb", "rpm", "flatpak"],
+    "linux-arm64": ["tar.gz", "AppImage", "deb", "rpm"],
     "windows-x64": ["tar.gz", "zip", "msix"],
 }
 
@@ -448,6 +451,152 @@ def check_appimage(path, sample, scratch):
     return problems
 
 
+# --- distribution packages ---------------------------------------------------------------
+
+
+def linux_package_problems(label, files, sample):
+    """The files a .deb or .rpm installs: the executable, its desktop entry, metainfo and
+    icons under /usr, and nothing else (paths without the leading slash)."""
+    ident = re.escape(sample.identifier)
+    executable = f"usr/bin/{sample.executable}"
+    problems = unexpected(label, files, [
+        re.escape(executable),
+        f"usr/share/applications/{ident}\\.desktop",
+        f"usr/share/metainfo/{ident}\\.(appdata|metainfo)\\.xml",
+        f"usr/share/icons/hicolor/[0-9a-z]+(x[0-9]+)?/apps/{ident}\\.(png|svg)",
+    ])
+    for required, what in ((executable, "the executable"),
+                           (f"usr/share/applications/{sample.identifier}.desktop", "a desktop entry")):
+        if required not in files:
+            problems.append(f"{label} has no {required} ({what})")
+    if not any(re.fullmatch(f"usr/share/icons/hicolor/.*/apps/{ident}\\.(png|svg)", name) for name in files):
+        problems.append(f"{label} has no icon for {sample.identifier}")
+    return problems
+
+
+def field_problems(label, fields, sample, version):
+    """Name, version and summary of a distribution package against the sample's."""
+    problems = []
+    for key, have, want in (("Name", fields.get("name"), sample.executable),
+                            ("Version", fields.get("version"), version)):
+        if have != want:
+            problems.append(f"{label}: {key} is {have!r}, and the sample says {want!r}")
+    summary = (fields.get("summary") or "").rstrip(".")
+    if summary != sample.description.rstrip("."):
+        problems.append(f"{label}: the summary is {fields.get('summary')!r}, and the sample says {sample.description!r}")
+    return problems
+
+
+def ar_members(data):
+    """The members of an ar archive (what a .deb is), as {name: bytes}."""
+    if not data.startswith(b"!<arch>\n"):
+        raise ValueError("not an ar archive")
+    members, at = {}, 8
+    while at + 60 <= len(data):
+        header = data[at:at + 60]
+        name = header[:16].decode().strip().rstrip("/")
+        size = int(header[48:58].decode().strip())
+        members[name] = data[at + 60:at + 60 + size]
+        at += 60 + size + (size % 2)
+    return members
+
+
+def tar_of(name, data):
+    """A tarfile for a .deb member; xz and gzip are read here, zstd through the zstd tool."""
+    if name.endswith(".zst"):
+        if shutil.which("zstd") is None:
+            raise ValueError(f"{name} is zstd and there is no zstd here (build with dpkg-deb -Zxz)")
+        data = subprocess.run(["zstd", "-dc"], input=data, capture_output=True, check=True).stdout
+    return tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
+
+
+def check_deb(path, sample, version):
+    try:
+        members = ar_members(path.read_bytes())
+        control_name = next(n for n in members if n.startswith("control.tar"))
+        data_name = next(n for n in members if n.startswith("data.tar"))
+        with tar_of(control_name, members[control_name]) as control_tar:
+            control = control_tar.extractfile(next(m for m in control_tar.getmembers()
+                                                   if m.name.lstrip("./") == "control")).read().decode()
+        with tar_of(data_name, members[data_name]) as data_tar:
+            entries = {m.name.lstrip("./"): m for m in data_tar.getmembers() if not m.isdir()}
+            executable = f"usr/bin/{sample.executable}"
+            exe_bytes = data_tar.extractfile(entries[executable]).read() if executable in entries else None
+    except (ValueError, StopIteration, tarfile.TarError, subprocess.CalledProcessError, OSError) as error:
+        return [f"{path.name} is not a readable .deb: {error}"]
+    fields, key = {}, None
+    for line in control.splitlines():
+        if line[:1] not in (" ", "\t") and ":" in line:
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
+    problems = field_problems(path.name, {"name": fields.get("Package"), "version": fields.get("Version"),
+                                          "summary": fields.get("Description")}, sample, version)
+    problems += linux_package_problems(path.name, list(entries), sample)
+    if exe_bytes is not None:
+        problems += reference_problems(f"{path.name}:usr/bin/{sample.executable}", exe_bytes, "linux")
+    return problems
+
+
+def rpm_tags(data):
+    """The main header of an .rpm as {tag: value}: what `rpm -qp --info` and `-qpl` read."""
+    if data[:4] != b"\xed\xab\xee\xdb":
+        raise ValueError("no RPM lead")
+
+    def header(at):
+        if data[at:at + 4] != b"\x8e\xad\xe8\x01":
+            raise ValueError(f"no header at byte {at}")
+        count, size = struct.unpack(">II", data[at + 8:at + 16])
+        store = at + 16 + 16 * count
+        tags = {}
+        for i in range(count):
+            tag, kind, offset, n = struct.unpack(">IIiI", data[at + 16 + 16 * i:at + 32 + 16 * i])
+            start = store + offset
+            if kind == 4:
+                tags[tag] = list(struct.unpack(f">{n}i", data[start:start + 4 * n]))
+            elif kind in (6, 8, 9):
+                values, cursor = [], start
+                for _ in range(1 if kind == 6 else n):
+                    end = data.index(b"\0", cursor)
+                    values.append(data[cursor:end].decode("utf-8", "replace"))
+                    cursor = end + 1
+                tags[tag] = values[0] if kind == 6 else values
+        return tags, store + size
+
+    _, end = header(96)
+    end += -end % 8
+    return header(end)[0]
+
+
+def check_rpm(path, sample, version):
+    try:
+        tags = rpm_tags(path.read_bytes())
+    except (ValueError, struct.error) as error:
+        return [f"{path.name} is not a readable .rpm: {error}"]
+    summary = tags.get(1004)
+    problems = field_problems(path.name, {"name": tags.get(1000), "version": tags.get(1001),
+                                          "summary": summary[0] if summary else None}, sample, version)
+    dirs, names, indexes = tags.get(1118, []), tags.get(1117, []), tags.get(1116, [])
+    files = [(dirs[i] + name).lstrip("/") for i, name in zip(indexes, names)]
+    return problems + linux_package_problems(path.name, files, sample)
+
+
+def check_pkg(path, sample, version, scratch):
+    """A store .pkg: every payload it installs is the sample's .app and nothing else."""
+    expanded = scratch / "pkg"
+    done = subprocess.run(["pkgutil", "--expand-full", str(path), str(expanded)], capture_output=True, text=True)
+    if done.returncode != 0:
+        return [f"{path.name} does not expand: {done.stderr.strip() or done.stdout.strip()}"]
+    payloads = [p for p in expanded.rglob("Payload") if p.is_dir()]
+    if not payloads:
+        return [f"{path.name} installs nothing"]
+    problems = []
+    for payload in payloads:
+        files = files_under(payload)
+        problems += app_problems(path.name, files, lambda name, root=payload: (root / name).read_bytes(),
+                                 sample, version)
+    return problems
+
+
 # --- checksums ---------------------------------------------------------------------------
 
 
@@ -500,6 +649,21 @@ def check(target, artifacts, samples, built, version):
                     found = check_app_zip(path, sample, version)
                 elif extension == "msix":
                     found = check_msix(path, sample, version)
+                elif extension == "deb":
+                    found = check_deb(path, sample, version)
+                elif extension == "rpm":
+                    found = check_rpm(path, sample, version)
+                elif extension == "flatpak":
+                    # A Flatpak bundle is an OSTree commit that flatpak-builder made from
+                    # the Flathub manifest; reading it needs flatpak itself, so here it is
+                    # its presence and its digest.
+                    found = []
+                elif extension == "pkg":
+                    if sys.platform != "darwin":
+                        print(f"note  {path.name}: only macOS expands an installer package, so its digest is all that is checked")
+                        found = []
+                    else:
+                        found = check_pkg(path, sample, version, scratch)
                 elif extension == "dmg":
                     if sys.platform != "darwin":
                         print(f"note  {path.name}: only macOS mounts a disk image, so its digest is all that is checked")
