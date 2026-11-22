@@ -20,8 +20,10 @@ import dev.darkpyonix.composerust.foundation.code.CODE_EDITOR_FIELD_TAG
 import dev.darkpyonix.composerust.foundation.code.CodeEditorLook
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.UnderlineShape
+import dev.darkpyonix.composerust.foundation.code.foldColumnWidthPx
 import dev.darkpyonix.composerust.foundation.code.numberColumnPx
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.FoldRecord
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
@@ -101,7 +103,13 @@ private fun page(
 }
 
 /** A surface look with nothing of a design system in it, for the functions that only need numbers. */
-private fun plainLook(lineNumbers: Boolean = true, gutterMinWidth: Float = 0f, gutterPadding: Float = 8f) =
+private fun plainLook(
+    lineNumbers: Boolean = true,
+    gutterMinWidth: Float = 0f,
+    gutterPadding: Float = 8f,
+    fixedGutterColumns: Boolean = false,
+    foldColumnWidth: Float? = null,
+) =
     CodeEditorLook(
         textStyle = TextStyle(),
         container = Color.White,
@@ -126,6 +134,8 @@ private fun plainLook(lineNumbers: Boolean = true, gutterMinWidth: Float = 0f, g
         commandIsMeta = false,
         lineNumbers = lineNumbers,
         gutterMinWidth = gutterMinWidth.dp,
+        fixedGutterColumns = fixedGutterColumns,
+        foldColumnWidth = foldColumnWidth?.dp,
     )
 
 /**
@@ -313,6 +323,31 @@ class CodeEditorLookTest {
             assertEquals(56 + 1, numberColumnPx(plainLook(gutterMinWidth = 56f, gutterPadding = 12f), 2, 8))
             assertEquals(6 * 8 + 24 + 1, numberColumnPx(plainLook(gutterMinWidth = 56f, gutterPadding = 12f), 6, 8))
             assertEquals(2 * 8 + 16 + 1, numberColumnPx(plainLook(), 2, 8))
+        }
+    }
+
+    @Test
+    fun fr38_fold_column_width_dp_is_honored() {
+        val emptyModel = CodeEditorModel("a\nb\nc")
+        val withFold = CodeEditorModel("a\nb\nc").apply {
+            setFolds(listOf(FoldRecord(version = 0, startLine = 0, endLine = 2, collapsed = false)))
+        }
+        val defaultLook = plainLook()
+        val fixedLook = plainLook(fixedGutterColumns = true)
+        val narrowLook = plainLook(foldColumnWidth = 7f)
+        val fixedNarrowLook = plainLook(fixedGutterColumns = true, foldColumnWidth = 7f)
+
+        with(Density(1f)) {
+            assertEquals(0, foldColumnWidthPx(emptyModel, defaultLook, rowPx = 22))
+            assertEquals(22, foldColumnWidthPx(withFold, defaultLook, rowPx = 22))
+            assertEquals(22, foldColumnWidthPx(emptyModel, fixedLook, rowPx = 22))
+            assertEquals(0, foldColumnWidthPx(emptyModel, narrowLook, rowPx = 22))
+            assertEquals(7, foldColumnWidthPx(withFold, narrowLook, rowPx = 22))
+            assertEquals(7, foldColumnWidthPx(emptyModel, fixedNarrowLook, rowPx = 22))
+        }
+        with(Density(2f)) {
+            assertEquals(14, foldColumnWidthPx(withFold, narrowLook, rowPx = 44))
+            assertEquals(14, foldColumnWidthPx(emptyModel, fixedNarrowLook, rowPx = 44))
         }
     }
 
