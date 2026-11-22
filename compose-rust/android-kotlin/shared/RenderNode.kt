@@ -48,6 +48,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -64,7 +65,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.boundsInWindow
@@ -295,7 +295,23 @@ fun RenderNode(
     // focus target that reports it is focused and whose keys pass the node's handlers.
     val menuKeyboard = LocalMenuKeyboard.current
     val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
-        keyed.then(menuKeyboard.entry(nodeId))
+        val highlight = if (menuKeyboard.isKeyboardFocused(nodeId)) {
+            val fill = theme.color(ColorRole.SurfaceVariant).copy(alpha = 0.65f)
+            val ring = theme.color(ColorRole.Primary).copy(alpha = 0.85f)
+            Modifier.drawWithContent {
+                val radius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                drawRoundRect(color = fill, cornerRadius = radius)
+                drawContent()
+                drawRoundRect(
+                    color = ring,
+                    cornerRadius = radius,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+        } else {
+            Modifier
+        }
+        keyed.then(menuKeyboard.entry(nodeId)).then(highlight)
     } else {
         keyed
     }
@@ -1205,7 +1221,7 @@ private fun WeightedStack(
                 node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
             }
         },
-        modifier = modifier.clipToBounds(),
+        modifier = modifier,
         measurePolicy = policy,
     )
 }
@@ -1518,7 +1534,9 @@ private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Mo
         !enabled -> null
         node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
             {
-                val checked = node.flag(PropertyKind.Checked, default = false)
+                // A press on a mixed box asks for checked, as the box itself does.
+                val checked = node.flag(PropertyKind.Checked, default = false) &&
+                    !node.flag(PropertyKind.Indeterminate, default = false)
                 dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
             }
         }

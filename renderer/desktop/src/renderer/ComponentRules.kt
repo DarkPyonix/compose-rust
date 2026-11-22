@@ -465,6 +465,9 @@ internal object Material3Rules : ComponentRules {
         padding = theme.space(SpaceRole.Lg),
         borderWidth = 0.dp,
         borderColor = Color.Transparent,
+        // Material's drag handle keeps 22 dp above and below its bar, more than the sheet's
+        // padding, so the first line of the content does not sit level with the handle.
+        handleGap = 22.dp,
     )
 
     /** A snackbar: the inverse surface, low and to the leading side, with four seconds. */
@@ -1014,6 +1017,7 @@ internal object CupertinoRules : ComponentRules {
         spacing = 8.dp,
         edgePadding = 20.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        titlePlacement = CaptionTitlePlacement.SystemCaption,
     )
 
     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
@@ -4353,6 +4357,7 @@ internal object LiquidGlassRules : ComponentRules {
         // is inset from the window edge rather than flush with it.
         edgePadding = 22.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        titlePlacement = CaptionTitlePlacement.SystemCaption,
     )
 
     private const val SCRIM_ALPHA = 0.4f

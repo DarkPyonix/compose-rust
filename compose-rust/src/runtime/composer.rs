@@ -187,6 +187,19 @@ pub(crate) enum EventCallback {
     Motion(Rc<RefCell<dyn FnMut(crate::MotionFinished)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
+    /// Where a scroll container is, for the `ScrollState` bound to it.
+    Scroll(Rc<RefCell<dyn FnMut(ScrollReport)>>),
+}
+
+/// Where a scroll container is, as the Renderer reports it: physical pixels on both axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScrollReport {
+    pub(crate) x_px: f64,
+    pub(crate) y_px: f64,
+    pub(crate) max_x_px: f64,
+    pub(crate) max_y_px: f64,
+    pub(crate) viewport_width_px: f64,
+    pub(crate) viewport_height_px: f64,
 }
 
 pub(crate) struct HandlerEntry {

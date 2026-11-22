@@ -150,6 +150,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK="${DXC_COMPOSE_BUILD:-$(dirname "$RENDERER_DIR")/compose-build}"
 SKIKO_WORK="${DXC_SKIKO_BUILD:-$(dirname "$RENDERER_DIR")/.scratch/skiko-build}"
+# Every Gradle build below resolves from Maven Central and the plugin portal, which sometimes
+# answer "not found" for a moment. The wrapper runs a build again only when it failed fetching
+# a dependency (scripts/tests/dependency-download-retries.test.sh).
+RETRY="$SCRIPT_DIR/retry-resolution.sh"
+export DXC_RETRY_LOG="${DXC_RETRY_LOG:-$WORK/build/retry-resolution.log}"
+# On a CI runner Maven Central answers shared addresses "429 Too Many Requests" for minutes,
+# so every Gradle build there reads a mirror of it first (maven-central-mirror.gradle, installed
+# into the Gradle user home's init.d). DXC_MAVEN_CENTRAL_MIRROR names another mirror, or "off".
+MAVEN_CENTRAL_MIRROR="${DXC_MAVEN_CENTRAL_MIRROR:-}"
+if [[ -z "$MAVEN_CENTRAL_MIRROR" && "${GITHUB_ACTIONS:-}" == true ]]; then
+    MAVEN_CENTRAL_MIRROR="https://maven-central.storage-download.googleapis.com/maven2/"
+fi
+if [[ -n "$MAVEN_CENTRAL_MIRROR" && "$MAVEN_CENTRAL_MIRROR" != off ]]; then
+    init_d="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+    mkdir -p "$init_d"
+    sed "s#@MIRROR@#$MAVEN_CENTRAL_MIRROR#" "$SCRIPT_DIR/maven-central-mirror.gradle" \
+        > "$init_d/dxc-maven-central-mirror.gradle"
+    echo "==> Gradle reads Maven Central through $MAVEN_CENTRAL_MIRROR first"
+fi
 
 die() {
     echo "error: $1" >&2
@@ -219,7 +238,7 @@ if [[ "$target" == mingwX64 ]]; then
     [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
         "The Windows pin has to be a commit of the fork that carries the skiko build."
     echo "==> building skiko for mingwX64 into $SKIKO_WORK"
-    bash "$skiko_script" "$SKIKO_WORK"
+    "$RETRY" bash "$skiko_script" "$SKIKO_WORK"
 fi
 
 publish="$WORK/extended/compose/publish-local.sh"
@@ -237,7 +256,7 @@ for line in "COMPOSE=$COMPOSE_AS" "COMPOSE_MATERIAL3=$MATERIAL3_AS"; do
 done
 
 echo "==> publishing the fork's Compose for ${publish_targets[*]} as $COMPOSE_AS"
-"$publish" "${publish_targets[@]}"
+"$RETRY" "$publish" "${publish_targets[@]}"
 
 # Every sibling a published module names is there, nothing names JetBrains' copy of a module the
 # fork publishes, and nothing at JetBrains' coordinates carries a fork version.

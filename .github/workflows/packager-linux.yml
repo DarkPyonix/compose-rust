@@ -285,7 +285,6 @@ jobs:
             work/dist/*.AppImage
             work/*.log
             work/*.png
-
   flatpak:
     name: Flatpak builds and updates
     needs: [requested, calculator]
@@ -459,3 +458,78 @@ jobs:
             work/flatpak-calculator/lint-*.json
             work/*.log
             work/*.png
+
+  deb-rpm:
+    name: Build and inspect .deb and .rpm packages (Linux, x64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dpkg and rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg rpm
+
+      - name: Build packager and demo executable
+        run: |
+          set -euo pipefail
+          COMPOSE_RUST_APP_VERSION=1.0.0 cargo build --release -p packager-linux -p packager-linux-demo
+
+      - name: Build and verify .deb from Dioxus.toml
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          stage="$RUNNER_TEMP/deb-stage"
+          rm -rf "$stage"
+          target/release/packager-linux deb \
+            --dioxus-toml scripts/packager-linux/demo/Dioxus.toml \
+            --version 1.0.0 \
+            --payload target/release/update-demo \
+            --out "$stage"
+          deb_file="$RUNNER_TEMP/update-demo_1.0.0_amd64.deb"
+          dpkg-deb --root-owner-group --build "$stage" "$deb_file"
+          info="$(dpkg-deb --info "$deb_file")"
+          echo "$info"
+          grep -q "Package: update-demo" <<<"$info"
+          grep -q "Version: 1.0.0" <<<"$info"
+          grep -q "A small packaged application" <<<"$info"
+          grep -q "A small program built with compose-rust" <<<"$info"
+          contents="$(dpkg-deb --contents "$deb_file")"
+          echo "$contents"
+          grep -q "./usr/bin/update-demo" <<<"$contents"
+          grep -q "./usr/share/applications/dev.darkpyonix.compose.UpdateDemo.desktop" <<<"$contents"
+          grep -q "./usr/share/metainfo/dev.darkpyonix.compose.UpdateDemo.metainfo.xml" <<<"$contents"
+          grep -q "./usr/share/icons/hicolor/.*/apps/dev.darkpyonix.compose.UpdateDemo.png" <<<"$contents"
+          sha256sum "$deb_file" > "${deb_file}.sha256"
+          cat "${deb_file}.sha256"
+          sha256sum -c "${deb_file}.sha256"
+
+      - name: Build and verify .rpm from Dioxus.toml
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          topdir="$RUNNER_TEMP/rpmbuild"
+          rm -rf "$topdir"
+          target/release/packager-linux rpm \
+            --dioxus-toml scripts/packager-linux/demo/Dioxus.toml \
+            --version 1.0.0 \
+            --payload target/release/update-demo \
+            --out "$topdir"
+          rpmbuild --define "_topdir $topdir" -bb "$topdir/SPECS/update-demo.spec"
+          rpm_file="$(find "$topdir/RPMS" -name '*.rpm' | head -1)"
+          test -n "$rpm_file"
+          info="$(rpm -qp --info "$rpm_file")"
+          echo "$info"
+          grep -qE "^Name[[:space:]]*:[[:space:]]*update-demo$" <<<"$info"
+          grep -qE "^Version[[:space:]]*:[[:space:]]*1\.0\.0$" <<<"$info"
+          grep -q "A small packaged application" <<<"$info"
+          grep -q "A small program built with compose-rust" <<<"$info"
+          files="$(rpm -qpl "$rpm_file")"
+          echo "$files"
+          grep -qx "/usr/bin/update-demo" <<<"$files"
+          grep -qx "/usr/share/applications/dev.darkpyonix.compose.UpdateDemo.desktop" <<<"$files"
+          grep -qx "/usr/share/metainfo/dev.darkpyonix.compose.UpdateDemo.metainfo.xml" <<<"$files"
+          grep -qE "^/usr/share/icons/hicolor/.*/apps/dev\.darkpyonix\.compose\.UpdateDemo\.png$" <<<"$files"
+          sha256sum "$rpm_file" > "${rpm_file}.sha256"
+          cat "${rpm_file}.sha256"
+          sha256sum -c "${rpm_file}.sha256"

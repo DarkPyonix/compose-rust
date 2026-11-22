@@ -6,10 +6,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.text.platform.FontLoadResult
+import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.platformDefaultChain
 import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
+import dev.darkpyonix.composerust.design.resolveTheme
 import dev.darkpyonix.composerust.design.webFallbackFaces
+import dev.darkpyonix.composerust.foundation.resolveFontChain
+import dev.darkpyonix.composerust.protocol.FontRef
+import dev.darkpyonix.composerust.protocol.GenericFamily
+import dev.darkpyonix.composerust.protocol.TypeRole
+import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.platformFallbackFamilies
 import kotlin.js.Promise
 import kotlin.test.Test
@@ -25,8 +32,9 @@ import org.jetbrains.skia.Typeface
  * The bundled default family and the fallback faces beside it, fetched the way the page
  * fetches them and resolved by Compose's web build in the browser the test runs in.
  *
- * The page a Kotlin/Wasm test runs on serves only the test's own resources, so where the
- * font files are not beside it the test says so and passes, as the boundary tests do for
+ * `testResources/fonts` symlinks `resources/fonts` so the test page serves the bundled
+ * files directly. Where a checkout cannot follow symlinks and the font files are not
+ * served beside the test page, the test says so and passes, as the boundary tests do for
  * the Host. The same family is resolved on the desktop's Skia from the same files in
  * `WebDefaultFamilyTest`.
  */
@@ -72,6 +80,41 @@ class WebFontsTest {
                 assertEquals(listOf(1 to 2), spans.map { it.start to it.end }, "$name alone leaves the default family")
                 val drawnIn = assertNotNull(spans.single().item.fontFamily)
                 assertTrue(hasGlyph(drawnIn, sign), "$name has a glyph in the fallback face")
+            }
+            null
+        }
+
+    /**
+     * Monospace, serif, CSS `ui-monospace` / `ui-serif`, and a monospace type role reach the
+     * bundled fallback face for symbols the default family lacks, while keeping Latin in
+     * their primary family.
+     */
+    @Test
+    fun fr13_web_monospace_and_serif_reach_the_fallback_face(): Promise<JsAny?> =
+        GlobalScope.promise<JsAny?> {
+            installBundledFonts()
+            if (platformDefaultChain == null || platformFallbackFamilies.isEmpty()) {
+                println("fr13 skipped: the bundled font files are not served beside the test page")
+                return@promise null
+            }
+            val theme = resolveTheme(theme = null, platform = HostPlatform.Web, systemDark = false)
+            val codeChain = assertNotNull(theme.chainFor(theme.family(TypeRole.Mono)), "Code role has a chain")
+            val chains = listOf(
+                "Code role" to codeChain,
+                "monospace" to resolveFontChain(listOf(FontRef.Generic(GenericFamily.Monospace)), AssetCache(), mutableListOf()),
+                "serif" to resolveFontChain(listOf(FontRef.Generic(GenericFamily.Serif)), AssetCache(), mutableListOf()),
+                "ui-monospace" to resolveFontChain(listOf(FontRef.System("ui-monospace")), AssetCache(), mutableListOf()),
+                "ui-serif" to resolveFontChain(listOf(FontRef.System("ui-serif")), AssetCache(), mutableListOf()),
+            )
+            for ((label, chain) in chains) {
+                assertTrue(chain.spans("Play 123").isEmpty(), "$label keeps Latin in primary")
+                for (sign in listOf(0x232B, 0x25BE, 0x25B6)) {
+                    val name = "U+" + sign.toString(16).uppercase()
+                    val spans = chain.spans("M" + Char(sign) + "M")
+                    assertEquals(listOf(1 to 2), spans.map { it.start to it.end }, "$label: $name leaves primary")
+                    val drawnIn = assertNotNull(spans.single().item.fontFamily)
+                    assertTrue(hasGlyph(drawnIn, sign), "$label: $name has a glyph in fallback")
+                }
             }
             null
         }
