@@ -402,15 +402,18 @@ internal fun resolveFontChain(
 }
 
 /**
- * The chain member for an installed or a generic [family]: one whose letters are not known,
- * which takes every letter that reaches it.
+ * The chain member for an installed or a generic [family].
  *
- * The exception is the default family where the renderer carries it itself. Its letters
- * are known, so the member is the one of [platformDefaultChain], and a letter it lacks goes
- * on to the fallback faces the renderer carries.
+ * On platforms with system fonts ([platformDefaultChain] is null), the family's letters are
+ * not known here, so it takes every letter that reaches it and lets the machine fall back.
+ * Where the renderer carries its own default family and fallback faces, the default family
+ * reuses [platformDefaultChain]'s member, and other generic or named families share its
+ * glyph check so symbols it lacks still reach the bundled fallback faces.
  */
-private fun platformMember(family: FontFamily): FontChain.Member =
-    platformDefaultChain?.members?.first()?.takeIf { it.family === family } ?: FontChain.Member(family, null)
+private fun platformMember(family: FontFamily): FontChain.Member {
+    val default = platformDefaultChain?.members?.first() ?: return FontChain.Member(family, null)
+    return if (default.family === family) default else FontChain.Member(family, default::has)
+}
 
 /**
  * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this

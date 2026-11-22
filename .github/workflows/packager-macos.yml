@@ -63,6 +63,36 @@ jobs:
       - name: Pack, install from the .dmg and update the ad hoc signed app
         run: ./scripts/tests/fr22-velopack.test.sh macos
 
+      - name: Build and verify Mac App Store .pkg
+        run: |
+          set -euo pipefail
+          COMPOSE_RUST_APP_VERSION=1.0.0 cargo build --release -p packager-linux-demo
+          out_dir="$RUNNER_TEMP/mas-pkg"
+          rm -rf "$out_dir"
+          mkdir -p "$out_dir"
+          scripts/packager-macos/package-macos app \
+            --manifest-dir scripts/packager-linux/demo \
+            --executable target/release/update-demo \
+            --version 1.0.0 \
+            --out "$out_dir"
+          app_path="$out_dir/UpdateDemo.app"
+          pkg_path="$out_dir/UpdateDemo-1.0.0.pkg"
+          scripts/packager-macos/package-macos pkg \
+            --app "$app_path" \
+            --out "$pkg_path" \
+            --verify
+          payload="$(pkgutil --payload-files "$pkg_path")"
+          echo "$payload"
+          grep -q "UpdateDemo.app/Contents/Info.plist" <<<"$payload"
+          grep -q "UpdateDemo.app/Contents/MacOS/packager-linux-demo" <<<"$payload"
+          grep -q "UpdateDemo.app/Contents/Resources/AppIcon.icns" <<<"$payload"
+          sig="$(pkgutil --check-signature "$pkg_path" 2>&1 || true)"
+          echo "$sig"
+          grep -qiE "signed|no signature|not signed" <<<"$sig"
+          shasum -a 256 "$pkg_path" > "${pkg_path}.sha256"
+          cat "${pkg_path}.sha256"
+          shasum -a 256 -c "${pkg_path}.sha256"
+
   velopack-linux:
     name: Velopack packaging and self-update (ubuntu-latest)
     runs-on: ubuntu-latest
