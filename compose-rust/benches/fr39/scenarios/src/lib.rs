@@ -661,6 +661,28 @@ impl Model {
     }
 }
 
+/// The first line at which two dumps differ: its number from 1, and the line on each side.
+///
+/// A side that has run out of lines gives an empty line. `None` when the dumps are equal.
+pub fn first_difference(baseline: &str, candidate: &str) -> Option<(usize, String, String)> {
+    let mut left = baseline.lines();
+    let mut right = candidate.lines();
+    let mut number = 1;
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return None,
+            (a, b) if a == b => number += 1,
+            (a, b) => {
+                return Some((
+                    number,
+                    a.unwrap_or("").trim_start().to_owned(),
+                    b.unwrap_or("").trim_start().to_owned(),
+                ));
+            }
+        }
+    }
+}
+
 /// A stable hash of a dump, for comparing trees without keeping every dump.
 pub fn hash(text: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
@@ -1046,6 +1068,27 @@ mod tests {
         let mut records = only_created(column, label, button, handler);
         records.push(insert(0, column, 0));
         records
+    }
+
+    // A parity failure has to say what differs, so the first differing line is found
+    // without its indentation and with its line number.
+    #[test]
+    fn fr39_first_difference_names_the_line_and_both_sides() {
+        let baseline = "Root\n  Column\n    Button Text=Text(\"a\")\n";
+        let candidate = "Root\n  Column\n    Button Kind=Int(0) Text=Text(\"a\")\n";
+        assert_eq!(
+            first_difference(baseline, candidate),
+            Some((
+                3,
+                "Button Text=Text(\"a\")".to_owned(),
+                "Button Kind=Int(0) Text=Text(\"a\")".to_owned()
+            ))
+        );
+        assert_eq!(first_difference(baseline, baseline), None);
+        assert_eq!(
+            first_difference("Root\n", "Root\n  Column\n"),
+            Some((2, String::new(), "Column".to_owned()))
+        );
     }
 
     const SWEEP_SCREEN: &str = "Root\n  Column\n    Text Text=Text(\"0-0\")\n    Button OnClick=handler Text=Text(\"Increment\")\n";
