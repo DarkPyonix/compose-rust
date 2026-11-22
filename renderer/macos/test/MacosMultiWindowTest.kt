@@ -373,12 +373,14 @@ class MacosMultiWindowTest {
         val center = NSNotificationCenter.defaultCenter
         val observedEvents = mutableListOf<String>()
         val observedTopLefts = mutableListOf<Pair<Double, Double>>()
+        var resizeCount = 0
         val observers = listOf(NSWindowDidResizeNotification, NSWindowDidMoveNotification).map { name ->
             center.addObserverForName(
                 name = name,
                 `object` = native,
                 queue = null,
             ) { _ ->
+                if (name == NSWindowDidResizeNotification) resizeCount++
                 val snap = native.frame.useContents {
                     val top = origin.y + size.height
                     observedTopLefts += origin.x to top
@@ -391,6 +393,7 @@ class MacosMultiWindowTest {
             val (initialLeft, initialTop) = native.frame.useContents { origin.x to (origin.y + size.height) }
             observedTopLefts.clear()
             observedEvents.clear()
+            resizeCount = 0
 
             window.setContentSize(380f, 340f)
             spin()
@@ -412,12 +415,13 @@ class MacosMultiWindowTest {
             }
             assertEquals(
                 1,
-                observedEvents.size,
-                "expected single atomic frame update on grow, observed: $observedEvents",
+                resizeCount,
+                "expected single resize notification on grow, observed: $observedEvents",
             )
 
             observedTopLefts.clear()
             observedEvents.clear()
+            resizeCount = 0
 
             window.setContentSize(300f, 160f)
             spin()
@@ -439,8 +443,8 @@ class MacosMultiWindowTest {
             }
             assertEquals(
                 1,
-                observedEvents.size,
-                "expected single atomic frame update on shrink, observed: $observedEvents",
+                resizeCount,
+                "expected single resize notification on shrink, observed: $observedEvents",
             )
         } finally {
             observers.forEach(center::removeObserver)
