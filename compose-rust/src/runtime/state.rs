@@ -802,6 +802,7 @@ pub fn current_notification_permission() -> NotificationPermission {
 }
 
 const NODE_SIZE: u64 = super::composer::call_site("compose_rust::remember_node_size", 0);
+const NODE_BREAKPOINT: u64 = super::composer::call_site("compose_rust::current_node_breakpoint", 0);
 const NOTIFICATION_ACTIVATED: u64 =
     super::composer::call_site("compose_rust::on_notification_activated", 0);
 
@@ -813,12 +814,14 @@ struct NodeSizeSlot {
     _subscription: crate::window::NodeSizeSubscription,
 }
 
-/// Follows one node's measured size, recorded as read. Compose has no single equivalent;
-/// it is `onSizeChanged` with the class judgement made for you.
+/// Follows one node's measured size. Compose has no single equivalent; it is
+/// `onSizeChanged` with the class judgement made for you.
 ///
 /// Give the token to the node with `Modifier.observe_size(size.token())`. Nothing is
-/// measured until a node carries it, and the composable reading it runs again only when
-/// the node's size class changes.
+/// measured until a node carries it. Reading `size.measured()` or `size.is_*()` records
+/// the size state as read by the composing scope; passing `size` to
+/// [`current_node_breakpoint`] reads it inside a derived state so the scope runs again
+/// only when the width bucket changes.
 pub fn remember_node_size() -> crate::window::NodeSize {
     let _group = super::group_guard(NODE_SIZE);
     let found = with_composer_if_idle(|composer| {
@@ -849,13 +852,85 @@ pub fn remember_node_size() -> crate::window::NodeSize {
     })
     .flatten();
     match found {
-        Some((token, state)) => {
-            // Read through the state, so this scope runs again when the class changes;
-            // the value itself is the module's.
-            let _ = state.get();
-            crate::window::NodeSize::of(token)
-        }
+        Some((token, state)) => crate::window::NodeSize::from_state(token, state),
         None => crate::window::NodeSize::of(0),
+    }
+}
+
+/// Which of the application's own width buckets an observed node is in, recorded as read:
+/// the composable runs again only when the bucket changes, not on every size report.
+///
+/// `size` comes from [`remember_node_size`]. `breakpoints` are widths in dp. The result is
+/// how many finite positive breakpoints the node's width has reached
+/// (`width_dp >= breakpoint`), so with `[300.0, 600.0, 900.0]` a width of 299.9 is
+/// bucket 0, 300 is 1, 600 is 2 and 900 is 3. A width exactly on a breakpoint belongs to
+/// the bucket above it, matching `current_window_breakpoint`'s rules. The list is used as
+/// given without sorting or deduplicating; because the result is a count, order does not
+/// change it. Values that are not finite, or not above zero, are not counted, so a node
+/// nothing has measured yet (0 dp) is always in bucket 0. A debug build warns when a call
+/// site first uses such a list, or one out of order.
+///
+/// ```ignore
+/// let size = remember_node_size();
+/// let bucket = current_node_breakpoint(size, &[300.0, 600.0]);
+/// Column!(modifier = Modifier.observe_size_every_dp(size.token()), {
+///     match bucket {
+///         0 => compact_pane(),
+///         1 => medium_pane(),
+///         _ => wide_pane(),
+///     }
+/// });
+/// ```
+///
+/// This does not turn on per-dp reporting. Attach
+/// `Modifier.observe_size_every_dp(size.token())` to the node to see every breakpoint edge
+/// as it is crossed; with `Modifier.observe_size` the bucket updates only on the first
+/// measurement and on size-class changes.
+#[track_caller]
+pub fn current_node_breakpoint(size: crate::window::NodeSize, breakpoints: &[f32]) -> usize {
+    let site = Location::caller();
+    let _group = super::group_guard(NODE_BREAKPOINT);
+    let counted: Vec<f32> = breakpoints
+        .iter()
+        .copied()
+        .filter(|breakpoint| breakpoint.is_finite() && *breakpoint > 0.0)
+        .collect();
+    let key = (size, counted.clone());
+    let bucket = super::remember_with_key(key, move || {
+        warn_about_node_breakpoints(breakpoints, site);
+        derived_state_of(move || {
+            let width = size.measured().width_dp;
+            counted
+                .iter()
+                .filter(|breakpoint| width >= **breakpoint)
+                .count()
+        })
+    });
+    bucket.get()
+}
+
+/// Says, in a debug build, that a node breakpoint list is out of order or holds values
+/// that are not counted. Neither is an error: the result is the same as for the cleaned-up
+/// list.
+fn warn_about_node_breakpoints(breakpoints: &[f32], site: &Location<'_>) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let ignored = breakpoints
+        .iter()
+        .any(|breakpoint| !breakpoint.is_finite() || *breakpoint <= 0.0);
+    let unordered = breakpoints
+        .windows(2)
+        .any(|pair| pair[0].partial_cmp(&pair[1]) != Some(std::cmp::Ordering::Less));
+    if ignored || unordered {
+        eprintln!(
+            "compose-rust: current_node_breakpoint at {}:{} was given {:?}; breakpoints are \
+             counted as widths above zero in ascending order, so NaN, infinite and \
+             non-positive values are left out and the order does not matter",
+            site.file(),
+            site.line(),
+            breakpoints
+        );
     }
 }
 
