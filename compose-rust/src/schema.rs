@@ -4331,7 +4331,7 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     OnNativeViewFocus = 191,
     // The width in dp of a code editor's fold column when folds (or fixed gutter columns) are
     // shown, an f32. Absent leaves the column one row wide (`rowPx`).
-    FoldColumnWidthDp = 217,
+    FoldColumnWidthDp = 226,
 });
 
 /// What happened, for each event the Renderer can send.

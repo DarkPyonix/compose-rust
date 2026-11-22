@@ -1932,7 +1932,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -4875608836169643646L
+    const val SCHEMA_HASH: Long = 1440487792188508967L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3302,7 +3302,7 @@ object Protocol {
         215 -> PropertyKind.ReadOnly
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
-        217 -> PropertyKind.FoldColumnWidthDp
+        226 -> PropertyKind.FoldColumnWidthDp
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
