@@ -84,7 +84,6 @@ pub use code::{
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
 pub use compose_rust_macros::Preview;
-pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
 pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
@@ -101,6 +100,7 @@ pub use notification::{
 };
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
+pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
