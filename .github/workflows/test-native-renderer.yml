@@ -529,7 +529,9 @@ jobs:
 
       - name: Protocol codec tests on Kotlin/Native (PR-4)
         working-directory: renderer
-        run: ./kotlin test -m ios
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh ./kotlin test -m ios
 
       - name: Build the simulator archive
         run: ./renderer/desktop/scripts/build-ios.sh
