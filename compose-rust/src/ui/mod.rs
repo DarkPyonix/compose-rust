@@ -172,7 +172,26 @@ impl BackgroundBrush {
 
 /// How a node presents itself to assistive technology. Each tri-state field is unset until
 /// it is given a value, and an unset one sends nothing. The flags are off until set.
+///
+/// The type is non-exhaustive, so that a later field does not break code that uses it.
+/// Code outside this crate therefore cannot write `SemanticsState { .. }`, with or without
+/// `..Default::default()`. It starts from `SemanticsState::default()`, or from the
+/// constructor named after the first field it sets, and chains a `with_` method for each
+/// further field:
+///
+/// ```
+/// use compose_rust::ui::SemanticsState;
+///
+/// let nothing = SemanticsState::default();
+/// let row = SemanticsState::selected(true).with_disabled(false);
+/// let partly = SemanticsState::mixed().with_has_popup(true);
+/// assert_eq!(nothing.with_selected(true).with_disabled(false), row);
+/// assert!(partly.mixed && partly.has_popup);
+/// ```
+///
+/// The fields stay public, so a state can be read, and a `let mut` one assigned to.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct SemanticsState {
     pub checked: Option<bool>,
     /// Whether the node is mixed: a box standing for a set of which only some are checked.
@@ -272,6 +291,66 @@ impl SemanticsState {
             has_popup,
             ..Self::NONE
         }
+    }
+
+    /// Says whether the node is checked, keeping every other field.
+    pub const fn with_checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    /// Says whether the node is mixed, keeping every other field. Mixed wins over `checked`.
+    pub const fn with_mixed(mut self, mixed: bool) -> Self {
+        self.mixed = mixed;
+        self
+    }
+
+    /// Says whether the node is selected, keeping every other field.
+    pub const fn with_selected(mut self, selected: bool) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    /// Says whether the node is expanded, keeping every other field.
+    pub const fn with_expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
+    }
+
+    /// Says whether the node is disabled, keeping every other field.
+    pub const fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = Some(disabled);
+        self
+    }
+
+    /// Says whether the node is focused, keeping every other field.
+    pub const fn with_focused(mut self, focused: bool) -> Self {
+        self.focused = Some(focused);
+        self
+    }
+
+    /// Hides the node from assistive technology or shows it, keeping every other field.
+    pub const fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Exposes a click action or takes it away, keeping every other field.
+    pub const fn with_click_action(mut self, exposed: bool) -> Self {
+        self.click_action = exposed;
+        self
+    }
+
+    /// Exposes a focus action or takes it away, keeping every other field.
+    pub const fn with_focus_action(mut self, exposed: bool) -> Self {
+        self.focus_action = exposed;
+        self
+    }
+
+    /// Says whether the node opens a popup, keeping every other field.
+    pub const fn with_has_popup(mut self, has_popup: bool) -> Self {
+        self.has_popup = has_popup;
+        self
     }
 
     /// The state word the `Semantics` modifier carries.
