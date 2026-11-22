@@ -1063,6 +1063,8 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 
 `RadioButton`의 선택 여부도 `Checked`를 씁니다. 와이어에서는 "켜져 있는가"라는 bool 하나입니다. `selected`라는 이름은 Compose 관례이므로 rsx 속성 이름으로만 남습니다(PR-7).
 
+`Checkbox`의 혼합 상태는 `Checked`의 세 번째 값이 아니라 Checkbox 전용 속성 `Indeterminate`(태그 216, bool)입니다. 상자의 테두리 색은 `OutlineColor`(태그 217, Paint, Checkbox 전용)입니다. 둘 다 FR-67이 정합니다 `[leader, 2026-11-21]`.
+
 변경 핸들러는 기존 `OnValueChange`(태그 6)를 그대로 씁니다.
 
 - **네 컨트롤 모두 15.2.5의 `ValueChanged`(이벤트 태그 16)를 씁니다.** 토글 셋은 새 상태를 0.0 또는 1.0으로 싣고, `Slider`는 값 자체를 싣습니다. bool을 위해 이벤트를 하나 더 만들면 같은 개념("이 컨트롤의 값이 이렇게 되었다")에 이름이 둘 생기고, 컨트롤이 늘 때마다 또 나눠야 합니다.
@@ -1678,6 +1680,27 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. 아래 안전 영역만 바뀌어도 `WindowSizeChanged`가 한 번 오고, 그 값의 `safe_area_bottom`이 새 값입니다(fr19_9_safe_area_change_alone_resends를 아래 값까지 넓힘).
 2. 데스크톱 창은 `safe_area_bottom = 0`을 보냅니다(fr19_9_desktop_reports_no_bottom_safe_area).
 
+#### 20.10 앱이 정한 폭 경계 (`Agreed`, 이슈 #301, [leader, 2026-11-21])
+
+크기 클래스의 경계(600, 840dp)와 다른 폭에서 배치를 바꿔야 하는 화면이 있습니다. darkpyonix-ember의 목업은 560, 900, 1279px에서 CSS 미디어 쿼리로 배치를 바꿉니다. `current_window_size()`로 폭을 직접 비교하면 그 composable은 창 크기 보고가 올 때마다 다시 실행되므로, 경계를 넘을 때만 다시 실행되는 함수를 둡니다.
+
+- **API**: `current_window_breakpoint(breakpoints: &[f32]) -> usize`. 폭 경계(dp)를 받아 현재 창 폭이 속한 구간 번호를 돌려줍니다. `compose_rust::runtime`에 `current_window_size()`와 나란히 있습니다.
+- **구간 규칙**: 번호는 `width_dp >= b`인 경계 `b`의 개수입니다. 폭이 경계와 같으면 그 경계 위의 구간입니다(`WindowSizeClass`와 같은 방향, CSS의 `min-width`). `[560, 900, 1279]`에서 559.9dp는 0, 560dp는 1, 900dp는 2, 1279dp는 3입니다. CSS의 `max-width: 560px`처럼 경계를 아래 구간에 넣는 쪽은 561처럼 한 칸 위의 값을 넘깁니다.
+- **목록 다루기**: 번호가 개수이므로 목록의 순서는 결과를 바꾸지 않습니다. 유한하지 않은 값(NaN, 무한대)과 0 이하의 값은 세지 않습니다. 그런 값이 있거나 목록이 엄격한 오름차순이 아니면 패닉 없이 계산하고, 디버그 빌드에서만 그 호출 자리마다 한 번 경고합니다. 빈 목록은 늘 0입니다.
+- **측정 전**: Renderer가 아직 아무것도 보고하지 않은 창의 폭은 0dp(20.4)이므로 번호는 0입니다. 0 이하의 경계를 세지 않는 것이 이 성질을 지킵니다.
+- **다시 실행**: 그 함수를 부른 composable은 **구간 번호가 바뀔 때만** 다시 실행됩니다. 같은 구간 안의 크기 변화나 같은 구간 안의 클래스 변화로는 다시 실행되지 않습니다. 호출 자리마다 기억한 파생 상태(`derived_state_of`)가 창 크기를 읽고, composable은 그 번호만 읽습니다. 같은 호출 자리에 다른 목록을 넘기면 그 목록으로 다시 계산합니다.
+- **다중 창**: 그 composable이 있는 창의 폭입니다(FR-53). 다른 창의 크기 보고로는 다시 실행되지 않습니다.
+- **`report_size`는 켜지 않습니다**: 클래스 경계가 아닌 곳에서 번호가 바뀌려면 창이 같은 클래스 안의 크기 변화도 보내야 합니다. 그것은 20.8의 옵트인(`Window(report_size: true)`, 암묵적 창은 `Window::new().with_report_size(true)`)이고, 이 함수가 대신 켜지 않습니다. 드래그 중 정수 dp마다 Host 호출이 느는 비용은 앱이 고르는 것이기 때문입니다. 켜지 않은 창에서는 클래스나 안전 영역이 바뀌어 보고가 올 때만 번호가 갱신되고, 그때의 폭으로 계산합니다.
+- 와이어, 스키마, Renderer는 바뀌지 않습니다. Host 함수 하나입니다.
+
+수용 기준:
+
+1. 암묵적 창을 `with_report_size(true)`로 열고 `current_window_breakpoint(&[560.0, 900.0, 1279.0])`를 읽으면, 폭 559.9/560/899/900/1278.9/1279dp의 보고에서 0/1/1/2/2/3입니다(fr20_10_breakpoint_index_follows_the_window_width).
+2. 그 composable은 폭을 700dp에서 880dp까지 1dp씩 넓히는 동안(840dp의 클래스 전환 포함) 다시 실행되지 않고, 900dp에 이르면 한 번 다시 실행됩니다. 같은 창에서 이 함수를 읽지 않는 형제는 어느 보고에서도 다시 실행되지 않습니다(fr20_10_reader_reruns_only_on_a_bucket_change).
+3. 두 창에서 각 composable이 자기 창의 폭으로 번호를 얻고, 한 창의 보고는 다른 창의 composable을 다시 실행하지 않습니다(fr20_10_breakpoint_reads_its_own_window).
+4. 측정 전 번호는 0이고, 경계 목록이 비어 있으면 어느 폭에서나 0입니다(fr20_10_breakpoint_defaults_to_zero).
+5. `[1279, 560, 900]`처럼 순서가 섞인 목록은 정렬한 목록과 같은 번호를 주고, NaN, 무한대, 0 이하의 값은 세지 않으며, 어느 경우에도 패닉하지 않습니다(fr20_10_breakpoint_list_order_and_bad_values).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -1768,9 +1791,10 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
 
-#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Done`, 이슈 #843, [leader, provisional, 2026-11-19])
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, #914, [leader, provisional, 2026-11-19])
 
 - **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
+- **손잡이 아래 간격.** 손잡이를 그리는 시트는 막대 위와 아래에 간격을 두고, 시트 내용은 손잡이 아래 그 간격 다음에서 시작합니다. Material3는 Compose `BottomSheetDefaults.DragHandle`과 같이 막대 위와 아래에 각각 22dp(`DragHandleVerticalPadding`)를 둡니다. 다른 디자인 시스템에서 손잡이 위와 아래 간격은 그 시스템의 시트 내용 여백, 곧 그 시스템의 `SheetStyle`이 이미 쓰는 `SpaceRole`입니다. 시스템마다 새 숫자를 만들지 않습니다. 손잡이 위 간격이 시트의 위쪽 여백을 대신하므로 둘이 겹쳐 쌓이지 않습니다. `handle(false)`이면 손잡이도 그 간격도 없고, 내용은 시트의 여백에서 바로 시작합니다. 이 간격 규칙은 아래 시트뿐 아니라 옆 가장자리에서 나오는 시트(side sheet)에도 똑같이 적용됩니다. 손잡이를 그리는 모든 시트에 손잡이 규칙은 하나입니다(`[leader, 2026-11-22]`). 와이어와 스키마는 바뀌지 않습니다. 할 일 샘플에서 시트의 제목이 손잡이 바로 밑에 붙어 보였고, 원인은 샘플이 아니라 손잡이 다음에 간격을 두지 않은 Renderer였습니다. 리더의 결정입니다(2026-11-21, 이슈 #914).
 - **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
 
 수용 기준:
@@ -1780,6 +1804,9 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
 4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
    - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, 1080x2640, 밀도 3, develop, Material3): 손잡이와 시트 표면의 대비는 밝은 테마 1.98:1, 어두운 테마 2.69:1입니다. 시트 내용의 마지막 행은 y 2474에서 끝나고, 시스템의 아래 제스처 영역은 y 2544부터라서 내용이 그보다 23dp 위에서 끝납니다. 시트 표면은 화면 아래 끝까지 닿습니다. 캡처는 이슈 #843에 있습니다.
+5. Material3 아래 시트에서 손잡이의 위 끝은 시트의 위 끝에서 22dp 아래에 있고, 첫 자식의 위 끝은 손잡이의 아래 끝에서 22dp 이상 아래에 있습니다(fr21_sheet_content_starts_below_the_handle).
+6. Material3가 아니면서 손잡이를 그리는 디자인 시스템(GNOME)의 아래 시트에서 손잡이 아래 끝과 첫 자식 위 끝 사이의 간격이 그 시스템의 시트 내용 여백(시트의 왼쪽 끝에서 첫 자식까지의 거리)과 같습니다(fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3).
+7. `handle(false)`인 Material3 아래 시트에서 첫 자식은 시트의 위 끝에서 시트 내용 여백만큼 아래에서 시작하고, 손잡이 몫의 간격이 남지 않습니다(fr21_sheet_without_handle_leaves_no_gap).
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
@@ -4361,13 +4388,32 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 일곱 디자인 시스템 모두에서 `track_border = (2.0, red)`인 스위치의 트랙 가장자리가 빨간색입니다(`fr67_switch_track_border_draws_in_the_width_and_colour_named`). 폭 `0`이면 가장자리가 빨갛지 않습니다(`fr67_switch_track_border_of_zero_width_draws_none`).
 6. 두 속성을 모두 받은 뒤 제거된 스위치는 처음부터 주지 않은 스위치와 같은 픽셀로 그려집니다(`fr67_removing_thumb_elevation_and_track_border_restores_the_default`).
 
+**Checkbox의 모서리, 혼합 상태, 테두리 색**(이슈 #767) `[leader, 2026-11-21]`. 요청한 쪽: darkpyonix-ember(목업 `vcs.css:68-72`, 부분 스테이징된 파일의 체크). Ember는 지금 반지름 5의 18dp 사각형을 직접 그리고 그 위에 투명한 `Checkbox`를 얹어서, 부분 상태가 화면 낭독기에 체크 안 됨으로 읽힙니다.
+
+- **모서리**: Checkbox 상자의 모양은 노드의 모서리 수정자(`Modifier::corner_radius`, `corner_radii`, `shape_role`)를 따릅니다. 색이나 크기를 주지 않아도 모든 디자인 시스템(Material 3 포함)에서 같습니다. Material 3에서 모서리 수정자만 준 Checkbox는 색이나 크기를 준 Checkbox와 같이 공용 컨트롤 드로잉이 그립니다. 새 속성은 없습니다(13.1: 같은 개념을 스키마에 두 번 넣지 않음).
+- **혼합 상태**: `Checkbox!`에 `indeterminate` 매개변수(bool, 기본 false, `indeterminate = true`)가 있습니다(속성 `Indeterminate`, 속성 태그 216, bool, Checkbox 전용, Compose의 `ToggleableState.Indeterminate`). 참일 때만 보내고, 참이면 `checked`와 관계없이 혼합 상태입니다. 혼합을 `checked`의 세 번째 값으로 만들지 않는 것은 지금의 호출이 모두 그대로 컴파일되게 하려는 것입니다.
+- **혼합 상태의 모양**: 기본은 채운 상자입니다. 상자는 체크된 상자와 같이 칠하고(`container_color`, 없으면 디자인 시스템의 체크된 상자 색), 체크 대신 가운데 가로 막대를 `check_color`(없으면 디자인 시스템의 체크 색)로 그립니다. Compose Material 3와 Apple의 혼합 체크박스가 이렇게 그립니다. 테두리만 있는 목업의 모양은 앱이 `container_color`와 `outline_color`로 만듭니다.
+- **혼합 상태를 누르면** `on_change(true)`가 한 번 갑니다(macOS와 HTML의 관례이고, Ember에서는 "나머지도 스테이징"입니다). 상태는 Host가 정하므로, Host가 `indeterminate`를 거두기 전까지 상자는 혼합으로 그려집니다.
+- **접근성**: 혼합 Checkbox는 접근성 트리에 혼합(mixed, `ToggleableState.Indeterminate`)으로 나갑니다. 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다. `Modifier::checked`의 의미 상태 필드에서 쓰지 않던 값 3을 혼합으로 정합니다(`SemanticsState::mixed()`, 상수 `SEMANTICS_CHECKED_MIXED`). 비트도 마스크도 그대로이고 이 값은 `schema_hash()`에 들어갑니다.
+- **테두리 색**: `Checkbox`에 `outline_color` 인자가 있습니다(색 역할 또는 `Paint`, 속성 `OutlineColor`, 속성 태그 217, Paint, Checkbox 전용). 상자의 테두리 색이고, 꺼짐, 켜짐, 혼합에 같은 색으로 적용됩니다(`track_color`와 같은 규칙). 지정하면 디자인 시스템이 테두리를 그리지 않는 상태(앱이 채운 상자)에도 그 색 테두리를 그립니다. 지정하지 않으면 보내지 않고 디자인 시스템의 테두리입니다. Material 3에서도 공용 컨트롤 드로잉이 그립니다.
+- 두 속성 모두 앱이 더는 주지 않으면 제거가 전달되고, Renderer는 혼합이 아닌 상태와 디자인 시스템의 테두리로 돌아갑니다.
+
+수용 기준.
+1. `Checkbox!(true, |_| {}, modifier = Modifier.corner_radius(5.0), container_color = ink, size = 18.0)`의 상자 모서리 픽셀이 바탕색이고 안쪽은 `ink`입니다. 일곱 디자인 시스템 모두에서 그렇고, 색과 크기 없이 `corner_radius`만 준 경우에도 모서리가 둥글게 깎입니다(fr67_checkbox_corner_radius_follows_the_corner_modifier).
+2. `indeterminate = true`인 Checkbox는 `Indeterminate` 속성(태그 216, `Bool(true)`)을 보내고, 거짓이거나 생략하면 보내지 않으며, 참에서 거짓으로 바꾸면 제거가 갑니다(fr67_checkbox_sends_indeterminate_only_when_mixed).
+3. 혼합 Checkbox는 일곱 디자인 시스템 모두에서 상자 가운데에 `check_color` 가로 막대를 그리고 체크 표시는 그리지 않습니다(fr67_mixed_checkbox_draws_a_dash).
+4. 혼합 Checkbox의 접근성 노드는 `ToggleableState.Indeterminate`이고, 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다(fr68_mixed_checkbox_is_mixed_in_the_accessibility_tree). iOS 빌드의 공용 인터프리터도 의미 상태 값 3을 가진 노드에 `ToggleableState.Indeterminate`를 둡니다. VoiceOver 값으로 넘기는 것은 Compose의 iOS 브리지입니다(fr68_mixed_checkbox_reaches_the_ios_accessibility_value).
+5. 혼합 Checkbox를 누르거나 포커스한 채 Space를 누르면 `ValueChanged` 1.0이 정확히 한 번 갑니다(fr67_pressing_a_mixed_checkbox_requests_checked).
+6. `SemanticsState::mixed()`의 checked 필드는 값 3으로 인코딩되어 왕복하고(fr68_semantics_checked_mixed_round_trips), Renderer에서 `ToggleableState.Indeterminate`로 나갑니다(fr68_semantics_checked_mixed_reaches_the_tree).
+7. `outline_color = ink`인 Checkbox는 `OutlineColor` 속성(태그 217)을 보내고, 주지 않으면 보내지 않으며, 거두면 제거가 갑니다(fr67_checkbox_sends_outline_color_only_when_given). 꺼진 Checkbox의 테두리 픽셀은 일곱 디자인 시스템 모두에서 `ink`입니다(fr67_checkbox_outline_color_draws_the_border).
+
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
 - `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`, `has_popup(bool)`가 있습니다(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
-- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다. `indeterminate`인 `Checkbox`는 혼합(mixed)으로 나가고, `Modifier`의 의미 상태 checked 필드 값 3(`SemanticsState::mixed()`)도 혼합입니다(FR-67 "Checkbox의 모서리, 혼합 상태, 테두리 색") `[leader, 2026-11-21]`.
 - `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
 
 수용 기준.
