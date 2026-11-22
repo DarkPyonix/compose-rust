@@ -2,6 +2,7 @@
 members = [
     "compose-rust",
     "compose-rust/macros",
+    "compose-rust-preview",
     # The sample applications, written on the compose-rust authoring API, and the library
     # their recording tests draw their screens through.
     "samples/academic",

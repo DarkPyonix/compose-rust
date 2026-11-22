@@ -70,6 +70,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compose-rust-preview"
+version = "0.0.12"
+dependencies = [
+ "compose-rust",
+ "png",
+ "syn 2.0.119",
+ "walkdir",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
