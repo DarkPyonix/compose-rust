@@ -4,7 +4,9 @@
 //! Background pixels match the resolved design system's `ColorRole::Background` token.
 
 use crate::image_cmp::{RgbaImage, write_png};
-use compose_rust::preview::{PreviewSize, format_scale, preview_filename, scheme_slug, system_slug};
+use compose_rust::preview::{
+    PreviewSize, format_scale, preview_filename, scheme_slug, system_slug,
+};
 use compose_rust::tokens::DESIGN_TOKENS;
 use compose_rust::{Color, ColorRole, ColorScheme, DesignSystem};
 use std::path::{Path, PathBuf};
@@ -36,7 +38,10 @@ pub struct ClockAdvance {
 }
 
 /// Advance the virtual clock in 16 ms steps until `animation_duration_ms` completes or 10 s cap.
-pub fn advance_virtual_clock(at_ms: Option<u64>, animation_duration_ms: Option<u64>) -> ClockAdvance {
+pub fn advance_virtual_clock(
+    at_ms: Option<u64>,
+    animation_duration_ms: Option<u64>,
+) -> ClockAdvance {
     if let Some(fixed) = at_ms {
         return ClockAdvance {
             settled_ms: fixed,

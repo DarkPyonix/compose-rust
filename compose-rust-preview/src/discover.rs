@@ -64,7 +64,10 @@ impl DiscoveredPreview {
 }
 
 /// Discover all `#[Preview]` declarations under `crate_dir/src` for `crate_name`.
-pub fn discover_in_crate(crate_dir: &Path, crate_name: &str) -> Result<Vec<DiscoveredPreview>, String> {
+pub fn discover_in_crate(
+    crate_dir: &Path,
+    crate_name: &str,
+) -> Result<Vec<DiscoveredPreview>, String> {
     let src_dir = crate_dir.join("src");
     if !src_dir.is_dir() {
         return Ok(Vec::new());

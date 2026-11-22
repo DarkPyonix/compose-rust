@@ -51,8 +51,8 @@ pub fn write_png(
         fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
-    let file = File::create(path)
-        .map_err(|e| format!("failed to create {}: {e}", path.display()))?;
+    let file =
+        File::create(path).map_err(|e| format!("failed to create {}: {e}", path.display()))?;
     let mut encoder = png::Encoder::new(BufWriter::new(file), width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
