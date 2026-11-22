@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Build failures no longer send a crate user to a script only a checkout has
+
+When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
+
 ### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
 
 The Windows job that packs with Velopack now builds the `.msi` twice, with `--instLocation PerUser` and `PerMachine`, and `scripts/tests/msi-info.ps1` opens each one's Property table and checks the product name, the manufacturer, the codes and that the version is the one packed. The two jobs that run `appcert.exe` on the `.msix` and `.msixbundle` (`package-windows.yml`, `package-windows-host.yml`) both require `DPIAwarenessValidation` to pass, and FR-22.6 no longer calls that check manual. The Store submission and the Store's update of an installed bundle still wait for a Partner Center account ([#3](https://github.com/DarkPyonix/compose-rust/issues/3)).
