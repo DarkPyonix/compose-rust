@@ -5,10 +5,17 @@
 ### A button that names no kind sends no kind
 
 A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
+### Compose from fork test compares the fork with its own baseline
+
+The workflow no longer builds Compose a second time from JetBrains' sources and the three patches. It compares the fork's publication with a stored baseline of the fork line, one digest per published module (`renderer/scripts/compose-baseline/`), and fails on any module that differs unless the fork changed that module's sources since the baseline's revision. `.github/scripts/refresh-compose-baseline.sh <run id>` refreshes the baseline when the pin moves ([#361](https://github.com/DarkPyonix/compose-rust/issues/361)).
 
 ### The macOS renderer's Kotlin heap stops near what is in use
 
 The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
+
+### The build finds its renderer by schema hash
+
+A git dependency on a revision after a release builds. The crate's version stays the same between two releases while its schema moves on, and the build used to fetch the release for that version, whose renderer was built from the older schema, and then stop at the schema check with nothing else to try. The build now reads the schema hash of the release's renderer, and when it is not the crate's, fetches the renderer published for the crate's schema from the `renderer-dev` release (`compose-rust-renderer-schema-<hash>-<target>.tar.gz`, verified against its `.sha256` like any other). When neither matches, the build stops and names the crate's schema hash, each renderer's hash and both addresses. A released version costs no extra request. The cache is keyed by schema hash and target (`renderer/schema-<hash>/<target>`) instead of by version, so two revisions of one version never share an entry; an entry an earlier build left under the version is used only when its renderer says it was built from the same schema. A renderer that says it was built from the crate's schema is no longer refused for the version written in its `renderer.version`. `COMPOSE_RUST_RENDERER_URL` moves both addresses to a mirror; it is optional, and a build without it uses GitHub as before ([#293](https://github.com/DarkPyonix/compose-rust/issues/293)).
 
 ### Widgets are functions and call macros, not builder chains
 
@@ -27,6 +34,10 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
 
+### `SemanticsState` is non-exhaustive
+
+`SemanticsState` is `#[non_exhaustive]`, so a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that builds one with a struct literal, with or without `..Default::default()`, or destructures one without `..`. Start from `SemanticsState::default()` or from the constructor named after a field, and chain the new `with_` method of each further field: `SemanticsState { checked: Some(true), ..SemanticsState::mixed() }` becomes `SemanticsState::mixed().with_checked(true)`. There is one per public field (`with_checked`, `with_mixed`, `with_selected`, `with_expanded`, `with_disabled`, `with_focused`, `with_hidden`, `with_click_action`, `with_focus_action`, `with_has_popup`). The fields stay public, so reading one and assigning to a `let mut` state still work. The wire format and the schema hash do not change ([#767](https://github.com/DarkPyonix/compose-rust/issues/767)).
+
 ### A switch can lift its thumb and draw a line around its track
 
 `Switch!` takes `thumb_elevation`, a soft shadow under the thumb in dp, and `track_border`, a `(width, paint)` line around the track in both states. Leaving either out draws the switch as before in every design system: none of them shadows the thumb, and each keeps its own border. These add properties 212 and 213, so the schema hash moves and a renderer built before this change refuses the Host ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
@@ -34,6 +45,18 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 ### `ScrollState` knows how large its viewport is
 
 `ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
+
+### A Checkbox can be mixed, take an outline colour, and round its corners under Material 3
+
+`Checkbox!` takes `indeterminate = true` for a box that stands for a set of which only some are checked. It wins over `checked`: the box is filled as a checked box is, with a dash in the check colour instead of the check, assistive technology hears it as mixed, and a press or Space asks for `true`. It travels as the `Indeterminate` property (tag 216, a boolean, only on a `Checkbox`), sent only while it is true. `outline_color` is the box's border in every state (`OutlineColor`, tag 217, a `Paint`, only on a `Checkbox`), drawn even where the design system draws none. A Checkbox's corners now follow `Modifier::corner_radius`, `corner_radii` or `shape_role` under Material 3 as well, with no colour or size given. For `Modifier::semantics`, `SemanticsState::mixed()` gives the checked field its fourth value, 3, which reads as mixed, and `SemanticsState` gains a public `mixed` field. The schema hash changes ([#767](https://github.com/DarkPyonix/compose-rust/issues/767)).
+
+### A bottom sheet's content starts below its handle
+
+A sheet's first line no longer sits level with its drag handle. Material 3 keeps 22 dp above and below the handle, as Compose's `BottomSheetDefaults.DragHandle` does, and every other design system keeps its own sheet padding there. A sheet with `handle(false)` keeps no space for one. No schema change ([#914](https://github.com/DarkPyonix/compose-rust/issues/914)).
+
+### Window breakpoints the application chooses
+
+`current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
 
 ## v0.0.12
 

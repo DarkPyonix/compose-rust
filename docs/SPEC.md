@@ -1063,6 +1063,8 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 
 `RadioButton`의 선택 여부도 `Checked`를 씁니다. 와이어에서는 "켜져 있는가"라는 bool 하나입니다. `selected`라는 이름은 Compose 관례이므로 rsx 속성 이름으로만 남습니다(PR-7).
 
+`Checkbox`의 혼합 상태는 `Checked`의 세 번째 값이 아니라 Checkbox 전용 속성 `Indeterminate`(태그 216, bool)입니다. 상자의 테두리 색은 `OutlineColor`(태그 217, Paint, Checkbox 전용)입니다. 둘 다 FR-67이 정합니다 `[leader, 2026-11-21]`.
+
 변경 핸들러는 기존 `OnValueChange`(태그 6)를 그대로 씁니다.
 
 - **네 컨트롤 모두 15.2.5의 `ValueChanged`(이벤트 태그 16)를 씁니다.** 토글 셋은 새 상태를 0.0 또는 1.0으로 싣고, `Slider`는 값 자체를 싣습니다. bool을 위해 이벤트를 하나 더 만들면 같은 개념("이 컨트롤의 값이 이렇게 되었다")에 이름이 둘 생기고, 컨트롤이 늘 때마다 또 나눠야 합니다.
@@ -1678,6 +1680,27 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. 아래 안전 영역만 바뀌어도 `WindowSizeChanged`가 한 번 오고, 그 값의 `safe_area_bottom`이 새 값입니다(fr19_9_safe_area_change_alone_resends를 아래 값까지 넓힘).
 2. 데스크톱 창은 `safe_area_bottom = 0`을 보냅니다(fr19_9_desktop_reports_no_bottom_safe_area).
 
+#### 20.10 앱이 정한 폭 경계 (`Agreed`, 이슈 #301, [leader, 2026-11-21])
+
+크기 클래스의 경계(600, 840dp)와 다른 폭에서 배치를 바꿔야 하는 화면이 있습니다. darkpyonix-ember의 목업은 560, 900, 1279px에서 CSS 미디어 쿼리로 배치를 바꿉니다. `current_window_size()`로 폭을 직접 비교하면 그 composable은 창 크기 보고가 올 때마다 다시 실행되므로, 경계를 넘을 때만 다시 실행되는 함수를 둡니다.
+
+- **API**: `current_window_breakpoint(breakpoints: &[f32]) -> usize`. 폭 경계(dp)를 받아 현재 창 폭이 속한 구간 번호를 돌려줍니다. `compose_rust::runtime`에 `current_window_size()`와 나란히 있습니다.
+- **구간 규칙**: 번호는 `width_dp >= b`인 경계 `b`의 개수입니다. 폭이 경계와 같으면 그 경계 위의 구간입니다(`WindowSizeClass`와 같은 방향, CSS의 `min-width`). `[560, 900, 1279]`에서 559.9dp는 0, 560dp는 1, 900dp는 2, 1279dp는 3입니다. CSS의 `max-width: 560px`처럼 경계를 아래 구간에 넣는 쪽은 561처럼 한 칸 위의 값을 넘깁니다.
+- **목록 다루기**: 번호가 개수이므로 목록의 순서는 결과를 바꾸지 않습니다. 유한하지 않은 값(NaN, 무한대)과 0 이하의 값은 세지 않습니다. 그런 값이 있거나 목록이 엄격한 오름차순이 아니면 패닉 없이 계산하고, 디버그 빌드에서만 그 호출 자리마다 한 번 경고합니다. 빈 목록은 늘 0입니다.
+- **측정 전**: Renderer가 아직 아무것도 보고하지 않은 창의 폭은 0dp(20.4)이므로 번호는 0입니다. 0 이하의 경계를 세지 않는 것이 이 성질을 지킵니다.
+- **다시 실행**: 그 함수를 부른 composable은 **구간 번호가 바뀔 때만** 다시 실행됩니다. 같은 구간 안의 크기 변화나 같은 구간 안의 클래스 변화로는 다시 실행되지 않습니다. 호출 자리마다 기억한 파생 상태(`derived_state_of`)가 창 크기를 읽고, composable은 그 번호만 읽습니다. 같은 호출 자리에 다른 목록을 넘기면 그 목록으로 다시 계산합니다.
+- **다중 창**: 그 composable이 있는 창의 폭입니다(FR-53). 다른 창의 크기 보고로는 다시 실행되지 않습니다.
+- **`report_size`는 켜지 않습니다**: 클래스 경계가 아닌 곳에서 번호가 바뀌려면 창이 같은 클래스 안의 크기 변화도 보내야 합니다. 그것은 20.8의 옵트인(`Window(report_size: true)`, 암묵적 창은 `Window::new().with_report_size(true)`)이고, 이 함수가 대신 켜지 않습니다. 드래그 중 정수 dp마다 Host 호출이 느는 비용은 앱이 고르는 것이기 때문입니다. 켜지 않은 창에서는 클래스나 안전 영역이 바뀌어 보고가 올 때만 번호가 갱신되고, 그때의 폭으로 계산합니다.
+- 와이어, 스키마, Renderer는 바뀌지 않습니다. Host 함수 하나입니다.
+
+수용 기준:
+
+1. 암묵적 창을 `with_report_size(true)`로 열고 `current_window_breakpoint(&[560.0, 900.0, 1279.0])`를 읽으면, 폭 559.9/560/899/900/1278.9/1279dp의 보고에서 0/1/1/2/2/3입니다(fr20_10_breakpoint_index_follows_the_window_width).
+2. 그 composable은 폭을 700dp에서 880dp까지 1dp씩 넓히는 동안(840dp의 클래스 전환 포함) 다시 실행되지 않고, 900dp에 이르면 한 번 다시 실행됩니다. 같은 창에서 이 함수를 읽지 않는 형제는 어느 보고에서도 다시 실행되지 않습니다(fr20_10_reader_reruns_only_on_a_bucket_change).
+3. 두 창에서 각 composable이 자기 창의 폭으로 번호를 얻고, 한 창의 보고는 다른 창의 composable을 다시 실행하지 않습니다(fr20_10_breakpoint_reads_its_own_window).
+4. 측정 전 번호는 0이고, 경계 목록이 비어 있으면 어느 폭에서나 0입니다(fr20_10_breakpoint_defaults_to_zero).
+5. `[1279, 560, 900]`처럼 순서가 섞인 목록은 정렬한 목록과 같은 번호를 주고, NaN, 무한대, 0 이하의 값은 세지 않으며, 어느 경우에도 패닉하지 않습니다(fr20_10_breakpoint_list_order_and_bad_values).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -1768,9 +1791,10 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
 
-#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Done`, 이슈 #843, [leader, provisional, 2026-11-19])
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, #914, [leader, provisional, 2026-11-19])
 
 - **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
+- **손잡이 아래 간격.** 손잡이를 그리는 시트는 막대 위와 아래에 간격을 두고, 시트 내용은 손잡이 아래 그 간격 다음에서 시작합니다. Material3는 Compose `BottomSheetDefaults.DragHandle`과 같이 막대 위와 아래에 각각 22dp(`DragHandleVerticalPadding`)를 둡니다. 다른 디자인 시스템에서 손잡이 위와 아래 간격은 그 시스템의 시트 내용 여백, 곧 그 시스템의 `SheetStyle`이 이미 쓰는 `SpaceRole`입니다. 시스템마다 새 숫자를 만들지 않습니다. 손잡이 위 간격이 시트의 위쪽 여백을 대신하므로 둘이 겹쳐 쌓이지 않습니다. `handle(false)`이면 손잡이도 그 간격도 없고, 내용은 시트의 여백에서 바로 시작합니다. 이 간격 규칙은 아래 시트뿐 아니라 옆 가장자리에서 나오는 시트(side sheet)에도 똑같이 적용됩니다. 손잡이를 그리는 모든 시트에 손잡이 규칙은 하나입니다(`[leader, 2026-11-22]`). 와이어와 스키마는 바뀌지 않습니다. 할 일 샘플에서 시트의 제목이 손잡이 바로 밑에 붙어 보였고, 원인은 샘플이 아니라 손잡이 다음에 간격을 두지 않은 Renderer였습니다. 리더의 결정입니다(2026-11-21, 이슈 #914).
 - **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
 
 수용 기준:
@@ -1780,6 +1804,9 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
 4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
    - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, 1080x2640, 밀도 3, develop, Material3): 손잡이와 시트 표면의 대비는 밝은 테마 1.98:1, 어두운 테마 2.69:1입니다. 시트 내용의 마지막 행은 y 2474에서 끝나고, 시스템의 아래 제스처 영역은 y 2544부터라서 내용이 그보다 23dp 위에서 끝납니다. 시트 표면은 화면 아래 끝까지 닿습니다. 캡처는 이슈 #843에 있습니다.
+5. Material3 아래 시트에서 손잡이의 위 끝은 시트의 위 끝에서 22dp 아래에 있고, 첫 자식의 위 끝은 손잡이의 아래 끝에서 22dp 이상 아래에 있습니다(fr21_sheet_content_starts_below_the_handle).
+6. Material3가 아니면서 손잡이를 그리는 디자인 시스템(GNOME)의 아래 시트에서 손잡이 아래 끝과 첫 자식 위 끝 사이의 간격이 그 시스템의 시트 내용 여백(시트의 왼쪽 끝에서 첫 자식까지의 거리)과 같습니다(fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3).
+7. `handle(false)`인 Material3 아래 시트에서 첫 자식은 시트의 위 끝에서 시트 내용 여백만큼 아래에서 시작하고, 손잡이 몫의 간격이 남지 않습니다(fr21_sheet_without_handle_leaves_no_gap).
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
@@ -2247,6 +2274,25 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - 구독하지 않은 노드는 모디파이어 목록에 이 항목이 없으므로, 측정 콜백도 마지막 클래스를 담을 자리도 생기지 않습니다.
 - **크기 변화도 받는 노드**(이슈 #538): `Modifier::ObserveSize { handler_id, every_dp: bool }`로 옵트인하면 같은 클래스 안에서도 폭이나 높이를 정수 dp로 반올림한 값이 바뀔 때마다 이벤트를 보냅니다(FR-20.8과 같은 반올림 규칙입니다). 한 프레임에 여러 번 바뀌어도 마지막 크기로 한 번만 보냅니다. 기본값은 `false`이고, 끈 노드의 동작은 지금과 같습니다. 수정자 와이어가 바뀌므로 스키마 해시가 움직입니다. 수용 기준: `every_dp` 노드를 520dp에서 580dp로 넓히면 같은 클래스 안에서도 마지막 크기로 한 번 보고합니다(fr28_every_dp_node_reports_a_resize_inside_one_class). 처음 측정은 어느 노드든 한 번 보고합니다(fr28_first_measurement_always_reports).
 - 수용 기준: 구독이 하나도 없는 트리의 프레임당 경계 호출 수가 FR-20만 있을 때와 같습니다. 구독한 노드의 폭이 클래스 경계를 넘으면 이벤트가 한 번 오고, 같은 클래스 안에서 바뀌는 동안에는 오지 않습니다. 노드가 트리에서 사라지면 구독도 사라집니다.
+
+#### 28.1 노드의 폭 경계 (`Agreed`, 이슈 #967, [leader, provisional])
+
+분할 화면의 패널이나 카드처럼 창 전체가 아니라 자기가 놓인 노드의 폭 경계에 맞춰 배치를 바꿔야 하는 컴포넌트가 있습니다. `remember_node_size()`의 `measured().width_dp`를 직접 비교하면 그 composable은 `observe_size_every_dp` 보고가 올 때마다 다시 실행되므로, 경계를 넘을 때만 다시 실행되는 노드 단위 함수를 둡니다(FR-20.10 `current_window_breakpoint`의 노드 짝입니다).
+
+- **API**: `current_node_breakpoint(size: NodeSize, breakpoints: &[f32]) -> usize`. `remember_node_size()`가 돌려준 `NodeSize`와 폭 경계(dp) 목록을 받아 현재 노드 폭이 속한 구간 번호를 돌려줍니다. `compose_rust::runtime`에 `remember_node_size()`와 나란히 있습니다.
+- **구간 규칙**: FR-20.10과 같습니다. 번호는 `width_dp >= b`인 경계 `b`의 개수입니다. 폭이 경계와 같으면 그 경계 위의 구간입니다. `[300, 600, 900]`에서 0dp와 299.9dp는 0, 300dp와 599.9dp는 1, 600dp와 899.9dp는 2, 900dp는 3입니다.
+- **목록 다루기**: 목록을 정렬하거나 중복을 줄이지 않고 주어진 대로 셉니다(번호가 개수이므로 순서는 결과를 바꾸지 않습니다). 유한하지 않은 값(NaN, 무한대)과 0 이하의 값은 세지 않습니다. 그런 값이 있거나 목록이 엄격한 오름차순이 아니면 패닉 없이 계산하고, 디버그 빌드에서만 그 호출 자리마다 한 번 경고합니다. 빈 목록은 늘 0입니다.
+- **측정 전**: Renderer가 아직 아무것도 보고하지 않은 노드의 폭은 0dp이므로 번호는 0입니다. 0 이하의 경계를 세지 않는 것이 이 성질을 지킵니다.
+- **다시 실행**: `remember_node_size()`는 핸들을 돌려줄 때 크기 상태를 읽지 않고, `.measured()`나 `.is_compact()` 등 크기를 실제로 읽는 메서드에서만 읽습니다. `current_node_breakpoint`는 호출 자리마다 기억한 파생 상태(`derived_state_of`) 안에서 그 노드의 폭을 읽고, composable은 그 구간 번호만 읽습니다. 따라서 이 함수를 부른 composable은 **구간 번호가 바뀔 때만** 다시 실행되며, 같은 구간 안의 `every_dp` 크기 보고로는 다시 실행되지 않습니다. 두 패널이 각자 `remember_node_size()`를 쓰면 한 패널의 크기 보고는 다른 패널을 다시 실행하지 않습니다. 같은 호출 자리에 다른 `NodeSize`나 다른 경계 목록을 넘기면 새 입력으로 다시 계산합니다.
+- **`observe_size_every_dp`는 켜지 않습니다**: 클래스 경계가 아닌 곳에서 번호가 바뀌려면 노드가 `Modifier.observe_size_every_dp(size.token())`로 같은 클래스 안의 크기 변화도 받도록 옵트인해야 합니다. 이 함수가 대신 켜지 않습니다. 기본 `Modifier.observe_size(size.token())`만 붙은 노드에서는 첫 측정과 클래스 전환 보고가 올 때만 번호가 갱신됩니다.
+- 와이어, 스키마, Renderer는 바뀌지 않습니다. Host 함수 하나입니다.
+
+수용 기준:
+
+1. `observe_size_every_dp`가 붙은 노드에 `current_node_breakpoint(size, &[300.0, 600.0, 900.0])`를 읽으면, 폭 0/299.9/300/599.9/600/899.9/900dp와 다시 줄어드는 보고에서 0/0/1/1/2/2/3 및 역순으로 바뀝니다(`fr28_node_breakpoint_follows_node_width_across_resizes`).
+2. 같은 구간 안의 연속 보고(320 -> 350 -> 450 -> 599dp) 동안 읽는 composable은 추가로 다시 실행되지 않고, 600dp 경계를 넘으면 정확히 한 번 다시 실행됩니다(`fr28_node_breakpoint_recomposes_only_when_bucket_changes`).
+3. 0, 음수, NaN, 양/음의 무한대가 섞인 목록은 유한한 양수만 세며 패닉하지 않고, 빈 목록은 어느 폭에서나 0입니다(`fr28_node_breakpoint_ignores_non_positive_and_non_finite_breakpoints`).
+4. 분할 배치의 두 패널이 각자 `remember_node_size()`와 `current_node_breakpoint`를 쓸 때, 한 패널의 크기 변화는 다른 패널을 다시 실행하지 않습니다(`fr28_node_breakpoint_works_independently_for_two_panes`).
 
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
 
@@ -4281,6 +4327,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 7. 렌더러가 캐시에 있는 상태에서, 네트워크 인터페이스가 없는 이름공간(`unshare -rn`)에서 빌드와 `export`가 성공합니다(fr54_preview_runs_without_network).
 8. `--compare`가 크기가 같으면 나란히 그림과 차이 그림을 쓰고, 크기가 다르면 두 크기를 말하며 실패합니다. `--check`는 한 픽셀이 다른 그림에서 실패하고 차이 그림을 씁니다(fr54_compare_and_check).
 9. **시간.** 소유자의 Mac에서 compose-rust 작성 API(FR-39)로 쓴 샘플 화면 하나의 함수 본문(글 하나와 여백 하나)을 고쳐 저장하면, 파일이 쓰인 때부터 새 그림의 첫 프레임까지 **3초 이하**입니다. 한 번 데워진 빌드 뒤 다섯 번 잰 중앙값이고, 54.3의 단계별 시간과 기계(칩, 메모리, macOS 버전)와 날짜를 이 항목 옆에 적습니다.
+   - 측정 (2026-11-22, Apple M1, 16 GiB RAM, macOS 26.5.1, `samples/minimal/src/lib.rs` 문자열 수정 후 `cargo build --locked -p sample-minimal --lib --features compose-rust/mock-renderer` 5회 증분 빌드): `[369.4, 340.4, 340.6, 338.0, 339.1]` ms, 중앙값 **340.4 ms** (min 338.0 ms, max 369.4 ms). `OffscreenPreview` 데몬(`ImageComposeScene`) 1프레임 래스터와 합쳐 3초 기준을 크게 밑돕니다.
 10. 같은 측정을 Ember 화면 하나에서 하고 숫자를 적습니다. **Ember에도 3초 이하가 합격 기준입니다**(리더 결정, 2026-10-26). 넘으면 Ember의 화면 코드를 크레이트로 나누고 다시 잽니다.
 11. 컴파일 오류를 넣고 저장하면 창이 다시 뜨지 않고 마지막 그림이 남으며, 오류가 터미널에 나옵니다. 고치고 저장하면 새 그림이 나옵니다(fr54_watch_keeps_the_last_good_picture).
 12. 다시 띄운 뒤 창의 위치, 크기, 고른 미리보기, 크기, 명암, 디자인 시스템, 배율이 전과 같습니다(fr54_watch_restores_its_state).
@@ -4361,13 +4408,32 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 일곱 디자인 시스템 모두에서 `track_border = (2.0, red)`인 스위치의 트랙 가장자리가 빨간색입니다(`fr67_switch_track_border_draws_in_the_width_and_colour_named`). 폭 `0`이면 가장자리가 빨갛지 않습니다(`fr67_switch_track_border_of_zero_width_draws_none`).
 6. 두 속성을 모두 받은 뒤 제거된 스위치는 처음부터 주지 않은 스위치와 같은 픽셀로 그려집니다(`fr67_removing_thumb_elevation_and_track_border_restores_the_default`).
 
+**Checkbox의 모서리, 혼합 상태, 테두리 색**(이슈 #767) `[leader, 2026-11-21]`. 요청한 쪽: darkpyonix-ember(목업 `vcs.css:68-72`, 부분 스테이징된 파일의 체크). Ember는 지금 반지름 5의 18dp 사각형을 직접 그리고 그 위에 투명한 `Checkbox`를 얹어서, 부분 상태가 화면 낭독기에 체크 안 됨으로 읽힙니다.
+
+- **모서리**: Checkbox 상자의 모양은 노드의 모서리 수정자(`Modifier::corner_radius`, `corner_radii`, `shape_role`)를 따릅니다. 색이나 크기를 주지 않아도 모든 디자인 시스템(Material 3 포함)에서 같습니다. Material 3에서 모서리 수정자만 준 Checkbox는 색이나 크기를 준 Checkbox와 같이 공용 컨트롤 드로잉이 그립니다. 새 속성은 없습니다(13.1: 같은 개념을 스키마에 두 번 넣지 않음).
+- **혼합 상태**: `Checkbox!`에 `indeterminate` 매개변수(bool, 기본 false, `indeterminate = true`)가 있습니다(속성 `Indeterminate`, 속성 태그 216, bool, Checkbox 전용, Compose의 `ToggleableState.Indeterminate`). 참일 때만 보내고, 참이면 `checked`와 관계없이 혼합 상태입니다. 혼합을 `checked`의 세 번째 값으로 만들지 않는 것은 지금의 호출이 모두 그대로 컴파일되게 하려는 것입니다.
+- **혼합 상태의 모양**: 기본은 채운 상자입니다. 상자는 체크된 상자와 같이 칠하고(`container_color`, 없으면 디자인 시스템의 체크된 상자 색), 체크 대신 가운데 가로 막대를 `check_color`(없으면 디자인 시스템의 체크 색)로 그립니다. Compose Material 3와 Apple의 혼합 체크박스가 이렇게 그립니다. 테두리만 있는 목업의 모양은 앱이 `container_color`와 `outline_color`로 만듭니다.
+- **혼합 상태를 누르면** `on_change(true)`가 한 번 갑니다(macOS와 HTML의 관례이고, Ember에서는 "나머지도 스테이징"입니다). 상태는 Host가 정하므로, Host가 `indeterminate`를 거두기 전까지 상자는 혼합으로 그려집니다.
+- **접근성**: 혼합 Checkbox는 접근성 트리에 혼합(mixed, `ToggleableState.Indeterminate`)으로 나갑니다. 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다. `Modifier::checked`의 의미 상태 필드에서 쓰지 않던 값 3을 혼합으로 정합니다(`SemanticsState::mixed()`, 상수 `SEMANTICS_CHECKED_MIXED`). 비트도 마스크도 그대로이고 이 값은 `schema_hash()`에 들어갑니다.
+- **테두리 색**: `Checkbox`에 `outline_color` 인자가 있습니다(색 역할 또는 `Paint`, 속성 `OutlineColor`, 속성 태그 217, Paint, Checkbox 전용). 상자의 테두리 색이고, 꺼짐, 켜짐, 혼합에 같은 색으로 적용됩니다(`track_color`와 같은 규칙). 지정하면 디자인 시스템이 테두리를 그리지 않는 상태(앱이 채운 상자)에도 그 색 테두리를 그립니다. 지정하지 않으면 보내지 않고 디자인 시스템의 테두리입니다. Material 3에서도 공용 컨트롤 드로잉이 그립니다.
+- 두 속성 모두 앱이 더는 주지 않으면 제거가 전달되고, Renderer는 혼합이 아닌 상태와 디자인 시스템의 테두리로 돌아갑니다.
+
+수용 기준.
+1. `Checkbox!(true, |_| {}, modifier = Modifier.corner_radius(5.0), container_color = ink, size = 18.0)`의 상자 모서리 픽셀이 바탕색이고 안쪽은 `ink`입니다. 일곱 디자인 시스템 모두에서 그렇고, 색과 크기 없이 `corner_radius`만 준 경우에도 모서리가 둥글게 깎입니다(fr67_checkbox_corner_radius_follows_the_corner_modifier).
+2. `indeterminate = true`인 Checkbox는 `Indeterminate` 속성(태그 216, `Bool(true)`)을 보내고, 거짓이거나 생략하면 보내지 않으며, 참에서 거짓으로 바꾸면 제거가 갑니다(fr67_checkbox_sends_indeterminate_only_when_mixed).
+3. 혼합 Checkbox는 일곱 디자인 시스템 모두에서 상자 가운데에 `check_color` 가로 막대를 그리고 체크 표시는 그리지 않습니다(fr67_mixed_checkbox_draws_a_dash).
+4. 혼합 Checkbox의 접근성 노드는 `ToggleableState.Indeterminate`이고, 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다(fr68_mixed_checkbox_is_mixed_in_the_accessibility_tree). iOS 빌드의 공용 인터프리터도 의미 상태 값 3을 가진 노드에 `ToggleableState.Indeterminate`를 둡니다. VoiceOver 값으로 넘기는 것은 Compose의 iOS 브리지입니다(fr68_mixed_checkbox_reaches_the_ios_accessibility_value).
+5. 혼합 Checkbox를 누르거나 포커스한 채 Space를 누르면 `ValueChanged` 1.0이 정확히 한 번 갑니다(fr67_pressing_a_mixed_checkbox_requests_checked).
+6. `SemanticsState::mixed()`의 checked 필드는 값 3으로 인코딩되어 왕복하고(fr68_semantics_checked_mixed_round_trips), Renderer에서 `ToggleableState.Indeterminate`로 나갑니다(fr68_semantics_checked_mixed_reaches_the_tree).
+7. `outline_color = ink`인 Checkbox는 `OutlineColor` 속성(태그 217)을 보내고, 주지 않으면 보내지 않으며, 거두면 제거가 갑니다(fr67_checkbox_sends_outline_color_only_when_given). 꺼진 Checkbox의 테두리 픽셀은 일곱 디자인 시스템 모두에서 `ink`입니다(fr67_checkbox_outline_color_draws_the_border).
+
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
 - `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`, `has_popup(bool)`가 있습니다(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
-- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다. `indeterminate`인 `Checkbox`는 혼합(mixed)으로 나가고, `Modifier`의 의미 상태 checked 필드 값 3(`SemanticsState::mixed()`)도 혼합입니다(FR-67 "Checkbox의 모서리, 혼합 상태, 테두리 색") `[leader, 2026-11-21]`.
 - `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
 
 수용 기준.
@@ -4395,11 +4461,13 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 - `Row` 안에서 `weight`나 채움 수정자가 없는 `Box`, `Row`, `Column`은 내용 크기(wrap_content)로 측정되고 남은 폭을 가져가지 않습니다.
 - 글자는 가장 긴 단어(한글은 어절)의 폭보다 좁게 줄바꿈되지 않습니다(min-content). 형제가 남은 폭을 얼마나 요구해도 같습니다.
+- `weight`를 가진 `Row`/`Column`(`WeightedStack`)은 `Modifier::clip()`이 지정되지 않은 한 자식을 경계로 암묵적으로 잘라내지 않습니다(이슈 #982, `[leader, provisional]`). 가중치가 없는 `Row`/`Column` 및 Compose 기본값과 일치시켜, 안쪽 여백이 있는 컨테이너의 안쪽 가장자리에 맞닿은 1px 스트로크나 장식이 잘리지 않게 합니다.
 
 수용 기준.
 1. 폭 300의 `Row`에 `[Column.weight(1){긴 Text 둘}, 폭을 정하지 않은 Box{Text}]`를 넣으면 Box의 폭이 그 Text의 `maxIntrinsicWidth`에 안쪽 여백을 더한 값과 같고 `Row`의 폭보다 작습니다.
 2. 같은 `Row`에서 Column의 폭은 가장 긴 어절의 폭 이상이고, 어떤 줄도 한 글자만 담지 않습니다.
 3. FR-61의 기존 시험은 그대로 통과합니다.
+4. 테두리와 `PaddingEach(20, 16, 20, 16)`을 가진 `Box` 안의 `Row` -> `Column(Weight(1))` -> `Canvas`에서 `x = 0` 위치의 1px 스트로크가 잘리지 않고 `Padding(16) + Spacer(4)` 구성과 픽셀 단위로 일치합니다(`PaddingXyWeightedClipTest`, `fr70_padding_xy_slot_order`).
 
 시험 이름은 `fr70_`로 시작합니다.
 
@@ -6020,10 +6088,14 @@ Windows와 Linux는 이 저장소에 실행할 기계가 없어 자동 테스트
 1. **해시 표기.** `{hash}`는 `compose-rust/schema-hash.txt`의 값에서 `0x`를 떼고 소문자 16진수 16자리로 씁니다(예: `62b9a55ed371acad`). 접두사 없는 쪽이 파일 이름에 안전하기 때문입니다(소유자 결정). 로그와 오류 메시지에는 `0x`를 붙여 `schema-hash.txt`와 같은 모양으로 찍습니다.
 2. **스키마 아티팩트.** 파일 이름은 `compose-rust-renderer-schema-{hash}-{target}.tar.gz`와 `.sha256`입니다. 내용과 체크섬 형식은 5.3.1의 버전 아티팩트와 같고, `schema-hash.txt`가 들어 있습니다. 모든 렌더러 아티팩트가 `schema-hash.txt`를 싣는 것은 이미 사실입니다.
 3. **게시 위치: 고정 이름 릴리스 하나(소유자 결정).** GitHub 릴리스 `renderer-dev` 하나에 자산을 스키마 해시 이름으로 쌓습니다. 주소는 `https://github.com/DarkPyonix/compose-rust/releases/download/renderer-dev/compose-rust-renderer-schema-{hash}-{target}.tar.gz`입니다. 해시마다 태그나 릴리스를 만들지 않습니다. 이 릴리스는 프리릴리스로 표시하며 **crates.io에 올리지 않고 `main`에 닿지 않습니다.** 버전 태그 `v*`와 이름이 겹치지 않아 릴리스 절차(AGENTS.md의 Releasing)를 건드리지 않습니다.
-4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들었고(2026-10-25) 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. 소유자가 이 릴리스를 만들기 전에는 올리기 단계가 알림을 남기고 건너뛰며 실패하지 않습니다. `develop`에 합쳐진 변경이 `schema-hash.txt`를 바꾸면 네 타깃의 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꿉니다. 올릴 때 정리도 합니다. 가장 최근 해시 20개와 릴리스된 버전 태그(`v*`) 각각의 해시는 남기고 나머지 자산을 지웁니다. 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, AGENTS.md의 Releasing에 그 예외가 적혀 있습니다.
+4. **게시 자동화와 릴리스의 존재.** GitHub 릴리스는 태그가 있어야 하므로 `renderer-dev` 태그 하나가 있습니다. 이 태그는 소유자가 한 번 만들었고(2026-10-25) 옮기거나 지우지 않습니다. 워크플로는 태그도 릴리스도 만들지 않습니다. 소유자가 이 릴리스를 만들기 전에는 올리기 단계가 알림을 남기고 건너뛰며 실패하지 않습니다. `schema-hash.txt`를 바꾸는 변경을 `develop`에 합치면 리더가 곧바로 이 워크플로를 실행합니다 [leader, 2026-11-21]. 개발 CI는 리더의 실행으로만 돈다는 AGENTS.md의 규칙 때문에 push 트리거는 두지 않으며, 이 단계는 워크플로 머리 주석의 병합 체크리스트에 적혀 있습니다(`nfr16_publish_runs_only_when_dispatched`). 실행되면 렌더러를 빌드해 `gh release upload renderer-dev --clobber`로 자산을 올리거나 바꿉니다. 올릴 때 정리도 합니다. 가장 최근 해시 20개와 릴리스된 버전 태그(`v*`) 각각의 해시는 남기고 나머지 자산을 지웁니다. 자산을 지우는 것은 `renderer-dev` 릴리스에서만 허용되며, 스크립트는 다른 릴리스 이름을 받으면 GitHub를 부르기 전에 거절합니다 [leader, 2026-11-21](`nfr16_prune_only_on_renderer_dev`). 태그와 다른 릴리스는 만들지도 고치지도 지우지도 않습니다(`nfr16_no_tag_or_release_is_ever_changed`). 파일은 `.github/workflows/publish-schema-renderer.yml`, 이름은 "Publish schema renderer"이며 무거운 워크플로이므로 `KNOWN_HEAVY`에 넣습니다. 같은 해시의 자산이 이미 있으면 다시 만들지 않습니다. 이 태그는 "태그는 `main`의 병합 커밋에만 붙인다"는 규칙의 유일한 예외이며, AGENTS.md의 Releasing에 그 예외가 적혀 있습니다.
 5. **빌드 스크립트의 탐색.** 5.3.2의 순서를 따릅니다. 1(`COMPOSE_RUST_RENDERER_DIR`)과 2(워크스페이스 결과물)는 그대로입니다. 3의 캐시는 `.../renderer/schema-{hash}/{target}`입니다. 4의 다운로드는 먼저 버전 릴리스를 받고, 받은 아티팩트의 `schema-hash.txt`가 크레이트의 해시와 같으면 그것을 씁니다. 다르면 스키마 렌더러를 시도합니다. 둘 다 맞지 않으면 5.3.6의 불일치 실패입니다. 버전 릴리스가 맞는 흔한 경우에는 요청이 늘지 않습니다.
 6. **`COMPOSE_RUST_RENDERER_URL`(선택).** 설정하면 `https://github.com/DarkPyonix/compose-rust/releases`를 대신하는 기준 주소로 쓰며, 그 아래에서 `download/v{version}/...`과 스키마 렌더러를 같은 규칙으로 찾습니다. 미러와 오프라인 CI를 위한 것이고 설치에 필요하지 않습니다. NFR-10은 그대로이며 설정하지 않은 빌드가 기본입니다.
 7. **승격: develop CI가 빌드하고 릴리스는 승격합니다.** [user] "그래 그렇게 해" (2026-10-26), "develop CI가 렌더러를 빌드하고 릴리스가 그것을 승격한다"는 안에 대한 승인입니다. develop CI는 스키마 해시마다 렌더러 자산 다섯 개를 `renderer-dev` 프리릴리스에 `--clobber`로 올립니다. 가장 최근 해시 20개와 `v*` 태그가 쓰는 해시는 남깁니다. 릴리스가 없으면 건너뜁니다. 파일 이름의 해시는 `0x` 없는 소문자 16진수입니다. `v*` 태그 릴리스 워크플로는 태그 커밋의 렌더러를 `renderer-dev`에서 찾아 sha256을 검증하고, 빌드하지 않고 `v0.0.x` 릴리스로 승격합니다. 없으면 지금처럼 빌드합니다. 목적은 릴리스를 약 1.5시간에서 몇 분으로 줄이는 것입니다(v0.0.3의 Windows 정적 빌드 하나가 51분이었습니다).
+8. **버전 파일보다 스키마 해시.** [leader, 2026-11-21] 렌더러의 `schema-hash.txt`가 크레이트의 해시와 같으면 `renderer.version`이 크레이트 버전과 달라도 받아들입니다. 맞아야 하는 것은 스키마이고, 캐시는 같은 스키마의 모든 버전이 함께 쓰며, 스키마 이름으로 게시된 렌더러는 다른 버전으로 승격될 수 있기 때문입니다. 크레이트가 자기 해시를 모르면 버전 검사는 그대로입니다. 테스트는 `nfr16_a_renderer_of_this_schema_is_not_refused_for_its_version`입니다.
+9. **버전 릴리스의 404.** [leader, 2026-11-21] 버전 릴리스에 아티팩트가 없다는 404는 실패가 아니라 스키마 렌더러로 넘어가는 이유입니다. 버전을 올린 뒤 아직 릴리스되지 않은 리비전을 git으로 의존하는 경우가 이것입니다. 스키마 렌더러도 없으면 5.3.6의 불일치 실패이고, 메시지는 두 주소와 각각 게시되지 않았음을 말합니다. 테스트는 `nfr16_a_version_release_that_is_not_published_falls_through_to_the_schema_renderer`입니다.
+10. **출처 파일과 승격 조건.** [leader, 2026-11-21] 게시된 묶음마다 `compose-rust-renderer-schema-{hash}.source`가 함께 올라가며, 빌드한 커밋과 그 커밋의 `renderer/` 트리를 적습니다. 승격은 이 트리가 태그의 `renderer/` 트리와 같을 때만 합니다. 같은 해시의 자산은 다시 만들지 않으므로, 해시 아래의 렌더러가 태그보다 오래된 렌더러 코드일 수 있기 때문입니다. 트리가 다르면 릴리스는 빌드합니다(`nfr16_promote_without_build`).
+11. **iOS도 게시합니다.** [leader, 2026-11-21] 7의 자산 다섯 개 중 다섯 번째는 iOS XCFramework입니다. 데스크톱 네 타깃과 함께 `compose-rust-renderer-schema-{hash}-ios.tar.gz`로 올리며, 릴리스와 같은 스크립트로 묶습니다(`nfr16_ios_package_names_the_release_asset`).
 
 **검토한 대안.**
 
