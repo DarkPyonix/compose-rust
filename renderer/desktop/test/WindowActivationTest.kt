@@ -7,7 +7,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * FR-14.1-5 on a window on its own: an unfocused desktop window flattens glass to its opaque
+ * A window on its own: an unfocused desktop window flattens glass to its opaque
  * fallback, which it can only do if `isWindowFocused` follows the window's real activation.
  * The Windows single window held `focused = true` for ever; it now starts from whether the
  * window is active and follows every activation the window reports (WM_ACTIVATE).

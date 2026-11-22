@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 
 /**
  * Whether a window on its own is the active one, kept current from what the window reports
- * (FR-14.1-5: an unfocused window flattens its glass to the opaque fallback, which it can do
+ * (an unfocused window flattens its glass to the opaque fallback, which it can do
  * only if `isWindowFocused` follows the real activation).
  *
  * [initial] is whether the window is active as it opens. [take] answers the activation the

@@ -114,7 +114,7 @@ internal class Win32Window private constructor(
     private val work = FrameDispatcher()
 
     /**
-     * Whether the window is the active one (FR-14.1-5). A window on its own starts from
+     * Whether the window is the active one. A window on its own starts from
      * whether it is active and follows the activations it reports, read once a turn in [run];
      * a window of several is told by the window manager, which reads the same reports.
      */
