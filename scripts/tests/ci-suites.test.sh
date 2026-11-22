@@ -13,6 +13,10 @@
 #   error, not a smaller run.
 # - The jobs the script brings the kit for are exactly the ci.yml jobs that need
 #   windows_static_kit, so a job that takes the kit never runs without it being built.
+# - `owner_checks` builds the owner-checks sample alone, on the desktop only: test_samples and
+#   the Windows kit, with `samples=owner-checks` and `samples_desktop_only=true`, which ci.yml
+#   hands to test-samples.yml. Asked for with all or test_samples it narrows nothing: every
+#   sample on every platform is still built.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 suites="$root/scripts/ci-suites.sh"
@@ -55,6 +59,19 @@ if '      measure: ${{ steps.choose.outputs.measure }}' not in body:
     problems.append('the plan does not output measure')
 if "      metrics: ${{ needs.plan.outputs.measure == 'true' }}" not in body:
     problems.append('test_windows_resize does not take its metrics input from the plan')
+for output in ('samples', 'samples_desktop_only'):
+    if f'      {output}: ${{{{ steps.choose.outputs.{output} }}}}' not in body:
+        problems.append(f'the plan does not output {output}')
+samples_job = re.search(r'^  test_samples:\n((?:    .*\n|\n)*)', body, re.M)
+samples_job = samples_job.group(1) if samples_job else ''
+if '      samples: ${{ needs.plan.outputs.samples }}' not in samples_job:
+    problems.append('test_samples does not take its samples input from the plan')
+if "      desktop_only: ${{ needs.plan.outputs.samples_desktop_only == 'true' }}" not in samples_job:
+    problems.append('test_samples does not take desktop_only from the plan')
+called = (root / '.github' / 'workflows' / 'test-samples.yml').read_text()
+call = re.search(r'^  workflow_call:\n((?:    .*\n)*)', called, re.M)
+if not call or not re.search(r'^      samples:$', call.group(1), re.M):
+    problems.append('test-samples.yml takes no samples input under workflow_call')
 
 kit_list = re.search(r'^needs_windows_kit=\(([^)]*)\)$', script, re.M)
 kit_list = sorted(kit_list.group(1).split()) if kit_list else []
@@ -75,9 +92,13 @@ if problems:
 print('ok    ci.yml runs each job on the plan, the default is all, and the script names every job')
 PY
 
-on() { "$suites" "$1" | grep -v '^measure=' | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
+# The lines that are not jobs: whether the timings are on, and which samples to build.
+not_jobs='^(measure|samples|samples_desktop_only)='
+on() { "$suites" "$1" | grep -vE "$not_jobs" | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
 measures() { "$suites" "$1" | sed -n 's/^measure=//p'; }
-every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n' ' ')"
+samples_of() { "$suites" "$1" | sed -n 's/^samples=//p'; }
+desktop_only() { "$suites" "$1" | sed -n 's/^samples_desktop_only=//p'; }
+every_job="$("$suites" all | grep -vE "$not_jobs" | sed 's/=.*//' | sort | tr '\n' ' ')"
 [[ "$(on all)" == "$every_job" ]] && ok "all runs every job" || fail "all ran $(on all), not $every_job"
 [[ "$(on all)" == *" test_windows_resize "* ]] && ok "all runs the window-pin probe" || fail "all did not run test_windows_resize"
 [[ "$(measures all)" == false ]] && ok "all leaves the resize timings off" || fail "all measured: $(measures all)"
@@ -96,6 +117,16 @@ every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n
 [[ "$(on test_windows_resize)" == "test_windows_resize windows_static_kit " && "$(measures test_windows_resize)" == false ]] &&
     ok "test_windows_resize alone brings the kit it resizes, with the timings off" ||
     fail "test_windows_resize ran $(on test_windows_resize), measure=$(measures test_windows_resize)"
+[[ "$(on owner_checks)" == "test_samples windows_static_kit " && "$(measures owner_checks)" == false ]] &&
+    ok "owner_checks runs test_samples and the Windows kit it links" || fail "owner_checks ran $(on owner_checks)"
+[[ "$(samples_of owner_checks)" == owner-checks && "$(desktop_only owner_checks)" == true ]] &&
+    ok "owner_checks builds the owner-checks sample alone, on the desktop" ||
+    fail "owner_checks gave samples=$(samples_of owner_checks) desktop_only=$(desktop_only owner_checks)"
+for wide in all test_samples all,owner_checks owner_checks,test_samples ''; do
+    [[ -z "$(samples_of "$wide")" && "$(desktop_only "$wide")" == false ]] &&
+        ok "'$wide' builds every sample on every platform" ||
+        fail "'$wide' gave samples=$(samples_of "$wide") desktop_only=$(desktop_only "$wide")"
+done
 for name in not_a_job test_windows_resize_metrics test_windows_resize_probe; do
     if "$suites" "$name" >/dev/null 2>&1; then
         fail "the unknown name $name was accepted"
