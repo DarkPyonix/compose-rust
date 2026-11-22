@@ -5,13 +5,29 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::rc::Rc;
 
-use crate::rich_text::{Format, RichDocument, TextFormat};
+use crate::rich_text::{CHARACTER_RUN_LEN, Format, PARAGRAPH_LEN, RichDocument, TextFormat};
 use crate::runtime::{MutableState, mutable_state_of, with_composer_if_idle};
 
 /// One thing asked of the field a state is bound to.
 pub(crate) enum RichRequest {
     Format(Format),
     Load(RichDocument),
+}
+
+impl RichRequest {
+    /// What the request holds while it waits, counted as the bytes it is on the wire: the
+    /// 20 byte record of a command, or the 40 byte record of a document with its text and
+    /// its run and paragraph records.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Format(_) => 20,
+            Self::Load(document) => {
+                40 + document.text.len()
+                    + document.characters.len() * CHARACTER_RUN_LEN
+                    + document.paragraphs.len() * PARAGRAPH_LEN
+            }
+        }
+    }
 }
 
 /// What a state and the composition share: the node the state is bound to, 0 while it is
@@ -21,7 +37,54 @@ pub(crate) struct RichTarget {
     pub(crate) node: Cell<u32>,
     /// Whether the composer already has this target on its list of work for the next batch.
     pub(crate) queued: Cell<bool>,
-    pub(crate) pending: RefCell<Vec<RichRequest>>,
+    /// What is waiting, oldest first. Only `push` adds to it and only `take` empties it,
+    /// so `pending_bytes` is always its size.
+    pending: RefCell<Vec<RichRequest>>,
+    /// What `pending` holds, in bytes, kept as requests come and go so it is never summed.
+    pending_bytes: Cell<usize>,
+    /// Whether a request was dropped since `pending` was last taken, so that it is said
+    /// once and not for every request of a flood.
+    full: Cell<bool>,
+}
+
+impl RichTarget {
+    /// Adds `request` to the ones waiting, and answers whether it did. A request that does
+    /// not fit in [`RichTextState::MAX_PENDING_BYTES`] behind the ones already waiting is
+    /// dropped. One that finds nothing waiting is taken whatever its size.
+    fn push(&self, request: RichRequest) -> bool {
+        let mut pending = self.pending.borrow_mut();
+        let held = self.pending_bytes.get();
+        let bytes = request.bytes();
+        if !pending.is_empty() && held.saturating_add(bytes) > RichTextState::MAX_PENDING_BYTES {
+            let first = !self.full.replace(true);
+            #[cfg(debug_assertions)]
+            if first {
+                eprintln!(
+                    "compose-rust: a RichTextState dropped a command. {held} bytes of commands \
+                     already wait for its field and the most is {}. Commands are dropped until \
+                     the field is on screen and takes them.",
+                    RichTextState::MAX_PENDING_BYTES
+                );
+            }
+            let _ = first;
+            return false;
+        }
+        pending.push(request);
+        self.pending_bytes.set(held.saturating_add(bytes));
+        true
+    }
+
+    /// Whether anything is waiting.
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.borrow().is_empty()
+    }
+
+    /// Hands over what is waiting, oldest first, and leaves room for new requests.
+    pub(crate) fn take(&self) -> Vec<RichRequest> {
+        self.pending_bytes.set(0);
+        self.full.set(false);
+        self.pending.take()
+    }
 }
 
 /// A rich text field's formatting, and the way to change it. Make one with
@@ -35,7 +98,7 @@ pub(crate) struct RichTarget {
 ///
 /// Commands wait for the field. One made before the field is composed, or while it is
 /// off screen, goes out in the first batch after the field is there, in the order they
-/// were made.
+/// were made. A state keeps at most [`RichTextState::MAX_PENDING_BYTES`] of them waiting.
 #[derive(Clone)]
 pub struct RichTextState {
     target: Rc<RichTarget>,
@@ -44,6 +107,17 @@ pub struct RichTextState {
 }
 
 impl RichTextState {
+    /// The most the commands waiting for a state's field may hold, in bytes as they are on
+    /// the wire: about 1 MiB.
+    ///
+    /// Commands wait until the field is on screen, and a state that is never given to a
+    /// field waits for ever, so without a limit every command made on it would be kept for
+    /// as long as the state lives. A command that does not fit behind the ones already
+    /// waiting is dropped, and a debug build prints a line for the first one dropped. A
+    /// command that finds nothing waiting is always taken, so one document larger than this
+    /// still loads.
+    pub const MAX_PENDING_BYTES: usize = 1024 * 1024;
+
     /// A state bound to no field yet, with nothing selected and an empty document.
     pub fn new() -> Self {
         Self {
@@ -54,13 +128,12 @@ impl RichTextState {
     }
 
     /// Applies a formatting command to the selection of the field this state is bound to.
-    /// The next batch carries one `FormatText` for it.
+    /// The next batch carries one `FormatText` for it. A command made while
+    /// [`RichTextState::MAX_PENDING_BYTES`] of them already wait for the field is dropped.
     pub fn format(&self, format: Format) {
-        self.target
-            .pending
-            .borrow_mut()
-            .push(RichRequest::Format(format));
-        self.request();
+        if self.target.push(RichRequest::Format(format)) {
+            self.request();
+        }
     }
 
     /// Replaces the field's document with `document`, for opening one that was saved. The
@@ -68,8 +141,10 @@ impl RichTextState {
     /// input method composition in it is done.
     ///
     /// A document that does not hold together (see [`RichDocument::validate`]) is refused
-    /// and never sent; in a debug build the reason is printed. Returns whether it was
-    /// accepted.
+    /// and never sent; in a debug build the reason is printed. A document that does not fit
+    /// behind the commands already waiting (see [`RichTextState::MAX_PENDING_BYTES`]) is
+    /// refused as well. Either way [`RichTextState::document`] stays what it was. Returns
+    /// whether it was accepted.
     pub fn load(&self, document: RichDocument) -> bool {
         if let Err(error) = document.validate() {
             #[cfg(debug_assertions)]
@@ -77,11 +152,10 @@ impl RichTextState {
             let _ = error;
             return false;
         }
-        self.document.set(document.clone());
-        self.target
-            .pending
-            .borrow_mut()
-            .push(RichRequest::Load(document));
+        if !self.target.push(RichRequest::Load(document.clone())) {
+            return false;
+        }
+        self.document.set(document);
         self.request();
         true
     }
@@ -133,6 +207,7 @@ impl fmt::Debug for RichTextState {
         f.debug_struct("RichTextState")
             .field("node", &self.target.node.get())
             .field("pending", &self.target.pending.borrow().len())
+            .field("pending_bytes", &self.target.pending_bytes.get())
             .finish()
     }
 }

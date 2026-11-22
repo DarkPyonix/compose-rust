@@ -818,6 +818,61 @@ fn fr26_1_load_refuses_an_invalid_document_and_sends_a_valid_one_once() {
 }
 
 #[test]
+fn fr26_1_a_state_keeps_no_more_than_the_cap_waiting_for_its_field() {
+    // A state that is given to no field: nothing ever takes what it is asked, so everything
+    // waits. Two documents of half the cap fill it exactly, and the third finds no room.
+    let cap = RichTextState::MAX_PENDING_BYTES;
+    assert_eq!(cap, 1024 * 1024);
+    // A plain document is its 40 byte record and its text on the wire.
+    let half = RichDocument::plain("a".repeat(cap / 2 - 40));
+    let small = RichDocument::plain("b");
+    let answers = Arc::new(Mutex::new(Vec::new()));
+    let kept = Arc::new(Mutex::new(None));
+    let (seen_answers, seen_kept) = (Arc::clone(&answers), Arc::clone(&kept));
+    let expected = half.clone();
+    let (mut host, mut tree, first) = start(move || {
+        let state = remember_rich_text_state();
+        let (half, small) = (half.clone(), small.clone());
+        let (answers, kept) = (Arc::clone(&seen_answers), Arc::clone(&seen_kept));
+        Button!("Fill", move || {
+            let mut answers = answers.lock().unwrap();
+            answers.push(state.load(half.clone()));
+            answers.push(state.load(half.clone()));
+            answers.push(state.load(small.clone()));
+            // A command is dropped the same way, and says nothing by its return.
+            state.format(Format::Bold(Toggle::On));
+            *kept.lock().unwrap() = Some(state.document());
+        });
+    });
+    assert!(loads(&first).is_empty());
+    let batch = click(&mut host, &mut tree, "Fill");
+    assert_eq!(*answers.lock().unwrap(), vec![true, true, false]);
+    // The document the state answers with is the last one it accepted, not the one it
+    // dropped.
+    assert_eq!(kept.lock().unwrap().as_ref(), Some(&expected));
+    // No field took any of it.
+    assert!(loads(&batch).is_empty());
+    assert!(format_records(&batch).is_empty());
+
+    // A document larger than the cap is taken when nothing waits, so it can still be loaded.
+    let large = RichDocument::plain("c".repeat(cap + 1));
+    let taken = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&taken);
+    let (mut host, mut tree, _) = start(move || {
+        let state = remember_rich_text_state();
+        let large = large.clone();
+        let seen = Arc::clone(&seen);
+        Button!("Large", move || {
+            let mut seen = seen.lock().unwrap();
+            seen.push(state.load(large.clone()));
+            seen.push(state.load(RichDocument::plain("d")));
+        });
+    });
+    click(&mut host, &mut tree, "Large");
+    assert_eq!(*taken.lock().unwrap(), vec![true, false]);
+}
+
+#[test]
 fn fr26_1_the_state_and_the_handlers_hear_the_two_events() {
     let formats = Arc::new(Mutex::new(Vec::new()));
     let documents = Arc::new(Mutex::new(Vec::new()));
