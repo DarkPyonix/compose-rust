@@ -208,11 +208,11 @@ pub async fn stream_reply(
         // Not typed out: the whole reply lands in one write, which is the shape a
         // non-streaming endpoint has.
         messages.update(|list| {
-            if let Some(message) = list.last_mut() {
-                if message.token == token {
-                    message.text.push_str(&reply);
-                    message.streaming = false;
-                }
+            if let Some(message) = list.last_mut()
+                && message.token == token
+            {
+                message.text.push_str(&reply);
+                message.streaming = false;
             }
         });
         return;
