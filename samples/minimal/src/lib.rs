@@ -714,6 +714,12 @@ compose_rust::android_application!({ launch_builder() }, app);
 compose_rust::web_application!({ launch_builder() }, app);
 compose_rust::ios_main!(launch);
 
+/// Preview entry point for `compose-rust-preview` (save-to-frame benchmark and PNG export).
+#[compose_rust::Preview(name = "Minimal", sizes = [Phone, Desktop], schemes = [Light, Dark])]
+pub fn minimal_preview(_ctx: &compose_rust::PreviewContext) {
+    app();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
