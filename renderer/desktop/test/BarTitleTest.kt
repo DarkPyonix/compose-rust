@@ -8,6 +8,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.design.CaptionTitlePlacement
+import dev.darkpyonix.composerust.design.HostPlatform
+import dev.darkpyonix.composerust.design.platformCaption
+import dev.darkpyonix.composerust.design.resolveTheme
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.Mutation
@@ -17,6 +21,7 @@ import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.WindowCaption
+import dev.darkpyonix.composerust.runtime.hostPlatformOverride
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
@@ -24,6 +29,7 @@ import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 private const val ROOT = 1
@@ -78,6 +84,15 @@ class BarTitleTest {
         onNodeWithText(TITLE).assertIsDisplayed()
     }
 
+    private fun withPlatform(platform: HostPlatform, block: () -> Unit) {
+        hostPlatformOverride = platform
+        try {
+            block()
+        } finally {
+            hostPlatformOverride = null
+        }
+    }
+
     /**
      * Under GNOME the title is centred in the window, not between the bar's children.
      *
@@ -85,76 +100,148 @@ class BarTitleTest {
      * were added beside it, which is not what centring the window title means.
      */
     @Test
-    fun fr15_2_a_bar_centres_its_title_where_the_design_system_asks() = runComposeUiTest {
-        setContent {
-            CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Gnome))),
-                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
-                )
+    fun fr15_2_a_bar_centres_its_title_where_the_design_system_asks() = withPlatform(HostPlatform.LinuxGnome) {
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Gnome))),
+                        caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                    )
+                }
             }
+            onNodeWithText(TITLE).assertIsDisplayed()
+            val bar = onNodeWithTag(nodeTestTag(BAR)).getBoundsInRoot()
+            val title = onNodeWithText(TITLE).getBoundsInRoot()
+            val barMiddle = (bar.left + bar.right) / 2
+            val titleMiddle = (title.left + title.right) / 2
+            assertTrue(
+                abs((titleMiddle - barMiddle).value) < 2f,
+                "the title's middle is at $titleMiddle and the bar's is at $barMiddle, so it " +
+                    "was laid out beside the other children rather than centred in the window",
+            )
         }
-        onNodeWithText(TITLE).assertIsDisplayed()
-        val bar = onNodeWithTag(nodeTestTag(BAR)).getBoundsInRoot()
-        val title = onNodeWithText(TITLE).getBoundsInRoot()
-        val barMiddle = (bar.left + bar.right) / 2
-        val titleMiddle = (title.left + title.right) / 2
-        assertTrue(
-            abs((titleMiddle - barMiddle).value) < 2f,
-            "the title's middle is at $titleMiddle and the bar's is at $barMiddle, so it " +
-                "was laid out beside the other children rather than centred in the window",
-        )
     }
 
     /**
      * Under Material 3 it is at the leading edge, ahead of everything else in the bar.
      */
     @Test
-    fun fr15_2_a_bar_leads_with_its_title_where_the_design_system_asks() = runComposeUiTest {
-        setContent {
-            CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Material3))),
-                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
-                )
-            }
-        }
-        val title = onNodeWithText(TITLE).getBoundsInRoot()
-        val action = onNodeWithText("Share").getBoundsInRoot()
-        assertTrue(
-            title.left < action.left,
-            "the title starts at ${title.left} and the bar's button at ${action.left}, so " +
-                "the title is not at the leading edge",
-        )
-    }
-
-    /**
-     * When a window has a caption strip, Cupertino and Liquid Glass leave the title to the
-     * system caption and do not draw a title node in the bar, while Fluent 2 draws it in the bar.
-     */
-    @Test
-    fun fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height() = runComposeUiTest {
-        for (system in listOf(DesignSystem.Cupertino, DesignSystem.LiquidGlass)) {
+    fun fr15_2_a_bar_leads_with_its_title_where_the_design_system_asks() = withPlatform(HostPlatform.Windows) {
+        runComposeUiTest {
             setContent {
                 CompositionLocalProvider(LocalFrameRequests provides frames) {
                     ComposeRustContent(
-                        rememberComposeRustHost(FakeHostConnection(batch(system))),
+                        rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Material3))),
                         caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
                     )
                 }
             }
-            onNodeWithText(TITLE).assertDoesNotExist()
-            onNodeWithText("Share").assertIsDisplayed()
+            val title = onNodeWithText(TITLE).getBoundsInRoot()
+            val action = onNodeWithText("Share").getBoundsInRoot()
+            assertTrue(
+                title.left < action.left,
+                "the title starts at ${title.left} and the bar's button at ${action.left}, so " +
+                    "the title is not at the leading edge",
+            )
         }
-        setContent {
-            CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Fluent))),
-                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+    }
+
+    /**
+     * Platform decides whether the bar draws its title: macOS hands it to the system caption
+     * under every design system, and every other platform keeps it in the bar.
+     */
+    @Test
+    fun fr30_2_platform_caption_title_placement_follows_platform() {
+        for (platform in HostPlatform.entries) {
+            val expected = if (platform == HostPlatform.MacOs) {
+                CaptionTitlePlacement.SystemCaption
+            } else {
+                CaptionTitlePlacement.Bar
+            }
+            for (system in DesignSystem.entries) {
+                val theme = resolveTheme(
+                    theme = Theme(system, system, ColorScheme.Light, adaptive = false),
+                    platform = platform,
+                    systemDark = false,
+                )
+                assertEquals(
+                    expected,
+                    platformCaption(theme).titlePlacement,
+                    "$system on $platform reported wrong caption title placement",
                 )
             }
         }
-        onNodeWithText(TITLE).assertIsDisplayed()
+    }
+
+    /**
+     * With the same caption height, macOS omits the title node from the bar and Windows draws
+     * it in the bar, regardless of whether Cupertino or Fluent 2 is selected.
+     */
+    @Test
+    fun fr30_2_macos_omits_bar_title_and_windows_draws_it_for_cupertino_and_fluent() {
+        for (system in listOf(DesignSystem.Cupertino, DesignSystem.Fluent)) {
+            withPlatform(HostPlatform.MacOs) {
+                runComposeUiTest {
+                    setContent {
+                        CompositionLocalProvider(LocalFrameRequests provides frames) {
+                            ComposeRustContent(
+                                rememberComposeRustHost(FakeHostConnection(batch(system))),
+                                caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                            )
+                        }
+                    }
+                    onNodeWithText(TITLE).assertDoesNotExist()
+                    onNodeWithText("Share").assertIsDisplayed()
+                }
+            }
+            withPlatform(HostPlatform.Windows) {
+                runComposeUiTest {
+                    setContent {
+                        CompositionLocalProvider(LocalFrameRequests provides frames) {
+                            ComposeRustContent(
+                                rememberComposeRustHost(FakeHostConnection(batch(system))),
+                                caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                            )
+                        }
+                    }
+                    onNodeWithText(TITLE).assertIsDisplayed()
+                    onNodeWithText("Share").assertIsDisplayed()
+                }
+            }
+        }
+    }
+
+    /**
+     * On Windows and Linux, Cupertino and Liquid Glass windows have no system caption to carry
+     * the title, so the bar draws the title itself.
+     */
+    @Test
+    fun fr30_2_windows_and_linux_draw_bar_title_for_apple_design_systems() {
+        val platforms = listOf(
+            HostPlatform.Windows,
+            HostPlatform.LinuxGnome,
+            HostPlatform.LinuxKde,
+            HostPlatform.LinuxOther,
+        )
+        for (platform in platforms) {
+            for (system in listOf(DesignSystem.Cupertino, DesignSystem.LiquidGlass)) {
+                withPlatform(platform) {
+                    runComposeUiTest {
+                        setContent {
+                            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                                ComposeRustContent(
+                                    rememberComposeRustHost(FakeHostConnection(batch(system))),
+                                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                                )
+                            }
+                        }
+                        onNodeWithText(TITLE).assertIsDisplayed()
+                        onNodeWithText("Share").assertIsDisplayed()
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -162,16 +249,18 @@ class BarTitleTest {
      * title itself.
      */
     @Test
-    fun fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero() = runComposeUiTest {
-        setContent {
-            CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
-                    caption = WindowCaption(height = 0.dp, buttonsWidth = 0.dp),
-                )
+    fun fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero() = withPlatform(HostPlatform.MacOs) {
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                        caption = WindowCaption(height = 0.dp, buttonsWidth = 0.dp),
+                    )
+                }
             }
+            onNodeWithText(TITLE).assertIsDisplayed()
         }
-        onNodeWithText(TITLE).assertIsDisplayed()
     }
 
     /**
@@ -179,18 +268,20 @@ class BarTitleTest {
      * system caption displays the bar's title even when the bar omits it.
      */
     @Test
-    fun fr30_2_opening_bar_title_propagates_to_caption_title_callback() = runComposeUiTest {
-        val reported = mutableListOf<String>()
-        setContent {
-            CompositionLocalProvider(LocalFrameRequests provides frames) {
-                ComposeRustContent(
-                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
-                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
-                    onCaptionTitle = { reported += it },
-                )
+    fun fr30_2_opening_bar_title_propagates_to_caption_title_callback() = withPlatform(HostPlatform.MacOs) {
+        runComposeUiTest {
+            val reported = mutableListOf<String>()
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                        caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                        onCaptionTitle = { reported += it },
+                    )
+                }
             }
+            waitForIdle()
+            assertTrue(reported.lastOrNull() == TITLE, "expected caption title $TITLE, got $reported")
         }
-        waitForIdle()
-        assertTrue(reported.lastOrNull() == TITLE, "expected caption title $TITLE, got $reported")
     }
 }
