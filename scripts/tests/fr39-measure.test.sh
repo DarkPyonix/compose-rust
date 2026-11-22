@@ -140,6 +140,7 @@ required=(
     .fr39.verdict.geometric_mean_p50_multiple
     .fr39.verdict.geometric_mean_p99_multiple
     .fr39.verdict.line
+    .fr39.verdict.record_violations
 )
 
 tests_run=$((tests_run + 1))
@@ -222,6 +223,79 @@ if [[ -n "$sample" && -f "$sample" ]]; then
         | .fr39.verdict.met = (.fr39.verdict.met | not)' "$sample" > "$flipped"
     assert_run "fr39_measure_compare_fails_when_the_verdict_differs" 1 "verdict differs" \
         "$script" --compare-records "$sample" "$flipped"
+fi
+
+# ----- a run with stubbed bench scripts ---------------------------------------------------
+
+# A copy of the script in a tree of its own, whose parity.sh and run.sh are stubs, so the
+# measuring path runs end to end without building anything. parity.sh answers the way
+# compare does: 0 clean, 1 when trees differ (whatever else), 3 for a count excess alone.
+fake="$work/repo" bin="$work/bin" held="$work/held"
+mkdir -p "$fake/scripts/bench" "$fake/compose-rust/benches/fr39/baseline" "$bin" "$held"
+cp "$script" "$repo_root/scripts/bench/fr39-baseline.env" "$fake/scripts/bench/"
+cp "$repo_root/compose-rust/benches/fr39/Cargo.toml" "$fake/compose-rust/benches/fr39/"
+cp "$repo_root/compose-rust/benches/fr39/baseline/Cargo.toml" "$fake/compose-rust/benches/fr39/baseline/"
+for i in 1 2 3; do mkdir "$held/slot$i" && echo "$$ 0 $fake fr39-measure.sh" > "$held/slot$i/owner"; done
+printf '#!/bin/sh\necho stub\n' > "$bin/cargo" && cp "$bin/cargo" "$bin/rustc"
+printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted"\necho "stub 999999999 0 999999999 0%% /"\n' > "$bin/df"
+cat > "$fake/compose-rust/benches/fr39/parity.sh" <<'EOF'
+mkdir -p "$(dirname "$0")/../../../.scratch/fr39/parity-$$"
+violation="violation tab_switching: breaks the rule that the candidate sends no more records or bytes than the baseline: 3401 records against the baseline's 3386 (+15), 80339 bytes against the baseline's 79727 (+612)"
+case "$FAKE_PARITY" in
+    violation) echo "$violation" && exit 3 ;;
+    trees) echo "sweep_1: the Renderer trees differ after step 0" && exit 1 ;;
+    both) echo "$violation" && echo "sweep_1: the Renderer trees differ after step 0" && exit 1 ;;
+esac
+echo "every scenario built the same trees on both paths"
+EOF
+cat > "$fake/compose-rust/benches/fr39/run.sh" <<'EOF'
+raw="$(dirname "$0")/../../../.scratch/fr39/run-$$" && mkdir -p "$raw" && touch "$FAKE_RAN"
+jq --arg r "$raw/x.json" '.fr39.raw_runs = [$r]' "$FAKE_RECORD" > "$(dirname "$0")/../baseline.json"
+EOF
+chmod +x "$bin"/*
+# The record run.sh's compare would write, with tab_switching over the baseline's counts or
+# not. Both claim the timing target met, so a verdict that is not met comes from the violation.
+clean_record="$work/clean.json" violation_record="$work/violation.json"
+jq '.fr39.target_met = true | .fr39.record_violations = []' "$sample" > "$clean_record"
+jq '{scenario: "tab_switching", candidate_records: 3401, baseline_records: 3386, excess_records: 15,
+    candidate_bytes: 80339, baseline_bytes: 79727, excess_bytes: 612} as $v
+    | .fr39.target_met = true | .fr39.record_violations = [$v]
+    | .fr39.comparisons[1] |= (.name = "tab_switching" | .record_violation = $v)' "$sample" > "$violation_record"
+
+# fake_run <parity outcome> <record> <mode>
+fake_run() {
+    rm -f "$work/ran" "$fake/compose-rust/benches/baseline.json"
+    env PATH="$bin:$PATH" FR39_SLOTS_DIR="$held" FR39_DF_PATH="$work" FR39_SETTLE_SECONDS=0 \
+        FAKE_PARITY="$1" FAKE_RECORD="$2" FAKE_RAN="$work/ran" "$fake/scripts/bench/fr39-measure.sh" "$3"
+}
+recorded() { jq -c "$1" "$fake/compose-rust/benches/baseline.json" 2>&1; }
+
+assert_run "fr39_measure_goes_on_past_a_count_violation" 0 "tab_switching: 3401 records against 3386 (+15)" \
+    fake_run violation "$violation_record" --inside
+tests_run=$((tests_run + 1))
+got="$(recorded '[.fr39.verdict.met, .fr39.verdict.record_violations, .fr39.conditions.parity_record_violations, .fr39.record_violations[0].excess_bytes, (.fr39.verdict.line | startswith("target not met"))]')"
+if [[ "$got" == '[false,["tab_switching"],["tab_switching"],612,true]' ]]; then
+    printf 'ok   %s\n' "fr39_measure_records_a_count_violation_and_does_not_meet_the_target"
+else
+    fail_test "fr39_measure_records_a_count_violation_and_does_not_meet_the_target" "got $got"
+fi
+assert_run "fr39_measure_prepare_goes_on_past_a_count_violation" 0 "more records or bytes than the baseline: tab_switching" \
+    fake_run violation "$violation_record" --prepare-inside
+for outcome in trees both; do
+    assert_run "fr39_measure_stops_when_trees_differ_$outcome" 1 "nothing was measured" \
+        fake_run "$outcome" "$violation_record" --inside
+    [[ ! -e "$work/ran" ]] || fail_test "fr39_measure_stops_when_trees_differ_$outcome" "run.sh ran"
+    assert_run "fr39_measure_prepare_stops_when_trees_differ_$outcome" 1 "parity.sh failed (exit 1)" \
+        fake_run "$outcome" "$violation_record" --prepare-inside
+done
+assert_run "fr39_measure_clean_run_records_no_violation" 0 "target met: " \
+    fake_run clean "$clean_record" --inside
+tests_run=$((tests_run + 1))
+got="$(recorded '[.fr39.verdict.met, .fr39.verdict.record_violations, .fr39.conditions.parity_record_violations, (.fr39.verdict.line | test("^target met: .*; 0 invalid, 0 slower than the baseline$"))]')"
+if [[ "$got" == '[true,[],[],true]' ]]; then
+    printf 'ok   %s\n' "fr39_measure_clean_run_meets_the_target_as_before"
+else
+    fail_test "fr39_measure_clean_run_meets_the_target_as_before" "got $got"
 fi
 
 # ----- the script measures through the bench's own scripts --------------------------------
