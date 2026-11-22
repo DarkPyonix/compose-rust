@@ -1183,7 +1183,7 @@ impl Composer {
         if let Some(target) = self.rich_binding.take() {
             target.node.set(node);
             // Commands made before the field was composed go out with this batch.
-            if !target.pending.borrow().is_empty() {
+            if target.has_pending() {
                 self.request_rich(target);
             }
         }
@@ -1217,11 +1217,11 @@ impl Composer {
         for target in std::mem::take(&mut self.rich_requests) {
             let node = target.node.get();
             if Rc::strong_count(&target) == 1 {
-                target.pending.borrow_mut().clear();
+                drop(target.take());
                 target.queued.set(false);
             } else if node != 0 && self.writer.is_placed(node) {
                 target.queued.set(false);
-                for request in target.pending.take() {
+                for request in target.take() {
                     match request {
                         crate::ui::rich::RichRequest::Format(format) => {
                             self.writer.batch_mut().format_text(node, format);
