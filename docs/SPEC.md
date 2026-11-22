@@ -4442,11 +4442,13 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 - `Row` 안에서 `weight`나 채움 수정자가 없는 `Box`, `Row`, `Column`은 내용 크기(wrap_content)로 측정되고 남은 폭을 가져가지 않습니다.
 - 글자는 가장 긴 단어(한글은 어절)의 폭보다 좁게 줄바꿈되지 않습니다(min-content). 형제가 남은 폭을 얼마나 요구해도 같습니다.
+- `weight`를 가진 `Row`/`Column`(`WeightedStack`)은 `Modifier::clip()`이 지정되지 않은 한 자식을 경계로 암묵적으로 잘라내지 않습니다(이슈 #982, `[leader, provisional]`). 가중치가 없는 `Row`/`Column` 및 Compose 기본값과 일치시켜, 안쪽 여백이 있는 컨테이너의 안쪽 가장자리에 맞닿은 1px 스트로크나 장식이 잘리지 않게 합니다.
 
 수용 기준.
 1. 폭 300의 `Row`에 `[Column.weight(1){긴 Text 둘}, 폭을 정하지 않은 Box{Text}]`를 넣으면 Box의 폭이 그 Text의 `maxIntrinsicWidth`에 안쪽 여백을 더한 값과 같고 `Row`의 폭보다 작습니다.
 2. 같은 `Row`에서 Column의 폭은 가장 긴 어절의 폭 이상이고, 어떤 줄도 한 글자만 담지 않습니다.
 3. FR-61의 기존 시험은 그대로 통과합니다.
+4. 테두리와 `PaddingEach(20, 16, 20, 16)`을 가진 `Box` 안의 `Row` -> `Column(Weight(1))` -> `Canvas`에서 `x = 0` 위치의 1px 스트로크가 잘리지 않고 `Padding(16) + Spacer(4)` 구성과 픽셀 단위로 일치합니다(`PaddingXyWeightedClipTest`, `fr70_padding_xy_slot_order`).
 
 시험 이름은 `fr70_`로 시작합니다.
 
