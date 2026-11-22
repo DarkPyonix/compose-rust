@@ -184,12 +184,18 @@ class NavigationCountTest {
                 val compositions = mutableMapOf<Int, Int>()
                 RenderNodeObserver.onCompose = { id -> compositions[id] = (compositions[id] ?: 0) + 1 }
                 val connection = FakeHostConnection(counted(DesignSystem.Material3))
-                connection.respondWith {
-                    HostResponse(
-                        listOf(
-                            Mutation.SetProp(COUNTED, PropertyKind.Count, PropertyValue.Integer(SMALL_COUNT + 1)),
-                        ),
-                    )
+                // Only the click answers. The Renderer reports the window's size and more when it
+                // starts, and answering those would change the count before the test looks.
+                connection.respondWith { event ->
+                    if (event is HostEvent.Clicked) {
+                        HostResponse(
+                            listOf(
+                                Mutation.SetProp(COUNTED, PropertyKind.Count, PropertyValue.Integer(SMALL_COUNT + 1)),
+                            ),
+                        )
+                    } else {
+                        HostResponse()
+                    }
                 }
                 lateinit var host: ComposeRustHost
                 setContent {
