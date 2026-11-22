@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -33,11 +34,13 @@ import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.runtime.WindowSafeArea
 import dev.darkpyonix.composerust.runtime.WindowCaption
 import dev.darkpyonix.composerust.runtime.LocalWindowDrag
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import dev.darkpyonix.composerust.runtime.windowReportKey
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
@@ -52,6 +55,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val LABEL = 1
+
+/** A second root, which the Host rewrites when it answers a size. */
+private const val ECHO = 2
 
 /** A `Window` node of its own, for the tests that need a node to carry a property. */
 private const val WINDOW = 5
@@ -122,6 +128,62 @@ class WindowSizeTest {
         assertEquals(1440f, sizes[0].widthDp)
         assertEquals(900f, sizes[0].heightDp)
         assertEquals(WindowSizeClass.Expanded, sizes[0].sizeClass)
+    }
+
+    /**
+     * A Host that lays its own page out answers a size by measuring the nodes on that page,
+     * before the call that told it the size returns, and hands back a batch. Measuring a
+     * node is a layout of its own, which cannot start while the pass that measured the
+     * window is still running, so the size is told once that pass is over.
+     *
+     * The window asks for every dp, as a page that follows the window does, so the first
+     * layout and a resize inside one class both reach the Host.
+     */
+    @Test
+    fun fr20_host_measures_a_node_while_answering_a_window_size() = runComposeUiTest {
+        val connection = FakeHostConnection(listOf(
+            Mutation.SetWindow(Window(Chrome.Modern, TitleBar.Normal, "", 0, 0, 0, 0, 0, true, reportSize = true)),
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("measured on resize")),
+            Mutation.Create(ECHO, WidgetKind.Text),
+            Mutation.SetProp(ECHO, PropertyKind.Text, PropertyValue.Text("not told yet")),
+        ))
+        val calls = mutableListOf<Int>()
+        val answers = mutableListOf<MeasuredResult>()
+        connection.respondWith { event ->
+            if (event !is HostEvent.WindowSizeChanged || event.nodeId != 0) return@respondWith HostResponse()
+            val requests = MeasureRequests().node(LABEL, maxWidth = event.widthDp)
+            val results = resultBuffer(requests.count)
+            calls += RendererMeasure.measure(requests.encode(), requests.count, results)
+            answers += results.results(requests.count)
+            HostResponse(
+                listOf(Mutation.SetProp(ECHO, PropertyKind.Text, PropertyValue.Text("${event.widthDp.toInt()} wide"))),
+            )
+        }
+        var width by mutableStateOf(520.dp)
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(width, 640.dp))
+            }
+        }
+        waitForIdle()
+        width = 580.dp
+        waitForIdle()
+
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        assertTrue(errors.isEmpty(), "measuring from inside a size report failed: ${errors.map { it.message }}")
+        val sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().filter { it.nodeId == 0 }
+        assertEquals(listOf(520f, 580f), sizes.map { it.widthDp }, "the first layout, then the resize")
+        assertEquals(listOf(MeasureRecords.CALL_OK, MeasureRecords.CALL_OK), calls)
+        val drawn = onNodeWithText("measured on resize").fetchSemanticsNode().size
+        answers.forEachIndexed { index, measured ->
+            assertEquals(MeasureRecords.STATUS_OK, measured.status, "answer $index")
+            assertEquals(drawn.width.toFloat(), measured.width, "width in answer $index")
+            assertEquals(drawn.height.toFloat(), measured.height, "height in answer $index")
+        }
+        assertTrue(drawn.width > 0 && drawn.height > 0, "the label measured as nothing")
+        // The batch the Host answered the resize with is what is on screen.
+        onNodeWithText("580 wide").assertExists()
     }
 
     @Test

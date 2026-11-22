@@ -31,6 +31,10 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
 
+### A page that measures nodes is answered when the window is resized
+
+A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28).
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues
