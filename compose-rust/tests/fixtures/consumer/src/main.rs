@@ -43,12 +43,14 @@
 
 use compose_rust::boundary::STATUS_OK;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
+use compose_rust::runtime::{Composable, MutableState, Recomposer, mutable_state_of};
 use compose_rust::schema::{
     ColorRole, EventPayload, Modifier, Paint, PropertyKind, WidgetKind, Window,
 };
+use compose_rust::ui::*;
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -477,7 +479,190 @@ fn deep_tree_argument() -> u32 {
     }
 }
 
+/// Default frame count for `--frame-soak` when no count is given.
+const DEFAULT_FRAME_SOAK_FRAMES: u32 = 2500;
+/// Warmup frames drawn before recording the baseline footprint.
+const DEFAULT_FRAME_SOAK_WARMUP: u32 = 100;
+/// Milliseconds to pause after logging `phase start` so the harness samples at warmup.
+const DEFAULT_FRAME_SOAK_PAUSE_MS: u64 = 1500;
+/// Maximum seconds the frame soak watchdog waits before failing.
+const FRAME_SOAK_TIMEOUT: Duration = Duration::from_secs(300);
+
+static SOAK_FRAMES: AtomicU32 = AtomicU32::new(0);
+static SOAK_DONE: AtomicBool = AtomicBool::new(false);
+
+/// A busy screen whose text properties change on every frame, exercising the slot-table
+/// runtime and property writer over thousands of frames.
+#[Composable]
+fn SoakScreen(tick: MutableState<u32>) {
+    let current = tick.get();
+    let suffix = current % 64;
+    Column!({
+        for row in 0..20u32 {
+            Row!({
+                Text!(format!("row {row} frame {current} input {suffix}"));
+                Button!("Send", || {});
+            });
+        }
+    });
+}
+
+/// Drives [`SoakScreen`] through `target` frames, mutating state on every frame and logging
+/// `phase start` (after warmup) and `phase end` (at target) with the process PID.
+struct FrameSoak {
+    inner: Recomposer,
+    tick: MutableState<u32>,
+    warmup: u32,
+    target: u32,
+    pause_ms: u64,
+    drawn: u32,
+    start_logged: bool,
+    end_logged: bool,
+}
+
+impl FrameSoak {
+    fn new(target: u32, warmup: u32, pause_ms: u64) -> Self {
+        let tick = mutable_state_of(0u32);
+        let state = tick;
+        let inner = Recomposer::new(move || SoakScreen(state));
+        Self {
+            inner,
+            tick,
+            warmup: warmup.min(target.saturating_sub(1).max(1)),
+            target,
+            pause_ms,
+            drawn: 0,
+            start_logged: false,
+            end_logged: false,
+        }
+    }
+}
+
+impl Runtime for FrameSoak {
+    fn batch(&self) -> &Batch {
+        self.inner.batch()
+    }
+
+    fn batch_mut(&mut self) -> &mut Batch {
+        self.inner.batch_mut()
+    }
+
+    fn rebuild(&mut self) {
+        self.inner.rebuild();
+    }
+
+    fn render(&mut self, frame_time_nanos: Option<u64>) {
+        if frame_time_nanos.is_some() && self.drawn < self.target {
+            self.drawn += 1;
+            SOAK_FRAMES.store(self.drawn, Ordering::SeqCst);
+            self.tick.set(self.drawn);
+        }
+        self.inner.render(frame_time_nanos);
+        if self.drawn == self.warmup && !self.start_logged {
+            self.start_logged = true;
+            println!(
+                "frame-soak: phase start pid={} frames={}",
+                std::process::id(),
+                self.drawn
+            );
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            if self.pause_ms > 0 {
+                std::thread::sleep(Duration::from_millis(self.pause_ms));
+            }
+        }
+        if self.drawn >= self.target && !self.end_logged {
+            self.end_logged = true;
+            println!(
+                "frame-soak: phase end pid={} frames={}",
+                std::process::id(),
+                self.drawn
+            );
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            SOAK_DONE.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn handle_event(&mut self, event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
+        self.inner.handle_event(event)
+    }
+
+    fn poll_work(&mut self, context: &mut Context<'_>) -> Poll<()> {
+        if self.drawn < self.target {
+            Poll::Ready(())
+        } else {
+            self.inner.poll_work(context)
+        }
+    }
+}
+
+/// Ends the soak process shortly after `phase end` (giving an external sampler time to read
+/// memory) or fails if the frame target is not reached within `FRAME_SOAK_TIMEOUT`.
+fn end_soak_when_drawn(target: u32) {
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        loop {
+            if SOAK_DONE.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_secs(5));
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                // SAFETY: ends the process after the soak finishes; nothing after it runs.
+                unsafe { _exit(0) }
+            }
+            if started.elapsed() > FRAME_SOAK_TIMEOUT {
+                let reached = SOAK_FRAMES.load(Ordering::SeqCst);
+                eprintln!(
+                    "frame-soak: drew {reached} of {target} frames in {}s",
+                    FRAME_SOAK_TIMEOUT.as_secs()
+                );
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                // SAFETY: ends the process on timeout; nothing after it runs.
+                unsafe { _exit(1) }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
+/// Parses `--frame-soak` or `--frame-soak=<frames>`, returning `None` when not requested.
+fn frame_soak_argument() -> Option<u32> {
+    for argument in std::env::args() {
+        if argument == "--frame-soak" {
+            return Some(DEFAULT_FRAME_SOAK_FRAMES);
+        }
+        if let Some(value) = argument.strip_prefix("--frame-soak=") {
+            match value.parse::<u32>() {
+                Ok(frames) if frames >= 2 => return Some(frames),
+                _ => {
+                    eprintln!("frame-soak: --frame-soak={value} must be an integer >= 2");
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn main() {
+    if let Some(target_frames) = frame_soak_argument() {
+        let warmup = std::env::var("DXC_FRAME_SOAK_WARMUP")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|&v| v >= 1)
+            .unwrap_or(DEFAULT_FRAME_SOAK_WARMUP);
+        let pause_ms = std::env::var("DXC_FRAME_SOAK_PAUSE_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_FRAME_SOAK_PAUSE_MS);
+        end_soak_when_drawn(target_frames);
+        let status = LaunchBuilder::new().try_launch_runtime(move || {
+            Box::new(FrameSoak::new(target_frames, warmup, pause_ms)) as Box<dyn Runtime>
+        });
+        if status != STATUS_OK {
+            eprintln!("frame-soak: the renderer loop ended with status {status}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::args().any(|argument| argument == "--self-check") {
         let deep_tree = deep_tree_argument();
         if deep_tree > 0 {
@@ -595,6 +780,31 @@ mod tests {
                 |mutation| matches!(mutation, Mutation::Create { node_id, .. } if *node_id >= DEEP_SCROLL)
             ),
             "the screen without --deep-tree grew a tree"
+        );
+    }
+
+    #[test]
+    fn nfr17_frame_soak_advances_on_frames_only() {
+        let mut soak = FrameSoak::new(4, 2, 0);
+        soak.rebuild();
+        soak.render(None);
+        assert_eq!(soak.drawn, 0, "event render without frame time must not count");
+        assert!(!soak.start_logged);
+        assert!(!soak.end_logged);
+
+        for frame in 1..=4u64 {
+            assert!(
+                soak.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_ready(),
+                "frame soak must keep requesting frames before target"
+            );
+            soak.render(Some(frame));
+            assert_eq!(soak.drawn, frame as u32);
+        }
+        assert!(soak.start_logged, "start phase must be logged at warmup");
+        assert!(soak.end_logged, "end phase must be logged at target");
+        assert!(
+            soak.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_pending(),
+            "frame soak must stop requesting frames after target"
         );
     }
 }
