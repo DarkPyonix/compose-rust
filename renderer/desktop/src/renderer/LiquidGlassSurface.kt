@@ -59,6 +59,7 @@ import java.lang.System
  */
 object BlurTrial {
     val off: Boolean = System.getenv("DXC_NO_BLUR") == "1"
+    val maskShadows: Boolean = System.getenv("DXC_SHADOW_MASK") == "1"
     var glassRecords = 0
     var glassBlurs = 0
     var lifts = 0

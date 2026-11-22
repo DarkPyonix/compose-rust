@@ -1026,6 +1026,20 @@ private fun Modifier.boxShadow(
     // shape is drawn into a layer with room for the blur around it, and the layer is
     // blurred as a whole.
     val sigma = blur / 2f
+    // TRIAL (memory, not for merging): `DXC_SHADOW_MASK=1` blurs the shape with a mask filter on
+    // its paint instead of drawing it into a layer that a blur render effect is applied to.
+    if (dev.darkpyonix.composerust.design.BlurTrial.maskShadows) {
+        val shadowPaint = Paint()
+        brush.applyTo(Size(shadowWidth, shadowHeight), shadowPaint, 1f)
+        shadowPaint.asFrameworkPaint().maskFilter =
+            org.jetbrains.skia.MaskFilter.makeBlur(org.jetbrains.skia.FilterBlurMode.NORMAL, sigma)
+        return@drawWithCache onDrawBehind {
+            dev.darkpyonix.composerust.design.BlurTrial.shadowBlurs++
+            clipPath(boxPath, ClipOp.Difference) {
+                translate(dx - spread, dy - spread) { drawContext.canvas.drawPath(shapePath, shadowPaint) }
+            }
+        }
+    }
     val margin = ceil(3f * sigma)
     val layer = obtainGraphicsLayer()
     layer.record(
