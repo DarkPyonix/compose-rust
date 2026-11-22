@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import kotlinx.coroutines.Job
@@ -73,6 +74,7 @@ object ComposeRustRuntime {
         }
         installAndroidBack()
         installAndroidOverlayWindow()
+        NativeViewPlatform.available = true
         val created = ComposeRustHost(connection)
         created.start()
         // Before the first frame, so an application's first read finds where its values are.
