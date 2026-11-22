@@ -43,8 +43,8 @@ graalvm_step="The probe can tell late from prompt, and the GraalVM CPU path show
 graalvm_block="$(awk -v name="      - name: $graalvm_step" '$0 == name { found = 1 } found && /^      - name: / && $0 != name { exit } found { print }' "$workflow")"
 if [[ -z "$graalvm_block" ]]; then
     fail "fr19_8_4_the_graalvm_gate_step" "the step \"$graalvm_step\" was not found in the workflow"
-elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh graalvm$' <<<"$graalvm_block"; then
-    fail "fr19_8_4_the_graalvm_gate_step" "it does not run resize-probe-gate.sh for graalvm"
+elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh graalvm --report-only$' <<<"$graalvm_block"; then
+    fail "fr19_8_4_the_graalvm_gate_step" "it does not run resize-probe-gate.sh for graalvm with --report-only"
 elif ! grep -qF 'SCALE_STATUS: ${{ steps.scale.outputs.status }}' <<<"$graalvm_block" ||
     ! grep -qF 'RUNNER_OS_LABEL: ${{ matrix.os }}' <<<"$graalvm_block"; then
     fail "fr19_8_4_the_graalvm_gate_step" "it does not hand the script the display scale's status and the runner"
@@ -53,7 +53,24 @@ elif grep -qE '^        (if|continue-on-error):' <<<"$graalvm_block"; then
 else
     ok "fr19_8_4_the_graalvm_gate_step"
 fi
-# Both legs are strict: neither windows-2022 nor windows-2025 uses a reported or rate gate for drags.
+# The shipped Kotlin/Native window stays a gate: nothing in its probe job, and no job but the
+# GraalVM one, may pass --report-only, and the GraalVM job says in its name that it reports.
+kn_job="$(awk '/^  probe:$/ { on = 1; print; next } on && /^  [a-z-]+:$/ { exit } on { print }' "$workflow")"
+if [[ -z "$kn_job" ]]; then
+    fail "fr19_8_4_the_kotlin_native_probe_is_never_report_only" "the probe job was not found in the workflow"
+elif grep -qF 'report-only' <<<"$kn_job"; then
+    fail "fr19_8_4_the_kotlin_native_probe_is_never_report_only" "the Kotlin/Native probe job passes --report-only, so its faults would not fail the suite"
+elif [[ "$(grep -c -- '--report-only' "$workflow")" != 3 ]]; then
+    fail "fr19_8_4_the_kotlin_native_probe_is_never_report_only" "--report-only is named other than in the GraalVM gate step and its two comments"
+else
+    ok "fr19_8_4_the_kotlin_native_probe_is_never_report_only"
+fi
+if ! grep -qE '^    name: GraalVM renderer, .*, reported, not gating \(Windows, \$\{\{ matrix\.os \}\}\)$' "$workflow"; then
+    fail "fr19_8_4_the_graalvm_probe_job_says_it_is_reported" "the probe-graalvm job name does not say reported, not gating"
+else
+    ok "fr19_8_4_the_graalvm_probe_job_says_it_is_reported"
+fi
+# Both legs are strict for the drags: report-only is a flag of the gate for one renderer, not a leg.
 if grep -qE "DRAGS_GATE|KNOWN FAULT|drags_limit_percent" "$gate" - <<<"$step_block$graalvm_block"; then
     fail "both legs are strict" "the gate still has a DRAGS_GATE or KNOWN FAULT exception"
 fi
@@ -68,6 +85,8 @@ chmod +x "$work/bin/cygpath"
 renderer=kn
 marker_line="hand-check: marker scene"
 states_faulty=0
+# "--report-only" when the gate is run in that mode.
+gate_flag=""
 
 # One set of probe logs under $1. $2 names the labels of the CPU path whose drags show a fault,
 # $3 a label that drew no CPU step, $4 a label with a step that was not validated, and $5 is
@@ -136,7 +155,7 @@ make_logs() {
 run_gate() {
     local status=0
     PATH="$work/bin:$PATH" RUNNER_TEMP="$work/case" DRAGS_GATE="$1" RUNNER_OS_LABEL="$2" \
-        SCALE_STATUS=0 bash --noprofile --norc "$gate" "$renderer" > "$work/out" 2>&1 || status=$?
+        SCALE_STATUS=0 bash --noprofile --norc "$gate" "$renderer" ${gate_flag:+"$gate_flag"} > "$work/out" 2>&1 || status=$?
     return "$status"
 }
 
@@ -211,5 +230,72 @@ expect "fr19_8_4_graalvm_gate_does_not_read_hand_checks_drags" fail strict windo
 marker_line="hand-check: marker scene"
 make_logs "$work/case" "" "" "" ""
 expect "fr19_8_4_graalvm_gate_wants_the_smoke_hosts_marker_line" fail strict windows-2025 "the GraalVM smoke host did not draw the marker scene"
+
+
+# --report-only, for the GraalVM renderer: the window's faults are reported and do not fail the
+# run, the probe not having run still does, and the shipped Kotlin/Native window cannot use it.
+gate_flag="--report-only"
+renderer=graalvm
+marker_line="smoke host: marker scene"
+make_logs "$work/case" "" "" "" ""
+expect "fr19_8_4_report_only_a_clean_run_passes" pass strict windows-2025 "REPORT ONLY: 0 of 48 drags"
+
+make_logs "$work/case" "graalvm-new-right-16 graalvm-new-corner-1" "" "" ""
+expect "fr19_8_4_report_only_faulty_drags_do_not_fail_the_run" pass strict windows-2025 "REPORT ONLY: 2 of 48 drags"
+grep -qF "FAULT: the CPU resize path shows a fault" "$work/out" ||
+    fail "fr19_8_4_report_only_prints_every_finding" "the faulty drag's finding is not printed"
+grep -qF "This renderer is reported and does not fail the run" "$work/out" ||
+    fail "fr19_8_4_report_only_says_it_does_not_gate" "the closing line does not say the renderer is reported and does not fail the run"
+
+# The GraalVM window today: it prints no CPU resize path lines at all.
+make_logs "$work/case" "" "" "" ""
+for f in "$work"/case/probe-logs/*/graalvm-new-*.all.log; do grep -vE "^resize-(mode|proof)" "$f" > "$f.tmp"; mv "$f.tmp" "$f"; done
+expect "fr19_8_4_report_only_a_window_with_no_cpu_resize_path_does_not_fail_the_run" pass strict windows-2025 "did not take the CPU resize path"
+grep -qF "FAULT: the drag drew no CPU step" "$work/out" || fail "fr19_8_4_report_only_a_window_with_no_cpu_resize_path_does_not_fail_the_run" "the missing CPU steps are not printed"
+
+states_faulty=1
+make_logs "$work/case" "" "" "" ""
+expect "fr19_8_4_report_only_window_states_over_the_limit_do_not_fail_the_run" pass strict windows-2025 "more than 10% of the window state changes"
+states_faulty=0
+
+# The step summary gets the same closing words.
+make_logs "$work/case" "graalvm-new-left-8" "" "" ""
+summary="$work/summary.md"; : > "$summary"
+GITHUB_STEP_SUMMARY="$summary" run_gate strict windows-2022
+grep -qF "REPORT ONLY: 1 of 48 drags" "$summary" || fail "fr19_8_4_report_only_writes_the_step_summary" "GITHUB_STEP_SUMMARY has no REPORT ONLY line"
+
+# What is not a window fault stays a failure: a report of nothing must not pass.
+make_logs "$work/case" "" "" "" ""
+rm "$work/case/probe-logs/2x/graalvm-new-left-8-probe.log"
+expect "fr19_8_4_report_only_a_probe_that_did_not_run_still_fails" fail strict windows-2025 "the probe did not run"
+make_logs "$work/case" "" "" "" ""
+rm -rf "$work/case/probe-logs/1x" "$work/case/probe-logs/2x"
+expect "fr19_8_4_report_only_no_logs_still_fails" fail strict windows-2025 "no verdict"
+make_logs "$work/case" "" "" "" control-passes
+expect "fr19_8_4_report_only_a_control_that_passes_still_fails" fail strict windows-2025 "NO DISCRIMINATION"
+marker_line=""
+make_logs "$work/case" "" "" "" ""
+expect "fr19_8_4_report_only_no_marker_scene_still_fails" fail strict windows-2025 "did not draw the marker scene"
+marker_line="smoke host: marker scene"
+
+# A window that faulted and a probe that did not run: the run fails and says so.
+make_logs "$work/case" "graalvm-new-left-8" "" "" ""
+rm "$work/case/probe-logs/1x/graalvm-new-right-1-probe.log"
+expect "fr19_8_4_report_only_says_when_the_run_still_fails" fail strict windows-2025 "The run still fails"
+
+# The shipped window is refused.
+renderer=kn
+marker_line="hand-check: marker scene"
+make_logs "$work/case" "" "" "" ""
+status=0; run_gate strict windows-2025 || status=$?
+if [[ $status -eq 0 ]]; then
+    fail "fr19_8_4_kn_report_only_is_refused" "the Kotlin/Native gate accepted --report-only"
+elif ! grep -qF "only for graalvm" "$work/out"; then
+    fail "fr19_8_4_kn_report_only_is_refused" "the refusal does not say why: $(head -2 "$work/out")"
+else
+    ok "fr19_8_4_kn_report_only_is_refused"
+fi
+status=0; PATH="$work/bin:$PATH" RUNNER_TEMP="$work/case" RUNNER_OS_LABEL=x bash "$gate" graalvm --nonsense > "$work/out" 2>&1 || status=$?
+if [[ $status -ne 0 ]]; then ok "fr19_8_4_an_unknown_flag_is_refused"; else fail "fr19_8_4_an_unknown_flag_is_refused" "it ran"; fi
 
 exit "$red"

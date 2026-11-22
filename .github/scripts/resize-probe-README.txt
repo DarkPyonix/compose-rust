@@ -71,6 +71,12 @@ The quick way: every app, every path, every edge, all three rates
   hand-check-windows-graalvm artifact: unpack that into a graalvm folder beside this file.
   Started by itself it shows the smoke host's own small tree, a label and a button.
 
+  In CI the GraalVM window is reported and does not gate (compose-rust#687). It is not the
+  window a release ships (the Kotlin/Native one is), and today it prints none of the CPU resize
+  path lines the gate looks for and shows an occasional one-frame gap in a drag. The CI jobs
+  print the verdicts, keep the frames and count the drags that showed a fault, and fail only
+  when the probe did not run or the control passes. They turn strict when that is fixed.
+
   Then check by hand, in hand-check.exe, in the first text field: type a few letters, press
   Ctrl+A (all of it is selected), Ctrl+C, click at the end and press Ctrl+V (the text appears
   again). Say whether all three worked. The GraalVM smoke host has no text field to check.

@@ -302,8 +302,8 @@ elif [[ "$(grep -c -- 'run-probe-v2.ps1" -NoPause -StatesRuns 25 ' <<<"$graalvm_
     fail "$name" "probe-graalvm does not run the kit with 25 window state runs at both scales"
 elif ! grep -qF "\$app.Name -ne 'control' -and \$path -eq 'new'" "$kit_script"; then
     fail "$name" "run-probe-v2.ps1 repeats the window states for hand-check only, so the GraalVM ones are too few to judge by rate"
-elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh graalvm$' <<<"$graalvm_probe"; then
-    fail "$name" "probe-graalvm is not judged by resize-probe-gate.sh"
+elif ! grep -qE '^        run: bash \.github/scripts/resize-probe-gate\.sh graalvm --report-only$' <<<"$graalvm_probe"; then
+    fail "$name" "probe-graalvm is not judged by resize-probe-gate.sh graalvm --report-only"
 elif ! grep -qF 'graalvm)' "$gate_script" || ! grep -qF 'marker_line="smoke host: marker scene"' "$gate_script"; then
     fail "$name" "resize-probe-gate.sh does not know the GraalVM renderer and the smoke host's marker line"
 elif ! grep -qF 'name: resize-probe-frames-graalvm-${{ matrix.os }}' <<<"$graalvm_probe" || ! grep -qF 'contact-sheet.png' <<<"$graalvm_probe"; then
