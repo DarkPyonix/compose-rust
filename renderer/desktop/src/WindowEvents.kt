@@ -96,21 +96,20 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
             sendPointerEvent(
                 eventType = PointerEventType.Move,
                 position = pos,
-                buttons = PointerButtons(isPrimaryPressed = event.buttons and 1 != 0),
+                buttons = pointerButtonsOf(event.buttons),
             )
         }
 
         WindowEvent.POINTER_DOWN -> {
             val pos = Offset(event.x, event.y)
             lastPointerPositions[this] = pos
+            val button = pressedButton(event)
+            val mask = if (event.buttons != 0) event.buttons else 1
             sendPointerEvent(
                 eventType = PointerEventType.Press,
                 position = pos,
-                button = pressedButton(event),
-                buttons = PointerButtons(
-                    isPrimaryPressed = !event.isSecondary,
-                    isSecondaryPressed = event.isSecondary,
-                ),
+                button = button,
+                buttons = pointerButtonsOf(mask),
             )
         }
 
@@ -137,11 +136,21 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
 }
 
 
-private val WindowEvent.isSecondary: Boolean
-    get() = buttons and WindowEvent.SECONDARY_BUTTON != 0
+internal fun pointerButtonsOf(mask: Int): PointerButtons = PointerButtons(
+    isPrimaryPressed = mask and 1 != 0,
+    isSecondaryPressed = mask and WindowEvent.SECONDARY_BUTTON != 0,
+    isTertiaryPressed = mask and 4 != 0,
+    isBackPressed = mask and 8 != 0,
+    isForwardPressed = mask and 16 != 0,
+)
 
-private fun pressedButton(event: WindowEvent): PointerButton =
-    if (event.isSecondary) PointerButton.Secondary else PointerButton.Primary
+private fun pressedButton(event: WindowEvent): PointerButton = when {
+    event.buttons and WindowEvent.SECONDARY_BUTTON != 0 -> PointerButton.Secondary
+    event.buttons and 4 != 0 -> PointerButton.Tertiary
+    event.buttons and 8 != 0 -> PointerButton.Back
+    event.buttons and 16 != 0 -> PointerButton.Forward
+    else -> PointerButton.Primary
+}
 
 internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     // The letters and digits, which are their own numbers in a virtual key. Without them

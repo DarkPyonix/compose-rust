@@ -369,6 +369,9 @@ struct Node {
 }
 
 /// The Renderer's node table, as far as the tree it describes goes.
+///
+/// Node 0 is the virtual root. Its children are the table's roots: every node created and
+/// not yet placed under a parent, in creation order, and every node inserted under node 0.
 #[derive(Clone, Debug, Default)]
 pub struct Model {
     nodes: HashMap<u32, Node>,
@@ -392,13 +395,27 @@ impl Model {
         for record in &batch.records {
             match record {
                 Record::Create { node, widget } => {
+                    // A node the Host creates and never inserts is a root, drawn under the
+                    // virtual root in the order it was created, until an Insert or a Move
+                    // places it under a parent. The Renderer's node table does the same:
+                    // no record attaches the application's top node, so the Dioxus path
+                    // only ever creates it, while the slot table path also inserts it under
+                    // node 0. Either way it lands in the same place, and this adds no
+                    // record of its own.
+                    let new = !self.nodes.contains_key(node);
                     self.nodes.insert(
                         *node,
                         Node {
                             widget: widget.clone(),
+                            parent: new.then_some(0),
                             ..Node::default()
                         },
                     );
+                    if new {
+                        if let Some(root) = self.nodes.get_mut(&0) {
+                            root.children.push(*node);
+                        }
+                    }
                 }
                 Record::SetProp {
                     node,
@@ -952,4 +969,266 @@ pub fn main_for(path: &mut dyn Path, path_name: &str, apps: &[App]) {
     }
     let text = serde_json::to_string_pretty(&runs).expect("runs serialize");
     std::fs::write(&args.out, text).expect("the run file could not be written");
+}
+
+#[cfg(test)]
+mod tests {
+    //! The model's roots, against what the Renderer's node table
+    //! (`renderer/desktop/src/renderer/NodeTable.kt`) does with the same records. Each test
+    //! names the NodeTable behaviour it copies.
+
+    use super::*;
+
+    fn create(node: u32, widget: &str) -> Record {
+        Record::Create {
+            node,
+            widget: widget.to_owned(),
+        }
+    }
+
+    fn text(node: u32, value: &str) -> Record {
+        Record::SetProp {
+            node,
+            property: "Text".to_owned(),
+            value: Value::Text(value.to_owned()),
+        }
+    }
+
+    fn on_click(node: u32, handler: i64) -> Record {
+        Record::SetProp {
+            node,
+            property: "OnClick".to_owned(),
+            value: Value::Int(handler),
+        }
+    }
+
+    fn insert(parent: u32, node: u32, index: u32) -> Record {
+        Record::Insert {
+            parent,
+            node,
+            index,
+        }
+    }
+
+    fn batch(records: Vec<Record>) -> Batch {
+        Batch {
+            bytes: records.len() * 16,
+            records,
+        }
+    }
+
+    fn model(batches: &[Vec<Record>]) -> Model {
+        let mut model = Model::new();
+        for records in batches {
+            model.apply(&batch(records.clone()));
+        }
+        model
+    }
+
+    /// The sweep screen's shape the way the Dioxus path sends it at the pinned revision: the
+    /// column is created and filled, and never inserted anywhere.
+    fn only_created(column: u32, label: u32, button: u32, handler: i64) -> Vec<Record> {
+        vec![
+            create(column, "Column"),
+            create(label, "Text"),
+            text(label, "0-0"),
+            insert(column, label, 0),
+            create(button, "Button"),
+            text(button, "Increment"),
+            on_click(button, handler),
+            insert(column, button, 1),
+        ]
+    }
+
+    /// The same screen the way the slot table path sends it: the column is also inserted
+    /// under node 0.
+    fn inserted_under_the_root(column: u32, label: u32, button: u32, handler: i64) -> Vec<Record> {
+        let mut records = only_created(column, label, button, handler);
+        records.push(insert(0, column, 0));
+        records
+    }
+
+    const SWEEP_SCREEN: &str = "Root\n  Column\n    Text Text=Text(\"0-0\")\n    Button OnClick=handler Text=Text(\"Increment\")\n";
+
+    // NodeTable.create adds every created node to the root list; ResyncTest pins that a
+    // Column created and never inserted is the only root, and the Texts inserted under it
+    // in the same batch are not roots.
+    #[test]
+    fn fr39_model_keeps_a_created_never_inserted_node_as_a_root() {
+        let model = model(&[only_created(1, 2, 3, 7)]);
+        assert_eq!(model.dump(), SWEEP_SCREEN);
+    }
+
+    // NodeTable.roots is "top-level nodes, in creation order until the Host parents them":
+    // create appends to the root list, so the order is creation order, not id order.
+    #[test]
+    fn fr39_model_orders_inferred_roots_by_creation_not_by_id() {
+        let model = model(&[vec![
+            create(5, "Text"),
+            text(5, "first"),
+            create(3, "Text"),
+            text(3, "second"),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Text Text=Text(\"first\")\n  Text Text=Text(\"second\")\n"
+        );
+    }
+
+    // NodeTable.insert under the root id splices into the root list itself (childrenOf(0)
+    // is the root list), at the index the record gives, after taking the node out of it.
+    #[test]
+    fn fr39_model_places_an_insert_under_the_root_among_the_inferred_roots() {
+        let model = model(&[vec![
+            create(1, "Text"),
+            text(1, "a"),
+            create(2, "Text"),
+            text(2, "b"),
+            insert(0, 2, 0),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Text Text=Text(\"b\")\n  Text Text=Text(\"a\")\n"
+        );
+    }
+
+    // NodeTable.detach takes the node out of the root list whatever its parent, so a root
+    // that a later batch inserts under a parent is there once, under that parent.
+    #[test]
+    fn fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into() {
+        let mut model = model(&[vec![
+            create(1, "Column"),
+            create(2, "Text"),
+            text(2, "child"),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n  Text Text=Text(\"child\")\n"
+        );
+        model.apply(&batch(vec![insert(1, 2, 0)]));
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n    Text Text=Text(\"child\")\n"
+        );
+        assert_eq!(
+            model.preorder().iter().filter(|node| **node == 2).count(),
+            1
+        );
+    }
+
+    // NodeTable.remove detaches the node, which takes it out of the root list, and drops its
+    // subtree from the table.
+    #[test]
+    fn fr39_model_drops_an_inferred_root_on_remove() {
+        let mut model = model(&[
+            only_created(1, 2, 3, 7),
+            vec![create(9, "Text"), text(9, "other")],
+        ]);
+        model.apply(&batch(vec![Record::Remove { node: 9 }]));
+        assert_eq!(model.dump(), SWEEP_SCREEN);
+        model.apply(&batch(vec![Record::Remove { node: 1 }]));
+        assert_eq!(model.dump(), "Root\n");
+        assert!(
+            model.nodes.get(&3).is_none(),
+            "the removed root's subtree is gone"
+        );
+    }
+
+    // NodeTable.create puts a node on the root list and NodeTable.insert takes it off again
+    // in the same batch, so a node created and inserted under a parent is never a root.
+    #[test]
+    fn fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere() {
+        let model = model(&[vec![
+            create(1, "Column"),
+            create(2, "Text"),
+            text(2, "a"),
+            insert(1, 2, 0),
+            create(3, "Text"),
+            text(3, "b"),
+            insert(1, 3, u32::MAX),
+        ]]);
+        assert_eq!(model.nodes[&0].children, vec![1]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n    Text Text=Text(\"a\")\n    Text Text=Text(\"b\")\n"
+        );
+    }
+
+    // NodeTable draws its root list whether a node got there by being created or by being
+    // inserted under the root id, so the two paths' trees are the same tree, and so are
+    // their hashes. Different ids and handler ids on each side do not matter.
+    #[test]
+    fn fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created() {
+        let baseline = model(&[only_created(1, 2, 3, 7)]);
+        let candidate = model(&[inserted_under_the_root(40, 41, 42, 99)]);
+        assert_eq!(baseline.dump(), candidate.dump());
+        assert_eq!(hash(&baseline.dump()), hash(&candidate.dump()));
+
+        // An append index, and an Insert under the root sent before the children, land in
+        // the same place.
+        let mut early = vec![create(40, "Column"), insert(0, 40, u32::MAX)];
+        early.extend(only_created(40, 41, 42, 99).into_iter().skip(1));
+        assert_eq!(model(&[early]).dump(), baseline.dump());
+
+        let click = click("Button", "Increment");
+        let found = baseline
+            .event_for(&click)
+            .expect("the baseline's button is on screen");
+        assert_eq!((found.node, found.handler), (3, 7));
+        let found = candidate
+            .event_for(&click)
+            .expect("the candidate's button is on screen");
+        assert_eq!((found.node, found.handler), (42, 99));
+    }
+
+    /// A path that answers with fixed batches, so what the run counts can be checked against
+    /// what was sent.
+    struct Fixed {
+        start: Vec<Record>,
+        reply: Vec<Record>,
+        clicked: Vec<Event>,
+    }
+
+    impl Path for Fixed {
+        fn start(&mut self, _app: App) -> Batch {
+            batch(self.start.clone())
+        }
+        fn dispatch(&mut self, event: &Event) -> (Batch, Duration) {
+            self.clicked.push(event.clone());
+            (batch(self.reply.clone()), Duration::from_nanos(1))
+        }
+        fn frame(&mut self, _frame_time_nanos: u64) -> (Batch, Duration) {
+            (Batch::default(), Duration::ZERO)
+        }
+        fn frame_requested(&self) -> bool {
+            false
+        }
+    }
+
+    // The root rule changes where a node is drawn and nothing about what was sent: the
+    // driver finds the Dioxus path's button, and the records and bytes counted are exactly
+    // those of the batches the path returned.
+    #[test]
+    fn fr39_an_inferred_root_is_clickable_and_adds_no_record() {
+        let mut path = Fixed {
+            start: only_created(1, 2, 3, 7),
+            reply: vec![text(2, "1-0")],
+            clicked: Vec::new(),
+        };
+        let scenario = Scenario {
+            name: "sweep_1",
+            app: App::Sweep(1),
+            steps: vec![click("Button", "Increment"), click("Button", "Increment")],
+        };
+        let run = run(&mut path, "fixed", &scenario, 1, 0).expect("the button is found");
+        assert_eq!(path.clicked.len(), 2);
+        assert!(
+            path.clicked
+                .iter()
+                .all(|event| event.node == 3 && event.handler == 7)
+        );
+        assert_eq!(run.mutations, 2);
+        assert_eq!(run.bytes, 2 * 16);
+        assert_eq!(run.step_trees.len(), 2);
+    }
 }
