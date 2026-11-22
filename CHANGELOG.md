@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A memory report for a blank window on Linux and Windows
+
+`compose-rust/tests/fixtures/blank-window` is one 800 by 600 dp window with one empty box, so what its process holds is what the renderer, its graphics surface and the window cost. A development CI dispatch with the `memory_report` suite builds it against the Kotlin/Native renderer of the same commit and starts it three times on ubuntu-latest (under Xvfb) and on windows-latest. It reads PSS on Linux and the private working set on Windows, 10 and 60 seconds after each start, and puts the median of the three in the job summary, with every sample kept as an artifact. The report fails only when the window does not come up or nothing could be read, never on a number. No default suite runs it, and nothing it measures gates a merge (#59).
+
 ### The macOS renderer's Kotlin heap stops near what is in use
 
 The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
