@@ -1804,7 +1804,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
 - 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
 
-#### 21.3.4 시트의 멈춤 높이와 끌어서 닫기 (`Draft`, 이슈 #309)
+#### 21.3.4 시트의 멈춤 높이와 끌어서 닫기 (`Agreed`, 이슈 #309, [leader, 2026-11-22])
 
 휴대폰 폭의 동작 시트와 거르기 시트는 화면 절반에서 멈췄다가 끌어 올리면 거의 전체로 펴집니다(iOS의 medium·large detent, Material의 partially expanded·expanded). 지금의 가장자리 시트는 한 높이뿐이고, 끌어서 닫기는 늘 켜져 있습니다.
 
@@ -1888,7 +1888,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
   - `CompactNavigation::Default`(와이어 0): 디자인 시스템의 답입니다(21.2, 21.2.1). 고르지 않은 것과 같고 속성을 보내지 않습니다.
   - `CompactNavigation::Sidebar`(1): 토글 뒤로 치워진 사이드바입니다(21.2.1의 치워둠). 일곱 디자인 시스템 전부에서 같은 뜻이고, 나와 있을 때의 모양(폭, 색, 선택 표시)은 그 디자인 시스템의 서랍과 같습니다.
   - `CompactNavigation::None`(2): Compact에서 목적지가 화면에 없고 부르는 버튼도 없습니다. 목적지로 가는 길은 애플리케이션이 직접 그립니다(FR-22.3의 6번). 이름은 Compose의 `NavigationSuiteType.None`을 따릅니다.
-  - `CompactNavigation::Floating`(3, 이슈 #311, `Draft`): Compact에서 목적지들이 창 아래쪽에 떠 있는 알약 모양의 막대가 됩니다. 페이지는 막대 밑까지 이어지고 막대 뒤로 비칩니다. 막대는 아래쪽 안전 영역과 디자인 시스템의 여백만큼 창 가장자리에서 떨어지고, 바탕은 23.3.1의 `Backdrop`과 같은 길로 그 디자인 시스템이 정한 흐림과 색입니다(Liquid Glass와 Cupertino는 유리, 나머지는 그 시스템의 떠 있는 표면). 페이지의 스크롤 컨테이너는 마지막 내용이 막대에 가리지 않도록 막대 높이만큼 아래 여백을 받습니다. 앱이 안전 영역을 직접 읽어야 하는 경우는 `window_size().safe_area`가 위·아래·양옆을 모두 줍니다. 모바일의 위쪽 값도 Compose의 `safeDrawing`에서 오므로 따로 읽을 길을 더하지 않습니다.
+  - `CompactNavigation::Floating`(3, 이슈 #311, `Agreed`, [leader, 2026-11-22]): Compact에서 목적지들이 창 아래쪽에 떠 있는 알약 모양의 막대가 됩니다. 페이지는 막대 밑까지 이어지고 막대 뒤로 비칩니다. 막대는 아래쪽 안전 영역과 디자인 시스템의 여백만큼 창 가장자리에서 떨어지고, 바탕은 23.3.1의 `Backdrop`과 같은 길로 그 디자인 시스템이 정한 흐림과 색입니다(Liquid Glass와 Cupertino는 유리, 나머지는 그 시스템의 떠 있는 표면). 페이지의 스크롤 컨테이너는 마지막 내용이 막대에 가리지 않도록 막대 높이만큼 아래 여백을 받습니다. 앱이 안전 영역을 직접 읽어야 하는 경우는 `window_size().safe_area`가 위·아래·양옆을 모두 줍니다. 모바일의 위쪽 값도 Compose의 `safeDrawing`에서 오므로 따로 읽을 길을 더하지 않습니다.
 - **고르는 것은 Compact 하나입니다.** Medium과 Expanded의 레일과 서랍은 21.2 그대로 디자인 시스템이 답합니다. 앱은 크기 클래스를 읽지 않고(FR-22) 값을 한 번 보내며, 그 값이 어느 폭에서 쓰이는지는 Renderer가 정합니다.
 - **와이어**: 새 속성 `CompactNavigation`(추가 전용 태그 **185**, u32)을 `Navigation`에만 싣습니다. 값은 새 역할 열거형 `CompactNavigation`(`Sidebar = 1`, `None = 2`)의 태그이고, 0은 보내지 않은 것과 같습니다. 스키마 해시가 움직입니다. 21.2.1의 "와이어에 새로 실리는 것이 없습니다"는 기본에 대해 여전히 참입니다.
 - **사이드바가 나와 있는지는 여전히 Renderer의 상태입니다(D5).** 21.2.1과 같이, 사용자가 토글을 여닫는 동안 경계를 넘는 것은 없습니다.
@@ -2182,7 +2182,7 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 14.1이 정한 것을 뒤집지 않습니다. 흉내 낸 반투명을 "Liquid Glass를 구현했다"고 말하지 않는다는 규칙은 그대로이고, 이것은 그 주장이 아니라 흐림을 말할 어휘입니다.
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
 
-#### 23.3.1 앱이 고르는 흐림: `Backdrop` (`Draft`, 이슈 #300)
+#### 23.3.1 앱이 고르는 흐림: `Backdrop` (`Agreed`, 이슈 #300, [leader, 2026-11-22])
 
 `Material(role)`은 흐림을 디자인 시스템에 맡깁니다. Material 3는 불투명한 색을 칠하므로, 모든 플랫폼에서 Liquid Glass처럼 보여야 하는 앱의 떠 있는 막대, 위 막대, 팝오버, 시트는 그 모습을 말할 수 없습니다. 색에서 `Paint::Role`이 기본이고 `Paint::Literal`이 탈출구이듯(FR-41.2의 같은 논리), 흐림에도 역할 옆에 값으로 말하는 탈출구를 둡니다.
 
@@ -3103,7 +3103,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
 
-### FR-91 앱 수준의 뒤로 가기: `BackRequested` (`Draft`, 이슈 #302)
+### FR-91 앱 수준의 뒤로 가기: `BackRequested` (`Agreed`, 이슈 #302, [leader, 2026-11-22])
 
 휴대폰 폭에서 목록과 상세를 오가는 화면은 앱이 자기 탐색 스택을 갖고, 시스템의 뒤로 가기가 그 스택을 꺼내야 합니다. 지금은 열린 오버레이만 Esc와 Android Back으로 닫히고(21.3.2), 열린 오버레이가 없을 때의 뒤로 가기는 앱에 닿지 않습니다. 앱이 그것을 들을 방법이 없습니다.
 
