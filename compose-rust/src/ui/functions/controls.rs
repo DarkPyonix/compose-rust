@@ -134,18 +134,27 @@ toggle! {
     /// `track_color` is the track, whichever state it is in: the Host owns the state, so it
     /// passes the colour that goes with it. `thumb_color` is the thumb that travels along
     /// the track. `size` is the track's `(width, height)` in dp; the thumb scales with the
-    /// height. `on_motion_finished` runs once when the node's size motion comes to rest.
+    /// height. `thumb_elevation` lifts the thumb by that many dp with a soft shadow under it
+    /// that travels with it and stays inside the track; `0.0` is no shadow, and leaving it
+    /// out keeps the design system's, which draws none today. `track_border` is
+    /// `(width, paint)`: a line of that many dp around the track in both states, `0.0` wide
+    /// for none; leaving it out keeps the design system's border. `on_motion_finished` runs
+    /// once when the node's size motion comes to rest.
     Switch(checked),
     params: {
         #[default(None::<::compose_rust::ui::Paint>)] track_color: impl Into<Option<Paint>>,
         #[default(None::<::compose_rust::ui::Paint>)] thumb_color: impl Into<Option<Paint>>,
         #[default(None::<(f32, f32)>)] size: impl Into<Option<(f32, f32)>>,
+        #[default(None::<f32>)] thumb_elevation: impl Into<Option<f32>>,
+        #[default(None::<(f32, ::compose_rust::ui::Paint)>)]
+        track_border: impl Into<Option<(f32, Paint)>>,
     },
     apply: |scope| {
         set!(scope; track_color, thumb_color);
         if let Some((width, height)) = size.into() {
             scope = scope.size(width, height);
         }
+        set!(scope; thumb_elevation, track_border);
     }
 }
 

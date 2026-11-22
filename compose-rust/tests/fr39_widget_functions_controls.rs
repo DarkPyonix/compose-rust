@@ -69,6 +69,8 @@ mod macros {
             track_color = PRIMARY,
             thumb_color = OUTLINE,
             size = (52.0, 32.0),
+            thumb_elevation = 2.0,
+            track_border = (1.0, ERROR),
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
         Checkbox!(
@@ -391,6 +393,8 @@ mod functions {
             PRIMARY,
             OUTLINE,
             (52.0, 32.0),
+            2.0,
+            (1.0, ERROR),
             Some(|_: MotionFinished| {}),
         );
         Checkbox(

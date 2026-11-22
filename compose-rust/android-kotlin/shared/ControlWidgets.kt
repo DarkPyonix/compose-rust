@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -298,7 +299,14 @@ internal object DrawnControlWidgets : ControlWidgets {
 
             ToggleRole.Switch -> {
                 val shape = look.shape ?: style.shape
-                val outline = if (look.track != null) 0.dp else style.borderWidth
+                // A border the application named wins in both states. Without one, a track
+                // the application coloured has no outline of its own to show, and otherwise
+                // the design system's outline is drawn.
+                val outline = look.trackBorderWidth ?: if (look.track != null) 0.dp else style.borderWidth
+                val outlineColour = look.trackBorder ?: style.border
+                // No system draws a shadow under the thumb today, so a switch that did not
+                // ask for one has none.
+                val elevation = look.thumbElevation ?: 0.dp
                 Box(
                     clickable
                         .size(
@@ -307,7 +315,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         )
                         .clip(shape)
                         .background(container.copy(alpha = container.alpha * alpha), shape)
-                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
+                        .controlBorder(outline, outlineColour.copy(alpha = outlineColour.alpha * alpha), shape)
                         .drawBehind {
                             // A track of the application's own height has a thumb that
                             // scales with it, the same 4 to 5 proportion as a 16 dp thumb on
@@ -320,13 +328,15 @@ internal object DrawnControlWidgets : ControlWidgets {
                             val margin = (size.height - diameter) / 2f
                             val travel = size.width - diameter - margin * 2f
                             val thumb = look.thumb ?: if (checked) style.mark else style.markUnchecked
+                            val center = Offset(
+                                x = margin + diameter / 2f + travel * progress,
+                                y = size.height / 2f,
+                            )
+                            drawThumbShadow(center, diameter / 2f, elevation.toPx(), alpha)
                             drawCircle(
                                 color = thumb.copy(alpha = alpha),
                                 radius = diameter / 2f,
-                                center = Offset(
-                                    x = margin + diameter / 2f + travel * progress,
-                                    y = size.height / 2f,
-                                ),
+                                center = center,
                             )
                         },
                 )
@@ -576,6 +586,36 @@ internal object DrawnControlWidgets : ControlWidgets {
  */
 private fun Modifier.controlBorder(width: Dp, color: Color, shape: Shape): Modifier =
     if (width.value <= 0f) this else border(width, color, shape)
+
+/**
+ * The soft shadow under a switch's thumb, lifted [elevation] pixels: a disc that fades out
+ * over [elevation] beyond the thumb's edge and sits half of it lower, the way a light from
+ * above throws it. It is drawn before the thumb, so only the part outside the thumb shows,
+ * and inside the track, which clips it.
+ *
+ * A radial gradient rather than a platform shadow, so the same pixels come out on every
+ * target: the shadow layers each platform offers differ in how they blur.
+ */
+private fun DrawScope.drawThumbShadow(center: Offset, radius: Float, elevation: Float, alpha: Float) {
+    if (elevation <= 0f || radius <= 0f) return
+    val outer = radius + elevation
+    val shadowCenter = Offset(center.x, center.y + elevation / 2f)
+    val opaque = SWITCH_SHADOW_ALPHA * alpha
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to Color.Black.copy(alpha = opaque),
+            (radius / outer) to Color.Black.copy(alpha = opaque),
+            1f to Color.Transparent,
+            center = shadowCenter,
+            radius = outer,
+        ),
+        radius = outer,
+        center = shadowCenter,
+    )
+}
+
+/** How dark the shadow under a switch's thumb is where it is deepest, before the control's own alpha. */
+private const val SWITCH_SHADOW_ALPHA = 0.28f
 
 /**
  * The checkmark, drawn as two strokes that sweep in together.
