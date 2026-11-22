@@ -1,10 +1,13 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.ObjCObjectBase.OverrideInit
+import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.ui.platform.IosHostConnection
@@ -83,7 +86,9 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         // Where the application's zoom level is kept between runs: the user defaults, which
         // are already the application's own.
         dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { UserDefaultsZoomLevel }
+        NativeViewPlatform.available = true
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
+        val nativeViews = IosNativeViewWindow(window)
         val content = ComposeUIViewController(
             configure = {
                 // The renderer stops the page above the keyboard itself and lifts a sheet's
@@ -92,16 +97,18 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
                 onFocusBehavior = androidx.compose.ui.uikit.OnFocusBehavior.DoNothing
             },
         ) {
-            ComposeRustContent(
-                rememberComposeRustHost(remember { hostConnectionFactory() }),
-                // The whole screen. Where the safe area is is the renderer's to decide:
-                // a bar that opens the tree grows up into the status bar and a navigation
-                // grows down into the home indicator, the way every application on the
-                // platform does, and whatever is left over is kept off the page there.
-                // Padding everything here instead left the system's own background
-                // showing through both strips.
-                Modifier.fillMaxSize(),
-            )
+            CompositionLocalProvider(LocalNativeViewWindow provides nativeViews) {
+                ComposeRustContent(
+                    rememberComposeRustHost(remember { hostConnectionFactory() }),
+                    // The whole screen. Where the safe area is is the renderer's to decide:
+                    // a bar that opens the tree grows up into the status bar and a navigation
+                    // grows down into the home indicator, the way every application on the
+                    // platform does, and whatever is left over is kept off the page there.
+                    // Padding everything here instead left the system's own background
+                    // showing through both strips.
+                    Modifier.fillMaxSize(),
+                )
+            }
         }
         // Where the system draws its own chrome as Liquid Glass, the container that can
         // hold it is built now, before anything has been drawn, and the interpreter is
