@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.ui.node.Node
@@ -40,10 +41,20 @@ class ControlLook(
     val shape: Shape? = null,
     /** A Slider thumb's diameter. The track and the area that takes presses keep theirs. */
     val thumbSize: Dp? = null,
+    /**
+     * How high a Switch lifts its thumb: the shadow under it. Zero is no shadow, and null is
+     * the design system's, which is no shadow in every system today.
+     */
+    val thumbElevation: Dp? = null,
+    /** The width of the line around a Switch's track, zero for none, or null for the design system's. */
+    val trackBorderWidth: Dp? = null,
+    /** The colour of that line. Set whenever [trackBorderWidth] is. */
+    val trackBorder: Color? = null,
 ) {
     /** Whether a toggle has to be drawn from this look rather than by default. */
     fun appliesTo(role: ToggleRole): Boolean = when (role) {
-        ToggleRole.Switch -> track != null || thumb != null || width != null || height != null
+        ToggleRole.Switch -> track != null || thumb != null || width != null || height != null ||
+            thumbElevation != null || trackBorderWidth != null
         ToggleRole.Checkbox, ToggleRole.RadioButton -> container != null || check != null || width != null
     }
 
@@ -55,7 +66,7 @@ class ControlLook(
 /**
  * The look of [node], rebuilt only when something it reads has changed.
  *
- * A recomposition that changes none of the seven properties, the corner modifier or the theme
+ * A recomposition that changes none of the nine properties, the corner modifier or the theme
  * hands back the look it made last time, and a node that sends none of them gets the shared
  * [ControlLook.None], so the steady state allocates nothing. A property that is removed
  * makes its slot null, which differs from the value it held, so the look returns to the
@@ -77,6 +88,8 @@ private class ControlLookCache {
     private var check: PropertyValue? = null
     private var size: PropertyValue? = null
     private var thumbSize: PropertyValue? = null
+    private var thumbElevation: PropertyValue? = null
+    private var trackBorder: PropertyValue? = null
     private var corner: dev.darkpyonix.composerust.protocol.Modifier? = null
     private var named = false
     private var curve: Float? = null
@@ -91,6 +104,8 @@ private class ControlLookCache {
         val newCheck = props[PropertyKind.CheckColor]
         val newSize = props[PropertyKind.ControlSize]
         val newThumbSize = props[PropertyKind.ThumbSize]
+        val newElevation = props[PropertyKind.ThumbElevation]
+        val newBorder = props[PropertyKind.TrackBorder]
         var newNamed = false
         var newCorner: dev.darkpyonix.composerust.protocol.Modifier? = null
         val modifiers = node.modifiers
@@ -104,7 +119,8 @@ private class ControlLookCache {
         }
         if (primed && theme === current && track == newTrack && thumb == newThumb &&
             activeTrack == newActive && container == newContainer && check == newCheck &&
-            size == newSize && thumbSize == newThumbSize && named == newNamed && corner == newCorner && curve == newCurve
+            size == newSize && thumbSize == newThumbSize && thumbElevation == newElevation &&
+            trackBorder == newBorder && named == newNamed && corner == newCorner && curve == newCurve
         ) {
             return look
         }
@@ -112,10 +128,11 @@ private class ControlLookCache {
         theme = current
         track = newTrack; thumb = newThumb; activeTrack = newActive
         container = newContainer; check = newCheck; size = newSize; thumbSize = newThumbSize
+        thumbElevation = newElevation; trackBorder = newBorder
         named = newNamed; corner = newCorner; curve = newCurve
         val empty = newTrack == null && newThumb == null && newActive == null &&
             newContainer == null && newCheck == null && newSize == null && newThumbSize == null &&
-            !newNamed
+            newElevation == null && newBorder == null && !newNamed
         look = if (empty) ControlLook.None else node.controlLook(current)
         return look
     }
@@ -127,6 +144,7 @@ internal fun Node.controlLook(theme: ResolvedTheme): ControlLook {
     val size = bytes(PropertyKind.ControlSize)?.takeIf { it.size >= 8 }
     val width = size?.let { littleEndianFloat(it, 0) }?.takeIf { it > 0f }?.dp
     val height = size?.let { littleEndianFloat(it, 4) }?.takeIf { it > 0f }?.dp
+    val border = trackBorderOf(bytes(PropertyKind.TrackBorder))
     val named = modifiers.any {
         it is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
             it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole
@@ -141,7 +159,33 @@ internal fun Node.controlLook(theme: ResolvedTheme): ControlLook {
         height = height,
         shape = if (named) modifiers.resolvedShape(theme) else null,
         thumbSize = number(PropertyKind.ThumbSize)?.takeIf { it > 0f }?.dp,
+        // A height that is not a number, or is below zero, is read as not given.
+        thumbElevation = number(PropertyKind.ThumbElevation)?.takeIf { it.isFinite() && it >= 0f }?.dp,
+        trackBorderWidth = border?.first?.dp,
+        trackBorder = border?.second?.let { theme.color(it) },
     )
+}
+
+/**
+ * The width in dp and the paint of a Switch's track border, from the 12 bytes it travels
+ * as: the width's f32 bits, then the paint's u64 bits, both little-endian, which are the
+ * `Border` modifier's two fields in its order.
+ *
+ * Null for a value that is too short, a width that is not a number or is below zero, or a
+ * paint of no kind this side knows, each of which is read as not given.
+ */
+internal fun trackBorderOf(bytes: ByteArray?): Pair<Float, Paint>? {
+    if (bytes == null || bytes.size < 12) return null
+    val width = littleEndianFloat(bytes, 0).takeIf { it.isFinite() && it >= 0f } ?: return null
+    var bits = 0L
+    for (index in 11 downTo 4) bits = (bits shl 8) or (bytes[index].toLong() and 0xff)
+    val value = bits.toInt()
+    val paint = when ((bits ushr 32).toInt()) {
+        1 -> dev.darkpyonix.composerust.protocol.ColorRole.entries.getOrNull(value - 1)?.let { Paint.Role(it) }
+        2 -> Paint.Literal(value)
+        else -> null
+    } ?: return null
+    return width to paint
 }
 
 private fun littleEndianFloat(bytes: ByteArray, at: Int): Float {

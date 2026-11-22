@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### The macOS renderer's Kotlin heap stops near what is in use
+
+The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
+
 ### The build finds its renderer by schema hash
 
 A git dependency on a revision after a release builds. The crate's version stays the same between two releases while its schema moves on, and the build used to fetch the release for that version, whose renderer was built from the older schema, and then stop at the schema check with nothing else to try. The build now reads the schema hash of the release's renderer, and when it is not the crate's, fetches the renderer published for the crate's schema from the `renderer-dev` release (`compose-rust-renderer-schema-<hash>-<target>.tar.gz`, verified against its `.sha256` like any other). When neither matches, the build stops and names the crate's schema hash, each renderer's hash and both addresses. A released version costs no extra request. The cache is keyed by schema hash and target (`renderer/schema-<hash>/<target>`) instead of by version, so two revisions of one version never share an entry; an entry an earlier build left under the version is used only when its renderer says it was built from the same schema. A renderer that says it was built from the crate's schema is no longer refused for the version written in its `renderer.version`. `COMPOSE_RUST_RENDERER_URL` moves both addresses to a mirror; it is optional, and a build without it uses GitHub as before ([#293](https://github.com/DarkPyonix/compose-rust/issues/293)).
@@ -22,6 +26,14 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 ### The event types are non-exhaustive
 
 `HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
+
+### A switch can lift its thumb and draw a line around its track
+
+`Switch!` takes `thumb_elevation`, a soft shadow under the thumb in dp, and `track_border`, a `(width, paint)` line around the track in both states. Leaving either out draws the switch as before in every design system: none of them shadows the thumb, and each keeps its own border. These add properties 212 and 213, so the schema hash moves and a renderer built before this change refuses the Host ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
+
+### `ScrollState` knows how large its viewport is
+
+`ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
 
 ## v0.0.12
 
@@ -124,6 +136,10 @@ In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixe
 ### A refresh icon
 
 `IconRole::Refresh` (tag 39) draws a clockwise arrow on desktop and Android and the `arrow.clockwise` system symbol on iOS. The schema hash changes ([#908](https://github.com/DarkPyonix/compose-rust/issues/908)).
+
+### A delete icon
+
+`IconRole::Delete` (tag 40) draws a bin on desktop and Android and the `trash` system symbol on iOS. `samples/minimal` shows its delete action as the white bin on the red square instead of the word "Delete". The schema hash changes ([#593](https://github.com/DarkPyonix/compose-rust/issues/593)).
 
 ### Seventeen more icon roles
 

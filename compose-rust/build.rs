@@ -1049,12 +1049,16 @@ package {package}
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.ui.platform.AndroidNativeViewWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
@@ -1068,6 +1072,8 @@ class MainActivity : ComponentActivity() {{
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {{
             AndroidNotifications.permissionAnswered()
         }}
+
+    private var nativeViews: AndroidNativeViewWindow? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
@@ -1089,15 +1095,27 @@ class MainActivity : ComponentActivity() {{
         AndroidNotifications.handle(intent)
         val host = ComposeRustRuntime.host()
         ComposeRustRuntime.attached()
+        val root = FrameLayout(this)
         val view = ComposeView(this)
+        val slotWindow = AndroidNativeViewWindow(root)
+        nativeViews = slotWindow
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
             // grows down into the gesture bar, and whatever is left over is kept off the
             // page there.
-            ComposeRustContent(host, Modifier.fillMaxSize())
+            CompositionLocalProvider(LocalNativeViewWindow provides slotWindow) {{
+                ComposeRustContent(host, Modifier.fillMaxSize())
+            }}
         }}
-        setContentView(view)
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        setContentView(root)
     }}
 
     override fun onStart() {{
@@ -1117,6 +1135,8 @@ class MainActivity : ComponentActivity() {{
     }}
 
     override fun onDestroy() {{
+        nativeViews?.close()
+        nativeViews = null
         // The process may stay without an Activity, and a worker's notification still has
         // to go out from it.
         ComposeRustRuntime.detached()
