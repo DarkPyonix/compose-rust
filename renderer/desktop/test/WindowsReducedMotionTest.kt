@@ -12,7 +12,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * FR-41.2 and FR-51 on the Windows Kotlin/Native window: the setting is Windows' "Show
+ * Reduced motion on the Windows Kotlin/Native window: the setting is Windows' "Show
  * animations in Windows" (SPI_GETCLIENTAREAANIMATION). Turned off, motion is reduced: the
  * Host is told `On` (ReducedMotionChanged), and the press feedback and motion roles read
  * `platformReducedMotion` as true. Before this the Windows window installed neither hook, so

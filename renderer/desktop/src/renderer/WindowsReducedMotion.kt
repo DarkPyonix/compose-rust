@@ -4,7 +4,7 @@ import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 
-// The Windows window's reduced-motion setting (FR-41.2, FR-51): Windows' "Show animations in
+// The Windows window's reduced-motion setting: Windows' "Show animations in
 // Windows", SPI_GETCLIENTAREAANIMATION. Shared with the Kotlin/Native Windows renderer through
 // a symlink, which hands in the system call; compiled on the JVM too, where it is tested.
 

@@ -9,7 +9,7 @@ import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
 import platform.windows.SystemParametersInfoW
 
-/** SPI_GETCLIENTAREAANIMATION: whether Windows shows animations, the switch FR-41.2 reads. */
+/** SPI_GETCLIENTAREAANIMATION: whether Windows shows animations, the switch the reduced-motion setting reads. */
 private const val SPI_GETCLIENTAREAANIMATION = 0x1042u
 
 /** Windows' "Show animations in Windows", or null when the system could not be asked. */
