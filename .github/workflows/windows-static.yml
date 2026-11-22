@@ -352,6 +352,17 @@ jobs:
       - name: Build, check, move and run an application
         run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
+      - name: Build the owner checks sample for UI Automation
+        run: cargo build --locked -p sample-owner-checks --bin sample-owner-checks
+
+      - name: Keep the owner checks sample
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-uia-owner-checks
+          path: target/debug/sample-owner-checks.exe
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Keep the application
         if: always()
         # multi-window.exe is the two-window application for the hand check of an input
@@ -364,3 +375,18 @@ jobs:
             ${{ runner.temp }}/consumer-windows/multi-window/multi-window.exe
           if-no-files-found: ignore
           retention-days: 7
+
+  ui_automation:
+    name: Read the owner checks sample's UI Automation tree
+    needs: consumer
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-uia-owner-checks
+          path: ${{ runner.temp }}/windows-uia
+      - name: Check the names and roles of the Screen reader controls
+        shell: powershell
+        run: ./.github/scripts/check-windows-uia.ps1 -Executable "${{ runner.temp }}/windows-uia/sample-owner-checks.exe"
