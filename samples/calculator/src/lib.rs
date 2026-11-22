@@ -17,7 +17,7 @@
 //! calculator does.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::window::WindowSize;
 use std::rc::Rc;
 
@@ -1171,11 +1171,7 @@ mod tests {
         primer.rebuild().expect("an empty screen failed to encode");
         let mut event = Vec::new();
         encode_event(
-            &HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::DesignSystemResolved(system),
-            },
+            &HostEvent::new(0, 0, EventPayload::DesignSystemResolved(system)),
             &mut event,
         )
         .expect("the design system did not encode");
@@ -1604,11 +1600,7 @@ mod tests {
 
         fn dispatch(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) -> i64 {
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                },
+                &HostEvent::new(node_id, handler_id, payload),
                 &mut self.event,
             )
             .expect("the event did not encode");
@@ -1783,11 +1775,7 @@ mod tests {
         let node_id = screen.labelled("Clear").expect("the tape has no clear");
         let handler = screen.clicks[&node_id];
         encode_event(
-            &HostEvent {
-                node_id,
-                handler_id: handler,
-                payload: EventPayload::Clicked,
-            },
+            &HostEvent::new(node_id, handler, EventPayload::Clicked),
             &mut screen.event,
         )
         .expect("the event did not encode");

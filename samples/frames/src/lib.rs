@@ -214,11 +214,11 @@ impl Screen {
     pub fn fill_lists(&mut self, count: u32) -> usize {
         let lists = self.live_lists();
         for (node_id, handler_id) in &lists {
-            self.dispatch(HostEvent {
-                node_id: *node_id,
-                handler_id: *handler_id,
-                payload: EventPayload::RangeRequested { start: 0, count },
-            });
+            self.dispatch(HostEvent::new(
+                *node_id,
+                *handler_id,
+                EventPayload::RangeRequested { start: 0, count },
+            ));
         }
         lists.len()
     }
@@ -281,11 +281,7 @@ impl Screen {
         };
         let mut bytes = Vec::new();
         encode_event(
-            &HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            },
+            &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
             &mut bytes,
         )
         .expect("the click did not encode");
@@ -322,11 +318,7 @@ impl Screen {
         let Some((node_id, handler_id)) = found else {
             return false;
         };
-        self.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        self.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 
@@ -390,11 +382,7 @@ impl Screen {
         let Some((node_id, handler_id)) = found else {
             return false;
         };
-        self.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        self.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 
@@ -504,15 +492,15 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
             // screen that is a different screen under each one (the calculator's pads)
             // reads that answer rather than the theme. Unsaid, every recording drew the
             // screen Material 3 gets.
-            recording.dispatch(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::DesignSystemResolved(system),
-            });
-            recording.dispatch(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            recording.dispatch(HostEvent::new(
+                0,
+                0,
+                EventPayload::DesignSystemResolved(system),
+            ));
+            recording.dispatch(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp: viewport.width_dp,
                     height_dp: viewport.height_dp,
                     class: WindowSizeClass::from_width_dp(viewport.width_dp),
@@ -522,7 +510,7 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
             prepare(&mut recording);
             if let Some(directory) = &directory {
                 write(

@@ -5,7 +5,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, ProtocolError, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{BackgroundRepeat, DesignSystem, Paint, Theme};
-use compose_rust::ui::next::{BackgroundBrush, Box, Color, Modifier};
+use compose_rust::ui::{BackgroundBrush, Box, Color, Modifier};
 
 fn encode(mutations: &[Mutation<'_>]) -> Vec<u8> {
     let mut encoder = BatchEncoder::default();

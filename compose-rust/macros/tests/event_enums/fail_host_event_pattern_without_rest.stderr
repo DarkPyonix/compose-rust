@@ -1,0 +1,15 @@
+error[E0638]: `..` required with struct marked as non-exhaustive
+  --> tests/event_enums/fail_host_event_pattern_without_rest.rs:7:9
+   |
+ 7 |       let HostEvent {
+   |  _________^
+ 8 | |         node_id,
+ 9 | |         handler_id: _,
+10 | |         payload: _,
+11 | |     } = event;
+   | |_____^
+   |
+help: add `..` at the end of the field list to ignore all other fields
+   |
+11 |     , .. } = event;
+   |     ++++

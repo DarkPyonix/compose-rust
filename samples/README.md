@@ -56,6 +56,27 @@ give an application that has not been drawn one. `selfcare` draws its own bar to
 one difference its reference makes: the destination you are on is its icon with its name
 under it inside a pale pill, and the others are icons alone.
 
+## The release checks
+
+`owner-checks` is not a clone of anything. It holds the checks a person makes by hand
+before a release, because a machine cannot see them: one screen each, reached from the list
+on the left, and each says what to do and what must be seen. It is adaptive, and its window
+draws its own caption strip (`Chrome::FullSize`).
+
+| Screen | What it checks |
+|---|---|
+| Notifications | A notification appears, is replaced under the same key, is withdrawn, comes back when pressed, and arrives from a worker thread while the window is minimised. The permission is shown, `Unsupported` included |
+| Native view | An AppKit text field placed with `NativeView` takes a Korean composition while the Compose field beside it stays empty. macOS only in 1.0; elsewhere the screen says so |
+| Caption strip | The bar runs under the window buttons, shows the safe area as numbers, moves the window from an empty part and from a marked box, and not from a marked chip |
+| Screen reader | Five controls with fixed names, in order: `Test button`, `Test switch`, `Test checkbox`, `Test slider`, `Test text field` |
+| Input method | A one-line and a multiline field, what each reported, and whether a composition is in progress |
+| About this build | The compose-rust version, the schema hash, and the commit when CI built it |
+
+Nobody has to build it to make the checks. A `ci.yml` dispatch with
+`suites=owner_checks` builds it alone and uploads `owner-checks-macos-arm64`,
+`owner-checks-windows-x64` and `owner-checks-linux-x64` (and `linux-arm64`), each with a
+`README.txt` that says how to start it and which commit it was built from.
+
 ## The pictures
 
 Five of the unified samples carry artwork, in each one's `assets/` directory: the shop's
@@ -79,7 +100,7 @@ An application registers a picture by drawing it:
 ```rust
 static HERO: &[u8] = include_bytes!("../assets/hero.svg");
 
-Image(asset(AssetKind::Svg, HERO)).modifier(Modifier.fill_max_width().height(240.0));
+Image!(asset(AssetKind::Svg, HERO), modifier = Modifier.fill_max_width().height(240.0));
 ```
 
 The bytes cross the boundary once. Everything after that is the id, so drawing the same

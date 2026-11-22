@@ -61,7 +61,7 @@ pub fn Button<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Button(text)
+    let mut scope = crate::ui::widgets::Button(text)
         .on_click(on_click)
         .modifier(modifier)
         .enabled(enabled);
@@ -114,7 +114,7 @@ macro_rules! toggle {
             #[default(None::<fn(::compose_rust::MotionFinished)>)]
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
         ) {
-            let mut $scope = crate::ui::$name($state)
+            let mut $scope = crate::ui::widgets::$name($state)
                 .on_change(on_change)
                 .modifier(modifier)
                 .enabled(enabled);
@@ -221,7 +221,7 @@ pub fn Slider<'a>(
     >,
 ) {
     let (min, max) = range;
-    let mut scope = crate::ui::Slider(value)
+    let mut scope = crate::ui::widgets::Slider(value)
         .on_change(on_change)
         .modifier(modifier)
         .range(min, max)
@@ -261,7 +261,7 @@ macro_rules! progress {
             #[default(None::<fn(::compose_rust::MotionFinished)>)]
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
         ) {
-            let mut scope = crate::ui::$name($($value)?)
+            let mut scope = crate::ui::widgets::$name($($value)?)
                 .modifier(modifier)
                 .determinate(determinate)
                 .circular(circular);
@@ -301,7 +301,7 @@ pub fn LinearProgressIndicator(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::LinearProgressIndicator(progress).modifier(modifier);
+    let mut scope = crate::ui::widgets::LinearProgressIndicator(progress).modifier(modifier);
     set_some!(scope; on_motion_finished);
     drop(scope);
 }
@@ -317,7 +317,9 @@ pub fn Divider(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::Divider().modifier(modifier).vertical(vertical);
+    let mut scope = crate::ui::widgets::Divider()
+        .modifier(modifier)
+        .vertical(vertical);
     set_some!(scope; on_motion_finished);
     drop(scope);
 }
@@ -343,7 +345,7 @@ pub fn Separator(
         Some(paint) => modifier.background(paint),
         None => modifier,
     };
-    let mut scope = crate::ui::Separator(color)
+    let mut scope = crate::ui::widgets::Separator(color)
         .modifier(modifier)
         .vertical(vertical);
     set_some!(scope; on_motion_finished);
@@ -386,19 +388,18 @@ macro_rules! picture {
 
 picture! {
     /// A registered asset drawn as a picture. Compose's `Image`.
-    Image(asset_id: u32) = crate::ui::Image
+    Image(asset_id: u32) = crate::ui::widgets::Image
 }
 
 picture! {
     /// A registered icon, tinted. Compose's `Icon`. `IconAsset` draws an SVG the
     /// application ships instead.
-    Icon(asset_id: u32) = crate::ui::Icon
+    Icon(asset_id: u32) = crate::ui::widgets::Icon
 }
 
 picture! {
     /// An icon drawn from an SVG the application ships, registered with
     /// [`asset`](crate::asset::asset) as [`AssetKind::Svg`](crate::schema::AssetKind::Svg).
-    /// The function form of `Icon::asset`.
     ///
     /// The picture is drawn in the icon slot at the size an [`IconRole`] icon has in the
     /// design system, and in the icon's colour: every fill and every stroke takes the
@@ -410,7 +411,7 @@ picture! {
     ///
     /// IconAsset!(asset(AssetKind::Svg, BELL), color = Paint::Role(ColorRole::Primary));
     /// ```
-    IconAsset(asset_id: AssetId) = crate::ui::Icon::asset
+    IconAsset(asset_id: AssetId) = crate::ui::widgets::Icon::asset
 }
 
 /// Pixels the widget vocabulary cannot produce. Compose's `Canvas`, with the drawing as a
@@ -432,7 +433,7 @@ pub fn Canvas(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::Canvas(commands).modifier(modifier);
+    let mut scope = crate::ui::widgets::Canvas(commands).modifier(modifier);
     if let Some((width, height)) = view_box.into() {
         scope = scope.view_box(width, height);
     }
@@ -462,7 +463,7 @@ pub fn DatePicker(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::DatePicker(value)
+    let mut scope = crate::ui::widgets::DatePicker(value)
         .on_change(on_change)
         .modifier(modifier)
         .enabled(enabled);
@@ -488,7 +489,7 @@ pub fn TimePicker(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::TimePicker(value)
+    let mut scope = crate::ui::widgets::TimePicker(value)
         .on_change(on_change)
         .modifier(modifier)
         .enabled(enabled);
@@ -522,7 +523,7 @@ macro_rules! dropdown {
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
             #[default(|| {})] content: impl FnOnce(),
         ) {
-            let mut scope = crate::ui::$name(selected_index)
+            let mut scope = crate::ui::widgets::$name(selected_index)
                 .on_change(on_change)
                 .modifier(modifier)
                 .enabled(enabled)
@@ -570,7 +571,7 @@ pub fn MenuItem(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::MenuItem(text)
+    let mut scope = crate::ui::widgets::MenuItem(text)
         .on_click(on_click)
         .modifier(modifier)
         .selected(selected)
@@ -600,7 +601,7 @@ pub fn Chip(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::Chip(text)
+    let mut scope = crate::ui::widgets::Chip(text)
         .on_click(on_click)
         .modifier(modifier)
         .selected(selected)
@@ -625,7 +626,7 @@ pub fn FloatingAction(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::FloatingAction(text)
+    let mut scope = crate::ui::widgets::FloatingAction(text)
         .on_click(on_click)
         .modifier(modifier);
     set!(scope; icon);
@@ -651,7 +652,7 @@ pub fn Badge<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Badge().modifier(modifier);
+    let mut scope = crate::ui::widgets::Badge().modifier(modifier);
     set!(scope; value, text, color);
     set_some!(scope; on_motion_finished);
     scope.content(content);

@@ -1152,6 +1152,7 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     CompactOverlay = 37,
     Calculator = 38,
     Refresh = 39,
+    Delete = 40,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
@@ -4322,7 +4323,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     OnNativeViewFocus = 191,
 });
 
+/// What happened, for each event the Renderer can send.
+///
+/// It is non-exhaustive so that an event can be added without breaking code outside this
+/// crate: a `match` on it ends with a `_` arm.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum EventPayload<'a> {
     Clicked,
     TextChanged(&'a str),

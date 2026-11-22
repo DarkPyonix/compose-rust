@@ -27,7 +27,7 @@ use std::sync::Arc;
 /// The slot table runtime for one root: what composes the tree and runs its handlers.
 ///
 /// Every method enters the composition for its own length, so it may be called from any
-/// Host call on the UI thread. The tree's records go into [`Recomposer::writer`]'s batch,
+/// Host call on the UI thread. The tree's records go into the composer's `writer` batch,
 /// between whatever the Host writes before and after them.
 pub struct Recomposer {
     content: Rc<dyn Fn()>,
@@ -275,7 +275,7 @@ impl crate::LaunchBuilder {
     /// ```ignore
     /// #[Composable]
     /// fn app() {
-    ///     Text("Hello");
+    ///     Text!("Hello");
     /// }
     ///
     /// fn main() {
@@ -305,7 +305,7 @@ impl crate::LaunchBuilder {
 /// fn counter() {
 ///     let count = remember(|| mutable_state_of(0));
 ///     let more = count.clone();
-///     Button(format!("{}", count.get())).on_click(move || more.update(|count| *count += 1));
+///     Button!(format!("{}", count.get()), move || more.update(|count| *count += 1));
 /// }
 ///
 /// fn main() {

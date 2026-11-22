@@ -13,7 +13,7 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, EventPayload, PropertyKind, Theme};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -54,16 +54,16 @@ fn reads(batch: &[u8]) -> Vec<u32> {
 }
 
 fn answer(request: u32, status: u32, len: u32, text: &str) -> HostEvent<'_> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ClipboardText {
+    HostEvent::new(
+        0,
+        0,
+        EventPayload::ClipboardText {
             request,
             status,
             len,
             text,
         },
-    }
+    )
 }
 
 struct Session {
@@ -89,11 +89,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         let requests = reads(batch);
         assert_eq!(requests.len(), 1, "one press is one read request");
@@ -220,16 +216,16 @@ fn fr78_unavailable_clipboard_reads_none() {
     assert!(
         session
             .host
-            .dispatch(HostEvent {
-                node_id: 1,
-                handler_id: 0,
-                payload: EventPayload::ClipboardText {
+            .dispatch(HostEvent::new(
+                1,
+                0,
+                EventPayload::ClipboardText {
                     request: 1,
                     status: read_status::NONE,
                     len: 0,
                     text: "",
-                },
-            })
+                }
+            ))
             .is_err()
     );
     let request = session.press("paste");

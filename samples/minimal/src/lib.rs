@@ -17,7 +17,7 @@ mod marks;
 mod palette;
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 /// How wide the page may grow past a phone, in dp. A phone sheet in a desktop window is
@@ -247,8 +247,7 @@ fn panel_and_delete() {
                     );
                 }
             );
-            // A word rather than the reference's bin, because no icon role means
-            // deleting yet (#593).
+            // The reference's white bin on its red square.
             Box!(
                 modifier = Modifier
                     .width(DELETE_WIDTH)
@@ -257,17 +256,13 @@ fn panel_and_delete() {
                     .corner_radius(CARD_CORNER),
                 alignment = Alignment::Center,
                 {
-                    Text!(
-                        "Delete",
-                        type_role = TypeRole::Label,
-                        font_weight = BOLD,
-                        color = palette::PAGE
-                    );
                     Button!(
                         "",
                         || {},
+                        icon = IconRole::Delete,
                         accessible_name = "Delete",
                         variant = ButtonVariant::Text,
+                        color = palette::PAGE,
                         modifier = Modifier.match_parent_size()
                     );
                 }
@@ -812,11 +807,7 @@ mod tests {
             };
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                },
+                &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
                 &mut bytes,
             )
             .expect("the click did not encode");
@@ -1124,6 +1115,33 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// The delete action is the white bin of the delete icon, not the word "Delete".
+    #[test]
+    fn fr16_the_delete_action_draws_the_delete_icon() {
+        let screen = Screen::new();
+        let control = screen
+            .named("Delete")
+            .expect("the sheet has no delete action");
+        let icon = screen
+            .live()
+            .iter()
+            .rev()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Icon,
+                    value: PropertyValue::Integer(tag),
+                } if *node_id == control => Some(*tag),
+                _ => None,
+            });
+        assert_eq!(icon, Some(i64::from(u16::from(IconRole::Delete))));
+        assert!(
+            !screen.texts().iter().any(|text| text == "Delete"),
+            "the delete action still writes the word"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
     /// The hero's second disc is the shaded one, lies over the solid disc, and casts the
     /// shadow. It used to be a flat grey disc under a black one, with no shadow at all.
     #[test]
@@ -1226,10 +1244,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -1239,7 +1257,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");

@@ -337,11 +337,7 @@ fn click_target(host: &mut Host) -> HostEvent<'static> {
             _ => None,
         })
         .expect("the button's click handler is in the first batch");
-    HostEvent {
-        node_id,
-        handler_id,
-        payload: EventPayload::Clicked,
-    }
+    HostEvent::new(node_id, handler_id, EventPayload::Clicked)
 }
 
 /// One dom driven by hand, so a stage can be timed on its own.

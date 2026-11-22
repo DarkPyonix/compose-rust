@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
@@ -145,11 +145,7 @@ fn fr67_dropping_a_colour_or_size_sends_a_removal() {
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let mut batches = vec![batch.to_vec()];
     batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
