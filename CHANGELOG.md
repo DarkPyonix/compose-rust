@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### A button that names no kind sends no kind
+
+A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
 ### Compose from fork test compares the fork with its own baseline
 
 The workflow no longer builds Compose a second time from JetBrains' sources and the three patches. It compares the fork's publication with a stored baseline of the fork line, one digest per published module (`renderer/scripts/compose-baseline/`), and fails on any module that differs unless the fork changed that module's sources since the baseline's revision. `.github/scripts/refresh-compose-baseline.sh <run id>` refreshes the baseline when the pin moves ([#361](https://github.com/DarkPyonix/compose-rust/issues/361)).
