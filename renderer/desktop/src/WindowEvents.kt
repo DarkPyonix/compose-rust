@@ -9,6 +9,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import org.thisisthepy.compose.window.TextScale
@@ -97,6 +98,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
                 eventType = PointerEventType.Move,
                 position = pos,
                 buttons = pointerButtonsOf(event.buttons),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
@@ -110,6 +112,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
                 position = pos,
                 button = button,
                 buttons = pointerButtonsOf(mask),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
@@ -121,6 +124,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
                 position = pos,
                 button = pressedButton(event),
                 buttons = PointerButtons(isPrimaryPressed = false),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
@@ -130,11 +134,34 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
             eventType = PointerEventType.Scroll,
             position = lastPointerPositions[this] ?: Offset.Zero,
             scrollDelta = Offset(event.x, event.y),
+            keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
         )
     }
     return keyConsumed
 }
 
+
+/**
+ * The keyboard modifiers a window recorded with a pointer event (FR-46.2). The Windows window
+ * records them as 1 Shift, 2 Ctrl, 4 Alt, 8 Win, as it does for keys; the X11 window and AppKit
+ * as AppKit's flag bits (Shift 1 shl 17, Control 18, Option 19, Command 20).
+ */
+internal fun keyboardModifiersOf(modifiers: Int, win32: Boolean): PointerKeyboardModifiers =
+    if (win32) {
+        PointerKeyboardModifiers(
+            isShiftPressed = modifiers and 1 != 0,
+            isCtrlPressed = modifiers and 2 != 0,
+            isAltPressed = modifiers and 4 != 0,
+            isMetaPressed = modifiers and 8 != 0,
+        )
+    } else {
+        PointerKeyboardModifiers(
+            isShiftPressed = modifiers and (1 shl 17) != 0,
+            isCtrlPressed = modifiers and (1 shl 18) != 0,
+            isAltPressed = modifiers and (1 shl 19) != 0,
+            isMetaPressed = modifiers and (1 shl 20) != 0,
+        )
+    }
 
 internal fun pointerButtonsOf(mask: Int): PointerButtons = PointerButtons(
     isPrimaryPressed = mask and 1 != 0,
