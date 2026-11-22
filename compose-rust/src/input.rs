@@ -90,6 +90,42 @@ impl KeyEvent {
     }
 }
 
+/// A request to go back that nothing the Renderer owns took: Android's back gesture or
+/// button, Escape, a mouse's back button, or a swipe in from the leading edge on iOS.
+///
+/// The innermost node with a handler hears it first. A handler that acted on it calls
+/// [`consume`](BackRequested::consume), and the request ends there. One that did not
+/// leaves it for the next handler out, and after the last of them for the platform:
+/// Android then does what it does with a back nobody claimed.
+#[derive(Clone, Debug)]
+pub struct BackRequested {
+    source: crate::schema::BackSource,
+    consumed: Rc<Cell<bool>>,
+}
+
+impl BackRequested {
+    pub fn new(source: crate::schema::BackSource) -> Self {
+        Self {
+            source,
+            consumed: Rc::new(Cell::new(false)),
+        }
+    }
+
+    /// Which gesture or key asked.
+    pub fn source(&self) -> crate::schema::BackSource {
+        self.source
+    }
+
+    /// Says the request was acted on, so no outer handler and no platform default sees it.
+    pub fn consume(&self) {
+        self.consumed.set(true);
+    }
+
+    pub fn consumed(&self) -> bool {
+        self.consumed.get()
+    }
+}
+
 /// The paths of the files a reader let go over a node.
 ///
 /// Separated on the wire by a NUL, which is the one byte no path on any of the three

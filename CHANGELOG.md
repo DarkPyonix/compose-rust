@@ -19,6 +19,12 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
 
+### A request to go back reaches the application
+
+A layout container and `Window!` take `on_back_requested`. Its handler hears Android's back gesture and button, Escape, a mouse's back button and the swipe in from the leading edge on iOS, when no open overlay and no focused control took it first. The innermost node with a handler hears it first. `BackRequested::consume()` ends the request there; a handler that leaves it passes it to the next handler out, and after the last of them to the platform, which on Android does what it does with a back nobody claimed. `BackRequested::source()` says which of the four it was, as a `BackSource`. A window with no handler does not claim the platform's back at all.
+
+On the wire this is the event `BackRequested` (tag 70, 20 bytes: the header and a `BackSource` word) and the handler property `OnBackRequested` (tag 223). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

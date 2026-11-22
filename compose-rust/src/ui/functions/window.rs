@@ -2,6 +2,7 @@
 
 use super::{set, set_some};
 use crate::schema::{Chrome, Theme, TitleBar};
+use crate::BackRequested;
 use crate::windows::{DragFromPointer, WindowDragEvent, WindowFrame};
 use compose_rust_macros::Composable;
 
@@ -41,7 +42,9 @@ use compose_rust_macros::Composable;
 /// its outer frame move or change size, and `on_drag` the window being dragged out of a
 /// tab and how that ended. `on_unavailable` means the platform could not open this
 /// window: tell the user, or put the tab back. `on_closed` means the system closed the
-/// window without asking: stop composing it.
+/// window without asking: stop composing it. `on_back_requested` hears a request to go
+/// back in this window that no node inside it consumed; calling `consume` on the event
+/// keeps the platform from acting on it.
 #[Composable(widget)]
 pub fn Window<'a>(
     on_close_request: impl FnMut() + 'static,
@@ -69,6 +72,9 @@ pub fn Window<'a>(
     >,
     #[default(None::<fn()>)] on_unavailable: Option<impl FnMut() + 'static>,
     #[default(None::<fn()>)] on_closed: Option<impl FnMut() + 'static>,
+    #[default(None::<fn(::compose_rust::BackRequested)>)] on_back_requested: Option<
+        impl FnMut(BackRequested) + 'static,
+    >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
     let mut scope = crate::ui::widgets::Window(on_close_request);
@@ -101,6 +107,7 @@ pub fn Window<'a>(
         on_drag,
         on_unavailable,
         on_closed,
+        on_back_requested,
     );
     scope.content(content);
 }

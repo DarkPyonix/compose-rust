@@ -71,7 +71,7 @@ pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{MotionFinished, OverflowWrap, WordBreak};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so

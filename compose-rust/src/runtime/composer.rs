@@ -185,6 +185,8 @@ pub(crate) enum EventCallback {
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
     /// The size a node's size motion settled at.
     Motion(Rc<RefCell<dyn FnMut(crate::MotionFinished)>>),
+    /// A request to go back, which the handler consumes or leaves.
+    Back(Rc<RefCell<dyn FnMut(crate::BackRequested)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
 }

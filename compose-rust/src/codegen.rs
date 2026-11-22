@@ -828,6 +828,7 @@ object ScrollWire {
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
             EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
             EventPayloadType::Density => output.push_str(", val scale: kotlin.Float"),
+            EventPayloadType::Back => output.push_str(", val source: BackSource"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -1712,6 +1713,7 @@ object Protocol {
             | EventPayloadType::ReducedMotion
             | EventPayloadType::ColorScheme
             | EventPayloadType::Density
+            | EventPayloadType::Back
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1763,6 +1765,8 @@ object Protocol {
             EventPayloadType::ColorScheme => 20,
             // One float after the header.
             EventPayloadType::Density => 20,
+            // The source word.
+            EventPayloadType::Back => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1998,6 +2002,14 @@ object Protocol {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> out.putFloat(event.scale)",
+                    event.name
+                )
+                .unwrap();
+            }
+            EventPayloadType::Back => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putInt(backSourceTag(event.source))",
                     event.name
                 )
                 .unwrap();
@@ -2447,6 +2459,11 @@ object Protocol {
             "systemColorSchemeTag",
             "SystemColorScheme",
             crate::schema::SYSTEM_COLOR_SCHEME_SCHEMA,
+        ),
+        (
+            "backSourceTag",
+            "BackSource",
+            crate::schema::BACK_SOURCE_SCHEMA,
         ),
         (
             "pointerKindTag",
@@ -4337,6 +4354,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 25,
             focus: true,
         },
+        // The root box hears a request to go back. After every older record, so none of
+        // them moves.
+        Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::OnBackRequested,
+            value: PropertyValue::Integer(302),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -4850,6 +4874,14 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 301,
             payload: EventPayload::NativeViewFocus { focused: true },
         },
+        // A swipe in from the edge that nothing took, to the root box's back handler.
+        HostEvent {
+            node_id: 1,
+            handler_id: 302,
+            payload: EventPayload::BackRequested {
+                source: crate::schema::BackSource::EdgeSwipe,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4869,7 +4901,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 147,
+    "recordCount": 148,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4904,7 +4936,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Fifty-two independently decodable event records concatenated in schema order",
+    "description": "Fifty-three independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4957,7 +4989,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "SelectionsChanged", "offset": 1683, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
       {{ "type": "DensityChanged", "offset": 1759, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
       {{ "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
+      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }},
+      {{ "type": "BackRequested", "offset": 1835, "length": 20, "nodeId": 1, "handlerId": 302, "source": "EdgeSwipe" }}
     ]
   }}
 }}

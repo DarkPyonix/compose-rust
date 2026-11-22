@@ -87,6 +87,7 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         // are already the application's own.
         dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { UserDefaultsZoomLevel }
         NativeViewPlatform.available = true
+        installIosBack()
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
         val nativeViews = IosNativeViewWindow(window)
         val content = ComposeUIViewController(
