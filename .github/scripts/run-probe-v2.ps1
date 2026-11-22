@@ -22,10 +22,17 @@
 # prompt.
 #
 # -NoPause skips the closing prompt (CI). -Out puts the logs somewhere else. -Apps picks which
-# of kn, graalvm and control run (all that are present, by default). -Edges picks the drags
-# (right, bottom, corner, left and states, by default). -StatesRuns runs the window states of
-# kn on the new path that many times (1, by default), labelled kn-new-states, kn-new-states-r2
-# and on: its few size changes a run are too few for a rate, and CI judges them by one.
+# of kn, graalvm and control run (all that are present, by default; a comma list in one
+# argument, as powershell -File passes it, works too). -Edges picks the drags (right, bottom,
+# corner, left and states, by default). -StatesRuns runs the window states of each renderer on
+# the new path that many times (1, by default), labelled kn-new-states, kn-new-states-r2 and on
+# (graalvm-new-states for the GraalVM one): their few size changes a run are too few for a
+# rate, and CI judges them by one.
+#
+# graalvm\bin\hand-check.exe is the C smoke host (renderer/desktop/c/smoke_host.c) linked to
+# the GraalVM renderer, which draws hand-check's marker scene under DXC_RESIZE_MARKER=1:
+# compose-rust links only the Kotlin/Native kit on Windows, so hand-check itself cannot link
+# the GraalVM image.
 param(
     [switch]$NoPause,
     [string]$Out = '',
@@ -34,6 +41,8 @@ param(
     [int]$StatesRuns = 1
 )
 $ErrorActionPreference = 'Continue'
+$Apps = @($Apps | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+$Edges = @($Edges | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $out = if ($Out -ne '') { $Out } else { Join-Path $here 'probe-logs' }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -55,10 +64,10 @@ foreach ($app in $all) {
     foreach ($path in $app.Paths) {
         foreach ($edge in $Edges) {
             # The window states are not a drag, so they have no mouse rate: one run each, or
-            # -StatesRuns runs for kn on the new path.
+            # -StatesRuns runs for a renderer on the new path.
             $edgeRates = $rates
             if ($edge -eq 'states') {
-                $repeat = if ($app.Name -eq 'kn' -and $path -eq 'new') { [Math]::Max(1, $StatesRuns) } else { 1 }
+                $repeat = if ($app.Name -ne 'control' -and $path -eq 'new') { [Math]::Max(1, $StatesRuns) } else { 1 }
                 $edgeRates = @(1..$repeat | ForEach-Object { , @(16, 8, $_) })
             }
             foreach ($r in $edgeRates) {
