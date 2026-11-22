@@ -25,6 +25,8 @@ const LAST_OPTIONAL_PROPERTY: u16 = PropertyKind::Variant as u16;
 /// and got the Renderer's default instead. A list of runs has no such value. Empty and
 /// absent are the same state, so the first empty one is worth no record.
 const SPANS_BIT: u32 = 63;
+/// A count that is absent is not a count of 0, so only `None` is neutral for it.
+const COUNT_BIT: u32 = 62;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
@@ -1023,6 +1025,8 @@ impl NodeWriter {
             u32::from(tag - FIRST_OPTIONAL_PROPERTY)
         } else if property == PropertyKind::Spans {
             SPANS_BIT
+        } else if property == PropertyKind::Count {
+            COUNT_BIT
         } else {
             return true;
         };
@@ -1069,6 +1073,8 @@ impl NodeWriter {
         // with no extra spacing, where an unset spacing takes the role's. So its unset value
         // is NaN (or nothing), and an explicit 0 is written like any other value.
         let neutral = if property == PropertyKind::TypeRole {
+            matches!(value, PropertyValue::None)
+        } else if property == PropertyKind::Count {
             matches!(value, PropertyValue::None)
         } else if property == PropertyKind::LetterSpacing {
             match value {
