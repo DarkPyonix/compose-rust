@@ -30,6 +30,9 @@ import dev.darkpyonix.composerust.ui.node.Node
 /** The two bits of one tri-state field in the `Semantics` state word. */
 private const val FIELD_MASK = 0b11
 private const val CHECKED_SHIFT = 0
+
+/** The checked field's fourth value: the node is mixed, neither checked nor unchecked. */
+private const val CHECKED_MIXED = 3
 private const val SELECTED_SHIFT = 2
 private const val EXPANDED_SHIFT = 4
 private const val DISABLED_SHIFT = 6
@@ -67,6 +70,14 @@ internal fun Node.isDeclaredSelected(): Boolean {
 internal fun Node.declaredSemanticsRole(): SemanticsRole? {
     val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
     return declared?.role?.takeIf { it != SemanticsRole.None }
+}
+
+/** The checked field of the state word: unset, off, on or mixed. */
+private fun Int.checkedField(): ToggleableState? = when ((this shr CHECKED_SHIFT) and FIELD_MASK) {
+    1 -> ToggleableState.Off
+    2 -> ToggleableState.On
+    CHECKED_MIXED -> ToggleableState.Indeterminate
+    else -> null
 }
 
 /** A field of the state word: unset, off or on. */
@@ -184,7 +195,7 @@ internal fun Modifier.accessibility(
     val state = declared?.state ?: 0
     val declaredRole = declared?.role
     val role = declaredRole?.toRole()
-    val checked = state.field(CHECKED_SHIFT)
+    val checked = state.checkedField()
     val selected = state.field(SELECTED_SHIFT)
     val expanded = state.field(EXPANDED_SHIFT)
     val isDisabled = state.field(DISABLED_SHIFT)
@@ -209,7 +220,7 @@ internal fun Modifier.accessibility(
         if (declaredRole != null && declaredRole != SemanticsRole.None) this[DeclaredRole] = declaredRole
         if (expanded != null) this[DeclaredExpanded] = expanded
         if (hasPopup) this[DeclaredHasPopup] = true
-        if (checked != null) toggleableState = ToggleableState(checked)
+        if (checked != null) toggleableState = checked
         if (selected != null) this.selected = selected
         if (isDisabled == true) disabled()
         if (focused != null) this.focused = focused

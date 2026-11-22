@@ -310,6 +310,72 @@ class ScrollWireTest {
     }
 
     @Test
+    fun fr80_scroll_into_view_in_creating_batch_for_absolute_box_target() = runComposeUiTest {
+        val rowScroll = 3
+        val absBox = 4
+        val target = 100 + 38
+        val mutations = buildList {
+            add(Mutation.Create(LIST, WidgetKind.ScrollColumn))
+            add(Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(400f, 320f)))
+            add(Mutation.SetProp(LIST, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)))
+            add(Mutation.Create(rowScroll, WidgetKind.ScrollRow))
+            add(Mutation.Insert(LIST, rowScroll, 0))
+            add(Mutation.Create(absBox, WidgetKind.AbsoluteBox))
+            add(Mutation.SetModifier(absBox, 0, ProtocolModifier.Size(400f, 60 * 34f)))
+            add(Mutation.Insert(rowScroll, absBox, 0))
+            for (i in 0 until 60) {
+                val id = 100 + i
+                add(Mutation.Create(id, WidgetKind.Box))
+                add(Mutation.SetModifier(id, 0, ProtocolModifier.Offset(0f, i * 34f)))
+                add(Mutation.SetModifier(id, 1, ProtocolModifier.RequiredSize(400f, 34f)))
+                add(Mutation.Insert(absBox, id, i))
+            }
+            // Mirrors dioxus-compose's overflow:auto (ScrollRow inside ScrollColumn): both
+            // containers receive ScrollIntoView for the same target node in the creating batch.
+            add(intoView(rowScroll, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST))
+            add(intoView(LIST, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST))
+        }
+        val screen = screen(mutations)
+        assertTrue(screen.errors.isEmpty(), "no protocol error: ${screen.errors}")
+        val expectedY = (38 + 1) * 34.0 - 320.0
+        assertEquals(expectedY, screen.reports.last().yPx, 1.0, "row 38 should be scrolled into view on first batch")
+        val bounds = onNodeWithTag(nodeTestTag(target)).getUnclippedBoundsInRoot()
+        assertTrue(bounds.top.value >= -0.5f && bounds.bottom.value <= 320.5f, "target bounds $bounds must be inside 0..320")
+    }
+
+    @Test
+    fun fr80_scroll_into_view_on_two_containers_for_same_target_keeps_placement_alive() = runComposeUiTest {
+        val rowScroll = 3
+        val absBox = 4
+        val target = 5
+        val rowHandler = HANDLER + 1
+        val screen = screen(
+            listOf(
+                Mutation.Create(LIST, WidgetKind.ScrollColumn),
+                Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(400f, 320f)),
+                Mutation.SetProp(LIST, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.Create(rowScroll, WidgetKind.ScrollRow),
+                Mutation.SetProp(rowScroll, PropertyKind.OnScrollChanged, PropertyValue.Integer(rowHandler)),
+                Mutation.Insert(LIST, rowScroll, 0),
+                Mutation.Create(absBox, WidgetKind.AbsoluteBox),
+                Mutation.SetModifier(absBox, 0, ProtocolModifier.Size(1000f, 60 * 34f)),
+                Mutation.Insert(rowScroll, absBox, 0),
+                Mutation.Create(target, WidgetKind.Box),
+                Mutation.SetModifier(target, 0, ProtocolModifier.Offset(600f, 38 * 34f)),
+                Mutation.SetModifier(target, 1, ProtocolModifier.RequiredSize(100f, 34f)),
+                Mutation.Insert(absBox, target, 0),
+                intoView(rowScroll, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST),
+                intoView(LIST, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST),
+            ),
+        )
+        assertTrue(screen.errors.isEmpty(), "no protocol error: ${screen.errors}")
+        val colReport = screen.reports.last { it.nodeId == LIST }
+        val rowReport = screen.reports.last { it.nodeId == rowScroll }
+        assertEquals((38 + 1) * 34.0 - 320.0, colReport.yPx, 1.0, "vertical container should scroll target into view")
+        assertEquals(600.0 + 100.0 - 400.0, rowReport.xPx, 1.0, "horizontal container should also scroll target into view")
+    }
+
+    @Test
     fun fr80_lazy_list_scroll_into_view_reaches_an_unseen_item() = runComposeUiTest {
         val screen = screen(
             listOf(
