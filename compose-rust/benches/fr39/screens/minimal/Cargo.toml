@@ -1,0 +1,18 @@
+# The minimal sample's screen as the frozen scenarios know it, kept as a measurement
+# fixture. See the header of src/lib.rs for where it came from and why it is here.
+[package]
+name = "fr39-screen-minimal"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "fr39_screen_minimal"
+path = "src/lib.rs"
+bench = false
+
+# Today's runtime from this checkout, without the renderer download: the bench drives the
+# boundary with no window. The candidate turns on the mock renderer for the whole graph.
+[dependencies]
+compose-rust = { path = "../../../..", default-features = false }
