@@ -93,13 +93,119 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
         }
     }
 
+    // TRIAL (root cause, 2026-11-22). `DXC_GPU_LOG=1`: one line per drawn frame in which Metal's
+    // allocation moved by 64 KB or more, or in which a blurred layer was drawn with a different
+    // count, with Skia's CPU caches. `DXC_GPU_PROBE_FILE=<dir>`: when a file appears in the directory,
+    // its name is a label and it is removed; Metal is read, Skia's GPU cache is emptied (limit 0 and back), and Metal is
+    // read again at once and half a second later. `DXC_BACKDROP=none|inactive`: the window's
+    // NSVisualEffectView is taken out (its subviews moved to a plain view that answers the same
+    // accessibility children) or set inactive.
+    private val gpuLog = System.getenv("DXC_GPU_LOG") == "1"
+    private val probeFile = System.getenv("DXC_GPU_PROBE_FILE")
+    private val backdropMode = System.getenv("DXC_BACKDROP")
+    private val origin = System.nanoTime()
+    private var frames = 0L
+    private var loggedMetal = -1L
+    private var loggedBlur = ""
+    private var blurFrames = 0L
+    private var probeLabel: String? = null
+    private var probeAgainAt = 0L
+    private var backdropDone = false
+
+    private fun ms() = (System.nanoTime() - origin) / 1_000_000L
+    private fun skiaCpu() =
+        "skia_cpu_kb=${org.jetbrains.skia.Graphics.resourceCacheTotalUsed.toLong() / 1024L} " +
+            "font_cache_kb=${org.jetbrains.skia.Graphics.fontCacheUsed.toLong() / 1024L}"
+
     fun onFrameDrawn() {
         lastFrame = System.nanoTime()
         purged = false
+        if (!gpuLog) {
+            dev.darkpyonix.composerust.design.BlurTrial.reset()
+            return
+        }
+        frames++
+        val metal = window.metalSurface.allocatedBytes
+        val blurred = dev.darkpyonix.composerust.design.BlurTrial.any()
+        if (blurred) blurFrames++
+        val blur = dev.darkpyonix.composerust.design.BlurTrial.summary()
+        val moved = loggedMetal < 0 || kotlin.math.abs(metal - loggedMetal) >= 65536L
+        if (moved || blur != loggedBlur) {
+            System.err.println(
+                "compose-rust: gpu frame=$frames t_ms=${ms()} metal_kb=${metal / 1024L} " +
+                    "delta_kb=${if (loggedMetal < 0) 0 else (metal - loggedMetal) / 1024L} " +
+                    "drawable=${window.metalSurface.widthInPixels}x${window.metalSurface.heightInPixels} " +
+                    "${skiaCpu()} blur_frames=$blurFrames $blur",
+            )
+            loggedMetal = metal
+            loggedBlur = blur
+        }
+        dev.darkpyonix.composerust.design.BlurTrial.reset()
+    }
+
+    private fun applyBackdrop() {
+        if (backdropDone || backdropMode == null) return
+        backdropDone = true
+        val content = window.window.contentView ?: return
+        val effect = content as? platform.AppKit.NSVisualEffectView
+        if (effect == null) {
+            System.err.println("compose-rust: trial backdrop content view is not an effect view")
+            return
+        }
+        when (backdropMode) {
+            "inactive" -> {
+                effect.state = platform.AppKit.NSVisualEffectState.NSVisualEffectStateInactive
+                System.err.println("compose-rust: trial backdrop inactive")
+            }
+            "none" -> {
+                val plain = TrialPlainContent(effect)
+                plain.autoresizingMask = effect.autoresizingMask
+                val responder = window.window.firstResponder
+                val children = effect.subviews.map { it as platform.AppKit.NSView }
+                window.window.contentView = plain
+                for (child in children) {
+                    child.removeFromSuperview()
+                    plain.addSubview(child)
+                }
+                if (responder != null) window.window.makeFirstResponder(responder)
+                System.err.println("compose-rust: trial backdrop removed, moved ${children.size} subviews")
+            }
+        }
+    }
+
+    private fun probe(now: Long) {
+        val path = probeFile ?: return
+        if (probeLabel != null && probeAgainAt > 0L && now >= probeAgainAt) {
+            System.err.println(
+                "compose-rust: gpu probe label=$probeLabel stage=after500ms t_ms=${ms()} " +
+                    "metal_kb=${window.metalSurface.allocatedBytes / 1024L} frames=$frames",
+            )
+            probeLabel = null
+            probeAgainAt = 0L
+        }
+        val files = platform.Foundation.NSFileManager.defaultManager
+        val names = files.contentsOfDirectoryAtPath(path, error = null) ?: return
+        val name = names.firstOrNull() as? String ?: return
+        files.removeItemAtPath("$path/$name", error = null)
+        val label = name
+        val before = window.metalSurface.allocatedBytes
+        val limit = window.metalSurface.cacheLimitBytes
+        window.metalSurface.cacheLimitBytes = 0L
+        window.metalSurface.cacheLimitBytes = limit
+        val after = window.metalSurface.allocatedBytes
+        System.err.println(
+            "compose-rust: gpu probe label=$label stage=purge t_ms=${ms()} metal_before_kb=${before / 1024L} " +
+                "metal_after_kb=${after / 1024L} freed_kb=${(before - after) / 1024L} limit_mb=${limit / 1048576L} " +
+                "frames=$frames ${skiaCpu()}",
+        )
+        probeLabel = label
+        probeAgainAt = now + 500_000_000L
     }
 
     fun tick() {
         val now = System.nanoTime()
+        applyBackdrop()
+        probe(now)
         if (metalLog && now - lastLog >= 5_000_000_000L) {
             lastLog = now
             System.err.println(
@@ -119,4 +225,12 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
             )
         }
     }
+}
+
+/** TRIAL: the plain content view `DXC_BACKDROP=none` puts where the effect view was. */
+private class TrialPlainContent(private val effect: platform.AppKit.NSView) :
+    platform.AppKit.NSView(effect.frame) {
+    override fun isAccessibilityElement(): Boolean = true
+    override fun accessibilityRole(): String? = effect.accessibilityRole()
+    override fun accessibilityChildren(): List<*>? = effect.accessibilityChildren()
 }

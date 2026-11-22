@@ -1015,7 +1015,7 @@ private fun Modifier.boxShadow(
         spread == 0f && cast.exact != null -> cast.exact
         else -> Path().apply { addRoundRect(grownBox) }
     }
-    if (blur == 0f) {
+    if (blur == 0f || dev.darkpyonix.composerust.design.BlurTrial.off) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {
                 translate(dx - spread, dy - spread) { drawPath(shapePath, brush) }
@@ -1037,6 +1037,8 @@ private fun Modifier.boxShadow(
     }
     layer.renderEffect = BlurEffect(composeBlurRadius(sigma), composeBlurRadius(sigma), TileMode.Decal)
     onDrawBehind {
+        dev.darkpyonix.composerust.design.BlurTrial.shadowBlurs++
+        dev.darkpyonix.composerust.design.BlurTrial.note(layer.size.width, layer.size.height)
         clipPath(boxPath, ClipOp.Difference) {
             translate(dx - spread - margin, dy - spread - margin) { drawLayer(layer) }
         }

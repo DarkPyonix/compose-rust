@@ -50,6 +50,42 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalWindowInfo
+import java.lang.System
+
+/**
+ * TRIAL (memory under 100 MB, not for merging): counts the layers drawn with a blur render
+ * effect in each frame, and their sizes, for the macOS renderer's GPU log. `DXC_NO_BLUR=1`
+ * skips every blurred layer (glass backdrop, lift, blurred box shadow) to measure what they hold.
+ */
+object BlurTrial {
+    val off: Boolean = System.getenv("DXC_NO_BLUR") == "1"
+    var glassRecords = 0
+    var glassBlurs = 0
+    var lifts = 0
+    var shadowBlurs = 0
+    var maxWidth = 0
+    var maxHeight = 0
+    var pixels = 0L
+
+    fun note(width: Int, height: Int) {
+        pixels += width.toLong() * height.toLong()
+        if (width.toLong() * height > maxWidth.toLong() * maxHeight) {
+            maxWidth = width
+            maxHeight = height
+        }
+    }
+
+    fun summary(): String =
+        "glass_records=$glassRecords glass_blurs=$glassBlurs lifts=$lifts shadow_blurs=$shadowBlurs " +
+            "blur_px=$pixels largest=${maxWidth}x$maxHeight"
+
+    fun any(): Boolean = glassRecords + glassBlurs + lifts + shadowBlurs > 0
+
+    fun reset() {
+        glassRecords = 0; glassBlurs = 0; lifts = 0; shadowBlurs = 0
+        maxWidth = 0; maxHeight = 0; pixels = 0L
+    }
+}
 
 /**
  * Whether the reader has asked for reduced transparency.
@@ -268,13 +304,15 @@ fun Modifier.recordsGlassBackdrop(state: GlassBackdropState): Modifier = this
     .onGloballyPositioned { state.origin = it.positionInWindow() }
     .drawWithContent {
         val layer = state.layer
-        if (layer == null || state.readers <= 0) {
+        if (layer == null || state.readers <= 0 || BlurTrial.off) {
             drawContent()
         } else {
             // Cleared before recording: the effect a surface set to blur its own copy
             // belongs to that draw and not to the page's own.
             layer.renderEffect = null
             state.recording = true
+            BlurTrial.glassRecords++
+            BlurTrial.note(size.width.toInt(), size.height.toInt())
             try {
                 layer.record { this@drawWithContent.drawContent() }
             } finally {
@@ -302,6 +340,9 @@ private fun DrawScope.drawGlassBackdrop(
     if (state == null || state.recording) return
     val layer = state.layer ?: return
     if (radius <= 0.dp) return
+    if (BlurTrial.off) return
+    BlurTrial.glassBlurs++
+    BlurTrial.note(layer.size.width, layer.size.height)
     val blur = radius.toPx()
     layer.renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
     val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawGlassBackdrop)) }
@@ -360,12 +401,15 @@ fun Modifier.glassLift(material: SurfaceMaterial, shape: Shape): Modifier =
 private fun DrawScope.drawLift(layer: GraphicsLayer, shape: Shape) {
     val blur = LiquidGlass.LIFT.toPx()
     if (blur <= 0f || size.minDimension <= 0f) return
+    if (BlurTrial.off) return
     val surfaceSize = size
     val outline = shape.createOutline(surfaceSize, layoutDirection, this)
     // Room round the shape for the blur to fall away in. A gaussian is not finished at its
     // radius, and a layer that ended there would cut the shadow off with a straight line.
     val pad = blur * PAD_IN_RADII
     layer.renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+    BlurTrial.lifts++
+    BlurTrial.note((surfaceSize.width + pad * 2f).roundToInt(), (surfaceSize.height + pad * 2f).roundToInt())
     layer.record(
         size = IntSize(
             (surfaceSize.width + pad * 2f).roundToInt(),

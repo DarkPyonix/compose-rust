@@ -26,6 +26,26 @@ internal fun iconPixels(picture: ImageBitmap): IconPixels? {
  * same call and pixel form as the native image's window. Answers whether it was accepted.
  */
 internal fun applyDockIcon(picture: ImageBitmap): Boolean {
+    // TRIAL (root cause, 2026-11-22, not for merging): `DXC_ICON=none` leaves the Dock icon
+    // unset; `DXC_ICON=srgb` puts it on and then retags its pixels as sRGB instead of device RGB.
+    val mode = java.lang.System.getenv("DXC_ICON")
+    if (mode == "none") {
+        java.lang.System.err.println("compose-rust: trial icon left unset")
+        return true
+    }
     val pixels = iconPixels(picture) ?: return false
-    return setApplicationIcon(pixels.rgba, pixels.width, pixels.height)
+    val ok = setApplicationIcon(pixels.rgba, pixels.width, pixels.height)
+    if (ok && mode == "srgb") {
+        val app = platform.AppKit.NSApplication.sharedApplication()
+        val image = app.applicationIconImage
+        val rep = image?.representations?.firstOrNull() as? platform.AppKit.NSBitmapImageRep
+        val tagged = rep?.bitmapImageRepByRetaggingWithColorSpace(platform.AppKit.NSColorSpace.sRGBColorSpace)
+        if (image != null && tagged != null) {
+            val retagged = platform.AppKit.NSImage(size = image.size)
+            retagged.addRepresentation(tagged)
+            app.applicationIconImage = retagged
+            java.lang.System.err.println("compose-rust: trial icon retagged sRGB")
+        }
+    }
+    return ok
 }
