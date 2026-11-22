@@ -1191,23 +1191,31 @@ fn nfr10_a_message_names_a_build_script_only_with_the_repository_it_is_in() {
 
     let mut named = 0;
     for message in &messages {
-        let names_script = message.split_whitespace().filter_map(repository_path).any(|path| {
-            ["sh", "ps1", "py"]
-                .iter()
-                .any(|ext| Path::new(path).extension().is_some_and(|e| e == *ext))
-        });
+        let names_script = message
+            .split_whitespace()
+            .filter_map(repository_path)
+            .any(|path| {
+                ["sh", "ps1", "py"]
+                    .iter()
+                    .any(|ext| Path::new(path).extension().is_some_and(|e| e == *ext))
+            });
         if !names_script {
             continue;
         }
         named += 1;
+        // Messages are wrapped at about 90 columns, so compare the words, not the lines.
+        let words = message.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            message.contains("checkout of the compose-rust repository")
-                && message.contains(renderer_dir::REPOSITORY_URL),
+            words.contains("checkout of the compose-rust repository")
+                && words.contains(renderer_dir::REPOSITORY_URL),
             "this message sends someone to a build script without saying it is only in a \
              checkout of the repository:\n\n{message}"
         );
     }
-    assert!(named > 0, "no message named a build script, so this test proved nothing");
+    assert!(
+        named > 0,
+        "no message named a build script, so this test proved nothing"
+    );
 }
 
 /// A token out of a message that is meant to be a path in this repository.
