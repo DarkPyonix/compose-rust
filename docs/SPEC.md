@@ -2248,6 +2248,25 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - **크기 변화도 받는 노드**(이슈 #538): `Modifier::ObserveSize { handler_id, every_dp: bool }`로 옵트인하면 같은 클래스 안에서도 폭이나 높이를 정수 dp로 반올림한 값이 바뀔 때마다 이벤트를 보냅니다(FR-20.8과 같은 반올림 규칙입니다). 한 프레임에 여러 번 바뀌어도 마지막 크기로 한 번만 보냅니다. 기본값은 `false`이고, 끈 노드의 동작은 지금과 같습니다. 수정자 와이어가 바뀌므로 스키마 해시가 움직입니다. 수용 기준: `every_dp` 노드를 520dp에서 580dp로 넓히면 같은 클래스 안에서도 마지막 크기로 한 번 보고합니다(fr28_every_dp_node_reports_a_resize_inside_one_class). 처음 측정은 어느 노드든 한 번 보고합니다(fr28_first_measurement_always_reports).
 - 수용 기준: 구독이 하나도 없는 트리의 프레임당 경계 호출 수가 FR-20만 있을 때와 같습니다. 구독한 노드의 폭이 클래스 경계를 넘으면 이벤트가 한 번 오고, 같은 클래스 안에서 바뀌는 동안에는 오지 않습니다. 노드가 트리에서 사라지면 구독도 사라집니다.
 
+#### 28.1 노드의 폭 경계 (`Agreed`, 이슈 #967, [leader, provisional])
+
+분할 화면의 패널이나 카드처럼 창 전체가 아니라 자기가 놓인 노드의 폭 경계에 맞춰 배치를 바꿔야 하는 컴포넌트가 있습니다. `remember_node_size()`의 `measured().width_dp`를 직접 비교하면 그 composable은 `observe_size_every_dp` 보고가 올 때마다 다시 실행되므로, 경계를 넘을 때만 다시 실행되는 노드 단위 함수를 둡니다(FR-20.10 `current_window_breakpoint`의 노드 짝입니다).
+
+- **API**: `current_node_breakpoint(size: NodeSize, breakpoints: &[f32]) -> usize`. `remember_node_size()`가 돌려준 `NodeSize`와 폭 경계(dp) 목록을 받아 현재 노드 폭이 속한 구간 번호를 돌려줍니다. `compose_rust::runtime`에 `remember_node_size()`와 나란히 있습니다.
+- **구간 규칙**: FR-20.10과 같습니다. 번호는 `width_dp >= b`인 경계 `b`의 개수입니다. 폭이 경계와 같으면 그 경계 위의 구간입니다. `[300, 600, 900]`에서 0dp와 299.9dp는 0, 300dp와 599.9dp는 1, 600dp와 899.9dp는 2, 900dp는 3입니다.
+- **목록 다루기**: 목록을 정렬하거나 중복을 줄이지 않고 주어진 대로 셉니다(번호가 개수이므로 순서는 결과를 바꾸지 않습니다). 유한하지 않은 값(NaN, 무한대)과 0 이하의 값은 세지 않습니다. 그런 값이 있거나 목록이 엄격한 오름차순이 아니면 패닉 없이 계산하고, 디버그 빌드에서만 그 호출 자리마다 한 번 경고합니다. 빈 목록은 늘 0입니다.
+- **측정 전**: Renderer가 아직 아무것도 보고하지 않은 노드의 폭은 0dp이므로 번호는 0입니다. 0 이하의 경계를 세지 않는 것이 이 성질을 지킵니다.
+- **다시 실행**: `remember_node_size()`는 핸들을 돌려줄 때 크기 상태를 읽지 않고, `.measured()`나 `.is_compact()` 등 크기를 실제로 읽는 메서드에서만 읽습니다. `current_node_breakpoint`는 호출 자리마다 기억한 파생 상태(`derived_state_of`) 안에서 그 노드의 폭을 읽고, composable은 그 구간 번호만 읽습니다. 따라서 이 함수를 부른 composable은 **구간 번호가 바뀔 때만** 다시 실행되며, 같은 구간 안의 `every_dp` 크기 보고로는 다시 실행되지 않습니다. 두 패널이 각자 `remember_node_size()`를 쓰면 한 패널의 크기 보고는 다른 패널을 다시 실행하지 않습니다. 같은 호출 자리에 다른 `NodeSize`나 다른 경계 목록을 넘기면 새 입력으로 다시 계산합니다.
+- **`observe_size_every_dp`는 켜지 않습니다**: 클래스 경계가 아닌 곳에서 번호가 바뀌려면 노드가 `Modifier.observe_size_every_dp(size.token())`로 같은 클래스 안의 크기 변화도 받도록 옵트인해야 합니다. 이 함수가 대신 켜지 않습니다. 기본 `Modifier.observe_size(size.token())`만 붙은 노드에서는 첫 측정과 클래스 전환 보고가 올 때만 번호가 갱신됩니다.
+- 와이어, 스키마, Renderer는 바뀌지 않습니다. Host 함수 하나입니다.
+
+수용 기준:
+
+1. `observe_size_every_dp`가 붙은 노드에 `current_node_breakpoint(size, &[300.0, 600.0, 900.0])`를 읽으면, 폭 0/299.9/300/599.9/600/899.9/900dp와 다시 줄어드는 보고에서 0/0/1/1/2/2/3 및 역순으로 바뀝니다(`fr28_node_breakpoint_follows_node_width_across_resizes`).
+2. 같은 구간 안의 연속 보고(320 -> 350 -> 450 -> 599dp) 동안 읽는 composable은 추가로 다시 실행되지 않고, 600dp 경계를 넘으면 정확히 한 번 다시 실행됩니다(`fr28_node_breakpoint_recomposes_only_when_bucket_changes`).
+3. 0, 음수, NaN, 양/음의 무한대가 섞인 목록은 유한한 양수만 세며 패닉하지 않고, 빈 목록은 어느 폭에서나 0입니다(`fr28_node_breakpoint_ignores_non_positive_and_non_finite_breakpoints`).
+4. 분할 배치의 두 패널이 각자 `remember_node_size()`와 `current_node_breakpoint`를 쓸 때, 한 패널의 크기 변화는 다른 패널을 다시 실행하지 않습니다(`fr28_node_breakpoint_works_independently_for_two_panes`).
+
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
 
 14.1-2가 "우리가 그릴 수 없는 것"으로 분류했던 것입니다. macOS에서 창 뒤의 시스템 배경을 비추는 재질이고, `NSVisualEffectView`가 그립니다.
