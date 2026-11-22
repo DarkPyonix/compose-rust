@@ -12,13 +12,56 @@ workflow="$repo_root/.github/workflows/test-native-renderer.yml"
 
 nfr16_release_gate_needs_every_job_unless_promoted() {
     python3 -I - "$workflow" <<'PY'
-import re, sys, yaml
+import re, sys
 
-doc = yaml.safe_load(open(sys.argv[1]))
-jobs = doc["jobs"]
+# The workflow is read as text: the runners' Python has no YAML module, and this needs only
+# three things from each job, which the file writes in a regular way. `needs` is one name or
+# an inline list, `if` is one line or a folded block, and a step's id is on a line of its own.
+def read_jobs(path):
+    jobs, name, folding = {}, None, False
+    in_jobs = False
+    for line in open(path).read().splitlines():
+        if not in_jobs:
+            in_jobs = line.rstrip() == "jobs:"
+            continue
+        if line and not line.startswith(" "):
+            break
+        job = re.match(r"  ([\w-]+):\s*$", line)
+        if job:
+            name, folding = job.group(1), False
+            jobs[name] = {"needs": [], "if": "", "step_ids": []}
+            continue
+        if name is None:
+            continue
+        if folding:
+            if line.startswith("      ") or not line.strip():
+                jobs[name]["if"] += " " + line.strip()
+                continue
+            folding = False
+        needs = re.match(r"    needs:\s*(.+)$", line)
+        if needs:
+            jobs[name]["needs"] = [n.strip() for n in needs.group(1).strip("[] ").split(",")]
+            continue
+        condition = re.match(r"    if:\s*(.*)$", line)
+        if condition:
+            text = condition.group(1).strip()
+            if text in (">-", ">", "|", "|-"):
+                folding = True
+            else:
+                jobs[name]["if"] = text
+            continue
+        step_id = re.match(r"\s+(?:- )?id:\s*([\w-]+)\s*$", line)
+        if step_id:
+            jobs[name]["step_ids"].append(step_id.group(1))
+    return jobs
+
+jobs = read_jobs(sys.argv[1])
 release = jobs["release"]
 needs = release["needs"]
 condition = " ".join(release["if"].split())
+if not needs or not condition:
+    print("FAIL - the release job's needs and condition could not be read from the workflow")
+    sys.exit(1)
 
 # GitHub's expression syntax, as far as this condition uses it, turned into Python.
 expr = condition
@@ -70,9 +113,9 @@ check("not a tag: not released", evaluate(everything, "", ref="refs/heads/develo
 # Every build the release would otherwise need is skipped when the tag was promoted.
 for job in builds + ["fork-desktop"]:
     check(f"{job} is skipped on promotion",
-          "needs.changed.outputs.promoted != 'true'" in " ".join(str(jobs[job].get("if", "")).split()),
+          "needs.changed.outputs.promoted != 'true'" in " ".join(jobs[job]["if"].split()),
           True)
-check("the changed job promotes on a tag", "promote" in [s.get("id") for s in jobs["changed"]["steps"]], True)
+check("the changed job promotes on a tag", "promote" in jobs["changed"]["step_ids"], True)
 
 sys.exit(1 if failures else 0)
 PY
