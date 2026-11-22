@@ -302,6 +302,12 @@ class CodeEditorModel(
     var hearsScroll = false
 
     /**
+     * Whether the Host listens for the offset and has not yet been told that the view is at
+     * [offsetPx]. The surface says so the next time it lays the view out.
+     */
+    fun owesScroll(offsetPx: Int): Boolean = hearsScroll && offsetPx != reportedScroll
+
+    /**
      * Where the caret is drawn, as the surface last said and as the Host was last told, and
      * whether the Host listens. Like the row height, what nobody listens for is not counted
      * as told.

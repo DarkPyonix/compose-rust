@@ -175,6 +175,17 @@ internal class ScrollPort(val nodeId: Int) {
 
     val hasRequests: Boolean get() = queue.isNotEmpty()
 
+    /**
+     * Set by a container that also reports its offset down the page in an event of its own
+     * (a code editor's `CodeScrolled`): whether that event has yet to say the offset given.
+     * While it has not, the scroll report waits and leaves with that event, so the Host
+     * hears one place from both in the same frame.
+     */
+    var companionOwes: ((Int) -> Boolean)? = null
+
+    /** True once a frame's reports have waited for the companion event. They wait one frame. */
+    var waited = false
+
     fun request(request: ScrollRequest) {
         queue += request
         requestRevision++
@@ -234,33 +245,74 @@ internal class ScrollReports {
             // container says so again once it has acted.
             if (port.busy) continue
             val sample = port.sampler?.invoke() ?: continue
-            val before = port.sent
-            val moved = before == null || !sample.samePlace(before)
-            // A place is reported when it changes. Coming to rest is reported once, with
-            // the last place, unless the last report already said so.
-            if (!moved && (sample.moving || port.sentSettled)) continue
-            val settled = !sample.moving
-            port.sent = sample
-            port.sentSettled = settled
-            var flags = 0
-            if (settled) flags = flags or ScrollWire.CHANGED_SETTLED
-            if (sample.canScrollBackward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD
-            if (sample.canScrollForward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_FORWARD
-            dispatch(
-                HostEvent.ScrollChanged(
-                    nodeId = port.nodeId,
-                    handlerId = handler,
-                    item = sample.item,
-                    flags = flags,
-                    xPx = sample.x.toDouble(),
-                    yPx = sample.y.toDouble(),
-                    maxXPx = sample.maxX.toDouble(),
-                    maxYPx = sample.maxY.toDouble(),
-                    viewportWidthPx = sample.viewportWidth.toDouble(),
-                    viewportHeightPx = sample.viewportHeight.toDouble(),
-                ),
-            )
+            // The container's own event has not said this offset yet. It does later in this
+            // frame, and the report leaves with it. Sending it now as well would report twice
+            // in one frame whenever the offset moves again before that event. A frame in
+            // which the event never came ends the wait, so no place goes unreported.
+            if (port.companionOwes?.invoke(sample.y) == true && !port.waited) {
+                port.waited = true
+                pending += port
+                continue
+            }
+            port.waited = false
+            report(port, handler, sample)?.let(dispatch)
         }
+    }
+
+    /**
+     * [events] with a container's scroll report put straight after each `CodeScrolled` in
+     * them, where the node has a scroll handler and the report has something new to say.
+     *
+     * An editor says its offset in `CodeScrolled` when it has laid the frame out, which is
+     * later in a frame than [flush] runs. Sent on its own schedule, the scroll report for
+     * the same move could reach the Host a frame after it, or in the same frame with the
+     * place of the frame before. Sent here, both leave together and name one place. A
+     * request still being applied does not hold this report back: the offset has already
+     * been said by the event beside it.
+     */
+    fun paired(port: ScrollPort?, events: List<HostEvent>): List<HostEvent> {
+        val handler = port?.handlerId ?: return events
+        if (events.none { it is HostEvent.CodeScrolled }) return events
+        val paired = ArrayList<HostEvent>(events.size + 1)
+        for (event in events) {
+            paired += event
+            if (event !is HostEvent.CodeScrolled) continue
+            val sample = port.sampler?.invoke() ?: continue
+            // The view has moved on since the editor read this offset. The event for where
+            // it is now follows, and the report goes with that one.
+            if (sample.y.toDouble() != event.value) continue
+            port.waited = false
+            report(port, handler, sample)?.let { paired += it }
+        }
+        return paired
+    }
+
+    /** The report for [sample], or null where the Host has already been told all of it. */
+    private fun report(port: ScrollPort, handler: Long, sample: ScrollSample): HostEvent.ScrollChanged? {
+        val before = port.sent
+        val moved = before == null || !sample.samePlace(before)
+        // A place is reported when it changes. Coming to rest is reported once, with
+        // the last place, unless the last report already said so.
+        if (!moved && (sample.moving || port.sentSettled)) return null
+        val settled = !sample.moving
+        port.sent = sample
+        port.sentSettled = settled
+        var flags = 0
+        if (settled) flags = flags or ScrollWire.CHANGED_SETTLED
+        if (sample.canScrollBackward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD
+        if (sample.canScrollForward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_FORWARD
+        return HostEvent.ScrollChanged(
+            nodeId = port.nodeId,
+            handlerId = handler,
+            item = sample.item,
+            flags = flags,
+            xPx = sample.x.toDouble(),
+            yPx = sample.y.toDouble(),
+            maxXPx = sample.maxX.toDouble(),
+            maxYPx = sample.maxY.toDouble(),
+            viewportWidthPx = sample.viewportWidth.toDouble(),
+            viewportHeightPx = sample.viewportHeight.toDouble(),
+        )
     }
 }
 

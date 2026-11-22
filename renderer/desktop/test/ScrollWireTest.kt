@@ -10,6 +10,7 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -520,6 +521,94 @@ class ScrollWireTest {
         // Past the end is the end for both, and below the top is the top.
         agree(Mutation.SetScrollOffset(editor, 1.0e9), scrollTo(editor, y = 1.0e9), first.maxYPx, "past the end")
         agree(scrollTo(editor, y = -12.5), Mutation.SetScrollOffset(editor, -12.5), 0.0, "below the top")
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
+    }
+
+    @Test
+    fun fr80_code_editor_scroll_reports_arrive_in_the_same_frame() = runComposeUiTest {
+        val editor = 3
+        val codeHandler = 9L
+        val text = (0 until 400).joinToString("\n") { line -> "let line_$line = $line;" }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(codeHandler)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        assertEquals(0.0, screen.reports.last().yPx)
+        assertEquals(emptyList(), scrolled(), "an editor at the top has nothing to say about its offset")
+        mainClock.autoAdvance = false
+
+        // Makes one move and then runs the frames one at a time, reading what each of them
+        // sent. Whatever the move itself sent is counted with the first frame. Returns
+        // where the editor was last said to be.
+        fun together(what: String, move: () -> Unit): Double {
+            var reports = screen.reports.size
+            var offsets = scrolled().size
+            var place = screen.reports.last().yPx
+            var pairs = 0
+            move()
+            repeat(60) { frame ->
+                mainClock.advanceTimeByFrame()
+                val report = screen.reports.drop(reports)
+                val offset = scrolled().drop(offsets)
+                reports += report.size
+                offsets += offset.size
+                assertTrue(report.size <= 1, "$what, frame $frame: ${report.size} scroll reports in one frame: $report")
+                assertTrue(offset.size <= 1, "$what, frame $frame: ${offset.size} offset reports in one frame: $offset")
+                // The offset report never leaves a frame without the scroll report for
+                // the same place.
+                offset.singleOrNull()?.let { said ->
+                    assertEquals(
+                        listOf(said.value),
+                        report.map { it.yPx },
+                        "$what, frame $frame: the offset report and the scroll report of one frame",
+                    )
+                    assertEquals(editor, said.nodeId)
+                    assertEquals(codeHandler, said.handlerId)
+                    assertEquals(HANDLER, report.single().handlerId)
+                    pairs++
+                }
+                // And a scroll report that names a new place down the page has the offset
+                // report beside it. One that only says the movement ended has none.
+                report.singleOrNull()?.let { said ->
+                    if (said.yPx != place) {
+                        assertEquals(
+                            listOf(said.yPx),
+                            offset.map { it.value },
+                            "$what, frame $frame: the scroll report and the offset report of one frame",
+                        )
+                    }
+                    place = said.yPx
+                }
+            }
+            assertTrue(pairs >= 1, "$what: the move sent no pair of reports")
+            assertTrue(screen.reports.last().settled, "$what: the last report says the movement ended")
+            assertEquals(place, scrolled().last().value, "$what: both reports end on one place")
+            return place
+        }
+
+        assertEquals(240.0, together("SetScrollOffset") { send(screen, Mutation.SetScrollOffset(editor, 240.0), idle = false) })
+        assertEquals(90.0, together("ScrollTo") { send(screen, scrollTo(editor, y = 90.0), idle = false) })
+        // A move that takes many frames says a new place in each of them, and each frame's
+        // two reports still agree.
+        assertEquals(
+            700.0,
+            together("an animated ScrollTo") { send(screen, scrollTo(editor, y = 700.0, animate = true), idle = false) },
+        )
+        // The user's wheel moves the same state and is reported the same way.
+        val wheeled = together("a wheel turn") {
+            onNodeWithTag(nodeTestTag(editor)).performMouseInput {
+                moveTo(center)
+                scroll(6f)
+            }
+        }
+        assertTrue(wheeled > 700.0, "the wheel moved the editor down from 700: $wheeled")
         assertTrue(screen.errors.isEmpty(), "${screen.errors}")
     }
 
