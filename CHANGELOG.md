@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
+
+The Windows job that packs with Velopack now builds the `.msi` twice, with `--instLocation PerUser` and `PerMachine`, and `scripts/tests/msi-info.ps1` opens each one's Property table and checks the product name, the manufacturer, the codes and that the version is the one packed. The two jobs that run `appcert.exe` on the `.msix` and `.msixbundle` (`package-windows.yml`, `package-windows-host.yml`) both require `DPIAwarenessValidation` to pass, and FR-22.6 no longer calls that check manual. The Store submission and the Store's update of an installed bundle still wait for a Partner Center account ([#3](https://github.com/DarkPyonix/compose-rust/issues/3)).
+
 ### The macOS renderer's Kotlin heap stops near what is in use
 
 The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
