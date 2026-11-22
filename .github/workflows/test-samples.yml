@@ -574,8 +574,7 @@ jobs:
         # metadata and nothing else, the executable loads only the system's libraries and
         # nothing by a path on this machine, the name, identifier, description and
         # version are the sample's, the MSIX is unsigned, and the checksum list covers
-        # every file. A format a sample lost in packaging is a warning and goes in the
-        # release notes; a bundle that is wrong inside fails the run.
+        # every file. A missing format or a bundle that is wrong inside fails the run.
         shell: bash
         run: |
           set -euo pipefail

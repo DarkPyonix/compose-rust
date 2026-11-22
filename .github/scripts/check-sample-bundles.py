@@ -20,10 +20,10 @@ be the ones in the sample's `Dioxus.toml` and the version given. The MSIX has to
 unsigned, as the release notes say. `SHA256SUMS-<target>` has to list every file with
 its right digest.
 
-A format that is missing is reported as a warning and written to
-`skipped-<target>.txt`, because the packaging steps let one sample lose one format rather
-than hold the release back; the release notes list it. Anything wrong inside a file that
-is there fails the check: that is the packager being wrong for every sample.
+A format that is missing fails the check by default so CI never ships a target with a
+missing release bundle. Pass `--allow-missing` to downgrade missing formats to warnings
+and write them to `skipped-<target>.txt` instead. Anything wrong inside a file that is
+there always fails the check: that is the packager being wrong for every sample.
 
 The disk image is mounted with hdiutil, so it is only opened on macOS; the AppImage is
 unpacked by running it with --appimage-extract, so only on Linux. Elsewhere those two are
@@ -526,20 +526,31 @@ def main(argv=None):
     parser.add_argument("--samples", required=True, type=Path)
     parser.add_argument("--built", required=True, type=Path)
     parser.add_argument("--version", required=True)
+    parser.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="report missing formats as warnings in skipped-<target>.txt instead of failing",
+    )
     args = parser.parse_args(argv)
     built = [line.strip() for line in args.built.read_text().splitlines() if line.strip()]
     problems, missing = check(args.target, args.artifacts.resolve(), args.samples, built, args.version)
     if missing:
-        with open(args.artifacts / f"skipped-{args.target}.txt", "a") as handle:
+        if args.allow_missing:
+            with open(args.artifacts / f"skipped-{args.target}.txt", "a") as handle:
+                for line in missing:
+                    handle.write(line + "\n")
             for line in missing:
-                handle.write(line + "\n")
-        for line in missing:
-            slug, target, extension = line.split(" ")
-            print(f"::warning title=Format missing::sample-{slug} has no .{extension} for {target}")
+                slug, target, extension = line.split(" ")
+                print(f"::warning title=Format missing::sample-{slug} has no .{extension} for {target}")
+        else:
+            for line in missing:
+                slug, target, extension = line.split(" ")
+                print(f"::error title=Format missing::sample-{slug} has no .{extension} for {target}")
     for problem in problems:
         print(f"::error title=Bundle is wrong::{problem}")
-    if problems:
-        print(f"{len(problems)} problem(s) in what was packaged for {args.target}", file=sys.stderr)
+    failure_count = len(problems) + (0 if args.allow_missing else len(missing))
+    if failure_count:
+        print(f"{failure_count} problem(s) in what was packaged for {args.target}", file=sys.stderr)
         return 1
     print(f"ok    every bundle for {args.target} holds one executable, its icon and the sample's metadata")
     return 0
