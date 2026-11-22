@@ -30,8 +30,11 @@ import dev.darkpyonix.composerust.protocol.StorageOp
  * (a private window in some browsers), a full quota and a failed transaction each become the
  * operation's one answer.
  */
-class WebStorage : StoragePlatform {
+class WebStorage(
+    private val onStoreObserved: (String) -> Unit = {},
+) : StoragePlatform {
     override fun start(request: StorageRequest, answer: (StorageAnswer) -> Unit) {
+        if (request.store.isNotEmpty()) onStoreObserved(request.store)
         val value = if (request.op == StorageOp.Write) jsBytes(request.data) else null
         storageRun(
             request.store,

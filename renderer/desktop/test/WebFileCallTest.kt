@@ -61,7 +61,7 @@ private class FakeWebFiles(private val dialogAnswer: () -> FileDialogOutcome) : 
 
     override suspend fun read(handle: Int, limit: Long): FileCallOutcome {
         val file = held[handle] ?: return FileCallOutcome.Failed(IoStatus.NotFound)
-        if (file.bytes.size > limit) return FileCallOutcome.Failed(IoStatus.TooLarge)
+        if (file.bytes.size > limit) return FileCallOutcome.tooLarge(file.bytes.size.toLong())
         return FileCallOutcome.Bytes(file.bytes)
     }
 
@@ -252,7 +252,13 @@ class WebFileCallTest {
         host.table.apply(call(0x8000_0040.toInt(), FileOp.Read, big))
         host.frame()
 
-        assertEquals(listOf(1 to "result Unavailable", 0x8000_0040.toInt() to "io TooLarge 0"), connection.answers())
+        assertEquals(listOf(1 to "result Unavailable", 0x8000_0040.toInt() to "io TooLarge 4"), connection.answers())
+        val tooLarge = connection.events.filterIsInstance<HostEvent.IoAnswer>().single()
+        val reportedLength = (tooLarge.data[0].toInt() and 0xff) or
+            ((tooLarge.data[1].toInt() and 0xff) shl 8) or
+            ((tooLarge.data[2].toInt() and 0xff) shl 16) or
+            ((tooLarge.data[3].toInt() and 0xff) shl 24)
+        assertEquals(1024 * 1024, reportedLength)
         assertEquals((1000 until 1500).toList(), files.released, "an answer that was not delivered keeps no handles")
 
         // A choice and a read that fit go through whole at the same limit.

@@ -62,7 +62,7 @@ class WebFiles : FileDialogPlatform, FileCallPlatform {
             kindCode(request.kind),
             pickerTypes(request),
             request.name,
-            pickerId ?: "",
+            sanitizePickerId(pickerId) ?: "",
         ).await<JsAny>()
         return when (resultStatus(result)) {
             STATUS_CANCELLED -> FileDialogOutcome.Cancelled
@@ -83,7 +83,13 @@ class WebFiles : FileDialogPlatform, FileCallPlatform {
         val entry = held[handle] ?: return FileCallOutcome.Failed(IoStatus.NotFound)
         val result = readEntry(entry, limit.toDouble()).await<JsAny>()
         val status = resultStatus(result)
-        if (status != IO_OK) return FileCallOutcome.Failed(ioStatusOf(status))
+        if (status != IO_OK) {
+            val ioStatus = ioStatusOf(status)
+            if (ioStatus == IoStatus.TooLarge) {
+                return FileCallOutcome.tooLarge(resultLength(result).toLong())
+            }
+            return FileCallOutcome.Failed(ioStatus)
+        }
         return FileCallOutcome.Bytes(bytesOf(resultBytes(result)))
     }
 
@@ -163,6 +169,30 @@ class WebFiles : FileDialogPlatform, FileCallPlatform {
         private const val STATUS_CHOSEN = 1
         private const val STATUS_CANCELLED = 2
         private const val IO_OK = 1
+        private const val MAX_PICKER_ID_LENGTH = 32
+
+        /**
+         * Turns an application identifier into a browser File System Access `options.id`.
+         *
+         * The browser accepts up to 32 ASCII letters, digits, `_` and `-` and throws a
+         * `TypeError` for anything else (including the dots in a reverse-DNS identifier).
+         * Returns null when [raw] is null or has no usable characters.
+         */
+        internal fun sanitizePickerId(raw: String?): String? {
+            if (raw.isNullOrBlank()) return null
+            val out = StringBuilder(minOf(raw.length, MAX_PICKER_ID_LENGTH))
+            for (c in raw) {
+                if (out.length >= MAX_PICKER_ID_LENGTH) break
+                out.append(
+                    when {
+                        c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '_' || c == '-' -> c
+                        else -> '_'
+                    },
+                )
+            }
+            val cleaned = out.toString().trim('_')
+            return cleaned.takeIf { it.isNotEmpty() }
+        }
 
         /**
          * The filters as the pickers take them, as JSON: one `{description, accept}` per
@@ -326,12 +356,12 @@ private fun readEntry(entry: JsAny, limit: Double): Promise<JsAny?> = js(
                 file = entry.f;
             } else if (entry.k === 'd') {
                 if (!entry.last) return { s: 2 };
-                if (entry.last.length > limit) return { s: 8 };
+                if (entry.last.length > limit) return { s: 8, l: entry.last.length };
                 return { s: 1, b: entry.last };
             } else {
                 return { s: 6 };
             }
-            if (file.size > limit) return { s: 8 };
+            if (file.size > limit) return { s: 8, l: file.size };
             return { s: 1, b: new Uint8Array(await file.arrayBuffer()) };
         } catch (e) {
             return { s: status(e) };
@@ -458,6 +488,9 @@ private fun resultEntry(result: JsAny, index: Int): JsAny = js("result.e[index]"
 
 @Suppress("UNUSED_PARAMETER")
 private fun resultBytes(result: JsAny): JsAny? = js("(result.b || null)")
+
+@Suppress("UNUSED_PARAMETER")
+private fun resultLength(result: JsAny): Double = js("(result.l || 0)")
 
 @Suppress("UNUSED_PARAMETER")
 private fun entryName(entry: JsAny): String = js("(entry.k === 'h' ? entry.h.name : entry.k === 'u' ? entry.f.name : entry.name)")

@@ -305,7 +305,7 @@ impl PickedFile {
                         status: IoStatus::Ok,
                         data,
                     } => Ok(data),
-                    Answer::Io { status, .. } => Err(error_of(status)),
+                    Answer::Io { status, data } => Err(error_of(status, &data)),
                     Answer::Files { .. } => Err(unexpected_answer("a read")),
                 }
             }
@@ -340,7 +340,7 @@ impl PickedFile {
                         status: IoStatus::Ok,
                         ..
                     } => Ok(()),
-                    Answer::Io { status, .. } => Err(error_of(status)),
+                    Answer::Io { status, data } => Err(error_of(status, &data)),
                     Answer::Files { .. } => Err(unexpected_answer("a write")),
                 }
             }
@@ -372,7 +372,7 @@ impl PickedFile {
                 .await
                 {
                     Answer::Files(files) => Ok(files),
-                    Answer::Io { status, .. } => Err(error_of(status)),
+                    Answer::Io { status, data } => Err(error_of(status, &data)),
                 }
             }
         }
@@ -416,7 +416,7 @@ impl PickedFile {
                         "the browser answered a request for one child with {} files",
                         files.len()
                     ))),
-                    Answer::Io { status, .. } => Err(error_of(status)),
+                    Answer::Io { status, data } => Err(error_of(status, &data)),
                 }
             }
         }
@@ -434,15 +434,21 @@ fn unexpected_answer(what: &str) -> FileError {
 }
 
 /// What an `IoAnswer` status means for a file. `Ok` never gets here.
-fn error_of(status: IoStatus) -> FileError {
+fn error_of(status: IoStatus, data: &[u8]) -> FileError {
     match status {
         IoStatus::NotFound => FileError::NotFound,
         IoStatus::PermissionDenied => FileError::PermissionDenied,
         IoStatus::ReadOnly => FileError::ReadOnly,
-        IoStatus::TooLarge => FileError::TooLarge {
-            len: WEB_ANSWER_BYTES + 1,
-            limit: WEB_ANSWER_BYTES,
-        },
+        IoStatus::TooLarge => {
+            let len = match data {
+                [a, b, c, d] => u32::from_le_bytes([*a, *b, *c, *d]) as u64,
+                _ => WEB_ANSWER_BYTES + 1,
+            };
+            FileError::TooLarge {
+                len: len.max(WEB_ANSWER_BYTES + 1),
+                limit: WEB_ANSWER_BYTES,
+            }
+        }
         IoStatus::QuotaExceeded => {
             FileError::Io("the browser has no room left to write the file".to_owned())
         }

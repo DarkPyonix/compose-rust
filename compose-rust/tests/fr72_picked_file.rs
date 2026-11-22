@@ -518,7 +518,27 @@ fn fr72_web_files_come_from_references_and_release_their_handles() {
     assert_eq!(inside[0].name(), "안.txt");
     assert_eq!(results().len(), 1, "a listing is not a dialog's answer");
 
-    // An error the Renderer answers with is the file's error.
+    // An error the Renderer answers with is the file's error. A TooLarge answer carries the
+    // actual file length as four little-endian bytes when the Renderer knows it.
+    {
+        let mut failing = std::pin::pin!(inside[0].read());
+        assert!(poll_once(failing.as_mut()).is_pending());
+        let asked = session.frame();
+        let reported_len: u32 = 100_000_000;
+        session.answer(EventPayload::IoAnswer {
+            request: request_of(&asked[0]),
+            status: IoStatus::TooLarge,
+            data: &reported_len.to_le_bytes(),
+        });
+        let Poll::Ready(Err(FileError::TooLarge { len, limit })) = poll_once(failing.as_mut())
+        else {
+            panic!("a read over the event buffer is too large");
+        };
+        assert_eq!(len, reported_len as u64);
+        assert!(len > limit);
+    }
+
+    // Without a four-byte length payload, TooLarge still reports a length past the limit.
     {
         let mut failing = std::pin::pin!(inside[0].read());
         assert!(poll_once(failing.as_mut()).is_pending());

@@ -1,10 +1,17 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.ActivityOptions
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Build
+import android.view.View
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlinx.coroutines.awaitCancellation
+import kotlin.math.roundToInt
 
 /**
  * One Android [Activity] acting as a [PlatformWindow].
@@ -28,7 +35,14 @@ class AndroidActivityWindow(
     }
 
     override fun setTitle(title: String) {
-        activity?.title = title
+        val current = activity ?: return
+        current.title = title
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            current.setTaskDescription(ActivityManager.TaskDescription.Builder().setLabel(title).build())
+        } else {
+            @Suppress("DEPRECATION")
+            current.setTaskDescription(ActivityManager.TaskDescription(title))
+        }
     }
 
     override fun setPosition(x: Float, y: Float) {
@@ -174,7 +188,12 @@ class AndroidWindowBackend(
             putExtra(EXTRA_WINDOW_RESTORE_KEY, config.restoreKey)
         }
         return try {
-            currentRoot.startActivity(intent)
+            val options = launchBoundsOptions(currentRoot, config)
+            if (options != null) {
+                currentRoot.startActivity(intent, options)
+            } else {
+                currentRoot.startActivity(intent)
+            }
             val window = AndroidActivityWindow(
                 nodeId = config.nodeId,
                 restoreKey = config.restoreKey,
@@ -186,6 +205,41 @@ class AndroidWindowBackend(
         } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun launchBoundsOptions(activity: Activity, config: PlatformWindowConfig): android.os.Bundle? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
+        val x = config.x ?: return null
+        val y = config.y ?: return null
+        if (config.width <= 0f || config.height <= 0f) return null
+        val density = activity.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val left = (x * density).roundToInt()
+        val top = (y * density).roundToInt()
+        val right = ((x + config.width) * density).roundToInt()
+        val bottom = ((y + config.height) * density).roundToInt()
+        return ActivityOptions.makeBasic().setLaunchBounds(Rect(left, top, right, bottom)).toBundle()
+    }
+
+    /**
+     * Starts an Android 12L+ drag-to-split gesture for a `TearOffKey` node.
+     *
+     * Drops onto a split-screen edge launch a new document Activity carrying [restoreKey],
+     * which reports `WindowRequested` back to the Host. Returns false on older API levels or
+     * when no root Activity is attached.
+     */
+    fun startTearOffDrag(view: View, restoreKey: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2 || restoreKey.isEmpty()) return false
+        val currentRoot = rootActivity ?: return false
+        val targetClass = windowActivityClass ?: currentRoot::class.java
+        val intent = Intent(currentRoot, targetClass).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            putExtra(EXTRA_WINDOW_RESTORE_KEY, restoreKey)
+        }
+        val clip = ClipData(
+            ClipDescription(restoreKey, arrayOf(ClipDescription.MIMETYPE_APPLICATION_ACTIVITY)),
+            ClipData.Item(intent),
+        )
+        return view.startDragAndDrop(clip, View.DragShadowBuilder(view), null, View.DRAG_FLAG_GLOBAL)
     }
 
     /**

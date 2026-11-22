@@ -1,6 +1,9 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.foundation.systemChrome
+import dev.darkpyonix.composerust.runtime.reduceTransparency
 import platform.CoreGraphics.CGRectMake
+import platform.UIKit.UIUserInterfaceStyle
 import platform.UIKit.UIWindow
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -83,5 +86,43 @@ class IosWindowBackendTest {
         )
         assertNotNull(backend.open(PlatformWindowConfig(nodeId = 1), RecordingListener()))
         assertNull(backend.open(PlatformWindowConfig(nodeId = 2), RecordingListener()))
+    }
+
+    @Test
+    fun fr14_1_2_ios_reduce_transparency_follows_platform_setting() {
+        val previous = reduceTransparency
+        try {
+            syncReduceTransparency(true)
+            assertTrue(reduceTransparency)
+            syncReduceTransparency(false)
+            assertFalse(reduceTransparency)
+        } finally {
+            syncReduceTransparency(previous)
+        }
+    }
+
+    @Test
+    fun fr14_3_ios_system_chrome_updates_override_user_interface_style() {
+        val previousChrome = systemChrome
+        try {
+            val window = UIWindow(frame = CGRectMake(0.0, 0.0, 390.0, 844.0))
+            installIosSystemChrome { listOf(window) }
+            val chrome = assertNotNull(systemChrome)
+
+            chrome.setDarkIcons(true)
+            assertEquals(UIUserInterfaceStyle.UIUserInterfaceStyleLight, window.overrideUserInterfaceStyle)
+
+            chrome.setDarkIcons(false)
+            assertEquals(UIUserInterfaceStyle.UIUserInterfaceStyleDark, window.overrideUserInterfaceStyle)
+        } finally {
+            systemChrome = previousChrome
+        }
+    }
+
+    @Test
+    fun fr53_ipados_tear_off_registers_a_user_activity() {
+        val activity = IosWindowBackend.tearOffUserActivity("tab-editor-1")
+        assertEquals(IosWindowBackend.WINDOW_ACTIVITY_TYPE, activity.activityType)
+        assertEquals("tab-editor-1", activity.userInfo?.get(IosWindowBackend.KEY_RESTORE_KEY))
     }
 }
