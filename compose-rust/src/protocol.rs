@@ -90,6 +90,15 @@ const TAG_SET_SELECTIONS: u16 = 41;
 /// `SetSelections` in full: the 4 byte head, the node, the base version and the reference
 /// to the selections.
 const SET_SELECTIONS_LEN: usize = 20;
+// 42 applies one formatting command to the selection of a rich text field.
+const TAG_FORMAT_TEXT: u16 = 42;
+/// `FormatText` in full: the 4 byte head, the node, the operation, its value and the paint.
+const FORMAT_TEXT_LEN: usize = 20;
+// 43 replaces a rich text field's document: text, character runs, paragraphs, selection.
+const TAG_SET_RICH_TEXT: u16 = 43;
+/// `SetRichText` in full: the 4 byte head, the node, three references (the text, the
+/// character runs and the paragraphs) and the selection's two ends.
+const SET_RICH_TEXT_LEN: usize = 40;
 // 40 puts a snippet into a code editor and opens its tab stops.
 const TAG_INSERT_SNIPPET: u16 = 40;
 /// `InsertSnippet` in full: the 4 byte head, the node, the base version, the range and the
@@ -477,6 +486,26 @@ pub enum Mutation<'a> {
         base_version: u32,
         selections: &'a [u8],
     },
+    /// Applies one formatting command to the selection of a rich text field. `value` is
+    /// what the operation takes (a toggle, a paragraph role or a list kind, else 0) and
+    /// `paint` is only for [`FormatOp::Color`]. [`crate::rich_text::Format`] builds and
+    /// reads these.
+    FormatText {
+        node_id: u32,
+        op: crate::schema::FormatOp,
+        value: u16,
+        paint: Option<Paint>,
+    },
+    /// Replaces a rich text field's document. `characters` and `paragraphs` are the 24-byte
+    /// and 16-byte records [`crate::rich_text::RichDocument`] writes, checked against `text`
+    /// where this is encoded and where it is decoded. The selection is as `SetText` keeps it.
+    SetRichText {
+        node_id: u32,
+        text: &'a str,
+        characters: &'a [u8],
+        paragraphs: &'a [u8],
+        selection: Option<Selection>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -512,6 +541,9 @@ pub enum ProtocolError {
     /// into another. Compose keeps one composition per window and has no
     /// way to hand a node from one to the next.
     MisplacedWindow,
+    /// Rich text that does not hold together: a run or paragraph record outside the text, a
+    /// command value no operation takes, a selection state with a word that is not one.
+    InvalidRichText(crate::rich_text::RichTextError),
 }
 
 /// One event the Renderer sent the Host: the node it happened on, the handler that hears
@@ -641,6 +673,14 @@ const EVENT_CODE_POINTER: u16 = 66;
 // 67 is every selection of a code editor: the version, then the selections' reference.
 const EVENT_SELECTIONS_CHANGED: u16 = 67;
 const SELECTIONS_CHANGED_LEN: usize = 28;
+// 68 is the formatting at the selection of a rich text field: the 16 byte header, the style
+// words, the paragraph words and the shared colour.
+const EVENT_TEXT_FORMAT: u16 = 68;
+const TEXT_FORMAT_EVENT_LEN: usize = 36;
+// 69 is a rich text field's document: the header, then the text's, the character runs' and
+// the paragraphs' references.
+const EVENT_RICH_TEXT_CHANGED: u16 = 69;
+const RICH_TEXT_CHANGED_LEN: usize = 40;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -1255,6 +1295,34 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SELECTIONS_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_TEXT_FORMAT if record_len == TEXT_FORMAT_EVENT_LEN => {
+            let wire = crate::rich_text::TextFormatWire {
+                flags: read_u32(bytes, 16)?,
+                role: read_u16(bytes, 20)?,
+                list: read_u16(bytes, 22)?,
+                indent: read_u16(bytes, 24)?,
+                quote: read_u16(bytes, 26)?,
+                paint: read_u64(bytes, 28)?,
+            };
+            crate::schema::EventPayload::TextFormatAtSelection(
+                crate::rich_text::TextFormat::from_wire(wire)
+                    .map_err(ProtocolError::InvalidRichText)?,
+            )
+        }
+        EVENT_TEXT_FORMAT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_RICH_TEXT_CHANGED if record_len == RICH_TEXT_CHANGED_LEN => {
+            let text = read_string(bytes, 16, record_len)?;
+            let characters = read_bytes(bytes, 24, record_len)?;
+            let paragraphs = read_bytes(bytes, 32, record_len)?;
+            crate::rich_text::validate_wire(text, characters, paragraphs)
+                .map_err(ProtocolError::InvalidRichText)?;
+            crate::schema::EventPayload::RichTextChanged {
+                text,
+                characters,
+                paragraphs,
+            }
+        }
+        EVENT_RICH_TEXT_CHANGED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1816,6 +1884,49 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(selections);
         return Ok(());
     }
+    if let crate::schema::EventPayload::TextFormatAtSelection(format) = event.payload {
+        let wire = format.to_wire().map_err(ProtocolError::InvalidRichText)?;
+        put_event_header(
+            output,
+            EVENT_TEXT_FORMAT,
+            TEXT_FORMAT_EVENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&wire.flags.to_le_bytes());
+        output.extend_from_slice(&wire.role.to_le_bytes());
+        output.extend_from_slice(&wire.list.to_le_bytes());
+        output.extend_from_slice(&wire.indent.to_le_bytes());
+        output.extend_from_slice(&wire.quote.to_le_bytes());
+        output.extend_from_slice(&wire.paint.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::RichTextChanged {
+        text,
+        characters,
+        paragraphs,
+    } = event.payload
+    {
+        crate::rich_text::validate_wire(text, characters, paragraphs)
+            .map_err(ProtocolError::InvalidRichText)?;
+        put_event_header(
+            output,
+            EVENT_RICH_TEXT_CHANGED,
+            RICH_TEXT_CHANGED_LEN as u16,
+            event,
+        );
+        let mut offset = RICH_TEXT_CHANGED_LEN;
+        for part in [text.as_bytes(), characters, paragraphs] {
+            let len = u32::try_from(part.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+            let at = u32::try_from(offset).map_err(|_| ProtocolError::LengthOverflow)?;
+            output.extend_from_slice(&at.to_le_bytes());
+            output.extend_from_slice(&len.to_le_bytes());
+            offset += part.len();
+        }
+        output.extend_from_slice(text.as_bytes());
+        output.extend_from_slice(characters);
+        output.extend_from_slice(paragraphs);
+        return Ok(());
+    }
     if let crate::schema::EventPayload::IoAnswer {
         request,
         status,
@@ -2062,7 +2173,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::PositionRect { .. }
         | crate::schema::EventPayload::CodePointer { .. }
         | crate::schema::EventPayload::CodeEditGroupResult { .. }
-        | crate::schema::EventPayload::SelectionsChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::SelectionsChanged { .. }
+        | crate::schema::EventPayload::TextFormatAtSelection(_)
+        | crate::schema::EventPayload::RichTextChanged { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -2522,6 +2635,39 @@ impl BatchEncoder {
                 self.put_u32(*node_id);
                 self.put_u32(*base_version);
                 self.put_bytes_ref(selections)?;
+            }
+            Mutation::FormatText {
+                node_id,
+                op,
+                value,
+                paint,
+            } => {
+                crate::rich_text::Format::from_command(*op, *value, *paint)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                self.begin_record(TAG_FORMAT_TEXT, (FORMAT_TEXT_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u16(u16::from(*op));
+                self.put_u16(*value);
+                self.put_u64(optional_paint_word(*paint));
+            }
+            Mutation::SetRichText {
+                node_id,
+                text,
+                characters,
+                paragraphs,
+                selection,
+            } => {
+                crate::rich_text::validate_wire(text, characters, paragraphs)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                self.begin_record(TAG_SET_RICH_TEXT, (SET_RICH_TEXT_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_string_ref(text)?;
+                self.put_bytes_ref(characters)?;
+                self.put_bytes_ref(paragraphs)?;
+                let (start, end) =
+                    selection.map_or((u32::MAX, u32::MAX), |value| (value.start, value.end));
+                self.put_u32(start);
+                self.put_u32(end);
             }
             Mutation::InsertSnippet {
                 node_id,
@@ -3377,6 +3523,45 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 selections: read_bytes(bytes, payload + 8, records_len)?,
             },
             TAG_SET_SELECTIONS => return Err(ProtocolError::InvalidRecordLength),
+            TAG_FORMAT_TEXT if len == FORMAT_TEXT_LEN => {
+                let node_id = read_u32(bytes, payload)?;
+                let op_raw = read_u16(bytes, payload + 4)?;
+                let value = read_u16(bytes, payload + 6)?;
+                let paint_bits = read_u64(bytes, payload + 8)?;
+                let invalid = ProtocolError::InvalidRichText;
+                let op = crate::schema::FormatOp::try_from(op_raw).map_err(|()| {
+                    invalid(crate::rich_text::RichTextError::InvalidFormat { op: op_raw, value })
+                })?;
+                let paint = decode_optional_paint(paint_bits).map_err(|_| {
+                    invalid(crate::rich_text::RichTextError::InvalidPaint { bits: paint_bits })
+                })?;
+                crate::rich_text::Format::from_command(op, value, paint).map_err(invalid)?;
+                Mutation::FormatText {
+                    node_id,
+                    op,
+                    value,
+                    paint,
+                }
+            }
+            TAG_FORMAT_TEXT => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_RICH_TEXT if len == SET_RICH_TEXT_LEN => {
+                let text = read_string(bytes, payload + 4, records_len)?;
+                let characters = read_bytes(bytes, payload + 12, records_len)?;
+                let paragraphs = read_bytes(bytes, payload + 20, records_len)?;
+                crate::rich_text::validate_wire(text, characters, paragraphs)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                let start = read_u32(bytes, payload + 28)?;
+                let end = read_u32(bytes, payload + 32)?;
+                Mutation::SetRichText {
+                    node_id: read_u32(bytes, payload)?,
+                    text,
+                    characters,
+                    paragraphs,
+                    selection: (start != u32::MAX || end != u32::MAX)
+                        .then_some(Selection { start, end }),
+                }
+            }
+            TAG_SET_RICH_TEXT => return Err(ProtocolError::InvalidRecordLength),
             TAG_EDIT_CODE_GROUP if len == EDIT_CODE_GROUP_LEN => Mutation::EditCodeGroup {
                 node_id: read_u32(bytes, payload)?,
                 request_id: read_u32(bytes, payload + 4)?,

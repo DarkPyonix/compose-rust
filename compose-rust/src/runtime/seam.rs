@@ -491,6 +491,40 @@ impl Batch {
         self.edit_group = blob;
     }
 
+    /// Writes one formatting command for the selection of the rich text field `node_id`.
+    /// With nothing selected a character style or a colour sets what the next letter takes;
+    /// the paragraph commands apply to every paragraph the selection touches.
+    pub fn format_text(&mut self, node_id: u32, format: crate::rich_text::Format) {
+        let (op, value, paint) = format.to_command();
+        self.write(Mutation::FormatText {
+            node_id,
+            op,
+            value,
+            paint,
+        });
+    }
+
+    /// Writes one request to replace the document of the rich text field `node_id`. A
+    /// document that does not hold together (see [`crate::rich_text::RichDocument::validate`])
+    /// fails the batch, as any record the encoder refuses does, so check it first where
+    /// the document comes from outside.
+    pub fn set_rich_text(
+        &mut self,
+        node_id: u32,
+        document: &crate::rich_text::RichDocument,
+        selection: Option<Selection>,
+    ) {
+        let characters = document.encode_characters();
+        let paragraphs = document.encode_paragraphs();
+        self.write(Mutation::SetRichText {
+            node_id,
+            text: &document.text,
+            characters: &characters,
+            paragraphs: &paragraphs,
+            selection,
+        });
+    }
+
     /// Writes one request to replace `range` of a code editor's document, as it stood at
     /// `base_version`, with `snippet`, and to open its tab stops.
     ///
