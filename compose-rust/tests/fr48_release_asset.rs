@@ -1,5 +1,5 @@
 //! A registered font is let go of through the authoring API: `release_asset(id)` puts one
-//! `ReleaseAsset` on the next batch, and the id is never handed out again (FR-48 5).
+//! `ReleaseAsset` on the next batch, and the id is never handed out again.
 
 use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, decode_batch};

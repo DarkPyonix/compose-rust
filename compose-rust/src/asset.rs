@@ -178,7 +178,7 @@ pub(crate) fn release(asset_id: u32, kind: AssetKind) -> bool {
     true
 }
 
-/// Lets go of a registered font or picture, so the Renderer drops its copy (FR-48 5).
+/// Lets go of a registered font or picture, so the Renderer drops its copy.
 ///
 /// ```ignore
 /// let codicon = asset(AssetKind::Font, CODICON);
