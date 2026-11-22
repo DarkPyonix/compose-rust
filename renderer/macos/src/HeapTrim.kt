@@ -121,6 +121,10 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
     private val filterPurgeNanos =
         ((System.getenv("DXC_PURGE_ALL_SECONDS")?.toDoubleOrNull() ?: 0.0) * 1e9).toLong()
     private var filtersPurged = false
+    // `DXC_SYNC_PURGE_SECONDS=n`: n seconds after the last frame, wait for the GPU and empty Skia's GPU cache.
+    private val syncPurgeNanos =
+        ((System.getenv("DXC_SYNC_PURGE_SECONDS")?.toDoubleOrNull() ?: 0.0) * 1e9).toLong()
+    private var syncPurged = false
 
     init {
         // Before the run loop turns, so the first layer commit already sees the change.
@@ -136,6 +140,7 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
         lastFrame = System.nanoTime()
         purged = false
         filtersPurged = false
+        syncPurged = false
         if (!gpuLog) {
             dev.darkpyonix.composerust.design.BlurTrial.reset()
             return
@@ -212,11 +217,25 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
         // Then every Skia CPU-side cache, which includes the image filter cache: a filter's
         // GPU result held there is referenced, so the GPU cache limit cannot free it.
         org.jetbrains.skia.Graphics.purgeAllCaches()
+        window.metalSurface.cacheLimitBytes = 0L
+        window.metalSurface.cacheLimitBytes = limit
         val afterAll = window.metalSurface.allocatedBytes
+        // `DXC_GPU_PROBE_EMPTY=1`: one frame that draws nothing, so Skia submits again and lets
+        // go of what the last real frame's command buffer still held; then the purge once more,
+        // and a real frame is asked for.
+        var afterEmpty = -1L
+        if (System.getenv("DXC_GPU_PROBE_EMPTY") == "1") {
+            window.metalSurface.draw { _, _, _ -> }
+            window.metalSurface.cacheLimitBytes = 0L
+            window.metalSurface.cacheLimitBytes = limit
+            afterEmpty = window.metalSurface.allocatedBytes
+            window.requestFrame()
+        }
         System.err.println(
             "compose-rust: gpu probe label=$label stage=purge t_ms=${ms()} metal_before_kb=${before / 1024L} " +
                 "metal_after_kb=${after / 1024L} freed_kb=${(before - after) / 1024L} limit_mb=${limit / 1048576L} " +
                 "metal_after_all_kb=${afterAll / 1024L} freed_all_kb=${(after - afterAll) / 1024L} " +
+                "metal_after_empty_frame_kb=${afterEmpty / 1024L} " +
                 "frames=$frames ${skiaCpu()}",
         )
         probeLabel = label
@@ -244,6 +263,14 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
                         "metal_after_kb=${window.metalSurface.allocatedBytes / 1024L}",
                 )
             }
+        }
+        if (syncPurgeNanos > 0L && !syncPurged && now - lastFrame >= syncPurgeNanos) {
+            syncPurged = true
+            val before = window.metalSurface.allocatedBytes
+            val after = trialSyncPurge(window.metalSurface)
+            System.err.println(
+                "compose-rust: gpu idle sync_purge t_ms=${ms()} metal_before_kb=${before / 1024L} metal_after_kb=${after / 1024L}",
+            )
         }
         if (purgeNanos > 0L && !purged && now - lastFrame >= purgeNanos) {
             purged = true
