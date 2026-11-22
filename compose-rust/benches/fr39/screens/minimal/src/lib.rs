@@ -225,18 +225,13 @@ fn controls_group(controls: &Controls) {
                                 Separator!(None);
                                 toggle_row("Remember me", || {
                                     let set = controls.remember;
-                                    Checkbox!(
-                                        controls.remember.get(),
-                                        move |value| set.set(value)
-                                    );
+                                    Checkbox!(controls.remember.get(), move |value| set.set(value));
                                 });
                                 Separator!(None);
                                 toggle_row("Daily digest", || {
                                     let set = controls.digest;
-                                    RadioButton!(
-                                        controls.digest.get(),
-                                        move |value| set.set(value)
-                                    );
+                                    RadioButton!(controls.digest.get(), move |value| set
+                                        .set(value));
                                 });
                             }
                         );
@@ -480,9 +475,8 @@ fn surfaces_group() {
                                                 Text!(
                                                     format!("{step} dp"),
                                                     type_role = TypeRole::Caption,
-                                                    color = Paint::Role(
-                                                        ColorRole::OnSurfaceVariant
-                                                    )
+                                                    color =
+                                                        Paint::Role(ColorRole::OnSurfaceVariant)
                                                 );
                                             }
                                         );

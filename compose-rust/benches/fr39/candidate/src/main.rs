@@ -278,7 +278,9 @@ mod tests {
         );
         for tab in ["Panels", "Colour", "Parts"] {
             assert!(
-                recorded.final_tree.contains(&format!("Text=Text(\"{tab}\")")),
+                recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{tab}\")")),
                 "the strip has no {tab} segment:\n{}",
                 recorded.final_tree
             );
