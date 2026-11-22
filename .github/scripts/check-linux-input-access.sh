@@ -135,8 +135,23 @@ for _ in $(seq 1 30); do
     sleep 1
 done
 [[ -n "$selected" ]] || fail "the hangul engine could not be selected" "Install ibus-hangul."
+# Wait for both the active engine and the X11 XIM_SERVERS property to advertise @server=ibus
+# before launching the application; otherwise XOpenIM races ibus-daemon --xim and keys arrive
+# as Latin without passing through XIM.
+xim_ready=""
+for _ in $(seq 1 40); do
+    engine_now="$(ibus engine 2>/dev/null || true)"
+    xim_now="$(xprop -root XIM_SERVERS 2>/dev/null || true)"
+    if [[ "$engine_now" == "hangul" && "$xim_now" == *"@server=ibus"* ]]; then
+        xim_ready=1
+        break
+    fi
+    sleep 0.5
+done
+[[ -n "$xim_ready" ]] || fail "ibus XIM server did not become ready on XIM_SERVERS" \
+    "engine=$(ibus engine 2>&1 || true)" \
+    "XIM_SERVERS=$(xprop -root XIM_SERVERS 2>&1 || true)"
 echo "-- engine: $(ibus engine)"
-sleep 2
 echo "-- XIM servers on the display: $(xprop -root XIM_SERVERS 2>&1 || true)"
 
 echo "== starting the application"

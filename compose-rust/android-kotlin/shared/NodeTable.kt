@@ -1391,6 +1391,10 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
                 PropertyKind.ThumbSize -> widget == WidgetKind.Slider
+                // The shadow under a switch's thumb and the line around its track.
+                PropertyKind.ThumbElevation,
+                PropertyKind.TrackBorder,
+                -> widget == WidgetKind.Switch
 
                 // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,

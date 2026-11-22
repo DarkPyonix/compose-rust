@@ -15,12 +15,17 @@
 #            and runs in `all`; its timing jobs and steps fail nothing, so they run only when
 #            asked for. `measure` selects test_windows_resize, and with it the Windows kit it
 #            resizes, and turns its metrics input on.
+#   owner_checks  the owner-checks sample alone, built on the desktop by test_samples, which
+#            uploads it as owner-checks-<os> downloads for the hand checks before a release.
+#            With all or test_samples in the same list it narrows nothing.
 #   a,b,...  these suites and jobs together, by their names (all, fast, measure, test,
 #            test_samples, ...), and what they need: a job that takes the Windows kit brings
 #            windows_static_kit with it. `all,measure` is every job with the timings on.
 #
 # Prints one `name=true` or `name=false` line per job, then `measure=true` or `measure=false`
-# (whether the timings were asked for), for $GITHUB_OUTPUT. An unknown name is an
+# (whether the timings were asked for), then `samples=` (the samples test_samples builds, empty
+# for all of them) and `samples_desktop_only=` (whether it skips Android, iOS and the web), for
+# $GITHUB_OUTPUT. An unknown name is an
 # error rather than a run that quietly checks less than was asked for.
 set -euo pipefail
 
@@ -59,13 +64,23 @@ select_job() { case "$selected" in *" $1 "*) ;; *) selected="$selected$1 " ;; es
 is_selected() { case "$selected" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 measuring=false
+# Whether test_samples was asked for in full (by all or by name) or only for the owner checks.
+samples_full=false
+owner_checks=false
 
 IFS=',' read -r -a names <<< "$asked"
 for name in "${names[@]}"; do
     case "$name" in
         "") ;;
-        all) for job in "${jobs[@]}"; do select_job "$job"; done ;;
+        all)
+            samples_full=true
+            for job in "${jobs[@]}"; do select_job "$job"; done
+            ;;
         fast) for job in "${fast[@]}"; do select_job "$job"; done ;;
+        owner_checks)
+            owner_checks=true
+            select_job test_samples
+            ;;
         measure)
             measuring=true
             for job in "${measure[@]}"; do select_job "$job"; done
@@ -77,6 +92,7 @@ for name in "${names[@]}"; do
                 echo "ci-suites: '$name' is not a suite (all, fast, measure) or a ci.yml job: ${jobs[*]}" >&2
                 exit 1
             fi
+            [[ "$name" == test_samples ]] && samples_full=true
             select_job "$name"
             ;;
     esac
@@ -90,3 +106,10 @@ for job in "${jobs[@]}"; do
     if is_selected "$job"; then echo "$job=true"; else echo "$job=false"; fi
 done
 echo "measure=$measuring"
+if [[ "$owner_checks" == true && "$samples_full" == false ]]; then
+    echo "samples=owner-checks"
+    echo "samples_desktop_only=true"
+else
+    echo "samples="
+    echo "samples_desktop_only=false"
+fi
