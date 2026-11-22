@@ -3017,6 +3017,12 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
    > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
 
    1. **시나리오는 구현 전에 고정합니다.** 벤치 시나리오를 구현보다 먼저 커밋하고, 그 뒤에 바꾸려면 소유자의 승인이 필요합니다. 두 묶음입니다. (a) 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129의 스윕. (b) 샘플에 기록해 둔 실제 상호작용의 재생: 계산기 입력, todo 추가와 삭제, chat 스트리밍, 긴 목록의 스크롤과 윈도잉, 탭 전환. 벤치를 위해 만든 화면이나 한쪽에 유리하게 만든 화면은 넣지 않습니다.
+
+      > **벤치의 Renderer 모델 정정(2026-11-22, [leader, 2026-11-22]).** 벤치가 Renderer의 노드 테이블 대신 쓰는 Rust 모델(`compose-rust/benches/fr39/scenarios`의 `Model`)이 이제 만들어졌지만 삽입되지 않은 노드를 루트로 둡니다. Renderer의 노드 테이블(`renderer/desktop/src/renderer/NodeTable.kt`)이 하는 그대로입니다. 만들어진 노드는 만든 순서대로 루트 목록에 들어가고, `Insert`나 `Move`가 부모 밑에 놓으면 그 목록에서 빠지며, `Remove`로 사라집니다. 노드 0 밑으로의 `Insert`는 같은 목록의 그 위치에 들어갑니다.
+      >
+      > 이전의 모델은 노드 0 밑에 `Insert`된 노드만 보았습니다. 고정한 Dioxus 경로는 최상위 노드를 만들기만 하고 삽입하지 않습니다. 그래서 모델에서는 그 경로의 화면이 비어 있었고, 비교는 첫 시나리오 `sweep_1`의 첫 클릭에서 멈췄습니다. 이 정정 전에는 고정한 기준선에 대해 측정이 한 번도 돌지 못했습니다. 이 정정은 시나리오 크레이트 안의 변경이지만 시나리오는 아닙니다. 시나리오와 판정 규칙은 바뀌지 않았습니다. 이 규칙은 기록을 더하지 않으므로 Mutation 수와 바이트 수를 세는 방식도 그대로입니다.
+      >
+      > 커밋은 `6d22f442`입니다. 규칙을 고정하는 테스트는 `fr39_model_keeps_a_created_never_inserted_node_as_a_root`, `fr39_model_orders_inferred_roots_by_creation_not_by_id`, `fr39_model_places_an_insert_under_the_root_among_the_inferred_roots`, `fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into`, `fr39_model_drops_an_inferred_root_on_remove`, `fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere`, `fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`입니다.
    2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
    3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
    4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
