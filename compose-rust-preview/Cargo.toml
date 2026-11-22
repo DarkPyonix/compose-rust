@@ -16,7 +16,7 @@ bench = false
 bench = false
 
 [dependencies]
-compose-rust = { path = "../compose-rust", default-features = false, features = ["mock-renderer"] }
+compose-rust = { path = "../compose-rust" }
 png = "0.17.16"
 syn = { version = "2", features = ["full", "parsing"] }
 walkdir = "2.5.0"

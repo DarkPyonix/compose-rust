@@ -208,17 +208,17 @@ fn parse_preview_fn(
                 .unwrap_or_default();
             match key.as_str() {
                 "name" => {
-                    if let Expr::Lit(l) = &nv.value {
-                        if let Lit::Str(s) = &l.lit {
-                            name = s.value();
-                        }
+                    if let Expr::Lit(l) = &nv.value
+                        && let Lit::Str(s) = &l.lit
+                    {
+                        name = s.value();
                     }
                 }
                 "fixture" => {
-                    if let Expr::Lit(l) = &nv.value {
-                        if let Lit::Str(s) = &l.lit {
-                            fixture = Some(s.value());
-                        }
+                    if let Expr::Lit(l) = &nv.value
+                        && let Lit::Str(s) = &l.lit
+                    {
+                        fixture = Some(s.value());
                     }
                 }
                 "sizes" => {
@@ -284,13 +284,13 @@ fn parse_sizes_array(arr: &ExprArray) -> Result<Vec<PreviewSize>, String> {
 fn parse_schemes_array(arr: &ExprArray) -> Result<Vec<ColorScheme>, String> {
     let mut out = Vec::new();
     for expr in &arr.elems {
-        if let Expr::Path(p) = expr {
-            if let Some(ident) = p.path.get_ident() {
-                match ident.to_string().as_str() {
-                    "Light" => out.push(ColorScheme::Light),
-                    "Dark" => out.push(ColorScheme::Dark),
-                    other => return Err(format!("unknown scheme `{other}`")),
-                }
+        if let Expr::Path(p) = expr
+            && let Some(ident) = p.path.get_ident()
+        {
+            match ident.to_string().as_str() {
+                "Light" => out.push(ColorScheme::Light),
+                "Dark" => out.push(ColorScheme::Dark),
+                other => return Err(format!("unknown scheme `{other}`")),
             }
         }
     }
@@ -300,10 +300,10 @@ fn parse_schemes_array(arr: &ExprArray) -> Result<Vec<ColorScheme>, String> {
 fn parse_systems_array(arr: &ExprArray) -> Result<Vec<DesignSystem>, String> {
     let mut out = Vec::new();
     for expr in &arr.elems {
-        if let Expr::Path(p) = expr {
-            if let Some(ident) = p.path.get_ident() {
-                out.push(parse_system_name(&ident.to_string())?);
-            }
+        if let Expr::Path(p) = expr
+            && let Some(ident) = p.path.get_ident()
+        {
+            out.push(parse_system_name(&ident.to_string())?);
         }
     }
     Ok(out)

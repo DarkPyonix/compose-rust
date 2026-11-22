@@ -8,7 +8,7 @@ use compose_rust_preview::discover::{
     DiscoveredPreview, discover_in_crate, matches_glob, parse_system_name,
 };
 use compose_rust_preview::image_cmp::compare_pngs;
-use compose_rust_preview::render::{ExportRequest, export_preview_png};
+use compose_rust_preview::render::{ExportRequest, export_batch_via_renderer, export_preview_png};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,14 +60,13 @@ fn resolve_crate(package: Option<&str>) -> Result<(PathBuf, String), String> {
             .into_iter()
             .filter_map(Result::ok)
         {
-            if entry.file_name() == "Cargo.toml" && entry.file_type().is_file() {
-                if let Some(dir) = entry.path().parent() {
-                    if let Ok(name) = read_crate_name(dir) {
-                        if name == pkg {
-                            return Ok((dir.to_path_buf(), name));
-                        }
-                    }
-                }
+            if entry.file_name() == "Cargo.toml"
+                && entry.file_type().is_file()
+                && let Some(dir) = entry.path().parent()
+                && let Ok(name) = read_crate_name(dir)
+                && name == pkg
+            {
+                return Ok((dir.to_path_buf(), name));
             }
         }
         return Err(format!("package `{pkg}` not found under {}", cwd.display()));
@@ -86,15 +85,13 @@ fn read_crate_name(crate_dir: &Path) -> Result<String, String> {
             in_package = trimmed == "[package]";
             continue;
         }
-        if in_package {
-            if let Some(rest) = trimmed.strip_prefix("name") {
-                let rest = rest.trim();
-                if let Some(val) = rest.strip_prefix('=') {
-                    let v = val.trim().trim_matches('"').trim_matches('\'');
-                    if !v.is_empty() {
-                        return Ok(v.to_string());
-                    }
-                }
+        if in_package
+            && let Some(rest) = trimmed.strip_prefix("name")
+            && let Some(val) = rest.trim().strip_prefix('=')
+        {
+            let v = val.trim().trim_matches('"').trim_matches('\'');
+            if !v.is_empty() {
+                return Ok(v.to_string());
             }
         }
     }
@@ -149,6 +146,7 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
     let mut system_override: Option<DesignSystem> = None;
     let mut scale_override: Option<f32> = None;
     let mut at_ms: Option<u64> = None;
+    let mut batch_path: Option<PathBuf> = None;
     let mut out_dir: Option<PathBuf> = None;
     let mut compare_path: Option<PathBuf> = None;
     let mut check_dir: Option<PathBuf> = None;
@@ -202,6 +200,12 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
                 i += 1;
                 let s = args.get(i).ok_or("--at-ms requires milliseconds")?;
                 at_ms = Some(s.parse().map_err(|_| format!("invalid --at-ms `{s}`"))?);
+            }
+            "--batch" => {
+                i += 1;
+                batch_path = Some(PathBuf::from(
+                    args.get(i).ok_or("--batch requires a file path")?,
+                ));
             }
             "--out" => {
                 i += 1;
@@ -274,7 +278,11 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
                             at_ms,
                             animation_duration_ms: None,
                         };
-                        let (png_path, clock) = export_preview_png(&req, &out_dir)?;
+                        let (png_path, clock) = if let Some(bp) = batch_path.as_deref() {
+                            export_batch_via_renderer(&req, bp, &out_dir)?
+                        } else {
+                            export_preview_png(&req, &out_dir)?
+                        };
                         if clock.capped_at_limit {
                             eprintln!(
                                 "warning: {} did not settle within 10s; captured at 10000ms",
