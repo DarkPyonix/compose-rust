@@ -1,4 +1,4 @@
-//! Node-level width breakpoints (FR-28.1): which bucket an observed node is in, and a
+//! Node-level width breakpoints: which bucket an observed node is in, and a
 //! reader that runs again only when the bucket changes.
 //!
 //! Size reports are driven through the Host the way the Renderer sends them, so what is
