@@ -1,10 +1,16 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -82,6 +88,22 @@ class ActionKeyTest {
             image = onNodeWithTag(nodeTestTag(KEY)).captureToImage().toAwtImage()
         }
         return image!!
+    }
+
+    private fun labelStyle(system: DesignSystem, kind: ButtonKind?): TextStyle {
+        val layouts = mutableListOf<TextLayoutResult>()
+        runComposeUiTest {
+            setContent {
+                ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch(system, kind))))
+            }
+            waitForIdle()
+            fun walk(node: SemanticsNode) {
+                node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+                node.children.forEach(::walk)
+            }
+            walk(onNodeWithTag(nodeTestTag(KEY), useUnmergedTree = true).fetchSemanticsNode())
+        }
+        return layouts.single().layoutInput.style
     }
 
     private fun isGround(argb: Int): Boolean {
@@ -181,6 +203,27 @@ class ActionKeyTest {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * An action key without explicit typography sets its key-cap glyph at the Headline rung
+     * in regular weight, so calculator keys are larger and crisp rather than tiny bold labels.
+     */
+    @Test
+    fun fr30_an_action_key_uses_larger_non_bold_key_cap_typography_than_a_standard_button() {
+        for (system in DesignSystem.entries) {
+            val standard = labelStyle(system, ButtonKind.Standard)
+            val actionKey = labelStyle(system, ButtonKind.ActionKey)
+            assertTrue(
+                actionKey.fontSize.value > standard.fontSize.value,
+                "$system: ActionKey fontSize ${actionKey.fontSize} was not larger than Standard ${standard.fontSize}",
+            )
+            assertEquals(
+                FontWeight.Normal,
+                actionKey.fontWeight,
+                "$system: ActionKey fontWeight was ${actionKey.fontWeight} instead of Normal",
+            )
         }
     }
 

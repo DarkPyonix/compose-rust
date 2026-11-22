@@ -65,7 +65,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.boundsInWindow
@@ -1222,7 +1221,7 @@ private fun WeightedStack(
                 node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
             }
         },
-        modifier = modifier.clipToBounds(),
+        modifier = modifier,
         measurePolicy = policy,
     )
 }
@@ -1535,7 +1534,9 @@ private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Mo
         !enabled -> null
         node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
             {
-                val checked = node.flag(PropertyKind.Checked, default = false)
+                // A press on a mixed box asks for checked, as the box itself does.
+                val checked = node.flag(PropertyKind.Checked, default = false) &&
+                    !node.flag(PropertyKind.Indeterminate, default = false)
                 dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
             }
         }

@@ -162,11 +162,35 @@ jobs:
           kotlin.compiler.execution.strategy=in-process
           EOF
 
+      - name: Restore the fork build's Gradle downloads
+        id: gradle-downloads
+        # What the fork's Gradle build fetched, so a miss on the published Compose does not
+        # fetch it all again from Maven Central, which rate-limits runners (429). An older key
+        # is taken when build-compose.sh changed: Gradle then fetches only what moved.
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-downloads-${{ steps.target.outputs.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh') }}
+          restore-keys: |
+            gradle-downloads-${{ steps.target.outputs.compose_key }}-
+
       - name: Build and publish the patched Compose
         if: steps.compose-cache.outputs.cache-hit != 'true'
         env:
           DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
         run: ./renderer/scripts/build-compose.sh --target ${{ steps.target.outputs.compose }}
+
+      - name: Keep the fork build's Gradle downloads for the next run
+        if: github.event_name != 'pull_request' && steps.gradle-downloads.outputs.cache-hit != 'true' && steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.gradle-downloads.outputs.cache-primary-key }}
 
       - name: Keep the patched Compose for the next run
         if: github.event_name != 'pull_request' && (steps.compose-cache.outputs.cache-hit != 'true')
@@ -189,7 +213,9 @@ jobs:
         # Compose published into the local repository above, so this is the first place they
         # can run at all.
         working-directory: renderer
-        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
 
       - name: Install an input method, an accessibility registry and input tools
         if: inputs.target == 'linux-x64'
