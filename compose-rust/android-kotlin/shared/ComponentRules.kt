@@ -133,10 +133,17 @@ internal object Material3Rules : ComponentRules {
                 pressedElevation = 1.dp,
             )
 
+            // One state layer of the body ink over the digit tier. Material has no second
+            // neutral container token that differs from SurfaceVariant in both schemes
+            // (OutlineVariant equals it in the dark one), so the step is drawn the way
+            // Material draws any step above a container.
             ButtonVariant.NeutralSecondary -> base.copy(
-                container = theme.color(ColorRole.OutlineVariant),
+                container = stateLayer(
+                    theme.color(ColorRole.SurfaceVariant),
+                    theme.color(ColorRole.OnSurface),
+                ),
                 pressedContainer = stateLayer(
-                    theme.color(ColorRole.OutlineVariant),
+                    stateLayer(theme.color(ColorRole.SurfaceVariant), theme.color(ColorRole.OnSurface)),
                     theme.color(ColorRole.OnSurface),
                 ),
                 content = theme.color(ColorRole.OnSurface),
