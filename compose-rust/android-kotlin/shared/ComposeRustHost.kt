@@ -896,7 +896,13 @@ private fun ComposeRustTree(
         // than as content extending underneath one.
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
-        SideEffect { platformWindowMaterial(asked) }
+        val drawnMenuPresenter =
+            dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter.current as?
+                dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
+        SideEffect {
+            platformWindowMaterial(asked)
+            drawnMenuPresenter?.theme = theme
+        }
         // Android's back closes the topmost overlay, as Escape does, and is left to the app
         // when none is open. Where no platform installs a back hook this does nothing.
         dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
