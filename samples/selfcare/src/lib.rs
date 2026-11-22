@@ -588,7 +588,18 @@ fn special_card(session: &Session, first: bool) {
 /// The listening screen: a greeting, a search field, the pair of cards and the sessions
 /// picked for you.
 #[Composable]
-fn listen_page() {
+fn listen_page(destination: MutableState<Destination>) {
+    let query = remember(|| mutable_state_of(String::new()));
+    let needle = query.get().trim().to_lowercase();
+    let matches: Vec<&'static Session> = SESSIONS
+        .iter()
+        .filter(|session| {
+            needle.is_empty()
+                || session.title.to_lowercase().contains(&needle)
+                || session.when.to_lowercase().contains(&needle)
+        })
+        .collect();
+
     Column!(
         modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
         space_role = SpaceRole::Md,
@@ -598,26 +609,31 @@ fn listen_page() {
                 type_role = TypeRole::Headline,
                 color = palette::INK
             );
+            let search = query;
             TextField!(
                 "",
-                |_| {},
+                move |value| search.set(value),
                 modifier = Modifier.fill_max_width(),
                 placeholder = "Search..."
             );
 
+            let featured = matches.clone();
             LazyRow!(
                 modifier = Modifier.fill_max_width().height(CARD_HEIGHT),
-                content = |list| {
+                content = move |list| {
+                    let keys = featured.clone();
+                    let items = featured.clone();
                     list.items_keyed(
-                        SESSIONS.len(),
-                        |position| SESSIONS[position].title.to_owned(),
-                        |position| {
+                        items.len(),
+                        move |position| keys[position].title.to_owned(),
+                        move |position| {
+                            let session = items[position];
                             Box!(
                                 modifier = Modifier
                                     .width(CARD_WIDTH)
                                     .fill_max_height()
                                     .padding_role(SpaceRole::Xs),
-                                content = || session_card(&SESSIONS[position], position % 2 == 0)
+                                content = move || session_card(session, position % 2 == 0)
                             );
                         },
                     );
@@ -634,15 +650,33 @@ fn listen_page() {
                         color = palette::INK,
                         modifier = Modifier.weight(1.0)
                     );
-                    Text!(
-                        "See all \u{203a}",
-                        type_role = TypeRole::Caption,
-                        color = palette::MUTED
+                    Box!(
+                        on_click = Some(move || destination.set(Destination::Library)),
+                        {
+                            Text!(
+                                "See all \u{203a}",
+                                type_role = TypeRole::Caption,
+                                color = palette::MUTED
+                            );
+                        }
                     );
                 }
             );
-            for (index, session) in SESSIONS.iter().skip(2).enumerate() {
-                key(session.title, || special_card(session, index == 0));
+            let special: &[&'static Session] = if needle.is_empty() {
+                &matches[matches.len().min(2)..]
+            } else {
+                &matches
+            };
+            if special.is_empty() {
+                Text!(
+                    "No sessions match",
+                    type_role = TypeRole::Body,
+                    color = palette::MUTED
+                );
+            } else {
+                for (index, session) in special.iter().copied().enumerate() {
+                    key(session.title, || special_card(session, index == 0));
+                }
             }
         }
     );
@@ -670,6 +704,7 @@ fn library_page() {
                                 modifier = Modifier.fill_max_width(),
                                 space_role = SpaceRole::Sm,
                                 alignment = Alignment::Center,
+                                on_click = Some(not_playable),
                                 {
                                     Box!(
                                         modifier = Modifier
@@ -807,6 +842,9 @@ fn settings_row(entry: &'static str, glyph: Option<&'static [u8]>, separated: bo
             modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
             space_role = SpaceRole::Sm,
             alignment = Alignment::Center,
+            on_click = Some(move || {
+                Message::new(format!("{entry} is not part of this sample")).show();
+            }),
             {
                 Box!(
                     modifier = Modifier.size(ICON, ICON),
@@ -899,20 +937,20 @@ fn bar_item(choice: Destination, selected: bool, go: MutableState<Destination>) 
 /// The page for one destination, and for the check-in the step it is on.
 #[Composable]
 fn page(
-    destination: Destination,
+    destination: MutableState<Destination>,
     step: MutableState<Step>,
     chosen: MutableState<Mood>,
     picked: MutableState<Vec<&'static str>>,
     viewport: f32,
 ) {
     let to = |next: Step| -> Action { Rc::new(move || step.set(next)) };
-    match destination {
+    match destination.get() {
         Destination::Home => match step.get() {
             Step::Feeling => feeling_step(chosen, viewport, to(Step::Done), to(Step::Worry)),
             Step::Worry => worry_step(picked, to(Step::Done), to(Step::Done)),
             Step::Done => checked_in(chosen.get(), picked.get(), to(Step::Feeling)),
         },
-        Destination::Listen => listen_page(),
+        Destination::Listen => listen_page(destination),
         Destination::Library => library_page(),
         Destination::Profile => profile_page(chosen.get()),
     }
@@ -972,7 +1010,7 @@ pub fn app() {
                         modifier = Modifier.fill_max_size(),
                         alignment = Alignment::TopCenter,
                         {
-                            let body = || page(current, step, chosen, picked, viewport);
+                            let body = || page(destination, step, chosen, picked, viewport);
                             if scrolls {
                                 ScrollColumn!(modifier = frame, content = body);
                             } else {
@@ -1282,6 +1320,31 @@ mod tests {
                     _ => None,
                 })
                 .collect()
+        }
+
+        /// Sends a text edit to a live field.
+        fn type_in(&mut self, node: u32, text: &str) -> bool {
+            let handler = self
+                .live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::OnValueChange,
+                        value: PropertyValue::Integer(handler),
+                    } if *node_id == node => Some(*handler as u64),
+                    _ => None,
+                });
+            let Some(handler_id) = handler else {
+                return false;
+            };
+            self.send(HostEvent::new(
+                node,
+                handler_id,
+                EventPayload::TextChanged(text),
+            ));
+            true
         }
 
         /// Where the carousel was last asked to scroll to.
@@ -1778,6 +1841,92 @@ mod tests {
                 );
             },
         );
+    }
+
+    /// Typing in the listening screen's search field filters the visible sessions by
+    /// title or time of day, case-insensitively.
+    #[test]
+    fn listen_search_filters_visible_sessions() {
+        let mut screen = Screen::new();
+        assert!(
+            screen.go(Destination::Listen),
+            "the bar has no way to Listen"
+        );
+        let field = *screen
+            .nodes_of(WidgetKind::TextField)
+            .first()
+            .expect("the listening screen has no search field");
+
+        assert!(
+            screen.type_in(field, "gratitude"),
+            "the search field has no change handler"
+        );
+        let by_title = screen.texts();
+        assert!(
+            by_title.iter().any(|text| text == "Morning Gratitude"),
+            "matching title was hidden: {by_title:?}"
+        );
+        assert!(
+            !by_title.iter().any(|text| text == "Breathing Room"),
+            "non-matching session stayed visible: {by_title:?}"
+        );
+
+        assert!(
+            screen.type_in(field, "EVENING"),
+            "the search field did not accept a second query"
+        );
+        let by_when = screen.texts();
+        assert!(
+            by_when.iter().any(|text| text == "Calm Relaxation")
+                && by_when.iter().any(|text| text == "Serenity Before Sleep"),
+            "sessions matching when were hidden: {by_when:?}"
+        );
+        assert!(
+            !by_when.iter().any(|text| text == "Morning Gratitude"),
+            "non-matching session stayed visible: {by_when:?}"
+        );
+
+        assert!(screen.type_in(field, ""), "the search field did not clear");
+        let restored = screen.texts();
+        assert!(
+            restored.iter().any(|text| text == "Morning Gratitude")
+                && restored.iter().any(|text| text == "Breathing Room"),
+            "clearing the search did not restore the sessions: {restored:?}"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// "See all" opens the library, and rows in the library and profile settings answer
+    /// a press rather than doing nothing.
+    #[test]
+    fn listen_see_all_and_rows_answer_presses() {
+        let mut screen = Screen::new();
+        assert!(
+            screen.go(Destination::Listen),
+            "the bar has no way to Listen"
+        );
+        assert!(
+            screen.press("See all \u{203a}"),
+            "See all has no click handler"
+        );
+        assert_eq!(
+            screen.bar_texts(),
+            vec!["Library".to_owned()],
+            "See all did not switch to Library"
+        );
+        assert!(
+            screen.press(SESSIONS[0].title),
+            "library session row has no click handler"
+        );
+        assert!(
+            screen.go(Destination::Profile),
+            "the bar has no way to Profile"
+        );
+        assert!(
+            screen.press("Settings"),
+            "profile settings row has no click handler"
+        );
+        compose_rust::window::reset_window_size();
     }
 
     /// The listening screen, which is where the session cards and the windowing row are.

@@ -127,4 +127,70 @@ class BarTitleTest {
                 "the title is not at the leading edge",
         )
     }
+
+    /**
+     * When a window has a caption strip, Cupertino and Liquid Glass leave the title to the
+     * system caption and do not draw a title node in the bar, while Fluent 2 draws it in the bar.
+     */
+    @Test
+    fun fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height() = runComposeUiTest {
+        for (system in listOf(DesignSystem.Cupertino, DesignSystem.LiquidGlass)) {
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(FakeHostConnection(batch(system))),
+                        caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                    )
+                }
+            }
+            onNodeWithText(TITLE).assertDoesNotExist()
+            onNodeWithText("Share").assertIsDisplayed()
+        }
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Fluent))),
+                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                )
+            }
+        }
+        onNodeWithText(TITLE).assertIsDisplayed()
+    }
+
+    /**
+     * On a Cupertino screen with no caption strip (height 0, e.g. mobile), the bar draws the
+     * title itself.
+     */
+    @Test
+    fun fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero() = runComposeUiTest {
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                    caption = WindowCaption(height = 0.dp, buttonsWidth = 0.dp),
+                )
+            }
+        }
+        onNodeWithText(TITLE).assertIsDisplayed()
+    }
+
+    /**
+     * The opening bar's title is reported to the platform window via `onCaptionTitle` so the
+     * system caption displays the bar's title even when the bar omits it.
+     */
+    @Test
+    fun fr30_2_opening_bar_title_propagates_to_caption_title_callback() = runComposeUiTest {
+        val reported = mutableListOf<String>()
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch(DesignSystem.Cupertino))),
+                    caption = WindowCaption(height = 40.dp, buttonsWidth = 0.dp),
+                    onCaptionTitle = { reported += it },
+                )
+            }
+        }
+        waitForIdle()
+        assertTrue(reported.lastOrNull() == TITLE, "expected caption title $TITLE, got $reported")
+    }
 }

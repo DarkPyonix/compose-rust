@@ -40,6 +40,7 @@
 //! same way. Nothing here needs the function's author to say which is which.
 
 mod call_macro;
+mod preview;
 
 use call_macro::{CallParam, implicit_default, normalise_default};
 use proc_macro::TokenStream;
@@ -101,6 +102,26 @@ pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
             let call_macro = call_params.map(|params| call_macro::generate(&function, &params));
             quote!(#function #call_macro).into()
         }
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Declares a screen or component preview for `compose-rust-preview`.
+///
+/// ```ignore
+/// #[Preview(name = "Home", sizes = [Desktop, Phone], schemes = [Light, Dark])]
+/// fn home_preview(ctx: &PreviewContext) {
+///     // ...
+/// }
+/// ```
+///
+/// Outside `compose-rust-preview` builds (normal and release builds), no preview descriptor
+/// or registry entry is emitted.
+#[proc_macro_attribute]
+#[allow(non_snake_case)]
+pub fn Preview(attribute: TokenStream, item: TokenStream) -> TokenStream {
+    match preview::expand(attribute.into(), item.into()) {
+        Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -79,6 +81,10 @@ interface ControlWidgets {
      *
      * [onChange] carries the state the user asked for, and is null when the Host attached
      * no handler, which is how a read-only control is expressed.
+     *
+     * [indeterminate] is a Checkbox's third state, mixed, and wins over [checked]: the box
+     * is filled as a checked one is, with a dash instead of the check, assistive technology
+     * hears it as mixed, and a press asks for checked. The other two roles ignore it.
      */
     @Composable
     fun Toggle(
@@ -89,6 +95,7 @@ interface ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         look: ControlLook = ControlLook.None,
+        indeterminate: Boolean = false,
     )
 
     /**
@@ -166,16 +173,21 @@ internal object DrawnControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         look: ControlLook,
+        indeterminate: Boolean,
     ) {
         val style = theme.rules.controls(theme).toggle(role)
         val motion = theme.rules.motion
+        // Only a Checkbox has a third state. A mixed box is drawn filled, the way a checked
+        // one is, so from here on it counts as on for the fill and the transition.
+        val mixed = indeterminate && role == ToggleRole.Checkbox
+        val filled = checked || mixed
         val spec = tween<Float>(
-            durationMillis = if (checked) motion.pressMillis else motion.releaseMillis,
+            durationMillis = if (filled) motion.pressMillis else motion.releaseMillis,
             easing = motion.easing,
         )
         // The transition between the two states belongs to the Renderer, so a toggle
         // animates without a frame of it crossing the boundary.
-        val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
+        val progress by animateFloatAsState(if (filled) 1f else 0f, spec)
         // A radio button's ring colour fills it only where the design system fills a
         // selected one: there the fill is what reads as the ring. Elsewhere the ring is the
         // outline and the inside stays the design system's.
@@ -185,7 +197,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                 role == ToggleRole.Switch && look.track != null -> look.track
                 role == ToggleRole.RadioButton && checked ->
                     if (radioFills) look.container ?: style.containerChecked else style.containerChecked
-                checked -> look.container ?: style.containerChecked
+                filled -> look.container ?: style.containerChecked
                 else -> style.container
             },
             animationSpec = tween(spec.durationMillis, easing = motion.easing),
@@ -205,7 +217,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                 if (role == ToggleRole.RadioButton) {
                     selected = checked
                 } else {
-                    toggleableState = ToggleableState(checked)
+                    toggleableState = if (mixed) ToggleableState.Indeterminate else ToggleableState(checked)
                 }
             }
 
@@ -221,6 +233,18 @@ internal object DrawnControlWidgets : ControlWidgets {
                 onChange(!checked)
             }
 
+            // A mixed box is announced as mixed, and a press on it asks for all of it to be
+            // checked, as a mixed box does on macOS and in HTML.
+            mixed -> modifier.triStateToggleable(
+                state = ToggleableState.Indeterminate,
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = role.semanticsRole,
+            ) {
+                onChange(true)
+            }
+
             else -> modifier.toggleable(
                 value = checked,
                 interactionSource = interactionSource,
@@ -234,15 +258,22 @@ internal object DrawnControlWidgets : ControlWidgets {
         when (role) {
             ToggleRole.Checkbox -> {
                 val shape = look.shape ?: style.shape
-                // A box the application filled has no outline of its own to show.
-                val outline = if (checked && look.container != null) 0.dp else style.borderWidth
+                // A box the application filled has no outline of its own to show, unless the
+                // application named one: that one is drawn in every state, and is drawn even
+                // where the design system draws no line at all.
+                val outline = when {
+                    look.outline != null -> if (style.borderWidth.value > 0f) style.borderWidth else NAMED_OUTLINE_WIDTH
+                    filled && look.container != null -> 0.dp
+                    else -> style.borderWidth
+                }
+                val mark = (look.check ?: style.mark).copy(alpha = alpha)
                 Box(
                     clickable
                         .size(look.width ?: style.size)
                         .clip(shape)
                         .background(container.copy(alpha = container.alpha * alpha), shape)
-                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
-                        .drawBehind { drawTick((look.check ?: style.mark).copy(alpha = alpha), progress) },
+                        .controlBorder(outline, (look.outline ?: style.border).copy(alpha = alpha), shape)
+                        .drawBehind { if (mixed) drawDash(mark, progress) else drawTick(mark, progress) },
                 )
             }
 
@@ -268,7 +299,14 @@ internal object DrawnControlWidgets : ControlWidgets {
 
             ToggleRole.Switch -> {
                 val shape = look.shape ?: style.shape
-                val outline = if (look.track != null) 0.dp else style.borderWidth
+                // A border the application named wins in both states. Without one, a track
+                // the application coloured has no outline of its own to show, and otherwise
+                // the design system's outline is drawn.
+                val outline = look.trackBorderWidth ?: if (look.track != null) 0.dp else style.borderWidth
+                val outlineColour = look.trackBorder ?: style.border
+                // No system draws a shadow under the thumb today, so a switch that did not
+                // ask for one has none.
+                val elevation = look.thumbElevation ?: 0.dp
                 Box(
                     clickable
                         .size(
@@ -277,7 +315,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         )
                         .clip(shape)
                         .background(container.copy(alpha = container.alpha * alpha), shape)
-                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
+                        .controlBorder(outline, outlineColour.copy(alpha = outlineColour.alpha * alpha), shape)
                         .drawBehind {
                             // A track of the application's own height has a thumb that
                             // scales with it, the same 4 to 5 proportion as a 16 dp thumb on
@@ -290,13 +328,15 @@ internal object DrawnControlWidgets : ControlWidgets {
                             val margin = (size.height - diameter) / 2f
                             val travel = size.width - diameter - margin * 2f
                             val thumb = look.thumb ?: if (checked) style.mark else style.markUnchecked
+                            val center = Offset(
+                                x = margin + diameter / 2f + travel * progress,
+                                y = size.height / 2f,
+                            )
+                            drawThumbShadow(center, diameter / 2f, elevation.toPx(), alpha)
                             drawCircle(
                                 color = thumb.copy(alpha = alpha),
                                 radius = diameter / 2f,
-                                center = Offset(
-                                    x = margin + diameter / 2f + travel * progress,
-                                    y = size.height / 2f,
-                                ),
+                                center = center,
                             )
                         },
                 )
@@ -548,6 +588,36 @@ private fun Modifier.controlBorder(width: Dp, color: Color, shape: Shape): Modif
     if (width.value <= 0f) this else border(width, color, shape)
 
 /**
+ * The soft shadow under a switch's thumb, lifted [elevation] pixels: a disc that fades out
+ * over [elevation] beyond the thumb's edge and sits half of it lower, the way a light from
+ * above throws it. It is drawn before the thumb, so only the part outside the thumb shows,
+ * and inside the track, which clips it.
+ *
+ * A radial gradient rather than a platform shadow, so the same pixels come out on every
+ * target: the shadow layers each platform offers differ in how they blur.
+ */
+private fun DrawScope.drawThumbShadow(center: Offset, radius: Float, elevation: Float, alpha: Float) {
+    if (elevation <= 0f || radius <= 0f) return
+    val outer = radius + elevation
+    val shadowCenter = Offset(center.x, center.y + elevation / 2f)
+    val opaque = SWITCH_SHADOW_ALPHA * alpha
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to Color.Black.copy(alpha = opaque),
+            (radius / outer) to Color.Black.copy(alpha = opaque),
+            1f to Color.Transparent,
+            center = shadowCenter,
+            radius = outer,
+        ),
+        radius = outer,
+        center = shadowCenter,
+    )
+}
+
+/** How dark the shadow under a switch's thumb is where it is deepest, before the control's own alpha. */
+private const val SWITCH_SHADOW_ALPHA = 0.28f
+
+/**
  * The checkmark, drawn as two strokes that sweep in together.
  *
  * `progress` is how much of the mark has appeared, so a half-finished transition draws a
@@ -570,6 +640,32 @@ private fun DrawScope.drawTick(color: Color, progress: Float) {
         style = Stroke(width = width * 0.14f, cap = StrokeCap.Round),
     )
 }
+
+/**
+ * The dash a mixed checkbox draws in place of the check: one stroke across the middle of
+ * the box, as wide and as thick as the check's own strokes are, fading in as the check does.
+ */
+private fun DrawScope.drawDash(color: Color, progress: Float) {
+    if (progress <= 0f) return
+    val width = size.width
+    val middle = size.height / 2f
+    drawLine(
+        color = color.copy(alpha = color.alpha * progress.coerceIn(0f, 1f)),
+        start = Offset(width * DASH_START, middle),
+        end = Offset(width * (1f - DASH_START), middle),
+        strokeWidth = width * 0.14f,
+        cap = StrokeCap.Round,
+    )
+}
+
+/** Where a mixed checkbox's dash starts, as a share of the box's width; it ends as far from the other side. */
+private const val DASH_START = 0.26f
+
+/**
+ * The width of a border the application named for a checkbox whose design system draws none,
+ * the hairline a box of this size needs to read as a box at all.
+ */
+private val NAMED_OUTLINE_WIDTH = 1.5.dp
 
 /** The value a press at [x] lands on, with the thumb's own width taken off both ends. */
 private fun valueAt(x: Float, width: Float, thumb: Float, min: Float, max: Float): Float {
