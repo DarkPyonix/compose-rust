@@ -37,6 +37,33 @@ raw run directory and the verdict. The raw runs and both logs stay in
 `.scratch/fr39/<timestamp>/`. At the end it prints each scenario's p50 and p99 on both
 paths, their multiples, and the verdict line.
 
+### The Renderer model and its roots
+
+Both paths are applied to a Rust model of the Renderer's node table (`Model` in
+`scenarios/src/lib.rs`). The trees compared after each step, and the widgets each step
+clicks or types into, are read from that model.
+
+The model keeps a node that is created and never inserted as a root, the way
+`renderer/desktop/src/renderer/NodeTable.kt` does. Created nodes join the root list in
+creation order. An `Insert` or `Move` takes a node off it and puts it under its parent, a
+`Remove` drops it, and an `Insert` under node 0 goes into the same list at its index. No
+record attaches an application's top node, so the Dioxus path at the pinned revision only
+creates it, while the slot table path also inserts it under node 0. Both show the same
+tree, with the same hash.
+
+Until 2026-11-22 the model showed only nodes inserted under node 0. The Dioxus path's
+screen was then empty in the model, and `parity.sh` stopped at `sweep_1`: nothing on
+screen answered the `Increment` click. No measurement had run against the pinned baseline
+before that correction. It changes no scenario and no verdict rule, and it adds no record,
+so record and byte counts are unchanged. The tests at the end of `scenarios/src/lib.rs`
+(`fr39_model_*`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`) pin the rule
+against NodeTable's behaviour.
+
+One risk is open. The slot table path sends an `Insert` under node 0 for each top-level
+node, and the Dioxus path does not. Parity refuses a scenario where the slot table path
+sends more records or bytes, so it may refuse scenarios for that one record. If it does,
+that is the project leader's decision, and the bench does not work around it.
+
 What it does not measure: the real Renderer's apply time. The harness times the Host
 (handler, recomposition, batch encoding) and a Rust model of the Renderer's apply. Whatever
 the Kotlin interpreter adds is not in these numbers.
@@ -66,9 +93,12 @@ scripts/bench/fr39-measure.sh --prepare
 This runs `parity.sh` once. It builds everything and shows any parity failure before the
 freeze, not during it. After that, the freeze run is about 20 to 25 minutes.
 
-The first build also needs crates.io, because this workspace has no `Cargo.lock` yet.
-Commit the `Cargo.lock` the first run leaves together with `baseline.json`. Then the
-session that verifies builds the same dependency versions.
+The workspace's `Cargo.lock` is committed, from the first builder run on 2026-11-21, so the
+session that verifies builds the same dependency versions. If a run changes it, commit the
+new one together with `baseline.json`.
+
+After the model correction below, `--prepare` has to run again before any measurement:
+the parity run that came before it stopped at the first scenario.
 
 `scripts/bench/fr39-measure.sh --check` validates all of this without building or
 measuring anything. It checks the tools, the pins, the slots, the load reading and the
