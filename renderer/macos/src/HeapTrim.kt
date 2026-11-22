@@ -117,9 +117,25 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
         "skia_cpu_kb=${org.jetbrains.skia.Graphics.resourceCacheTotalUsed.toLong() / 1024L} " +
             "font_cache_kb=${org.jetbrains.skia.Graphics.fontCacheUsed.toLong() / 1024L}"
 
+    // `DXC_PURGE_ALL_SECONDS=n`: Graphics.purgeAllCaches() once n seconds after the last frame.
+    private val filterPurgeNanos =
+        ((System.getenv("DXC_PURGE_ALL_SECONDS")?.toDoubleOrNull() ?: 0.0) * 1e9).toLong()
+    private var filtersPurged = false
+
+    init {
+        // Before the run loop turns, so the first layer commit already sees the change.
+        applyBackdrop()
+        if (System.getenv("DXC_NO_TITLE") == "1") {
+            window.window.setTitle("")
+            window.window.titleVisibility = platform.AppKit.NSWindowTitleHidden
+            System.err.println("compose-rust: trial title emptied and hidden")
+        }
+    }
+
     fun onFrameDrawn() {
         lastFrame = System.nanoTime()
         purged = false
+        filtersPurged = false
         if (!gpuLog) {
             dev.darkpyonix.composerust.design.BlurTrial.reset()
             return
@@ -193,9 +209,14 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
         window.metalSurface.cacheLimitBytes = 0L
         window.metalSurface.cacheLimitBytes = limit
         val after = window.metalSurface.allocatedBytes
+        // Then every Skia CPU-side cache, which includes the image filter cache: a filter's
+        // GPU result held there is referenced, so the GPU cache limit cannot free it.
+        org.jetbrains.skia.Graphics.purgeAllCaches()
+        val afterAll = window.metalSurface.allocatedBytes
         System.err.println(
             "compose-rust: gpu probe label=$label stage=purge t_ms=${ms()} metal_before_kb=${before / 1024L} " +
                 "metal_after_kb=${after / 1024L} freed_kb=${(before - after) / 1024L} limit_mb=${limit / 1048576L} " +
+                "metal_after_all_kb=${afterAll / 1024L} freed_all_kb=${(after - afterAll) / 1024L} " +
                 "frames=$frames ${skiaCpu()}",
         )
         probeLabel = label
@@ -212,6 +233,17 @@ internal class WindowTrials(private val window: org.thisisthepy.compose.window.m
                 "compose-rust: heap-trim metal_allocated_mb=${window.metalSurface.allocatedBytes / 1048576L} " +
                     "cache_limit_mb=${window.metalSurface.cacheLimitBytes / 1048576L}",
             )
+        }
+        if (filterPurgeNanos > 0L && !filtersPurged && now - lastFrame >= filterPurgeNanos) {
+            filtersPurged = true
+            val before = window.metalSurface.allocatedBytes
+            org.jetbrains.skia.Graphics.purgeAllCaches()
+            if (gpuLog) {
+                System.err.println(
+                    "compose-rust: gpu idle purge_all t_ms=${ms()} metal_before_kb=${before / 1024L} " +
+                        "metal_after_kb=${window.metalSurface.allocatedBytes / 1024L}",
+                )
+            }
         }
         if (purgeNanos > 0L && !purged && now - lastFrame >= purgeNanos) {
             purged = true
