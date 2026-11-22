@@ -613,6 +613,53 @@ class ScrollWireTest {
     }
 
     @Test
+    fun fr80_code_editor_sends_one_scroll_report_for_a_frame_with_two_changes() = runComposeUiTest {
+        val editor = 3
+        val text = (0 until 200).joinToString("\n") { line -> "line $line " + "x".repeat(400) }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(9L)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        mainClock.autoAdvance = false
+
+        // Runs the frames after [mutations] one at a time. No frame may carry two scroll
+        // reports, and the one a frame carries names the offset its offset report names.
+        fun oneReportAFrame(what: String, vararg mutations: Mutation) {
+            var reports = screen.reports.size
+            var offsets = scrolled().size
+            send(screen, *mutations, idle = false)
+            repeat(60) { frame ->
+                mainClock.advanceTimeByFrame()
+                val report = screen.reports.drop(reports)
+                val offset = scrolled().drop(offsets)
+                reports += report.size
+                offsets += offset.size
+                assertTrue(report.size <= 1, "$what, frame $frame: ${report.size} scroll reports in one frame: $report")
+                offset.lastOrNull()?.let { said ->
+                    assertEquals(listOf(said.value), report.map { it.yPx }, "$what, frame $frame: both reports of one frame")
+                }
+            }
+        }
+
+        // Along the lines by the scroll request and down the page by the editor's own
+        // command, in one batch: two changes, and never two reports in a frame.
+        oneReportAFrame("two commands in a batch", scrollTo(editor, x = 60.0), Mutation.SetScrollOffset(editor, 40.0))
+        assertEquals(60.0 to 40.0, screen.reports.last().let { it.xPx to it.yPx })
+        // Both axes animated at once move in every frame, each from its own frame callback.
+        oneReportAFrame("an animated move on both axes", scrollTo(editor, x = 200.0, y = 300.0, animate = true))
+        assertEquals(200.0 to 300.0, screen.reports.last().let { it.xPx to it.yPx })
+        assertEquals(300.0, scrolled().last().value)
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
+    }
+
+    @Test
     fun fr80_unknown_node_is_a_protocol_error() = runComposeUiTest {
         val screen = screen(scrollColumn())
         send(

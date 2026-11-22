@@ -33,7 +33,7 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 ### A `CodeEditor`'s two scroll reports arrive together
 
-A `CodeEditor` with both an `OnCodeScrolled` and an `OnScrollChanged` handler now sends `ScrollChanged` straight after `CodeScrolled` for the same move, in the same frame, and `ScrollChanged.y_px` equals `CodeScrolled`'s offset. Before, `ScrollChanged` for a move could reach the Host a frame after `CodeScrolled`, or in the same frame with the offset of the frame before. `CodeScrolled` is sent when it always was. An editor with one of the two handlers, and every other scroll container, reports as before ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).
+A `CodeEditor` with both an `OnCodeScrolled` and an `OnScrollChanged` handler now sends `ScrollChanged` straight after `CodeScrolled` for the same move, in the same frame, and `ScrollChanged.y_px` equals `CodeScrolled`'s offset. Before, `ScrollChanged` for a move could reach the Host a frame after `CodeScrolled`, or in the same frame with the offset of the frame before. `CodeScrolled` is sent when it always was. Such an editor sends at most one `ScrollChanged` in a frame even when it moves along its lines and down the page in that frame, so a report that does not come with a `CodeScrolled` (a move along the lines, a new range, coming to rest) is sent when the frame is composed, which can be one frame later than before. An animated `ScrollTo` on a `CodeEditor` now moves down the page towards the offset asked for. It moved the other way. An editor with one of the two handlers, and every other scroll container, reports as before ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).
 
 ## v0.0.12
 

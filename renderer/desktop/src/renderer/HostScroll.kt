@@ -177,14 +177,17 @@ internal class ScrollPort(val nodeId: Int) {
 
     /**
      * Set by a container that also reports its offset down the page in an event of its own
-     * (a code editor's `CodeScrolled`): whether that event has yet to say the offset given.
-     * While it has not, the scroll report waits and leaves with that event, so the Host
-     * hears one place from both in the same frame.
+     * (a code editor's `CodeScrolled`): whether that event has yet to say the offset given,
+     * or null while nobody listens for it. While it has not, the scroll report waits and
+     * leaves with that event, so the Host hears one place from both in the same frame.
      */
-    var companionOwes: ((Int) -> Boolean)? = null
+    var companionOwes: ((Int) -> Boolean?)? = null
 
-    /** True once a frame's reports have waited for the companion event. They wait one frame. */
+    /** True once a report has waited for the companion event. It waits for one frame. */
     var waited = false
+
+    /** Counts up when a frame leaves this container's report to its composition. */
+    var lateRevision by mutableIntStateOf(0)
 
     fun request(request: ScrollRequest) {
         queue += request
@@ -218,6 +221,9 @@ internal class ScrollReports {
 
     private val pending = LinkedHashSet<ScrollPort>()
 
+    /** Where the last [flush] sent its reports, for the ones a composition sends after it. */
+    private var dispatch: ((HostEvent) -> Unit)? = null
+
     val hasPending: Boolean get() = pending.isNotEmpty()
 
     fun changed(port: ScrollPort) {
@@ -236,6 +242,7 @@ internal class ScrollReports {
 
     /** Sends one report for every container that moved since the last frame. */
     fun flush(dispatch: (HostEvent) -> Unit) {
+        this.dispatch = dispatch
         if (pending.isEmpty()) return
         val ports = pending.toList()
         pending.clear()
@@ -245,18 +252,34 @@ internal class ScrollReports {
             // container says so again once it has acted.
             if (port.busy) continue
             val sample = port.sampler?.invoke() ?: continue
-            // The container's own event has not said this offset yet. It does later in this
-            // frame, and the report leaves with it. Sending it now as well would report twice
-            // in one frame whenever the offset moves again before that event. A frame in
-            // which the event never came ends the wait, so no place goes unreported.
-            if (port.companionOwes?.invoke(sample.y) == true && !port.waited) {
-                port.waited = true
-                pending += port
+            // A container whose own event is listened to can still move in this frame,
+            // after this point, and say so in that event. A report sent now would then be
+            // one of two in the frame, naming a place the event does not. So the report is
+            // left to the frame's composition, which is where that event is sent from.
+            if (port.companionOwes?.invoke(sample.y) != null) {
+                port.lateRevision++
                 continue
             }
-            port.waited = false
             report(port, handler, sample)?.let(dispatch)
         }
+    }
+
+    /**
+     * Sends the report [flush] left to the composition, unless the container's own event
+     * has yet to say where it is: then the report leaves with that event, in [paired]. A
+     * frame in which the event never came ends the wait, so no place goes unreported.
+     */
+    fun late(port: ScrollPort) {
+        val handler = port.handlerId ?: return
+        if (port.busy) return
+        val sample = port.sampler?.invoke() ?: return
+        if (port.companionOwes?.invoke(sample.y) == true && !port.waited) {
+            port.waited = true
+            changed(port)
+            return
+        }
+        port.waited = false
+        report(port, handler, sample)?.let { dispatch?.invoke(it) }
     }
 
     /**
@@ -344,6 +367,8 @@ internal abstract class ScrollSurface {
 /** One axis of a container that scrolls by an offset. */
 internal class ScrollAxis(
     val state: ScrollableState,
+    /** True where [state] takes the pointer's travel, so a delta above zero scrolls back. */
+    val reversed: Boolean = false,
     val value: () -> Int,
     val max: () -> Int,
     val viewport: () -> Int,
@@ -367,8 +392,6 @@ internal fun ScrollState.axis(): ScrollAxis = ScrollAxis(
  * viewport [viewport] long that is now at [current], or null to leave the axis alone.
  */
 internal fun aimAxis(align: Int, start: Double, size: Double, viewport: Int, current: Int): Double? =
-    /** True where [state] takes the pointer's travel, so a delta above zero scrolls back. */
-    val reversed: Boolean = false,
     when (align) {
         ScrollWire.ALIGN_START -> start
         ScrollWire.ALIGN_CENTER -> start + size / 2 - viewport / 2.0
@@ -755,6 +778,15 @@ internal fun HostScroll(node: Node, table: NodeTable, surface: ScrollSurface) {
         }
         LaunchedEffect(port, handlerId, surface) {
             snapshotFlow { surface.sample() }.collect { reports.changed(port) }
+        }
+        // What the frame's flush left to this composition is sent once it has been applied.
+        val late = port.lateRevision
+        val sentLate = remember(port) { intArrayOf(late) }
+        SideEffect {
+            if (sentLate[0] != late) {
+                sentLate[0] = late
+                reports.late(port)
+            }
         }
     }
 }
