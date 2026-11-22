@@ -5,9 +5,14 @@ import androidx.compose.foundation.ContextMenuRepresentation
 import androidx.compose.foundation.ContextMenuState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import dev.darkpyonix.composerust.foundation.OsMenuEntry
 
 /** One entry of a menu the system draws: what it says and whether it can be chosen. */
 data class NativeMenuEntry(val label: String, val enabled: Boolean)
+
+/** This entry as an item of an entry menu, [id] being the caller's tag for it, such as its index. */
+fun NativeMenuEntry.toOsMenuEntry(id: Int): OsMenuEntry.Item =
+    OsMenuEntry.Item(id = id, label = label, enabled = enabled)
 
 /**
  * The right-click menu, drawn by the system instead of by Compose.
