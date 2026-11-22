@@ -464,6 +464,65 @@ class ScrollWireTest {
         assertEquals(700.0, screen.reports.last().maxYPx)
     }
 
+    /**
+     * The editor's older scroll command and the request every container takes are one move:
+     * each leaves the editor where the other would, and the editor's two reports of it carry
+     * the same pixel.
+     */
+    @Test
+    fun fr80_code_editor_set_scroll_offset_and_scroll_to_agree() = runComposeUiTest {
+        val editor = 3
+        val codeHandler = 9L
+        val text = (0 until 400).joinToString("\n") { line -> "let line_$line = $line;" }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(codeHandler)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        val first = screen.reports.last()
+        assertEquals(0.0, first.yPx)
+        assertTrue(first.maxYPx > 500.0, "the editor has far to scroll: $first")
+        assertEquals(emptyList(), scrolled(), "an editor at the top has nothing to say about its offset")
+
+        // One command moves the editor, and both reports say the same place, once each.
+        // The other command with the same offset then finds the editor already there: it
+        // moves nothing, so neither report is sent again.
+        fun agree(move: Mutation, same: Mutation, expected: Double, what: String) {
+            val reports = screen.reports.size
+            val offsets = scrolled().size
+            send(screen, move)
+            val report = screen.reports.drop(reports)
+            val offset = scrolled().drop(offsets)
+            assertEquals(1, report.size, "$what: one scroll report for the move: $report")
+            assertEquals(1, offset.size, "$what: one offset report for the move: $offset")
+            assertEquals(expected, report.single().yPx, what)
+            assertEquals(report.single().yPx, offset.single().value, "$what: the two reports name one place")
+            assertEquals(HANDLER, report.single().handlerId)
+            assertEquals(codeHandler, offset.single().handlerId)
+            assertEquals(editor, report.single().nodeId)
+            assertEquals(editor, offset.single().nodeId)
+
+            send(screen, same)
+            assertEquals(reports + 1, screen.reports.size, "$what: the same offset from the other command must move nothing")
+            assertEquals(offsets + 1, scrolled().size, "$what: the same offset from the other command must move nothing")
+        }
+
+        agree(Mutation.SetScrollOffset(editor, 240.0), scrollTo(editor, y = 240.0), 240.0, "the older command first")
+        agree(scrollTo(editor, y = 90.0), Mutation.SetScrollOffset(editor, 90.0), 90.0, "the request first")
+        // Part of a pixel is rounded the same way by both.
+        agree(Mutation.SetScrollOffset(editor, 133.4), scrollTo(editor, y = 133.4), 133.0, "part of a pixel")
+        // Past the end is the end for both, and below the top is the top.
+        agree(Mutation.SetScrollOffset(editor, 1.0e9), scrollTo(editor, y = 1.0e9), first.maxYPx, "past the end")
+        agree(scrollTo(editor, y = -12.5), Mutation.SetScrollOffset(editor, -12.5), 0.0, "below the top")
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
+    }
+
     @Test
     fun fr80_unknown_node_is_a_protocol_error() = runComposeUiTest {
         val screen = screen(scrollColumn())
