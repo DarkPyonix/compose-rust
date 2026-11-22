@@ -46,6 +46,7 @@ pub mod native_view;
 pub mod notification;
 pub mod palette;
 pub mod picked_file;
+pub mod preview;
 pub mod protocol;
 pub mod runtime;
 pub mod schema;
@@ -82,6 +83,8 @@ pub use code::{
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
+pub use compose_rust_macros::Preview;
+pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
 pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
