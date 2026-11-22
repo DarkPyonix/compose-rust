@@ -142,8 +142,22 @@ grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin task :web:buildWasmJsAp
 check $? "test.yml builds the wasmJs app bundle through the retry wrapper"
 grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin build -p \$\{\{ matrix\.platform \}\}' "$test_yml"
 check $? "test.yml runs the Amper build (wasmJs and the other platforms) through the retry wrapper"
+grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin test -p \$\{\{ matrix\.platform \}\}' "$test_yml"
+check $? "test.yml runs the Amper tests through the retry wrapper"
 grep -q 'DXC_RETRY_LOG: ${{ runner.temp }}/' "$test_yml"
 check $? "test.yml keeps the retry log in the runner's temp directory"
 
+# Every Amper module declares the Google Maven Central mirror ahead of the implicit Central fallback.
+for mod in "$repo"/renderer/*/module.yaml; do
+    grep -q 'https://maven-central.storage-download.googleapis.com/maven2/' "$mod"
+    check $? "$(basename "$(dirname "$mod")")/module.yaml reads Maven Central through Google's mirror"
+done
+
+# Every ./kotlin test step in CI workflows runs through retry-resolution.sh.
+for wf in static-renderer.yml test-kn-desktop-renderer.yml test-native-renderer.yml test.yml; do
+    ! grep -Eq 'run: (xvfb-run [^#]* )?\./kotlin test' "$repo/.github/workflows/$wf"
+    check $? "$wf has no unwrapped ./kotlin test invocation"
+done
+
 if [ "$failures" -ne 0 ]; then echo "$failures check(s) failed"; exit 1; fi
-echo "ok    transient dependency downloads are retried in the fork Compose build and the Amper wasmJs build"
+echo "ok    transient dependency downloads are retried in the fork Compose build and Amper builds"

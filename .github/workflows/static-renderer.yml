@@ -213,7 +213,9 @@ jobs:
         # Compose published into the local repository above, so this is the first place they
         # can run at all.
         working-directory: renderer
-        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
 
       - name: Install an input method, an accessibility registry and input tools
         if: inputs.target == 'linux-x64'

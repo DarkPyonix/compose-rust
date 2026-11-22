@@ -184,7 +184,9 @@ jobs:
       - name: Build and test the macOS renderer
         if: matrix.module == 'macos'
         working-directory: renderer
-        run: ./kotlin test -m macos
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh ./kotlin test -m macos
 
       - name: Build the static macOS renderer and an application on it
         if: matrix.module == 'macos'
@@ -270,7 +272,9 @@ jobs:
       - name: Build and test the Linux renderer
         if: matrix.module == 'linux'
         working-directory: renderer
-        run: xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh xvfb-run -a -s '-screen 0 1280x1024x24' ./kotlin test -m linux
 
       - name: Install the Rust toolchain for the application
         if: matrix.module == 'linux'

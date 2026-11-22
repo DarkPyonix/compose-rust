@@ -12,6 +12,9 @@ product:
   type: lib
   platforms: [ iosArm64, iosSimulatorArm64 ]
 
+repositories:
+  - https://maven-central.storage-download.googleapis.com/maven2/
+
 dependencies:
   - $compose.runtime
   - $compose.foundation
