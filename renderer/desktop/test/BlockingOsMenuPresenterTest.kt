@@ -14,7 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * FR-33.2 on macOS and Windows: `NSMenu` and `TrackPopupMenuEx` hold the thread while the menu is
+ * On macOS and Windows `NSMenu` and `TrackPopupMenuEx` hold the thread while the menu is
  * up, so the presenter puts the menu up from the window's loop after [BlockingOsMenuPresenter.open]
  * returns, and keeps the contract's one result per menu around that.
  */

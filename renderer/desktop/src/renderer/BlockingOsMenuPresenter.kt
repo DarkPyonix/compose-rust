@@ -1,6 +1,6 @@
 package dev.darkpyonix.composerust.foundation
 
-// FR-33.2 on macOS and Windows: `NSMenu.popUpMenuPositioningItem` and `TrackPopupMenuEx` hold
+// On macOS and Windows `NSMenu.popUpMenuPositioningItem` and `TrackPopupMenuEx` hold
 // the thread in the system's menu loop until the menu closes. Calling one from inside
 // composition or an effect would run the whole application from there, so [open] only writes
 // the menu down and the window's loop puts it up between frames with [runPending].
