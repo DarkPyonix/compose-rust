@@ -78,6 +78,7 @@ private fun symbolName(role: IconRole?): String? = when (role) {
     IconRole.CompactOverlay -> "pip"
     IconRole.Calculator -> "function"
     IconRole.Refresh -> "arrow.clockwise"
+    IconRole.Delete -> "trash"
     null -> null
 }
 

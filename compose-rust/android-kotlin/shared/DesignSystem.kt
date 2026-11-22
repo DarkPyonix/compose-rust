@@ -885,6 +885,12 @@ enum class CaptionSide { Start, End }
 enum class CaptionTitleAlignment { Start, Center }
 
 /**
+ * Whether a top app bar draws its title inside the bar or leaves it to the platform caption
+ * when the window has a caption strip.
+ */
+enum class CaptionTitlePlacement { Bar, SystemCaption }
+
+/**
  * How the window's own caption is drawn: the three buttons, and where the title sits.
  *
  * All seven systems are described by one shape, because the differences between them are
@@ -923,6 +929,8 @@ data class CaptionStyle(
     val spacing: Dp,
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
+    /** Whether the top bar draws its title or leaves it to the platform caption. */
+    val titlePlacement: CaptionTitlePlacement = CaptionTitlePlacement.Bar,
     /**
      * How tall the caption is where the application draws it.
      *
@@ -994,6 +1002,7 @@ fun platformCaption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal):
         pressed = colours.pressed,
         closePressed = colours.closePressed,
         titleAlignment = own.titleAlignment,
+        titlePlacement = own.titlePlacement,
     )
 }
 

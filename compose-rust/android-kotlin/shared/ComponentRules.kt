@@ -1064,6 +1064,7 @@ internal object CupertinoRules : ComponentRules {
         spacing = 8.dp,
         edgePadding = 20.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        titlePlacement = CaptionTitlePlacement.SystemCaption,
     )
 
     /** A card sheet pulled up over a dimmed screen, with the grabber along its top edge. */
@@ -4519,6 +4520,7 @@ internal object LiquidGlassRules : ComponentRules {
         // is inset from the window edge rather than flush with it.
         edgePadding = 22.dp,
         titleAlignment = CaptionTitleAlignment.Center,
+        titlePlacement = CaptionTitlePlacement.SystemCaption,
     )
 
     private const val SCRIM_ALPHA = 0.4f

@@ -1255,6 +1255,14 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
 3. iOS 시스템 탭 막대도 각 역할을 시스템 심볼로 변환합니다. 아이콘 버튼은 빈 글자일 때도 역할에 맞는 접근성 이름을 갖습니다.
 4. 가벼운 테마와 어두운 테마에서 전 역할을 검사하고, 계산기와 팟캐스트 참조에 필요한 역할을 각 화면이 사용할 수 있습니다.
 
+**삭제 아이콘 역할** (이슈 #593). 지우는 동작의 뜻 `Delete=40`을 `IconRole` 끝에 추가합니다. 기존 태그 1–39(`Refresh=39`까지)는 그대로입니다. 그림은 휴지통이고, iOS 시스템 심볼은 `trash`입니다. 목록 행, 메일, 파일 관리자처럼 지우는 동작이 있는 화면이 글자 대신 이 뜻을 보냅니다.
+
+수용 기준:
+1. `Delete`가 태그 40으로 인코딩·디코딩되며 기존 태그와 미지의 태그 동작이 변하지 않습니다(fr16_sample_icon_roles_have_stable_tags_and_reach_buttons).
+2. 일곱 디자인 시스템 모두 `Delete`에 휴지통 아이콘을 그리며, 글자가 빈 아이콘 버튼도 빈 글리프로 남지 않고 접근성 이름을 갖습니다(fr16_sample_roles_have_artwork_in_every_system_and_scheme, fr16_sample_icon_buttons_draw_and_have_accessible_names).
+3. iOS 시스템 탭 막대는 `Delete`를 `trash` 심볼로 변환합니다.
+4. `samples/minimal`의 삭제 동작은 "Delete" 글자 대신 빨간 사각형(`palette::DELETE`) 위의 흰 `Delete` 아이콘으로 그려집니다.
+
 **SVG 에셋 아이콘**(이슈 #303). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
 
 ### FR-17 커스텀 드로잉 (`Agreed`)
@@ -1540,7 +1548,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 - Kotlin/Native 데스크톱 창: 렌더러의 `macos/`, `linux/` 모듈과 D18의 `windows/` 모듈의 창 부분
 - 이슈 #26이 함께 꼽는 것: GraalVM native-image에서 AWT를 걷어내는 경로, macOS 창 재질(FR-29)
 
-지금 이 코드는 `renderer/desktop/c/`와 렌더러의 Kotlin 소스, 플랫폼 모듈에 있습니다. 옮긴 뒤 이 저장소에는 포크가 내놓는 창을 쓰는 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다. 옮기는 동안 창이 빌드되지 않거나 나빠지는 기간이 생기면 안 되므로, 이 저장소의 사본은 포크가 아래 기준을 통과할 때까지 남깁니다.
+지금 이 코드는 포크의 `extended/window/` 모듈(`common`, `windows-shared`, `native/macos`, `native/linux`, `graalvm`)로 옮겨졌고, 이 저장소의 중복 사본은 지워졌습니다(`ffa9cd60`). 이 저장소에는 포크가 내놓는 창을 부르는 연결 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다.
 
 수용 기준 (이슈 #26):
 
@@ -2283,7 +2291,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
-> **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
+> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
 >
 > **1.0 작업(소유자, 2026-11-21).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어갑니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
@@ -2503,7 +2511,9 @@ if design.is_apple() {
 
 > [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
 
-- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows는 Win32 팝업 메뉴(`TrackPopupMenuEx`)입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다. **[leader, 2026-11-22]** 소유자의 2025-10-05 원칙은 기본 OS 네이티브 메뉴이지만, Linux(X11)에는 툴킷 없는 표준 OS 팝업 메뉴가 없으므로 데스크톱 메뉴 경로가 생기기 전까지 디자인 시스템이 그린 메뉴를 기본값으로 쓰며 다른 OS와 같은 항목과 사용 가능 상태를 유지합니다.
+- **붙여넣기(Paste) 사용 가능 상태는 클립보드를 따릅니다([leader, 2026-11-22]).** 클립보드에 텍스트가 있을 때만 붙여넣기 항목이 활성화되고, 비어 있거나 텍스트가 아니면 비활성화됩니다.
+- **`Menu`와 `Dropdown` 팝업은 디자인 시스템이 그린 팝업을 유지합니다([leader, 2026-11-22]).** 텍스트 우클릭 메뉴와 달리 `Menu`와 `Dropdown`은 아이콘, 보조 설명, 선택 표시, 맞춤 행(Ember의 모델·브랜치 선택기 등)을 담으므로 디자인 시스템 팝업으로 그리고, 메뉴 키보드(화살표 순환, Home/End, Enter, Escape, 키보드 포커스 표시)를 제공합니다.
 - **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
 - **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
 - **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
@@ -2517,6 +2527,9 @@ if design.is_apple() {
 4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
 5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
 6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
+7. Linux(X11) 기본 텍스트 메뉴는 다른 OS와 같은 항목과 사용 가능 상태로 디자인 시스템 메뉴를 냅니다(시험 이름 `fr33_1_linux_drawn_text_menu_matches_items_and_enabled_state`).
+8. 클립보드가 비어 있으면 붙여넣기 항목이 비활성화되고, 클립보드에 텍스트가 있으면 활성화됩니다(시험 이름 `fr33_1_paste_enabled_state_follows_clipboard`).
+9. `Menu`와 `Dropdown` 팝업은 디자인 시스템 팝업으로 그려지며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape)를 가집니다(시험 이름 `fr33_1_menu_and_dropdown_popups_use_design_system_popup`).
 
 ### FR-36 OS 알림 (`Draft`)
 
@@ -4016,9 +4029,9 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 4. `PressFeedback`으로 값을 바꾸거나 끌 수 있고, 눌러도 Host로 가는 이벤트가 `Clicked` 하나뿐입니다.
 5. `Enabled`가 거짓인 면과 `TextField`는 반응하지 않습니다.
 
-### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
+### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355, #931)
 
-> **1.0 작업(소유자, 2026-11-21).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어갑니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
+> **1.0 작업(소유자, 2026-11-21).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어갑니다. iOS/iPadOS(`IosWindowBackend`)와 Android(`AndroidWindowBackend`) 백엔드가 구현되었습니다(이슈 #931).
 
 소유자 지시(2026-10-26, 원문):
 
@@ -4980,9 +4993,9 @@ pub mod storage {
 14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
-### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
+### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680, #932)
 
-> **1.0 작업(소유자, 2026-11-21).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어갑니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
+> **1.0 작업(소유자, 2026-11-21).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어갑니다. iOS와 Android 렌더러 구현이 더해졌으며, Windows/Linux/Web이 뒤따릅니다(이슈 #932).
 
 요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
 
