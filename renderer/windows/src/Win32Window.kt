@@ -122,6 +122,19 @@ internal class Win32Window private constructor(
     /** Whether something asked for a frame that the scene itself does not know of. Windows of several only. */
     var frameWanted: () -> Boolean = { false }
 
+    /**
+     * Asked by FR-82's window checks: the next GPU frame's pixels, read back from the buffer
+     * before it is presented (BGRA, premultiplied, unpadded rows), or null where Skia could not
+     * read them. Taken once.
+     */
+    internal var readBack: ((pixels: ByteArray?, width: Int, height: Int) -> Unit)? = null
+
+    /** The size of the surface the last frame was drawn into, in device pixels. For the checks. */
+    internal val drawnSize: IntSize get() = size
+
+    /** The density the scene was last drawn at. For the checks. */
+    internal val drawnDensity: Float get() = scene.density.density
+
     /** Set once the window is destroyed; nothing is drawn or read after that. */
     var gone = false
         private set
@@ -500,6 +513,10 @@ internal class Win32Window private constructor(
         // Submitted, not only recorded: a buffer presented before Skia's command list runs is
         // a buffer with nothing in it.
         surface.flushAndSubmit(true)
+        readBack?.let { take ->
+            readBack = null
+            take(readPixels(surface, measured.width, measured.height), measured.width, measured.height)
+        }
         surface.close()
         target.close()
         // Waits for the screen, so there is no sleep after this.
@@ -637,3 +654,15 @@ private const val DEFAULT_OPEN_HEIGHT = 360
 private const val SWAPCHAIN_FORMAT = 87
 
 private const val FRAME_SECONDS = 0.016
+
+/** The pixels of a GPU [surface] of [width] by [height], BGRA premultiplied, or null. */
+private fun readPixels(surface: Surface, width: Int, height: Int): ByteArray? {
+    val info = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.PREMUL)
+    val bitmap = org.jetbrains.skia.Bitmap()
+    return try {
+        if (!bitmap.allocPixels(info) || !surface.readPixels(bitmap, 0, 0)) null
+        else bitmap.readPixels(info, info.minRowBytes, 0, 0)
+    } finally {
+        bitmap.close()
+    }
+}

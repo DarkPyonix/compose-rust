@@ -38,6 +38,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
     // application start when it passed.
     if (runFr53WindowsChecksIfAsked() == false) return RendererApi.RUN_FAILED
+    // FR-82's checks through a real window, at whatever scale the display is set to.
+    if (runFr82WindowsChecksIfAsked() == false) return RendererApi.RUN_FAILED
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.

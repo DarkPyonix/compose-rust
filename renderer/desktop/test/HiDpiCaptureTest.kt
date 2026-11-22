@@ -15,6 +15,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.darkpyonix.composerust.ui.platform.FR82_SCENE_HEIGHT_DP
+import dev.darkpyonix.composerust.ui.platform.FR82_SCENE_WIDTH_DP
+import dev.darkpyonix.composerust.ui.platform.Fr82DiagnosticScene
 import dev.darkpyonix.composerust.ui.platform.WindowBackingScale
 import dev.darkpyonix.composerust.ui.platform.WindowTextScale
 import org.jetbrains.skia.Bitmap
@@ -29,60 +32,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-private const val SCENE_W_DP = 160
-private const val SCENE_H_DP = 120
 
-/**
- * HiDPI diagnostic scene: on a white background, (a) a 1dp vertical black bar at x = 10dp,
- * (b) a 1dp horizontal black bar at y = 10dp, (c) a 40dp-diameter black circle, (d) a black
- * square clipped with a 12dp corner radius, and (e) 16sp black "Hg".
- */
-@Composable
-private fun Fr82DiagnosticScene() {
-    Box(
-        Modifier
-            .size(SCENE_W_DP.dp, SCENE_H_DP.dp)
-            .background(Color.White),
-    ) {
-        // (a) 1dp vertical black bar at x = 10dp
-        Box(
-            Modifier
-                .offset(x = 10.dp, y = 20.dp)
-                .size(width = 1.dp, height = 80.dp)
-                .background(Color.Black),
-        )
-        // (b) 1dp horizontal black bar at y = 10dp
-        Box(
-            Modifier
-                .offset(x = 20.dp, y = 10.dp)
-                .size(width = 120.dp, height = 1.dp)
-                .background(Color.Black),
-        )
-        // (c) 40dp-diameter black circle
-        Box(
-            Modifier
-                .offset(x = 24.dp, y = 24.dp)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color.Black),
-        )
-        // (d) 12dp rounded-clip black square
-        Box(
-            Modifier
-                .offset(x = 76.dp, y = 24.dp)
-                .size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black),
-        )
-        // (e) 16sp black "Hg"
-        Text(
-            text = "Hg",
-            color = Color.Black,
-            fontSize = 16.sp,
-            modifier = Modifier.offset(x = 24.dp, y = 76.dp),
-        )
-    }
-}
 
 private class PixelBuffer(val width: Int, val height: Int, val argb: IntArray) {
     fun r(x: Int, y: Int): Int = (argb[y * width + x] ushr 16) and 0xFF
@@ -92,8 +42,8 @@ private class PixelBuffer(val width: Int, val height: Int, val argb: IntArray) {
 }
 
 private fun renderDiagnostic(scale: Float): PixelBuffer {
-    val w = (SCENE_W_DP * scale).roundToInt()
-    val h = (SCENE_H_DP * scale).roundToInt()
+    val w = (FR82_SCENE_WIDTH_DP * scale).roundToInt()
+    val h = (FR82_SCENE_HEIGHT_DP * scale).roundToInt()
     val scene = ImageComposeScene(
         width = w,
         height = h,
@@ -169,8 +119,8 @@ class HiDpiCaptureTest {
     fun fr82_surface_is_device_pixels_at_every_scale() {
         for (scale in floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f)) {
             val buf = renderDiagnostic(scale)
-            assertEquals((SCENE_W_DP * scale).roundToInt(), buf.width, "width at scale $scale")
-            assertEquals((SCENE_H_DP * scale).roundToInt(), buf.height, "height at scale $scale")
+            assertEquals((FR82_SCENE_WIDTH_DP * scale).roundToInt(), buf.width, "width at scale $scale")
+            assertEquals((FR82_SCENE_HEIGHT_DP * scale).roundToInt(), buf.height, "height at scale $scale")
         }
     }
 
@@ -281,31 +231,31 @@ class HiDpiCaptureTest {
         val follower = WindowBackingScale(2.0f, WindowTextScale(1.0f))
         // 200% -> 125%
         val to125 = assertNotNull(
-            follower.follow((SCENE_W_DP * 1.25f).roundToInt(), (SCENE_H_DP * 1.25f).roundToInt(), 1.25f),
+            follower.follow((FR82_SCENE_WIDTH_DP * 1.25f).roundToInt(), (FR82_SCENE_HEIGHT_DP * 1.25f).roundToInt(), 1.25f),
             "200% -> 125% triggers redraw",
         )
         assertEquals(1.25f, to125.density.density)
-        assertEquals(SCENE_W_DP, (to125.size.width / to125.density.density).roundToInt())
-        assertEquals(SCENE_H_DP, (to125.size.height / to125.density.density).roundToInt())
+        assertEquals(FR82_SCENE_WIDTH_DP, (to125.size.width / to125.density.density).roundToInt())
+        assertEquals(FR82_SCENE_HEIGHT_DP, (to125.size.height / to125.density.density).roundToInt())
         // 125% -> 200%
         val back200 = assertNotNull(
-            follower.follow(SCENE_W_DP * 2, SCENE_H_DP * 2, 2.0f),
+            follower.follow(FR82_SCENE_WIDTH_DP * 2, FR82_SCENE_HEIGHT_DP * 2, 2.0f),
             "125% -> 200% triggers redraw",
         )
         assertEquals(2.0f, back200.density.density)
-        assertEquals(SCENE_W_DP, (back200.size.width / back200.density.density).roundToInt())
-        assertEquals(SCENE_H_DP, (back200.size.height / back200.density.density).roundToInt())
+        assertEquals(FR82_SCENE_WIDTH_DP, (back200.size.width / back200.density.density).roundToInt())
+        assertEquals(FR82_SCENE_HEIGHT_DP, (back200.size.height / back200.density.density).roundToInt())
     }
 
     @Test
     fun fr82_macos_scales_one_and_two() {
         val follower = WindowBackingScale(1.0f, WindowTextScale(1.0f))
-        val to2x = assertNotNull(follower.follow(SCENE_W_DP * 2, SCENE_H_DP * 2, 2.0f))
+        val to2x = assertNotNull(follower.follow(FR82_SCENE_WIDTH_DP * 2, FR82_SCENE_HEIGHT_DP * 2, 2.0f))
         assertEquals(2.0f, to2x.density.density)
-        val back1x = assertNotNull(follower.follow(SCENE_W_DP, SCENE_H_DP, 1.0f))
+        val back1x = assertNotNull(follower.follow(FR82_SCENE_WIDTH_DP, FR82_SCENE_HEIGHT_DP, 1.0f))
         assertEquals(1.0f, back1x.density.density)
         // Both 1x and 2x renders have exact device-pixel dimensions.
-        assertEquals(SCENE_W_DP, renderDiagnostic(1.0f).width)
-        assertEquals(SCENE_W_DP * 2, renderDiagnostic(2.0f).width)
+        assertEquals(FR82_SCENE_WIDTH_DP, renderDiagnostic(1.0f).width)
+        assertEquals(FR82_SCENE_WIDTH_DP * 2, renderDiagnostic(2.0f).width)
     }
 }

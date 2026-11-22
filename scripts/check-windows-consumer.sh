@@ -290,6 +290,36 @@ if [[ "$status" -ne 0 ]]; then
     failed+=("the several-windows checks ended with status $status")
 fi
 
+echo "== 3c2. HiDPI through the real window at 100, 125, 150 and 200 % (FR-82)"
+# The renderer draws FR-82's diagnostic scene in a window of its own and judges it against
+# the screen (Fr82WindowsCheck.kt): the surface is the client area in device pixels, the
+# screen shows the drawn frame, 1 dp lines are whole device pixels at 100 and 200 %, edges are
+# antialiased, and the window is per-monitor v2 at the DPI set. The display's scale is set with
+# .github/scripts/set-display-scale.c, which picks a resolution that offers it (--fit), and put
+# back to 100 % at the end. The names are read from the Kotlin.
+scale_tool="$scratch/set-display-scale.exe"
+( cd "$scratch" && MSYS_NO_PATHCONV=1 "$cl" /nologo /O2 /W3 "$(cygpath -w "$repo_root/.github/scripts/set-display-scale.c")" /Fe:set-display-scale.exe >/dev/null ) \
+    || failed+=("set-display-scale.c did not build")
+fr82_names="$(grep -oE '"fr82_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr82WindowsCheck.kt" | tr -d '"' | sort -u)"
+[[ -n "$fr82_names" ]] || failed+=("Fr82WindowsCheck.kt names no fr82 check")
+for percent in 100 125 150 200; do
+    fr82_log="$scratch/fr82-windows-check-$percent.log"
+    if [[ -x "$scale_tool" ]] && ! "$scale_tool" "$percent" --fit > "$scratch/set-display-scale-$percent.log" 2>&1; then
+        cat "$scratch/set-display-scale-$percent.log"
+        failed+=("the display did not go to $percent %")
+        continue
+    fi
+    dpi=$((96 * percent / 100))
+    status=0
+    ( cd "$scratch/alone" && COMPOSE_RUST_FR82_WINDOWS_CHECK=1 FR82_EXPECT_DPI=$dpi timeout 300 ./consumer.exe --self-check ) 2> "$fr82_log" || status=$?
+    grep -E 'fr82' "$fr82_log" | sed "s/^/[$percent %] /" || true
+    if [[ "$status" -ne 0 ]]; then echo "-- the FR-82 checks at $percent % ended with status $status; their last lines:"; tail -20 "$fr82_log"; fi
+    for name in $fr82_names; do
+        grep -qE "^compose-rust: $name: (ok|skipped)" "$fr82_log" || failed+=("$name at $percent % (see the lines above)")
+    done
+done
+[[ -x "$scale_tool" ]] && "$scale_tool" 100 --fit > /dev/null 2>&1 || true
+
 echo "== 3d. an application with two windows, through LaunchBuilder::windows()"
 # 3c drives the window manager from inside the renderer. This is the other end: a program
 # written against the Rust API (compose-rust/tests/fixtures/multi-window) opens two windows
