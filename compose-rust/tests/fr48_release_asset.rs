@@ -51,10 +51,20 @@ fn fr48_release_asset_sends_one_release_and_never_reuses_the_id() {
     assert!(!release_asset(id), "a second release is a no-op");
     assert!(!release_asset(id + 1_000), "an unknown id is not released");
 
-    let next = host.render_frame(16_000_000).expect("the next batch encodes").to_vec();
+    let next = host
+        .render_frame(16_000_000)
+        .expect("the next batch encodes")
+        .to_vec();
     assert_eq!(releases(&next), [id]);
-    let after = host.render_frame(32_000_000).expect("a quiet batch encodes").to_vec();
+    let after = host
+        .render_frame(32_000_000)
+        .expect("a quiet batch encodes")
+        .to_vec();
     assert!(releases(&after).is_empty(), "the release is sent once");
 
-    assert_ne!(asset(AssetKind::Font, FONT), id, "a released id is not handed out again");
+    assert_ne!(
+        asset(AssetKind::Font, FONT),
+        id,
+        "a released id is not handed out again"
+    );
 }
