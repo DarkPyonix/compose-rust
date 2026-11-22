@@ -102,6 +102,12 @@ else
             "and every page fails with RangeError: Incorrect locale information provided."
     grep -qF 'function fr22_web_every_sample_draws_without_a_page_error' "$script" ||
         fail "$script lost fr22_web_every_sample_draws_without_a_page_error, the check that every page draws"
+    grep -qF 'function fr79_todo_list_survives_a_reload_on_the_web' "$script" ||
+        fail "$script lost fr79_todo_list_survives_a_reload_on_the_web, the todo reload persistence check"
+    grep -qF 'page.reload(' "$script" ||
+        fail "$script does not reload the todo page to verify persistence"
+    grep -qF 'tasks.tsv' "$script" ||
+        fail "$script does not verify IndexedDB tasks.tsv persistence for todo"
 fi
 
 if [[ "$failures" -eq 0 ]]; then
