@@ -123,6 +123,9 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 
 **Windows** 배포는 Kotlin/Native `mingwX64` 렌더러를 MSVC 실행 파일에 정적으로 링크합니다. 상류에서 제공하지 않는 타깃은 Compose 포크가 빌드합니다. Kotlin/Native의 MinGW 객체와 MSVC 링크가 만나는 과정은 [Windows 렌더러 빌드](../.github/workflows/windows-static.yml)에 있습니다. GraalVM 네이티브 이미지로 잰 수치는 이전 경로의 기록입니다.
 
+다른 플랫폼의 아티팩트를 가져다 쓸 수는 없습니다. klib은 타깃 정보를 품고 있어 컴파일러가
+거부하고, macOS용 `ui`는 AppKit에 묶여 있습니다.
+
 ## 웹에서 그리는 경로
 
 브라우저에서 Skia를 쓰는 제품도 웹 페이지에 그 C++ 라이브러리나 렌더링 컨텍스트를 노출하지 않습니다. 페이지가 쓰는 것은 Canvas와 WebGL 같은 웹 API입니다. Compose의 `wasmJs` 렌더러는 Skiko의 웹용 빌드를 함께 배포하고 `ComposeViewport`로 페이지의 캔버스에 그립니다. Skia의 [CanvasKit 문서](https://skia.org/docs/user/modules/canvaskit/)도 같은 구분을 보여 줍니다. Skia를 WebAssembly로 빌드하고 웹 API로 캔버스를 사용합니다.
@@ -133,9 +136,6 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 
 Windows 창은 Compose 접근성 트리의 역할과 이름을 UI Automation으로 내보냅니다. [#419의 검토](https://github.com/DarkPyonix/compose-rust/issues/419)는 컨트롤 패턴, 상태와 포커스, 부모·자식 관계, 그리고 접근성 동작을 Host까지 전달하는 경로가 빠져 있음을 기록합니다. 공급자 변경은 [Compose 포크 #261](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/261), 렌더러의 요청 전달은 [#962](https://github.com/DarkPyonix/compose-rust/pull/962)에서 다룹니다. 별도 프로세스에서 이름과 역할을 읽는 CI 확인은 [#935](https://github.com/DarkPyonix/compose-rust/issues/935), 실제 Narrator 확인은 [소유자 체크리스트](https://github.com/DarkPyonix/darkpyonix/issues/141)에서 추적합니다.
 
-
-다른 플랫폼의 아티팩트를 가져다 쓸 수는 없습니다. klib은 타깃 정보를 품고 있어 컴파일러가
-거부하고, macOS용 `ui`는 AppKit에 묶여 있습니다.
 
 ## 리눅스 Kotlin/Native의 모양
 
