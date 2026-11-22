@@ -277,24 +277,25 @@ pub fn expand(attribute: TokenStream, item: TokenStream) -> syn::Result<TokenStr
     };
 
     let spec_ident = format_ident!("__COMPOSE_PREVIEW_{}", fn_name_str.to_uppercase());
-    let vis = &function.vis;
 
     Ok(quote! {
         #function
 
         #[doc(hidden)]
         #[allow(unexpected_cfgs, dead_code, non_upper_case_globals)]
-        #[cfg(compose_rust_preview)]
-        #vis const #spec_ident: ::compose_rust::preview::PreviewSpec =
-            ::compose_rust::preview::PreviewSpec {
-                id: ::core::concat!(::core::module_path!(), "::", #fn_name_str),
-                name: #display_name,
-                sizes: &[#(#sizes),*],
-                schemes: &[#(#schemes),*],
-                systems: &[#(#systems),*],
-                scales: &[#(#scales),*],
-                fixture: #fixture,
-                render: #fn_ident,
-            };
+        const _: () = {
+            #[cfg(compose_rust_preview)]
+            const #spec_ident: ::compose_rust::preview::PreviewSpec =
+                ::compose_rust::preview::PreviewSpec {
+                    id: ::core::concat!(::core::module_path!(), "::", #fn_name_str),
+                    name: #display_name,
+                    sizes: &[#(#sizes),*],
+                    schemes: &[#(#schemes),*],
+                    systems: &[#(#systems),*],
+                    scales: &[#(#scales),*],
+                    fixture: #fixture,
+                    render: #fn_ident,
+                };
+        };
     })
 }

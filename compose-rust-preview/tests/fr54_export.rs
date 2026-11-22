@@ -226,7 +226,7 @@ fn fr54_compare_and_check() {
 
     write_png(&a, 4, 4, &px_a, &[]).unwrap();
     write_png(&b, 4, 4, &px_b, &[]).unwrap();
-    write_png(&c, 8, 4, &vec![255u8; 8 * 4 * 4], &[]).unwrap();
+    write_png(&c, 8, 4, &[255u8; 8 * 4 * 4], &[]).unwrap();
 
     // Same size, 1 pixel differs: writes .side.png (8x4) and .diff.png (4x4).
     let res = compare_pngs(&a, &b, Some(&side), Some(&diff)).unwrap();
