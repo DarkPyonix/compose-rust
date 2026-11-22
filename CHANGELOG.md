@@ -57,6 +57,9 @@ A sheet's first line no longer sits level with its drag handle. Material 3 keeps
 ### Window breakpoints the application chooses
 
 `current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
+### A `CodeEditor`'s two scroll reports arrive together
+
+A `CodeEditor` with both an `OnCodeScrolled` and an `OnScrollChanged` handler now sends `ScrollChanged` straight after `CodeScrolled` for the same move, in the same frame, and `ScrollChanged.y_px` equals `CodeScrolled`'s offset. Before, `ScrollChanged` for a move could reach the Host a frame after `CodeScrolled`, or in the same frame with the offset of the frame before. `CodeScrolled` is sent when it always was. Such an editor sends at most one `ScrollChanged` in a frame even when it moves along its lines and down the page in that frame, so a report that does not come with a `CodeScrolled` (a move along the lines, a new range, coming to rest) is sent when the frame is composed, which can be one frame later than before. An animated `ScrollTo` on a `CodeEditor` now moves down the page towards the offset asked for. It moved the other way. An editor with one of the two handlers, and every other scroll container, reports as before ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).
 
 ## v0.0.12
 
