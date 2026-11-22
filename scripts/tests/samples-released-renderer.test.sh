@@ -158,16 +158,15 @@ nfr15_tag_releases_the_windows_static_kit() {
     grep -q 'Windows is left out of a tag' "$native" \
         && fail "a tag still leaves Windows out of the one-executable check" \
         || ok "a tag checks Windows as one executable"
-    # Read in the job that builds the GraalVM image, not in the whole file: a tag whose
-    # renderers were already published hands on the Kotlin/Native kit under this name
-    # from another job, and that is the asset the release is meant to carry.
+    # Windows distribution is the Kotlin/Native static kit only: the obsolete GraalVM
+    # windows job is gone from test-native-renderer.yml and from release.needs.
     local graalvm_job
     graalvm_job="$(job "$native" windows)"
-    [[ -n "$graalvm_job" ]] && ok "the job that builds the GraalVM image is found" \
-        || fail "no job named windows: the check below would pass on nothing"
-    grep -qF 'compose-rust-renderer-${{ github.ref_name }}-windows-x64' <<<"$graalvm_job" \
-        && fail "a tag still packages the GraalVM image as the windows-x64 release asset" \
-        || ok "the GraalVM image is not a release asset"
+    [[ -z "$graalvm_job" ]] && ok "the obsolete GraalVM windows job is removed" \
+        || fail "test-native-renderer.yml still carries a GraalVM windows job"
+    job "$native" release | grep -qE '^    needs: \[.*(, |\[)windows(,|\])' \
+        && fail "the release job still waits on the obsolete GraalVM windows job" \
+        || ok "the release job does not wait on a GraalVM windows job"
     step "$windows_static" 'Package the kit the way the release carries it' \
         | grep -qF "!startsWith(github.ref, 'refs/tags/v')" \
         && fail "windows-static does not package the kit on a tag" \

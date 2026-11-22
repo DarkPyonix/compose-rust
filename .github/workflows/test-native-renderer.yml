@@ -14,8 +14,7 @@
 #                              compiled on x86-64, because Kotlin/Native has no arm64 host.
 #   windows-x64                the Kotlin/Native renderer as the static kit an MSVC link
 #                              needs (windows-static.yml), so a Windows application is one
-#                              executable as well. The GraalVM native image is still built
-#                              and smoke tested below, and is not released.
+#                              executable as well.
 #   ios                        the Kotlin/Native archive as an XCFramework.
 #
 # The crate stays an ordinary crate that builds with no renderer present, and each
@@ -204,107 +203,6 @@ jobs:
           path: |
             ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz
             ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz.sha256
-          retention-days: 7
-
-  # Runs on every push to develop and main, and nightly. Nobody here owns a Windows
-  # machine, so this job *is* the Windows verification: if it goes red, Windows is
-  # broken. It proves build, startup, render, clean close and exit 0. It cannot prove
-  # mouse input, because a hosted runner has no one to click (see SPEC PR-8).
-  fork-desktop:
-    # The desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: changed
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
-    name: Build the Compose fork's desktop modules
-    uses: ./.github/workflows/fork-desktop-modules.yml
-
-  windows:
-    needs: [changed, fork-desktop]
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
-    name: Build and smoke test the renderer (Windows, x64)
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install upstream GraalVM 25
-        # Upstream GraalVM supports AWT on Windows and Liberica NIK is a macOS requirement.
-        #
-        # NIK would be the better answer and is not ready. It carries the JDK's desktop
-        # libraries as static archives, which is why a macOS distribution is four files and
-        # this one is sixteen, and linking them in here got as far as producing an image
-        # that could not start: AWT's Toolkit still calls System.loadLibrary("awt") at run
-        # time, and an archive inside the image does not answer that call. It has to be
-        # registered as a library the image already contains, which GraalVM does for AWT on
-        # macOS and does not do here.
-        #
-        # That work is on feat/windows-nik-static-awt. It is not on this branch because
-        # every attempt at it costs a CI run to observe and four of them left the Windows
-        # renderer unbuildable in the meantime.
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: 'true'
-
-      - name: Take the Compose fork's desktop modules
-        uses: actions/download-artifact@v4
-        with:
-          name: compose-fork-desktop
-          path: ${{ runner.temp }}/compose-fork-desktop
-
-      - name: Put them where the renderer's build looks
-        shell: bash
-        run: |
-          mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
-
-      - name: Build the Windows renderer
-        id: renderer-build
-        shell: powershell
-        run: .\renderer\desktop\scripts\build-native-windows.ps1
-
-      - name: Non-interactive Windows smoke test
-        # This proves startup, rendering long enough to open, clean close, and return 0.
-        # It does not prove mouse input because a hosted runner cannot perform the required click.
-        shell: powershell
-        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
-
-      - name: The linked image carries no toolkit
-        # Run whatever the smoke test said, so a run shows every way it fails.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
-
-      - name: The image's ways into the toolkit
-        # The check is Python, and Windows' Python is python.exe only.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/python3"
-          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
-          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
-
-      # A run artifact: it belongs to this run, lasts a fortnight, and is not published
-      # anywhere. The release carries the Kotlin/Native kit for windows-x64, not this.
-      #
-      # It exists because a renderer built from the current schema was otherwise
-      # unobtainable between releases. Anyone working on Windows had the choice of
-      # installing GraalVM and Visual Studio Build Tools, or using the last release's
-      # renderer and watching it fail the schema handshake, which is what an empty window
-      # on Windows turned out to be.
-      - name: Keep the distribution as an artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: renderer-windows-x64
-          path: renderer/build/native-image/dist
-          retention-days: 14
-
-      - name: Upload the renderer
-        uses: actions/upload-artifact@v4
-        with:
-          name: compose-rust-renderer-windows-x64
-          path: renderer/build/native-image/dist/
           retention-days: 7
 
   # The renderers macOS and Linux ship: Kotlin/Native as a static archive, built and packaged
@@ -525,7 +423,7 @@ jobs:
   # never be made to work.
   release:
     name: Attach the renderer to the GitHub release
-    needs: [changed, windows, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
+    needs: [changed, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
     # Every job above has to have succeeded, as before. The one exception is a release
     # whose renderers were promoted from renderer-dev: then the build jobs did not run, and
     # what has to have succeeded is the promotion and the single-executable check of the
