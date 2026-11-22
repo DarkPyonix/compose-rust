@@ -2539,7 +2539,7 @@ Notification::new("세션이 끝났습니다")
 - Host API는 앱 단위의 훅 하나입니다. `use_notification_activated(move |activation| ...)`가 `key`와 `action`을 받고, 앱은 `session/{id}`를 보고 그 세션을 엽니다. 훅을 부른 컴포넌트가 없으면 사건은 버려집니다.
 - **본문을 누르면 Renderer가 앱의 창을 앞으로 가져옵니다.** 창을 앞으로 가져오는 것은 플랫폼의 일이고, 그다음 무엇을 보일지는 Host의 일입니다. 동작 버튼을 누르면 창을 가져오지 않습니다. 동작 버튼이 있는 이유가 창을 열지 않고 처리하는 것이기 때문입니다.
 - **알림을 눌러 앱이 새로 시작되는 경우**(iOS와 Android에서 프로세스가 없을 때): Renderer는 그 사건을 들고 있다가 `compose_rust_host_init`이 끝난 뒤 첫 이벤트로 보냅니다. Host가 존재하기 전에 Host로 갈 수는 없으므로, 새 진입점이 아니라 순서로 해결합니다.
-- **데스크톱에서 프로세스가 끝나면 Renderer는 자기가 띄운 알림을 거둡니다.** macOS 알림 센터에 남은 알림을 누르면 앱이 다시 시작되는데, 그 알림이 가리키는 세션은 끝난 프로세스의 것이고 새 프로세스는 그것을 모릅니다. 사용자가 앱을 닫은 뒤에 남는 알림은 대부분 누를 수 없는 약속입니다.
+- **데스크톱에서 프로세스가 끝나면 Renderer는 자기가 띄운 알림을 거둡니다.** macOS 알림 센터에 남은 알림을 누르면 앱이 다시 시작되는데, 그 알림이 가리키는 세션은 끝난 프로세스의 것이고 새 프로세스는 그것을 모릅니다. 사용자가 앱을 닫은 뒤에 남는 알림은 대부분 누를 수 없는 약속입니다. 이 규칙은 이미 띄운 알림에만 적용되고, 정한 시각을 기다리는 알림은 프로세스보다 오래 삽니다(36.9).
 
 #### 36.4 권한
 
@@ -2573,7 +2573,7 @@ Notification::new("세션이 끝났습니다")
 
 | 태그 | 명령 | 레코드 |
 |---|---|---|
-| 14 | `PostNotification` | 56바이트: 머리 4, `key`, `title`, `body`, `channel`, `action_1`, `action_2`(각각 `(offset: u32, len: u32)`, 48), `importance: u16`, `presentation: u16` |
+| 14 | `PostNotification` | 64바이트: 머리 4, `key`, `title`, `body`, `channel`, `action_1`, `action_2`(각각 `(offset: u32, len: u32)`, 48), `importance: u16`, `presentation: u16`, `deliver_at_ms: i64`(36.9, 0은 지금) |
 | 15 | `WithdrawNotification` | 12바이트: 머리 4, `key`(8) |
 | 16 | `RequestNotificationPermission` | 4바이트: 머리만 |
 
@@ -2582,7 +2582,7 @@ Notification::new("세션이 끝났습니다")
 | 태그 | 이벤트 | 페이로드 |
 |---|---|---|
 | 24 | `NotificationActivated` | 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `action: u32`, `key: (offset, len)` |
-| 25 | `NotificationPermissionChanged` | 공통 머리 뒤에 `state: u32` |
+| 25 | `NotificationPermissionChanged` | 공통 머리 뒤에 `state: u32`, `scheduling: u32`(36.9) |
 
 - 문자열은 전부 PR-4 규약입니다. 새 전달 수단이 없습니다.
 - `importance`, `presentation`, `state`는 닫힌 열거형이고 스키마 해시에 들어갑니다. 모르는 값은 `ProtocolError`입니다.
@@ -2603,6 +2603,11 @@ Notification::new("세션이 끝났습니다")
 10. 세 명령과 두 이벤트가 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 모르는 `importance`와 `state` 값이 `ProtocolError`가 되고 프로세스가 죽지 않습니다. [**증명됨**: `fr36_notification_commands_round_trip_at_their_fixed_lengths`, `fr36_notification_events_round_trip_fixed_layout`, `fr36_unknown_importance_and_presentation_are_protocol_errors`, `fr36_unknown_permission_state_is_a_protocol_error`, `fr36_a_notification_record_of_the_wrong_length_is_rejected`, `fr36_an_activation_naming_a_third_button_is_a_protocol_error`, `fr36_the_notification_records_in_the_vector_decode_to_the_same_values`, `fr36_the_notification_events_encode_to_the_vector_bytes`]
 11. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다. [**증명됨**: 경계 진입점이 다섯 개뿐이라는 `pr2_boundary_surface_unchanged_by_storage`, `pr2_boundary_surface_unchanged_by_file_dialog`, `pr2_boundary_surface_unchanged_by_web_files`가 FR-36이 들어간 트리에서 통과합니다]
 12. Android 13 이상에서 `POST_NOTIFICATIONS` 권한 요청이 나타나고, 서로 다른 `channel` 두 개가 설정 화면에 두 채널로 보입니다. 수동 확인입니다. [**손 확인 대기**: darkpyonix#141(Android 13). 매니페스트의 권한 선언은 `fr36_the_android_manifest_declares_the_notification_permission_once`]
+13. `deliver_at_ms`가 있는 `PostNotification`이 그 시각에 플랫폼 알림으로 나타납니다. macOS, Windows, iOS, Android에서는 앱을 끝낸 뒤에도 나타나고, 눌러서 시작한 앱에 `NotificationActivated`가 `compose_rust_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다(36.9).
+14. 같은 `key`로 다시 보내면 기다리는 알림이 바뀌고, `WithdrawNotification`은 그것을 취소합니다. 각 플랫폼 어댑터를 가짜 시계로 시험합니다(36.9).
+15. Linux와 Web은 `scheduling = WhileRunning`을 알리고, 프로세스가 도는 동안 그 시각에 알림을 띄웁니다. 권한이 `Unsupported`이면 `scheduling = Unsupported`입니다(36.9).
+16. 64바이트 `PostNotification`과 `scheduling` 필드가 PR-4 프로토콜 벡터로 양쪽에서 같은 바이트로 왕복하고, 모르는 `scheduling` 값과 잘못된 길이는 `ProtocolError`입니다(36.9).
+17. `samples/todo`의 "알림 받기"가 정한 시각에 알림을 예약하고, 끄면 거둡니다(36.9).
 
 #### 36.8 열린 질문
 
@@ -2610,6 +2615,26 @@ Notification::new("세션이 끝났습니다")
 2. **알림에서 바로 승인하기.** 동작 버튼 둘이 있으면 앱은 "승인/거절"을 알림 위에 둘 수 있습니다. 사용자가 요청 내용을 보지 않고 승인하게 되는 길이기도 합니다. 이것은 요청한 앱의 제품 판단이고 프레임워크는 버튼을 막지 않지만, 그쪽 결정이 필요합니다.
 3. **데스크톱에서 종료 시 알림 거두기(36.3).** 정했지만 macOS 관례(종료 뒤에도 알림이 남고 누르면 앱이 뜸)와 다릅니다. 반대로 정하면 "앱이 새로 시작되며 받은 `key`를 Host가 해석할 수 있어야 한다"는 요건이 데스크톱에도 생깁니다.
 4. **Windows의 바로 가기.** 압축을 푼 실행 파일 하나(INTENT D17)는 시작 메뉴 바로 가기가 없어 토스트를 띄울 수 없습니다. Renderer가 첫 실행에 바로 가기를 만드는 것은 사용자의 시작 메뉴를 앱이 건드리는 일이라 설치 프로그램(FR-22.6의 배포 번들)의 일로 두었습니다. 설치 없이 도는 단일 실행 파일에서는 `Unsupported`가 됩니다. 이 결과를 받아들일지 확인이 필요합니다.
+5. **반복 알림.** 36.9는 한 번 울리는 알림입니다. 매일이나 요일마다 울리는 알림은 반복 규칙을 와이어에 싣는 모델이 필요합니다. 소유자 확인 목록(darkpyonix#141)에 올라 있습니다.
+
+#### 36.9 정한 시각에 알리기 (`Draft`, #632) [leader, 2026-11-22]
+
+지금 띄우는 알림만으로는 앱이 무엇도 미리 알려 줄 수 없습니다. 할 일 앱의 "알림 받기"는 정한 시각에, 앱이 앞에 없거나 돌지 않을 때 울려야 합니다. 그 시각에 깨어 있는 쪽은 플랫폼뿐이므로 Host가 시각을 실어 보내고 Renderer가 플랫폼에 맡깁니다.
+
+- **`PostNotification`에 `deliver_at_ms: i64`를 덧붙입니다.** Unix 시각(UTC)의 밀리초이고, 0은 지금입니다. 지난 시각은 바로 띄웁니다. 레코드는 56바이트에서 64바이트가 되고(레코드 오프셋 56), 태그는 그대로 14입니다. 시각을 벽시계(현지 시각)가 아니라 순간으로 싣습니다. Android `AlarmManager`와 Windows 예약 토스트가 순간만 받기 때문입니다. 그래서 09:00으로 정한 알림은 사용자가 시간대를 옮겨도 같은 순간에 울립니다. 현지 날짜와 시각을 순간으로 바꾸는 것은 Host의 `compose_rust::time`이 합니다.
+- **한 번만 울립니다.** 반복 규칙은 싣지 않습니다(36.8의 5).
+- **같은 `key`로 다시 보내면 기다리는 알림이 바뀌고, `WithdrawNotification(key)`는 기다리는 알림을 취소합니다.** 이미 띄운 알림에 대한 36.2의 규칙과 같습니다.
+- **기다리는 알림은 프로세스보다 오래 삽니다.** 36.3의 "프로세스가 끝나면 거둔다"는 이미 띄운 알림에만 적용됩니다. 알림을 미리 정하는 이유가 앱이 돌지 않을 때 울리게 하는 것이기 때문입니다. 프로세스가 끝난 뒤 뜬 예약 알림을 누르면 앱이 시작되고, `NotificationActivated`는 데스크톱에서도 `compose_rust_host_init` 다음의 첫 이벤트로 옵니다(36.3의 모바일 규칙과 같습니다).
+- **플랫폼이 할 수 있는 것은 권한 이벤트가 알립니다.** `NotificationPermissionChanged` 페이로드에 `scheduling: u32`를 덧붙입니다. 값은 닫힌 열거형 `Persistent=1`(앱이 닫혀 있어도 울립니다: macOS, iOS, Android, Windows), `WhileRunning=2`(Renderer의 타이머가 울리고, 프로세스가 끝나면 기다리던 알림이 사라집니다: Linux, Web), `Unsupported=3`(권한 상태가 `Unsupported`일 때)이고, 모르는 값은 `ProtocolError`입니다. Host API는 `notification_scheduling()`입니다. 앱은 이것을 읽고 "앱을 닫으면 알리지 않습니다"를 사용자에게 말할 수 있습니다. 알림 하나마다 오류를 돌려주지 않는 이유는 36.5의 `Unsupported`와 같습니다. 플랫폼에 그 기능이 없는 것은 그 알림의 잘못이 아닙니다.
+- **`presentation`은 알림이 울리는 순간에 판단합니다.** 앱이 판단할 기회를 얻는 플랫폼(Apple의 `willPresent`, Android의 수신기, Linux와 Web의 타이머)에서 그렇습니다. Windows의 예약 토스트는 OS가 앱에 묻지 않고 띄우므로, 예약 알림의 `WhenInactive`는 Windows에서 `Always`처럼 동작합니다.
+
+| 플랫폼 | 예약 경로 | 비고 |
+|---|---|---|
+| macOS, iOS | `UNTimeIntervalNotificationTrigger` | 재부팅 뒤에도 남습니다 |
+| Android | `AlarmManager`와 앱의 수신기가 `NotificationManager`로 띄웁니다 | `canScheduleExactAlarms()`이면 `setExactAndAllowWhileIdle`, 아니면 10분 창의 `setWindow`입니다. 매니페스트는 `SCHEDULE_EXACT_ALARM`과 `RECEIVE_BOOT_COMPLETED`를 선언하고, 기다리는 알림은 저장했다가 `BOOT_COMPLETED`에서 다시 겁니다. `USE_EXACT_ALARM`은 쓰지 않습니다(스토어가 알람과 달력 앱에만 허락합니다) |
+| Windows | `ScheduledToastNotification`과 `ToastNotifier.AddToSchedule` | 재부팅 뒤에도 남습니다. `WhenInactive`는 위 규칙대로입니다 |
+| Linux | Renderer의 타이머 | `WhileRunning` |
+| Web | 페이지의 타이머 | `WhileRunning` |
 
 ### FR-38 코드 편집기 `CodeEditor` (`Draft`)
 
