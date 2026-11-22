@@ -292,8 +292,12 @@ internal fun installMacosDeclaredElementRoles() {
 internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
     window.listenForReader()
     val previousOnFrameDrawn = window.onFrameDrawn
+    val heapTrim = HeapTrim()
+    val windowTrials = WindowTrials(window)
     window.onFrameDrawn = { width, height ->
         previousOnFrameDrawn?.invoke(width, height)
+        heapTrim.onFrameDrawn()
+        windowTrials.onFrameDrawn()
         window.host?.describeForReaders(drew = true)
     }
     var turning = false
@@ -302,6 +306,8 @@ internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
             turning = true
             try {
                 window.pumpHost(0L)
+                heapTrim.tick()
+                windowTrials.tick()
             } finally {
                 turning = false
             }

@@ -180,6 +180,7 @@ while IFS= read -r line; do library_args+=("-library=$line"); done < "$libraries
     "$optimization" \
     -module-name compose_rust_renderer \
     -opt-in kotlin.experimental.ExperimentalNativeApi \
+    ${DXC_KONAN_EXTRA:-} \
     "${library_args[@]}" \
     "$entry_source" \
     -o "$output" 2>&1 | tee "$LOG_DIR/$amper_platform-link.log"
