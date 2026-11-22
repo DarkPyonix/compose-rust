@@ -6,7 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * FR-12.1 on the Windows window: every key reaches the Host with its USB HID usage `code` and
+ * On the Windows window every key reaches the Host with its USB HID usage `code` and
  * its DOM `key` text. The Windows window hands over the virtual key of WM_KEYDOWN; before this
  * the punctuation keys (VK_OEM_*), Insert, Caps Lock and the modifiers became `Key.Unknown`
  * and reached the Host with code 0.

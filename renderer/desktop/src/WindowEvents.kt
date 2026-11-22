@@ -220,7 +220,7 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x7B -> Key.F12
     0x5D -> Key.Menu
     // The punctuation keys, named by where they sit on a US layout (VK_OEM_*), as the HID
-    // usage names them too (FR-12.1). What they type on another layout arrives as text.
+    // usage names them too. What they type on another layout arrives as text.
     0xBA -> Key.Semicolon
     0xBB -> Key.Equals
     0xBC -> Key.Comma
