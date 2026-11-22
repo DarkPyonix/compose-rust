@@ -30,6 +30,8 @@ const PARENT_AT: usize = 1779;
 const PARENT_LEN: usize = 32;
 const FOCUS_AT: usize = 1811;
 const FOCUS_LEN: usize = 24;
+/// The two rich text events that follow them: the formatting at a selection, then a document.
+const RICH_TEXT_EVENTS_LEN: usize = 36 + 171;
 
 fn vector_parent() -> HostEvent<'static> {
     HostEvent::new(
@@ -144,7 +146,7 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     assert_eq!(native_records(&written), expected);
 
     // The two events sit at their place in the event vector, byte for byte.
-    assert_eq!(EVENTS.len(), FOCUS_AT + FOCUS_LEN);
+    assert_eq!(EVENTS.len(), FOCUS_AT + FOCUS_LEN + RICH_TEXT_EVENTS_LEN);
     for (at, len, event) in [
         (PARENT_AT, PARENT_LEN, vector_parent()),
         (FOCUS_AT, FOCUS_LEN, vector_focus()),
