@@ -15,7 +15,7 @@ fn BorderedPaddedCard() {
 }
 
 #[test]
-fn fr70_border_slot_precedes_padding_each_slot() {
+fn fr70_padding_xy_slot_order() {
     let mut host =
         ComposeHost::with_theme(BorderedPaddedCard, Theme::unified(DesignSystem::Material3));
     let batch = host.rebuild().expect("the first frame encodes").to_vec();
