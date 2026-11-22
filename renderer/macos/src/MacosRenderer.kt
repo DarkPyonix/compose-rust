@@ -64,6 +64,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
     // file beside it. A failure stops here, before a window, so the build sees it.
     if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
+    // Before anything that lasts is allocated, so the heap never reaches the room the
+    // default would have given it.
+    configureRendererHeap()
     // This renderer's windows have a place for the Host's platform views, so a batch that
     // attaches one is not refused.
     dev.darkpyonix.composerust.foundation.NativeViewPlatform.available = true

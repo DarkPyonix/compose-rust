@@ -6,6 +6,10 @@
 
 The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
 
+### The macOS renderer's Kotlin heap stops near what is in use
+
+The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
+
 ### Widgets are functions and call macros, not builder chains
 
 This is a breaking change. Every widget is now one function that takes all of its parameters, and the call macro of the same name, which takes them by name with defaults. The builder chains (`Column().modifier(..).content(..)`, `Button(..).on_click(..)`) are gone, so a call site written with them no longer compiles. The parameters come in one order: what the widget cannot do without, its handler, `modifier`, the optional parameters, and the content last. The macro takes the leading ones by position and the rest as `name = value`, and a container's children as a trailing `{ .. }` block. A builder method is the parameter of the same name, a method without arguments is `name = true`, and a method with several arguments is a tuple (`size = (900.0, 600.0)`). A widget's main handler is the positional argument after its data (`Button!("Save", move || ..)`, `Slider!(value, move |value| ..)`), and an optional handler or slot is `Some(closure)`, whose closure names the type of its argument because rustc does not infer it inside `Some`. A lazy list's content stays named (`LazyColumn!(content = |list| ..)`), `Icon::asset(id)` is `IconAsset!(id)`, and `color_if(opt)` is `color = opt`. `compose_rust::ui::next`, where v0.0.12 had these functions beside the builders, is gone: they are `compose_rust::ui` now, so `use compose_rust::ui::next::*` becomes `use compose_rust::ui::*`. What reaches the renderer is unchanged: each widget writes the same records it wrote before, and the schema hash does not move.
@@ -22,6 +26,14 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 ### The event types are non-exhaustive
 
 `HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
+
+### A switch can lift its thumb and draw a line around its track
+
+`Switch!` takes `thumb_elevation`, a soft shadow under the thumb in dp, and `track_border`, a `(width, paint)` line around the track in both states. Leaving either out draws the switch as before in every design system: none of them shadows the thumb, and each keeps its own border. These add properties 212 and 213, so the schema hash moves and a renderer built before this change refuses the Host ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
+
+### `ScrollState` knows how large its viewport is
+
+`ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
 
 ## v0.0.12
 

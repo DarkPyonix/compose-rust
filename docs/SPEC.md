@@ -3030,6 +3030,12 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
    > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
 
    1. **시나리오는 구현 전에 고정합니다.** 벤치 시나리오를 구현보다 먼저 커밋하고, 그 뒤에 바꾸려면 소유자의 승인이 필요합니다. 두 묶음입니다. (a) 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129의 스윕. (b) 샘플에 기록해 둔 실제 상호작용의 재생: 계산기 입력, todo 추가와 삭제, chat 스트리밍, 긴 목록의 스크롤과 윈도잉, 탭 전환. 벤치를 위해 만든 화면이나 한쪽에 유리하게 만든 화면은 넣지 않습니다.
+
+      > **벤치의 Renderer 모델 정정(2026-11-22, [leader, 2026-11-22]).** 벤치가 Renderer의 노드 테이블 대신 쓰는 Rust 모델(`compose-rust/benches/fr39/scenarios`의 `Model`)이 이제 만들어졌지만 삽입되지 않은 노드를 루트로 둡니다. Renderer의 노드 테이블(`renderer/desktop/src/renderer/NodeTable.kt`)이 하는 그대로입니다. 만들어진 노드는 만든 순서대로 루트 목록에 들어가고, `Insert`나 `Move`가 부모 밑에 놓으면 그 목록에서 빠지며, `Remove`로 사라집니다. 노드 0 밑으로의 `Insert`는 같은 목록의 그 위치에 들어갑니다.
+      >
+      > 이전의 모델은 노드 0 밑에 `Insert`된 노드만 보았습니다. 고정한 Dioxus 경로는 최상위 노드를 만들기만 하고 삽입하지 않습니다. 그래서 모델에서는 그 경로의 화면이 비어 있었고, 비교는 첫 시나리오 `sweep_1`의 첫 클릭에서 멈췄습니다. 이 정정 전에는 고정한 기준선에 대해 측정이 한 번도 돌지 못했습니다. 이 정정은 시나리오 크레이트 안의 변경이지만 시나리오는 아닙니다. 시나리오와 판정 규칙은 바뀌지 않았습니다. 이 규칙은 기록을 더하지 않으므로 Mutation 수와 바이트 수를 세는 방식도 그대로입니다.
+      >
+      > 커밋은 `6d22f442`입니다. 규칙을 고정하는 테스트는 `fr39_model_keeps_a_created_never_inserted_node_as_a_root`, `fr39_model_orders_inferred_roots_by_creation_not_by_id`, `fr39_model_places_an_insert_under_the_root_among_the_inferred_roots`, `fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into`, `fr39_model_drops_an_inferred_root_on_remove`, `fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere`, `fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`입니다.
    2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
    3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
    4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
@@ -4195,16 +4201,21 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
   - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
   - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.viewport_size() -> f32`: 주축의 뷰포트 크기(dp). `ScrollColumn`은 높이, `ScrollRow`는 폭입니다. 읽은 스코프는 크기가 바뀔 때 다시 실행됩니다. 한 쪽씩 넘기는 화살표가 창 폭으로 짐작하지 않고 이 값만큼 옮길 수 있게 합니다([leader, 2026-11-21], 이슈 #818).
   - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
   - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
 - `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
 - 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
   - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
-  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다. 이 와이어 보고는 그대로 남습니다. 다만 `ScrollState`는 아래와 같이 이 보고를 읽지 않으므로, `ScrollState`를 붙인 컨테이너에는 이 핸들러가 없고 Renderer도 그 컨테이너에는 `RangeRequested`를 보내지 않습니다. 이 핸들러를 직접 붙이는 Host만 이 보고를 받습니다.
+- **`ScrollState`는 `ScrollChanged` 보고를 읽습니다**([leader, 2026-11-21], 이슈 #818). `scroll_state`를 붙인 `ScrollColumn`/`ScrollRow`는 `OnRangeRequested` 대신 FR-80의 `OnScrollChanged` 핸들러(속성 태그 186)를 답니다. `ScrollState`는 Renderer의 `ScrollChanged` 보고에서 주축의 세 값을 읽습니다. `ScrollColumn`은 `y_px`, `max_y_px`, `viewport_height_px`이고, `ScrollRow`는 `x_px`, `max_x_px`, `viewport_width_px`입니다. 보고가 최대 거리를 직접 실으므로 내용 크기에서 빼서 구하지 않습니다.
+  - 단위([leader, 2026-11-21], 리더가 이 식을 확인함). 보고는 물리 픽셀이고 세 값은 레이아웃 dp입니다. `dp = px ÷ (scale × 1.2^level)`입니다. `scale`은 `DensityChanged`(FR-43.1)의 값이고, `1.2^level`은 `ZoomChanged`(FR-43)의 `level`에서 나오는 앱의 확대 몫(`Zoom::app()`)입니다. 둘 다 그 컨테이너가 있는 창의 것입니다. FR-80이 CSS px에 쓰는 `k`(운영체제 글자 크기까지 곱한 배율)를 쓰지 않는 이유가 있습니다. Renderer는 네이티브 위젯을 `Density(scale × 1.2^level, fontScale = 운영체제 글자 크기)`로 그리므로, 운영체제 글자 크기는 dp 길이에 들어가지 않습니다. 이 식이어야 `offset()`이 `scroll_to`가 받는 dp와 같고, 지금까지 `RangeRequested`가 보고하던 dp와도 같습니다. 값은 보고가 올 때 바꿉니다. 밀도나 배율이 바뀌면 Renderer가 새 픽셀 값으로 보고를 다시 보내므로(FR-80), 그때 다시 바뀝니다.
+  - 첫 보고 전에는 세 값이 모두 `0.0`입니다. `offset()`과 `max_offset()`이 지금 첫 보고 전에 돌려주는 값과 같습니다. 음수는 `0.0`으로 읽고, 유한하지 않은 값은 그 칸을 바꾸지 않습니다. 뷰포트가 0인 보고를 받으면 `viewport_size()`는 `0.0`입니다.
 
 수용 기준.
-1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
-2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`, 그리고 `ScrollChanged`로는 `fr62_scroll_state_container_reports_offset_max_and_viewport_through_scroll_changed`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_reads_offset_from_scroll_changed`).
+3. `scroll_state`를 붙인 컨테이너는 `OnScrollChanged`를 보내고 `OnRangeRequested`는 보내지 않습니다(`fr62_scroll_state_subscribes_scroll_changed_and_not_range_requested`). `viewport_size()`는 첫 보고 전에 `0.0`이고(`fr62_viewport_size_is_zero_before_the_first_report`), 보고 뒤에는 `ScrollColumn`의 높이(`fr62_viewport_size_reads_the_height_of_a_scroll_column`)와 `ScrollRow`의 폭(`fr62_viewport_size_reads_the_width_of_a_scroll_row`)입니다. 밀도 2와 확대 수준 1에서 720px는 300dp입니다(`fr62_scroll_state_converts_pixels_with_the_density_and_the_app_zoom`). 뷰포트가 0인 보고 뒤에는 `0.0`입니다(`fr62_a_report_with_no_viewport_reads_as_zero`). 운영체제 글자 크기가 1이 아니어도 세 값은 레이아웃 dp 그대로입니다. 표시 배율 1.5, 확대 수준 2에서 글자 크기가 1.0에서 1.3으로 바뀌어 `k`가 움직여도, 같은 보고는 같은 `offset()`, `max_offset()`, `viewport_size()`가 됩니다(`fr62_scroll_state_values_do_not_move_with_the_system_text_size`).
 
 **스크롤 맞춤**(이슈 #547). `ScrollRow`과 `ScrollColumn`에 `snap(Snap)`이 있습니다. `Snap::None`(기본)과 `Snap::ItemStart`입니다. `ItemStart`이면 끌기나 튕기기가 끝난 뒤 가장 가까운 직접 자식의 시작 가장자리가 보이는 영역의 시작에 맞춰 멈춥니다(CSS `scroll-snap-type: x mandatory`와 `scroll-snap-align: start`). Compose의 snap fling 동작으로 그립니다. 속성 `Snap` 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 390dp인 `ScrollRow` 안의 390dp 자식 셋에서 첫 자식의 절반을 넘게 끌고 놓으면 둘째 자식의 시작에 멈추고, 절반이 안 되게 끌면 첫 자식으로 돌아옵니다(fr62_scroll_row_snaps_to_item_start). `Snap::None`은 지금과 같습니다.
 
@@ -4332,6 +4343,23 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **RadioButton의 색과 크기, 라디오 묶음**(이슈 #545). `RadioButton`에 `ring_color`, `dot_color`, `size(side)`가 있습니다. Checkbox와 같은 방식으로 기존 `ContainerColor`, `CheckColor`, `ControlSize` 속성을 씁니다. 지정하지 않으면 디자인 시스템이 그립니다(일곱 시스템 모두). `Column`과 `Row`의 `radio_group(true)`(속성 `RadioGroup`, 속성 태그 198, bool)는 그 노드에 접근성 역할 radiogroup을 주고, 그 안의 RadioButton들은 탭 정지 하나(선택된 것, 없으면 첫째)를 나누며 위, 아래, 왼쪽, 오른쪽 화살표가 선택을 옮깁니다. 옮기면 그 버튼의 `on_click`이 한 번 가고, 선택 상태는 Host가 정합니다. 수용 기준: 세 버튼 묶음에서 Tab은 묶음에 한 번만 멈추고, 아래 화살표가 다음 버튼의 클릭을 한 번 보내며 포커스를 옮깁니다(fr67_radio_group_arrow_keys_move_the_selection). `ring_color`를 준 버튼의 고리 픽셀이 그 색입니다(fr67_radio_button_colours).
 
 **Slider 손잡이 크기**(이슈 #718). `Slider::thumb_size(dp)`(속성 `ThumbSize`, 속성 태그 202, f32). 지정하지 않으면 디자인 시스템의 크기입니다. 트랙 높이와 누르는 영역은 바뀌지 않습니다(누르는 영역은 최소 44dp를 지킵니다). 수용 기준: `thumb_size(12)`인 슬라이더의 손잡이 지름이 12dp이고, 손잡이를 끌면 값이 바뀝니다(fr67_slider_thumb_size).
+
+**Switch 손잡이 그림자와 트랙 테두리**([leader, 2026-11-21], 이슈 #818). 요청한 쪽: darkpyonix-ember. 목업의 토글은 손잡이 아래에 옅은 그림자가 있고, 다크 테마의 꺼짐 상태에서 가장 잘 보입니다. 지금 `Switch`는 트랙과 손잡이의 색만 받아서 이 모양을 낼 수 없습니다.
+
+- `Switch`에 선택 매개변수 `thumb_elevation`(dp)과 `track_border`(`(폭 dp, Paint)`)가 있습니다. 순서는 `size` 뒤입니다. 주지 않으면 속성이 나가지 않고, 스위치는 지금과 똑같이 그려집니다.
+- `thumb_elevation`은 속성 `ThumbElevation`(속성 태그 212, `f32` dp)입니다. 값 모양은 `Slider`의 `ThumbSize`(202)와 같습니다. 손잡이 아래에 그 높이만큼 퍼지고 아래로 조금 내려앉은 부드러운 그림자를 그립니다. 그림자는 손잡이와 함께 움직이고, 트랙 모양으로 잘리므로 트랙 밖으로 나가지 않습니다. 주지 않으면 디자인 시스템의 기본입니다. 지금 일곱 디자인 시스템은 모두 스위치 손잡이에 그림자를 그리지 않으므로, 주지 않은 스위치는 그림자가 없습니다. `0`은 그림자 없음이고, 디자인 시스템이 그림자를 그리는 경우에도 지웁니다. 음수나 유한하지 않은 값은 주지 않은 것과 같습니다.
+- `track_border`는 속성 `TrackBorder`(속성 태그 213)이고, 값은 12바이트 덩어리입니다. 앞 4바이트는 폭(`f32` dp), 뒤 8바이트는 `Paint` 비트(`u64`)이며 둘 다 리틀 엔디언입니다. 폭과 `Paint`의 순서와 모양은 `Border` 수정자(수정자 태그 14)의 두 칸과 같고, 값 여러 개를 한 속성의 덩어리에 싣는 방식은 `ControlSize`(126)와 같습니다. 속성 하나에 폭과 색을 함께 실어서, 색 없는 폭이나 폭 없는 색이 생기지 않습니다. 켜짐과 꺼짐 모두 그 폭과 색의 테두리를 트랙 모양을 따라 그립니다. `track_color`처럼 상태마다 다른 테두리가 필요하면 앱이 상태에 맞는 값을 보냅니다. 폭 `0`은 테두리 없음입니다. 12바이트보다 짧은 값이나 폭이 음수 또는 유한하지 않은 값은 주지 않은 것과 같습니다.
+- `track_border`를 주지 않으면 디자인 시스템의 테두리이고, 지금과 같습니다. Material 3는 라이브러리 `Switch`가 꺼짐에 2dp `Outline`을 그리고 켜짐에는 그리지 않습니다. Fluent, GNOME, Breeze는 두 상태 모두 1dp `Outline`입니다. Cupertino, Deepin, Liquid Glass는 테두리가 없습니다. `track_color`를 준 스위치는 어느 시스템에서나 테두리가 없습니다(FR-67의 지금 동작).
+- Material 3의 라이브러리 `Switch`는 손잡이 그림자와 테두리 폭을 받지 않습니다. 그래서 두 값 중 하나라도 오면, FR-67의 다른 색과 크기처럼 공용 컨트롤 그리기로 그립니다. 나머지 여섯 시스템은 원래 공용 컨트롤 그리기로 그립니다. 둘 다 Renderer 안의 코드이므로 Compose 포크를 고치지 않습니다.
+- 앱이 이 속성을 더는 주지 않으면 제거가 전달되고, Renderer는 그 칸을 디자인 시스템 기본으로 되돌립니다(FR-67의 다른 값과 같음).
+
+수용 기준.
+1. 두 매개변수를 주지 않은 `Switch`는 `ThumbElevation`도 `TrackBorder`도 보내지 않습니다(`fr67_switch_sends_no_thumb_elevation_or_track_border_unless_given`).
+2. `thumb_elevation = 2.0`은 `ThumbElevation`을 `f32` 2.0으로, `track_border = (1.5, ink)`는 `TrackBorder`를 폭 1.5의 비트와 `ink`의 `Paint` 비트를 이은 12바이트로 보냅니다(`fr67_switch_thumb_elevation_and_track_border_travel_with_their_bytes`).
+3. 같은 값으로 다시 그리면 아무 레코드도 나가지 않고(`fr67_switch_same_thumb_elevation_and_track_border_send_nothing_again`), 값을 바꾸면 그 속성의 `SetProp` 하나만 나갑니다(`fr67_switch_changed_thumb_elevation_sends_one_set_prop`).
+4. 일곱 디자인 시스템 모두에서 `thumb_elevation = 4.0`인 꺼진 스위치는 손잡이와 트랙 아래 끝 사이의 픽셀이 `thumb_elevation = 0.0`인 스위치보다 어둡고, 손잡이에서 먼 트랙 끝의 픽셀은 같습니다. 공용 컨트롤 그리기로 그리는 여섯 시스템에서는 주지 않은 스위치와 `0.0`인 스위치의 픽셀이 같습니다(`fr67_switch_thumb_elevation_draws_a_shadow_under_the_thumb`).
+5. 일곱 디자인 시스템 모두에서 `track_border = (2.0, red)`인 스위치의 트랙 가장자리가 빨간색입니다(`fr67_switch_track_border_draws_in_the_width_and_colour_named`). 폭 `0`이면 가장자리가 빨갛지 않습니다(`fr67_switch_track_border_of_zero_width_draws_none`).
+6. 두 속성을 모두 받은 뒤 제거된 스위치는 처음부터 주지 않은 스위치와 같은 픽셀로 그려집니다(`fr67_removing_thumb_elevation_and_track_border_restores_the_default`).
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
@@ -4909,7 +4937,7 @@ pub mod storage {
 - **옵트인은 노드마다입니다.** 핸들러 속성 `OnScrollChanged`(속성 태그 186)가 붙은 노드만 보고하고, `ObserveSize`처럼 구독 하나가 핸들러 하나입니다. 붙지 않은 노드는 아무것도 보내지 않고 비용도 없으며, 아무도 붙이지 않은 트리의 와이어는 지금과 한 바이트도 다르지 않습니다. 핸들러를 떼거나 노드가 없어지면 보고가 멈춥니다. 명령은 핸들러 없이도 쓸 수 있습니다.
 - **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
 - **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
-- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
+- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 와이어 보고는 바뀌지 않습니다. `ui::ScrollState`는 `RangeRequested` 대신 이 항목의 `ScrollChanged`를 읽습니다(FR-62, [leader, 2026-11-21], 이슈 #818). 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
 - **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(19)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(20)입니다(17과 18은 FR-79의 `DUPLICATE_IO_REQUEST`와 FR-72의 `DUPLICATE_FILE_CALL`이 먼저 썼습니다): NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
 - **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
 - **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
