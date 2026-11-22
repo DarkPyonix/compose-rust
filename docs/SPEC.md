@@ -1860,7 +1860,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 3. 막대로 그려진 같은 선언에는 슬롯도 머리글도 나타나지 않고, 목적지들만 나란히 섭니다.
 4. 속성을 보내지 않은 목적지의 그림은 이 변경 전과 같습니다.
 
-#### 21.2.4 목적지의 개수 (`Draft`, 이슈 #631)
+#### 21.2.4 목적지의 개수 (`Agreed`, 이슈 #631, [leader, 2026-11-22])
 
 할 일 참조는 서랍의 목적지마다 옆에 개수를 둡니다(My Day 4, All 14 등). 채팅과 메모장 참조도 행에 개수나 배지를 둡니다. 그런데 `NavigationItem`에는 개수를 말할 방법이 없어서, 앱이 목적지 목록을 직접 그리는 좁은 화면에는 개수가 있고 디자인 시스템의 레일과 서랍에는 없었습니다. 같은 목적지가 폭에 따라 개수를 잃습니다.
 
@@ -3435,7 +3435,7 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 - 읽는 곳: macOS `NSWorkspace.accessibilityDisplayShouldReduceMotion`, iOS `UIAccessibility.isReduceMotionEnabled`, Windows `SPI_GETCLIENTAREAANIMATION`, GNOME `org.gnome.desktop.interface enable-animations`, KDE `AnimationDurationFactor`, Android `ANIMATOR_DURATION_SCALE`, Web `matchMedia('(prefers-reduced-motion: reduce)')`. FR-24가 이미 읽는 값이면 같은 값을 씁니다.
 - **렌더러는 `StartAnimation`에 모션 감소를 적용하지 않습니다.** 무엇을 줄일지는 CSS(Host)가 정합니다. FR-24의 `Motion` 역할은 지금처럼 렌더러가 `Instant`로 해석합니다.
 
-#### 스프링 구간 (`Draft`, 이슈 #552)
+#### 스프링 구간 (`Agreed`, 이슈 #552, [leader, 2026-11-22])
 
 `Timing::Spring { stiffness, damping_ratio }`는 Compose `spring()`의 곡선으로 한 구간을 잽니다. 시간 모델은 그대로 Web Animations Level 1이고, 스프링은 그 안의 타이밍 함수 하나입니다. 그래서 반복, 방향, fill, 지연, 이벤트, `Pause`는 다른 타이밍과 똑같이 동작합니다.
 
@@ -3475,7 +3475,7 @@ S4. 렌더러 테스트(테스트 시계): `Alpha` 0에서 1로 가는 감쇠비
 19. 컨테이너 하나의 애니메이션이 그 안의 글자를 모두 다시 칠합니다(렌더러 테스트, 테스트 시계). 빨강에서 파랑으로 가는 `Color` 애니메이션 하나를 컨테이너에 걸고 절반에서 멈추면, 그 안에서 자기 색이 없는 `Text`는 깊이와 상관없이(컨테이너 안의 `Column` 안, 그 안의 `Box` 안) 모두 빨강과 파랑의 중간색으로 그려지고, 자기 색이 있는 `Text`는 그 색을 지킵니다. 배치에는 `StartAnimation`이 하나뿐이고 어느 `Text`도 레코드를 받지 않으며, 재생하는 동안 그 `Text`들은 다시 구성되지 않습니다(`fr41_one_animation_on_a_container_recolours_every_text_inside_it`).
 20. 테두리 색 애니메이션(렌더러 테스트, 테스트 시계). 너비 8의 `BorderEach`(네 변 빨강)와 너비 8의 `Border`(빨강)에 각각 빨강에서 파랑으로 가는 `BorderColor` 하나를 걸고 절반에서 멈추면, 네 변의 테두리 모두 중간색으로 그려지고 테두리 안쪽은 칠해지지 않습니다(`fr41_an_animated_border_colour_is_what_is_drawn`).
 
-#### FR-41.2.1 3D 변환 노드의 애니메이션 (`Draft`, dioxus-compose#46)
+#### FR-41.2.1 3D 변환 노드의 애니메이션 (`Agreed`, dioxus-compose#46, [leader, 2026-11-22])
 
 `Transform3D`(FR-41.3)를 단 노드에는 `Transform` 애니메이션을 걸 수 없습니다. 그 노드에는 `Transform` 수정자가 없으므로 렌더러는 이를 `ProtocolError`로 보고합니다. 3D 변환은 행렬 하나로 접혀 오므로, FR-41.2의 함수 목록 보간은 적용되지 않습니다. 그 노드의 변환은 새 대상 `Transform3D`로 재생합니다.
 
