@@ -295,6 +295,161 @@ fn fr39_a_match_arm_that_changes_takes_its_state_with_it() {
     );
 }
 
+// ----- branches inside a call macro's arguments -------------------------------------------
+
+#[Composable]
+fn WithBranchInMacroBlock(show: bool) {
+    // Nested, and with a named argument before the block, so the descent is pinned too.
+    Box!({
+        Column!(spacing = 4.0_f32, {
+            if show {
+                bump("first");
+            }
+            bump("second");
+        });
+    });
+}
+
+#[test]
+fn fr39_a_branch_inside_a_call_macro_block_keeps_its_own_state() {
+    reset();
+    let show = mutable_state_of(true);
+    let state = show;
+    let (mut host, mut tree) = start(move || WithBranchInMacroBlock(state.get()));
+    show.set(false);
+    frame(&mut host, &mut tree);
+    show.set(true);
+    frame(&mut host, &mut tree);
+    assert_eq!(
+        take_log(),
+        vec![
+            "first:first#1",
+            "second:second#1",
+            "second:second#2",
+            "first:first#1",
+            "second:second#3",
+        ],
+        "the branch in the block has a group of its own, as it does in a function body"
+    );
+}
+
+/// A container that takes only its content, so both forms of a call fit side by side.
+#[Composable]
+fn Holder(content: impl Fn()) {
+    Column!({
+        content();
+    });
+}
+
+#[Composable]
+fn StatusInMacroBlock(show: bool) {
+    Holder!({
+        if show {
+            Text!("status");
+        }
+        Text!("display");
+    });
+}
+
+#[Composable]
+fn StatusInClosure(show: bool) {
+    Holder(|| {
+        if show {
+            Text!("status");
+        }
+        Text!("display");
+    });
+}
+
+/// Every record of a batch, ids included.
+fn records(batch: &[u8]) -> Vec<String> {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .iter()
+        .map(|record| format!("{record:?}"))
+        .collect()
+}
+
+/// The records of the first batch and of a frame after each change of `show`.
+fn records_across_flips(body: fn(bool)) -> Vec<Vec<String>> {
+    let show = mutable_state_of(false);
+    let state = show;
+    let mut host = ComposeHost::with_content(move || body(state.get()));
+    let mut passes = vec![records(host.rebuild().expect("the first batch encodes"))];
+    for value in [true, false, true] {
+        show.set(value);
+        passes.push(records(host.render_frame(0).expect("the frame encodes")));
+    }
+    passes
+}
+
+#[test]
+fn fr39_call_macro_a_branch_in_the_content_block_gets_the_function_forms_groups() {
+    assert_eq!(
+        records_across_flips(StatusInMacroBlock),
+        records_across_flips(StatusInClosure),
+        "a trailing block and the closure it stands for compose the same way"
+    );
+}
+
+/// The node of the Text a batch gives `text`.
+fn text_node(batch: &[u8], text: &str) -> u32 {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .iter()
+        .find_map(|record| match record {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Text,
+                value: PropertyValue::String(value),
+            } if *value == text => Some(*node_id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no Text was given {text:?}"))
+}
+
+#[test]
+fn fr39_a_branch_appearing_before_a_sibling_in_a_call_macro_block_leaves_the_sibling_alone() {
+    let show = mutable_state_of(false);
+    let state = show;
+    let mut host = ComposeHost::with_content(move || StatusInMacroBlock(state.get()));
+    let first = host.rebuild().expect("the first batch encodes").to_vec();
+    let display = text_node(&first, "display");
+
+    show.set(true);
+    let shown = host.render_frame(0).expect("the frame encodes").to_vec();
+    let status = text_node(&shown, "status");
+    assert_ne!(status, display, "the new Text has a node of its own");
+    let shown = decode_batch(&shown).expect("the batch decodes");
+    for record in &shown {
+        match record {
+            Mutation::Create { node_id, .. }
+            | Mutation::SetProp { node_id, .. }
+            | Mutation::SetModifier { node_id, .. } => {
+                assert_eq!(*node_id, status, "{record:?} is not about the new Text")
+            }
+            Mutation::Insert { node_id, index, .. } => {
+                assert_eq!((*node_id, *index), (status, 0), "{record:?}")
+            }
+            other => panic!("{other:?}: only the new Text is created, set and inserted"),
+        }
+    }
+    assert!(
+        shown.iter().any(|record| {
+            matches!(record, Mutation::Insert { node_id, index: 0, .. } if *node_id == status)
+        }),
+        "the new Text is inserted first, got {shown:?}"
+    );
+
+    show.set(false);
+    let hidden = host.render_frame(0).expect("the frame encodes").to_vec();
+    assert_eq!(
+        decode_batch(&hidden).expect("the batch decodes"),
+        vec![Mutation::Remove { node_id: status }],
+        "hiding the branch removes its node and nothing else"
+    );
+}
+
 #[Composable]
 fn Early(stop: bool) {
     bump("before");
