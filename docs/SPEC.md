@@ -2075,7 +2075,7 @@ iOS는 시뮬레이터용만 냅니다. 기기용 번들은 Apple이 발급한 �
 |---|---|---|
 | Liquid Glass, Cupertino | 반투명한 중립 채움(라이트에서 검정, 다크에서 흰색, 14.1-4 수용 기준 9와 같은 방식), 본문 글자색 | 같은 채움을 한 단계 더 진하게. 다크에서는 숫자 키보다 밝고, 라이트에서는 숫자 키보다 어둡습니다(macOS 계산기) |
 | Fluent 2 | 기본(Standard) 버튼의 채움보다 밝은 중립 채움, 본문 글자색 | 기본 버튼의 채움(숫자 키보다 차분함, Windows 11 계산기) |
-| Material 3 | `SurfaceVariant` 채움, `OnSurfaceVariant` 글자 | `OutlineVariant` 채움, `OnSurface` 글자 |
+| Material 3 | `SurfaceVariant` 채움, `OnSurfaceVariant` 글자 | `SurfaceVariant` 위에 `OnSurface` 12% 상태 층을 얹은 채움, `OnSurface` 글자. `OutlineVariant`는 다크에서 `SurfaceVariant`와 같은 색이라 두 단계를 가르지 못합니다 |
 | GNOME, Breeze | 그 시스템의 기본 버튼 채움 | `SurfaceVariant`보다 한 단계 진한 중립 채움 |
 | Deepin | 지금의 숫자 키와 같은 기본 채움(`Tonal`과 같은 그림) | `Neutral`과 같습니다. 참조의 Deepin 계산기는 두 키를 구분하지 않습니다 |
 
