@@ -11,7 +11,7 @@ import kotlin.native.runtime.NativeRuntimeApi
  * is already more than the objects themselves, because it does not move objects and a page
  * with one object in it counts: in an application of this renderer it gave 44 MB for 20 MB
  * of objects. Twice that again let the heap reach 69 to 87 MB while screens were opened, and
- * pages reached on the way are not given back (#939, SPEC NFR-3).
+ * pages reached on the way are not given back (#939).
  *
  * Measured on Ember (macOS arm64, 1440x900, 32 screen switches in one run, 2026-11-21):
  *

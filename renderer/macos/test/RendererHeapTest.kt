@@ -11,7 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The room the collector gives this renderer's heap (#939, SPEC NFR-3).
+ * The room the collector gives this renderer's heap (#939).
  *
  * Left at Kotlin/Native's default, the heap is allowed to reach twice what the collector
  * counts as in use before the next collection, and an application that opened eight screens
