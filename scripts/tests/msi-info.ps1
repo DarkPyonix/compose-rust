@@ -3,8 +3,7 @@
 Reads an .msi's Property table and fails when the package is not what was packed.
 
 .DESCRIPTION
-The Windows counterpart of `dpkg-deb --info` and `rpm -qp --info` (FR-22.6 criteria 5 and
-10): it opens the installer database through the Windows Installer COM object, prints
+The Windows counterpart of `dpkg-deb --info` and `rpm -qp --info`: it opens the installer database through the Windows Installer COM object, prints
 every property, and checks that the product name and manufacturer are there and that the
 version is the one given to `vpk pack`. Nothing is installed.
 
