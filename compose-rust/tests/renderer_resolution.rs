@@ -1179,7 +1179,7 @@ fn nfr11_no_message_names_a_file_that_is_not_in_the_repository() {
 }
 
 /// A message may name one of this repository's build scripts only as something to run in a
-/// checkout of the repository (NFR-10, SPEC 5.3.6). The published crate carries none of
+/// checkout of the repository. The published crate carries none of
 /// them, so "run renderer/desktop/scripts/build-windows.sh" alone is a dead end for an
 /// application that depends on compose-rust; the message has to say where the script is
 /// and what to do without one.
