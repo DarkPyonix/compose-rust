@@ -22,6 +22,7 @@ import org.thisisthepy.compose.window.AccessibleAction
 import org.thisisthepy.compose.window.AccessibleElement
 import org.thisisthepy.compose.window.AccessibleState
 import org.thisisthepy.compose.window.ElementRole
+import org.thisisthepy.compose.window.WindowEvent
 
 // What the window tells a reader who cannot see it.
 //
@@ -207,6 +208,25 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     )
 }
 
+/** Runs the semantics action an [AccessibleAction] stands for on this node, with [argument] for a new value. */
+internal fun SemanticsNode.performAccessibleAction(action: Int, argument: String?): Boolean =
+    config.perform(action, argument, size.height.toFloat(), size.width.toFloat())
+
+/** What a reader asked of the control with [id]: one [AccessibleAction], and the new value of a set-value request. */
+internal data class AccessibilityRequest(val id: Int, val action: Int, val argument: String?)
+
+/**
+ * The request a window wrote to its event queue as [WindowEvent.ACCESSIBILITY_ACTION] (the
+ * Windows window does, for UI Automation), or null for any other event. The element is in
+ * `keyCode`, the action in `codePoint`, and a new value in `text`, which means nothing for
+ * the other actions.
+ */
+internal fun accessibilityRequest(event: WindowEvent): AccessibilityRequest? {
+    if (event.kind != WindowEvent.ACCESSIBILITY_ACTION) return null
+    val argument = if (event.codePoint == AccessibleAction.SET_VALUE) event.text else null
+    return AccessibilityRequest(event.keyCode, event.codePoint, argument)
+}
+
 /**
  * Runs the semantics action an [AccessibleAction] stands for. [height] and [width] are the
  * node's size in pixels, the distance one page of scrolling moves.
@@ -315,7 +335,18 @@ internal class NativeSemantics(private val push: (List<AccessibleElement>) -> Un
      */
     fun perform(id: Int, action: Int, argument: String?): Boolean {
         val node = owner?.getAllSemanticsNodes(mergingEnabled = true)?.firstOrNull { it.id == id } ?: return false
-        return node.config.perform(action, argument, node.size.height.toFloat(), node.size.width.toFloat())
+        return node.performAccessibleAction(action, argument)
+    }
+
+    /**
+     * Hands a reader's request that arrived as a window event to the control it names.
+     * True when [event] was such a request, whether or not the control did it: either way it
+     * is not input, and the caller does not give it to the scene.
+     */
+    fun receive(event: WindowEvent): Boolean {
+        val request = accessibilityRequest(event) ?: return false
+        perform(request.id, request.action, request.argument)
+        return true
     }
 
     // What was last handed over, so that reading again costs a comparison rather than a
