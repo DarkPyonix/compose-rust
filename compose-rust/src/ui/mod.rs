@@ -170,11 +170,89 @@ impl BackgroundBrush {
     }
 }
 
+/// How an alpha mask repeats across the node's reference box.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum MaskRepeat {
+    #[default]
+    Repeat = 0,
+    RepeatX = 1,
+    RepeatY = 2,
+    NoRepeat = 3,
+    Space = 4,
+    Round = 5,
+}
+
+/// How an alpha mask is sized relative to the node's reference box.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum MaskSize {
+    #[default]
+    Auto = 0,
+    Cover = 1,
+    Contain = 2,
+    Explicit = 3,
+}
+
+/// An alpha mask applied to a node and its children as one composited layer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mask {
+    /// Registered brush asset id (gradient or image brush).
+    pub brush: u32,
+    pub repeat: MaskRepeat,
+    pub size_mode: MaskSize,
+    /// Width in dp when `size_mode` is [`MaskSize::Explicit`]; negative means auto.
+    pub size_width: f32,
+    /// Height in dp when `size_mode` is [`MaskSize::Explicit`]; negative means auto.
+    pub size_height: f32,
+    /// Horizontal offset in dp from the node's top-left corner.
+    pub pos_x: f32,
+    /// Vertical offset in dp from the node's top-left corner.
+    pub pos_y: f32,
+}
+
+impl Mask {
+    /// A mask using `brush` with default repeat, auto sizing and zero offset.
+    pub const fn new(brush: u32) -> Self {
+        Self {
+            brush,
+            repeat: MaskRepeat::Repeat,
+            size_mode: MaskSize::Auto,
+            size_width: -1.0,
+            size_height: -1.0,
+            pos_x: 0.0,
+            pos_y: 0.0,
+        }
+    }
+}
+
 /// How a node presents itself to assistive technology. Each tri-state field is unset until
 /// it is given a value, and an unset one sends nothing. The flags are off until set.
+///
+/// The type is non-exhaustive, so that a later field does not break code that uses it.
+/// Code outside this crate therefore cannot write `SemanticsState { .. }`, with or without
+/// `..Default::default()`. It starts from `SemanticsState::default()`, or from the
+/// constructor named after the first field it sets, and chains a `with_` method for each
+/// further field:
+///
+/// ```
+/// use compose_rust::ui::SemanticsState;
+///
+/// let nothing = SemanticsState::default();
+/// let row = SemanticsState::selected(true).with_disabled(false);
+/// let partly = SemanticsState::mixed().with_has_popup(true);
+/// assert_eq!(nothing.with_selected(true).with_disabled(false), row);
+/// assert!(partly.mixed && partly.has_popup);
+/// ```
+///
+/// The fields stay public, so a state can be read, and a `let mut` one assigned to.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct SemanticsState {
     pub checked: Option<bool>,
+    /// Whether the node is mixed: a box standing for a set of which only some are checked.
+    /// It wins over `checked`, and is sent as the checked field's fourth value.
+    pub mixed: bool,
     pub selected: Option<bool>,
     pub expanded: Option<bool>,
     pub disabled: Option<bool>,
@@ -188,6 +266,7 @@ pub struct SemanticsState {
 impl SemanticsState {
     const NONE: Self = Self {
         checked: None,
+        mixed: false,
         selected: None,
         expanded: None,
         disabled: None,
@@ -201,6 +280,15 @@ impl SemanticsState {
     pub const fn checked(checked: bool) -> Self {
         Self {
             checked: Some(checked),
+            ..Self::NONE
+        }
+    }
+
+    /// A node that is neither checked nor unchecked, as a box that stands for a partly
+    /// checked set announces itself.
+    pub const fn mixed() -> Self {
+        Self {
+            mixed: true,
             ..Self::NONE
         }
     }
@@ -261,11 +349,76 @@ impl SemanticsState {
         }
     }
 
+    /// Says whether the node is checked, keeping every other field.
+    pub const fn with_checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    /// Says whether the node is mixed, keeping every other field. Mixed wins over `checked`.
+    pub const fn with_mixed(mut self, mixed: bool) -> Self {
+        self.mixed = mixed;
+        self
+    }
+
+    /// Says whether the node is selected, keeping every other field.
+    pub const fn with_selected(mut self, selected: bool) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    /// Says whether the node is expanded, keeping every other field.
+    pub const fn with_expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
+    }
+
+    /// Says whether the node is disabled, keeping every other field.
+    pub const fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = Some(disabled);
+        self
+    }
+
+    /// Says whether the node is focused, keeping every other field.
+    pub const fn with_focused(mut self, focused: bool) -> Self {
+        self.focused = Some(focused);
+        self
+    }
+
+    /// Hides the node from assistive technology or shows it, keeping every other field.
+    pub const fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Exposes a click action or takes it away, keeping every other field.
+    pub const fn with_click_action(mut self, exposed: bool) -> Self {
+        self.click_action = exposed;
+        self
+    }
+
+    /// Exposes a focus action or takes it away, keeping every other field.
+    pub const fn with_focus_action(mut self, exposed: bool) -> Self {
+        self.focus_action = exposed;
+        self
+    }
+
+    /// Says whether the node opens a popup, keeping every other field.
+    pub const fn with_has_popup(mut self, has_popup: bool) -> Self {
+        self.has_popup = has_popup;
+        self
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
         let tri = |value: Option<bool>| value.map_or(0_u32, |on| if on { 2 } else { 1 });
-        (tri(self.checked) << SEMANTICS_CHECKED_SHIFT)
+        let checked = if self.mixed {
+            SEMANTICS_CHECKED_MIXED
+        } else {
+            tri(self.checked)
+        };
+        (checked << SEMANTICS_CHECKED_SHIFT)
             | (tri(self.selected) << SEMANTICS_SELECTED_SHIFT)
             | (tri(self.expanded) << SEMANTICS_EXPANDED_SHIFT)
             | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
@@ -504,6 +657,7 @@ pub struct Modifier {
     border_each: Option<[(f32, Paint); 4]>,
     elevation: Option<f32>,
     alpha: Option<f32>,
+    mask: Option<Mask>,
     press_feedback: Option<(f32, f32)>,
     hover_style: Option<HoverStyle>,
     focus_ring: Option<(Paint, f32, f32)>,
@@ -562,6 +716,7 @@ impl Modifier {
             border_each: None,
             elevation: None,
             alpha: None,
+            mask: None,
             press_feedback: None,
             hover_style: None,
             focus_ring: None,
@@ -1005,6 +1160,12 @@ impl Modifier {
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// An alpha mask applied to the node and its children as one composited group.
+    pub const fn mask(mut self, mask: Mask) -> Self {
+        self.mask = Some(mask);
         self
     }
 
@@ -1456,6 +1617,22 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             None
         } else {
             modifier.alpha
+        }),
+    );
+    push(
+        false,
+        "mask",
+        modifier.mask.map_or(OwnedAttr::None, |mask| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&mask.brush.to_le_bytes());
+            bytes.push(mask.repeat as u8);
+            bytes.push(mask.size_mode as u8);
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+            bytes.extend_from_slice(&mask.size_width.to_le_bytes());
+            bytes.extend_from_slice(&mask.size_height.to_le_bytes());
+            bytes.extend_from_slice(&mask.pos_x.to_le_bytes());
+            bytes.extend_from_slice(&mask.pos_y.to_le_bytes());
+            OwnedAttr::Bytes(bytes)
         }),
     );
     push(

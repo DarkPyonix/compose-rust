@@ -10,6 +10,12 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asComposeShader
 import androidx.compose.ui.graphics.skiaShader
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.draw.CacheDrawScope
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import org.jetbrains.skia.FilterBlurMode
+import org.jetbrains.skia.MaskFilter
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -483,4 +489,39 @@ internal fun vectorIntrinsicSize(document: VectorDocument): Size? {
     if (width.unit !in absolute || height.unit !in absolute) return null
     if (width.value <= 0f || height.value <= 0f) return null
     return Size(width.value, height.value)
+}
+
+/**
+ * Draws a blurred box shadow: [shape] in [brush], blurred by a Gaussian of standard deviation
+ * [sigma], as one path drawn with a paint that blurs it. [width] and [height] are the
+ * shadow's size, which only a renderer that blurs through a layer needs.
+ *
+ * No layer, on purpose. A shadow blurred as a layer is drawn offscreen at its full size on
+ * every frame, and on Metal the textures that takes stay held while the shadow is on screen:
+ * 12 to 13 MB across the screens of an application with a few dozen shadows, which no purge
+ * of Skia's caches gave back. Skia blurs a path's coverage itself, analytically for
+ * rectangles and rounded rectangles, with nothing offscreen the size of the shadow.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun CacheDrawScope.blurredShadow(
+    shape: Path,
+    brush: Brush,
+    sigma: Float,
+    width: Float,
+    height: Float,
+): DrawScope.() -> Unit {
+    val paint = blurredShadowPaint(brush, size, sigma)
+    return { drawContext.canvas.drawPath(shape, paint) }
+}
+
+/**
+ * The paint a blurred shadow is drawn with: [brush] laid over [size], and a mask filter that
+ * blurs whatever is drawn with it by a Gaussian of standard deviation [sigma].
+ *
+ * The deviation is in the canvas's own units, so a shadow under a scaled layer is blurred
+ * with it, as the layer it replaces was.
+ */
+internal fun blurredShadowPaint(brush: Brush, size: Size, sigma: Float): Paint = Paint().also {
+    brush.applyTo(size, it, 1f)
+    it.asFrameworkPaint().maskFilter = MaskFilter.makeBlur(FilterBlurMode.NORMAL, sigma, true)
 }

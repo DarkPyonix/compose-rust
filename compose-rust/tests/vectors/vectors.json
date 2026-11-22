@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "14543204722227709084",
+  "schemaHashUnsigned": "6530944143322246596",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -37,6 +37,11 @@
     "repeat": "RepeatX",
     "tileWidth": 56.0,
     "tileHeight": 30.0
+  },
+  "maskAndSpanMetrics": {
+    "file": "mask_and_span_metrics.bin",
+    "description": "One batch with a 36 byte Mask modifier on node 4 and a SpanMetrics property on node 24",
+    "recordCount": 2
   },
   "events": {
     "file": "events.bin",

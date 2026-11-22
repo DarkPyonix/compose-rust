@@ -38,7 +38,8 @@ import dev.darkpyonix.composerust.ui.node.NodeTable
  *
  * All three are controlled: the widget draws exactly what the Host sent and reports the
  * state the user asked for, so the value the Host holds and the control on screen cannot
- * drift apart.
+ * drift apart. A mixed Checkbox stays mixed until the Host takes `Indeterminate` away; a
+ * press on it asks for checked.
  */
 @Composable
 internal fun HostToggle(
@@ -49,6 +50,8 @@ internal fun HostToggle(
     theme: ResolvedTheme,
 ) {
     val checked = node.flag(PropertyKind.Checked, default = false)
+    // A Checkbox's third state. The node table keeps it off every other toggle.
+    val indeterminate = node.flag(PropertyKind.Indeterminate, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnValueChange)
     val group = if (role == ToggleRole.RadioButton) LocalRadioGroup.current else null
@@ -72,6 +75,7 @@ internal fun HostToggle(
         modifier = joined,
         theme = theme,
         look = rememberControlLook(node, theme),
+        indeterminate = indeterminate,
     )
 }
 

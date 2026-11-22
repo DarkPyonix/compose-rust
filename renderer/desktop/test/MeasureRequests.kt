@@ -37,6 +37,7 @@ internal class MeasureRequests {
         val zoom: Float,
         val fontFeatures: ByteArray,
         val spanFeatures: ByteArray,
+        val spanMetrics: ByteArray,
     ) : Request
 
     private class Node(
@@ -75,11 +76,12 @@ internal class MeasureRequests {
         zoom: Float = 0f,
         fontFeatures: ByteArray = ByteArray(0),
         spanFeatures: ByteArray = ByteArray(0),
+        spanMetrics: ByteArray = ByteArray(0),
     ): MeasureRequests {
         requests += Text(
             text, role, fontSize, fontWeight, italic, wrap, letterSpacing, lineHeight, maxLines,
             tabSize, wordBreak, overflowWrap, absoluteSize, constraint, width, spans, spanFonts, fonts,
-            zoom, fontFeatures, spanFeatures,
+            zoom, fontFeatures, spanFeatures, spanMetrics,
         )
         return this
     }
@@ -152,6 +154,8 @@ internal class MeasureRequests {
                     records.putInt(at + MeasureRecords.TEXT_FONT_FEATURES_COUNT_AT, request.fontFeatures.size / 8)
                     records.putInt(at + MeasureRecords.TEXT_SPAN_FEATURES_OFFSET_AT, payload.add(request.spanFeatures))
                     records.putInt(at + MeasureRecords.TEXT_SPAN_FEATURES_LENGTH_AT, request.spanFeatures.size)
+                    records.putInt(at + MeasureRecords.TEXT_SPAN_METRICS_OFFSET_AT, payload.add(request.spanMetrics))
+                    records.putInt(at + MeasureRecords.TEXT_SPAN_METRICS_COUNT_AT, request.spanMetrics.size / 16)
                 }
             }
         }

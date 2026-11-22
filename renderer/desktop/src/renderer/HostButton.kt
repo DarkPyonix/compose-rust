@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
@@ -48,6 +49,7 @@ import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
+import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.design.compositeOver
 import dev.darkpyonix.composerust.design.ensureContrast
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
@@ -65,12 +67,14 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.hoverAndFocusRing
 import dev.darkpyonix.composerust.ui.pressFeedback
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.typeRole
 import dev.darkpyonix.composerust.ui.buttonKind
 import dev.darkpyonix.composerust.ui.variant
 
@@ -94,7 +98,8 @@ internal fun HostButton(
     val checked = node.flag(PropertyKind.Checked, default = false)
     val alignStart = inMenu ||
         node.role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray()) == TextAlign.Start
-    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let { base ->
+    val kind = node.buttonKind()
+    val style = buttonStyle(node.variant(), kind, theme).let { base ->
         val entry = if (inMenu) theme.rules.menuEntry(base, theme) else base
         if (inMenu && node.variant() == ButtonVariant.Text) {
             entry.copy(
@@ -273,7 +278,21 @@ internal fun HostButton(
         repeat(2) { for (f in faded) result = ensureContrast(result, f, MIN_DISABLED_LABEL_CONTRAST) }
         result
     }
-    val label = node.textStyle(theme, style.typeRole).copy(color = tint)
+    val defaultTypeRole = if (
+        kind == ButtonKind.ActionKey &&
+        node.typeRole() == null &&
+        node.floatProp(PropertyKind.FontSize) == null
+    ) {
+        TypeRole.Headline
+    } else {
+        style.typeRole
+    }
+    val baseLabel = node.textStyle(theme, defaultTypeRole).copy(color = tint)
+    val label = if (kind == ButtonKind.ActionKey && node.intProp(PropertyKind.FontWeight) == null) {
+        baseLabel.copy(fontWeight = FontWeight.Normal)
+    } else {
+        baseLabel
+    }
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val ellipsis = node.overflow(ComposeOverflow.Ellipsis)

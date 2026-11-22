@@ -39,6 +39,8 @@ pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
 pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
 pub const BACKGROUND_BRUSH_VECTOR_RELATIVE_PATH: &str = "tests/vectors/background_brush.bin";
+pub const MASK_AND_SPAN_METRICS_VECTOR_RELATIVE_PATH: &str =
+    "tests/vectors/mask_and_span_metrics.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -4396,6 +4398,36 @@ pub fn generate_background_brush_vector() -> Result<Vec<u8>, ProtocolError> {
     Ok(encoder.finish()?.to_vec())
 }
 
+/// One batch holding a `Mask` modifier on node 4 and a `SpanMetrics` property on node 24,
+/// kept in its own vector file so every byte of the main mutation vector stays unchanged.
+pub fn generate_mask_and_span_metrics_vector() -> Result<Vec<u8>, ProtocolError> {
+    let span_metrics = crate::spans::encode_metrics_table(&[
+        crate::spans::SpanMetric::new(1, 28.0, f32::NAN),
+        crate::spans::SpanMetric::new(4, f32::NAN, 2.0),
+    ])
+    .expect("the vector names span metrics");
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 4,
+        index: 0,
+        modifier: Modifier::Mask {
+            brush: 9,
+            repeat: 3,
+            size_mode: 2,
+            size_width: 64.0,
+            size_height: 32.0,
+            pos_x: 4.0,
+            pos_y: 2.0,
+        },
+    })?;
+    encoder.encode(&Mutation::SetProp {
+        node_id: 24,
+        property: PropertyKind::SpanMetrics,
+        value: PropertyValue::Bytes(&span_metrics),
+    })?;
+    Ok(encoder.finish()?.to_vec())
+}
+
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
     let selections = code_selections_vector();
     let events = [
@@ -4901,6 +4933,11 @@ pub fn generate_vector_description() -> String {
     "repeat": "RepeatX",
     "tileWidth": 56.0,
     "tileHeight": 30.0
+  }},
+  "maskAndSpanMetrics": {{
+    "file": "mask_and_span_metrics.bin",
+    "description": "One batch with a 36 byte Mask modifier on node 4 and a SpanMetrics property on node 24",
+    "recordCount": 2
   }},
   "events": {{
     "file": "events.bin",
@@ -6014,6 +6051,14 @@ object MeasureRecords {
         (
             "TEXT_SPAN_FEATURES_LENGTH_AT",
             m::TEXT_SPAN_FEATURES_LENGTH_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_METRICS_OFFSET_AT",
+            m::TEXT_SPAN_METRICS_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_METRICS_COUNT_AT",
+            m::TEXT_SPAN_METRICS_COUNT_AT as i64,
         ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),

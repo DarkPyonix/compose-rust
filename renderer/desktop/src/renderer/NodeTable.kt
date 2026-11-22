@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,9 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      */
     internal var spanFontFeatures by mutableStateOf<Map<Int, String>?>(null)
 
+    /** Per-span font size and letter spacing overrides, keyed by run index. */
+    internal var spanMetrics by mutableStateOf<Map<Int, dev.darkpyonix.composerust.foundation.SpanMetric>?>(null)
+
     /**
      * A code editor's document and everything over it. Created with the node and kept for
      * its life, because the document is the Renderer's from the moment it opens: the Host
@@ -89,12 +93,29 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      */
     internal val scroll: ScrollPort? = if (widget in NodeTable.SCROLL_CONTAINERS) ScrollPort(id) else null
 
+    init {
+        // An editor says its offset in an event of its own as well. The scroll report for
+        // a move leaves with that event, so the port asks whether it is still to come.
+        if (code != null) scroll?.companionOwes = code::owesScroll
+    }
+
     /**
-     * Set while a scroll request needs to know where this node is drawn. Nothing records
-     * that for a node nobody asked about.
+     * Count of active scroll requests that need to know where this node is drawn. Nothing
+     * records that for a node nobody asked about, and overlapping requests on the same
+     * target keep placement alive until the last request finishes.
      */
-    internal var placementWanted by mutableStateOf(false)
+    private var placementWatchers by mutableIntStateOf(0)
+    internal val placementWanted: Boolean get() = placementWatchers > 0
     internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
+
+    internal fun watchPlacement() {
+        placementWatchers++
+    }
+
+    internal fun unwatchPlacement() {
+        placementWatchers = (placementWatchers - 1).coerceAtLeast(0)
+        if (placementWatchers == 0) placement = null
+    }
 
     /**
      * A `NativeView`'s platform view: the handle the Host attached, 0 for none. The view is
@@ -1026,9 +1047,10 @@ class NodeTable {
 
     private fun collectCode(node: Node, includeReports: Boolean = false) {
         val code = node.code ?: return
-        outbox += node.codeEvents(code.drainOutput(includeReports)) { message ->
+        val events = node.codeEvents(code.drainOutput(includeReports)) { message ->
             fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
+        outbox += scrolls.paired(node.scroll, events)
     }
 
     private fun create(mutation: Mutation.Create) {
@@ -1124,6 +1146,16 @@ class NodeTable {
                     fail(
                         TableError.INVALID_FONT_FEATURES,
                         "span font features on node ${node.id}: $why; the text is drawn without span font features",
+                    )
+                }
+            }
+        }
+        if (mutation.property == PropertyKind.SpanMetrics) {
+            node.spanMetrics = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                dev.darkpyonix.composerust.foundation.decodeSpanMetricsBlob(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "span metrics on node ${node.id}: $why; the text is drawn without span metrics",
                     )
                 }
             }
@@ -1404,6 +1436,13 @@ class NodeTable {
                 PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
                     widget == WidgetKind.Checkbox ||
                     widget == WidgetKind.RadioButton
+
+                // The mixed state and the border colour belong to a Checkbox alone: a radio
+                // button and a switch have no third state, and their outlines are the ring
+                // and the track.
+                PropertyKind.Indeterminate,
+                PropertyKind.OutlineColor,
+                -> widget == WidgetKind.Checkbox
 
                 // A linear layout gathers the radio buttons inside it into one group.
                 PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
@@ -1722,6 +1761,7 @@ class NodeTable {
 
                 PropertyKind.SpanFonts,
                 PropertyKind.SpanFontFeatures,
+                PropertyKind.SpanMetrics,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,

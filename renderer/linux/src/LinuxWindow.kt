@@ -11,13 +11,21 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -227,6 +235,32 @@ internal class LinuxWindow private constructor(
     /** Whether anything has been drawn yet, so the first turn always draws one. */
     private var painted = false
 
+    /**
+     * Keeps a copy of every frame's pixels in [lastFrame], read back from the back buffer
+     * before it is presented, for the check that compares the screen with what was drawn
+     * (`HiDpiCheck.kt`). Off otherwise: the read back costs a copy of the whole frame.
+     */
+    internal var keepFrames = false
+
+    /** The pixels of the last frame, as drawn, while [keepFrames] is on. */
+    internal var lastFrame: HiDpiImage? = null
+        private set
+
+    /** How many frames reached the window. */
+    internal var framesDrawn = 0
+        private set
+
+    /** The size of the back buffer the last frame was drawn into, in pixels. */
+    internal var drawnSize = IntSize.Zero
+        private set
+
+    /** How many times the scene's density changed, which a change of the display scale does once. */
+    internal var densityChanges = 0
+        private set
+
+    /** The density the scene is drawn at now. */
+    internal val sceneDensity: Density get() = scene.density
+
     // The window says when each frame is drawn, on the monotonic clock the Host reads too, so
     // an animation moves at the speed of the wall clock whatever the refresh rate.
     private val frameClock = FrameClock(x11::frameTimeNanos)
@@ -246,6 +280,7 @@ internal class LinuxWindow private constructor(
         // a framebuffer that fits and a scene that does not is a window drawing its old size
         // into a corner of its new one.
         if (scene.size != size || scene.density != density) {
+            if (scene.density.density != density.density) densityChanges++
             scene.density = density
             scene.size = size
         }
@@ -257,9 +292,12 @@ internal class LinuxWindow private constructor(
             } else {
                 scene.render(canvas.asComposeCanvas(), nanos)
             }
+            if (keepFrames) lastFrame = readCanvas(canvas, width, height)
         }
         if (drew) {
             painted = true
+            framesDrawn++
+            drawnSize = size
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
@@ -282,6 +320,16 @@ internal class LinuxWindow private constructor(
             return
         }
         heard.add(event)
+    }
+
+    /**
+     * The display's scale changed (`Xft.dpi`, read again by the window when the desktop writes
+     * it). Nothing in the scene has invalidated, so the next turn is told to draw: the frame
+     * reads the new scale from the window and lays the scene out at the new density. Without
+     * this the old frame stays on the screen until something else asks for one.
+     */
+    override fun onScaleChanged(scale: Float) {
+        zoomDirty = true
     }
 
     /**
@@ -339,12 +387,29 @@ internal class LinuxWindow private constructor(
     override fun onAccessibilityAction(id: Int, action: Int, argument: String?): Boolean =
         semantics.perform(id, action, argument)
 
+    @Suppress("DEPRECATION")
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent {
+            val defaultClipboard = LocalClipboard.current
+            val clipboard = remember(x11, defaultClipboard) {
+                LinuxWindowClipboard(
+                    readText = x11::readClipboardText,
+                    writeText = x11::writeClipboardText,
+                    native = { defaultClipboard.nativeClipboard },
+                )
+            }
+            val clipboardManager = remember(x11) {
+                LinuxWindowClipboardManager(
+                    readText = x11::readClipboardText,
+                    writeText = x11::writeClipboardText,
+                )
+            }
             CompositionLocalProvider(
                 LocalZoom provides zoom,
                 LocalDisplayScale provides displayScale,
                 LocalSystemDarkObserver provides { resolvedDark() },
+                LocalClipboard provides clipboard,
+                LocalClipboardManager provides clipboardManager,
                 // A node the application made a drag region (`WindowDrag(true)`) moves the
                 // window from the press it is holding: the window manager takes the pointer
                 // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
@@ -416,6 +481,19 @@ internal class LinuxWindow private constructor(
             if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(x11.resizeStats.report())
             close()
         }
+    }
+
+    /**
+     * One turn of [run]'s loop for a check that drives the window itself: the server, the
+     * scene's work, and [processTurn]. Waits up to a frame's length for the server first.
+     */
+    internal fun stepOnce() {
+        x11.pump(FRAME_MILLISECONDS)
+        focused = x11.isFocused
+        onTurn()
+        val woken = work.takeWake()
+        work.runPending()
+        processTurn(woken)
     }
 
     /** Reads whether the server says the window has the keyboard, for a loop that drives [processTurn]. */
@@ -530,6 +608,10 @@ internal class LinuxWindow private constructor(
                 target?.onEvent(event)
             }
 
+            override fun onScaleChanged(scale: Float) {
+                target?.onScaleChanged(scale)
+            }
+
             override fun onCloseRequested(): Boolean = target?.onCloseRequested() ?: true
 
             override fun onFocusChanged(focused: Boolean) {
@@ -557,5 +639,54 @@ internal class LinuxWindow private constructor(
         private const val SYNTHETIC_RESIZE_PAUSE_MILLISECONDS = 8L
 
         private const val DENSITY = 1.0f
+    }
+}
+
+/**
+ * Compose [Clipboard] backed by the X11 window's CLIPBOARD selection so drawn text menus
+ * enable Paste only when clipboard text is present and execute Cut/Copy/Paste through X11.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+internal class LinuxWindowClipboard(
+    private val readText: () -> String?,
+    private val writeText: (String) -> Unit,
+    private val native: () -> NativeClipboard,
+) : Clipboard {
+    override suspend fun getClipEntry(): ClipEntry? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { ClipEntry.withPlainText(it) }
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        writeText(clipEntry?.getPlainText().orEmpty())
+    }
+
+    override val nativeClipboard: NativeClipboard
+        get() = native()
+}
+
+/**
+ * Legacy [ClipboardManager] backed by the same X11 CLIPBOARD selection for callers that still
+ * read [LocalClipboardManager].
+ */
+@Suppress("DEPRECATION")
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+internal class LinuxWindowClipboardManager(
+    private val readText: () -> String?,
+    private val writeText: (String) -> Unit,
+) : ClipboardManager {
+    override fun getText(): AnnotatedString? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { AnnotatedString(it) }
+
+    override fun setText(annotatedString: AnnotatedString) {
+        writeText(annotatedString.text)
+    }
+
+    override fun hasText(): Boolean = !readText().isNullOrEmpty()
+
+    override fun getClip(): ClipEntry? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { ClipEntry.withPlainText(it) }
+
+    @Suppress("GetterSetterNames")
+    override fun setClip(clipEntry: ClipEntry?) {
+        writeText(clipEntry?.getPlainText().orEmpty())
     }
 }

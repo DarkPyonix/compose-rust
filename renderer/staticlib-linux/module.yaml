@@ -16,6 +16,7 @@ product:
 # linuxX64` builds and publishes it.
 repositories:
   - mavenLocal
+  - https://maven-central.storage-download.googleapis.com/maven2/
 
 dependencies:
   - ../linux

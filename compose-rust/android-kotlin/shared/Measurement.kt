@@ -457,11 +457,35 @@ internal class MeasureContext(
             if (malformed) return null
             parsed ?: emptyMap()
         }
+        val spanMetricsAt = int(MeasureRecords.TEXT_SPAN_METRICS_OFFSET_AT)
+        val spanMetricsCount = int(MeasureRecords.TEXT_SPAN_METRICS_COUNT_AT)
+        val runMetrics = if (spanMetricsCount == 0) {
+            emptyMap()
+        } else {
+            val byteLen = spanMetricsCount.toLong() * 16L
+            if (spanMetricsAt < 0 || spanMetricsCount < 0 || spanMetricsAt.toLong() + byteLen > limit.toLong()) {
+                return null
+            }
+            val bytes = ByteArray(byteLen.toInt())
+            val mark = requests.position()
+            requests.position(spanMetricsAt)
+            requests.get(bytes, 0, bytes.size)
+            requests.position(mark)
+            var malformed = false
+            val parsed = dev.darkpyonix.composerust.foundation.decodeSpanMetricsEntries(bytes, spanMetricsCount) { why ->
+                malformed = true
+                table.report(TableError.INVALID_FONT_FEATURES, "span metrics in measure request: $why")
+            }
+            if (malformed || parsed == null) return null
+            if (parsed.keys.any { it < 0 || it >= runs.size }) return null
+            parsed
+        }
         return TextInput(
             text = text,
             runs = runs,
             runFonts = runFonts,
             runFontFeatures = runFontFeatures,
+            runMetrics = runMetrics,
             noRole = roleTag == TYPE_ROLE_NONE,
             role = role,
             fontSize = fontSize.takeIf { it > 0f },

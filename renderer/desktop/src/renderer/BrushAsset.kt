@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.ShaderBrush
@@ -49,7 +50,7 @@ internal fun decodeBrushAsset(
         // The picture's id rides in the first coordinate's bits, which is where the Host
         // put it rather than giving the image case a second layout to read.
         val picture = imageOf(coordinates[0].toRawBits()) as? Asset.Raster ?: return null
-        return ShaderBrush(ImageShader(picture.bitmap, tile, tile))
+        return ImageBrush(picture.bitmap, tile)
     }
 
     val stops = Array(stopCount) { index ->
@@ -93,6 +94,14 @@ private fun tileMode(tag: Int): TileMode? = when (tag) {
     2 -> TileMode.Repeated
     3 -> TileMode.Mirror
     else -> null
+}
+
+/** An image brush that retains its [bitmap] so mask modifiers can size and tile it. */
+internal class ImageBrush(
+    val bitmap: ImageBitmap,
+    private val tile: TileMode,
+) : ShaderBrush() {
+    override fun createShader(size: Size): Shader = ImageShader(bitmap, tile, tile)
 }
 
 /**

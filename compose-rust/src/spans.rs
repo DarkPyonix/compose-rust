@@ -193,6 +193,9 @@ pub struct TextSpans {
     /// The font feature table for runs that name features of their own, which text takes
     /// with or without a role.
     features: Option<Rc<[u8]>>,
+    /// The per-span metrics side table (16-byte entries: span u32, font_size f32,
+    /// letter_spacing f32, reserved u32), read only by text with no role.
+    metrics: Option<Rc<[u8]>>,
 }
 
 impl std::fmt::Debug for TextSpans {
@@ -202,6 +205,7 @@ impl std::fmt::Debug for TextSpans {
             .field("spans", &(self.as_bytes().len() / SPAN_LEN))
             .field("fonts", &self.font_entry_count())
             .field("features", &self.feature_entry_count())
+            .field("metrics", &self.metrics_entry_count())
             .finish()
     }
 }
@@ -266,6 +270,7 @@ impl TextSpans {
             bytes: (!bytes.is_empty()).then_some(bytes),
             fonts: None,
             features: None,
+            metrics: None,
         }
     }
 
@@ -281,6 +286,14 @@ impl TextSpans {
     pub fn with_feature_table(mut self, table: impl Into<Rc<[u8]>>) -> Self {
         let table = table.into();
         self.features = (!table.is_empty()).then_some(table);
+        self
+    }
+
+    /// The same runs with an already encoded metrics table beside them, as
+    /// [`encode_metrics_table`] lays one out. An empty table is no table.
+    pub fn with_metrics_table(mut self, table: impl Into<Rc<[u8]>>) -> Self {
+        let table = table.into();
+        self.metrics = (!table.is_empty()).then_some(table);
         self
     }
 
@@ -304,6 +317,32 @@ impl TextSpans {
     /// The same table, shared rather than copied, for a widget to keep and compare.
     pub(crate) fn shared_feature_table(&self) -> Option<Rc<[u8]>> {
         self.features.clone()
+    }
+
+    /// The `SpanMetrics` blob: a count u32 followed by 16-byte entries (`span: u32`,
+    /// `font_size: f32`, `letter_spacing: f32`, `reserved: u32`). Empty where no run
+    /// overrides font size or letter spacing.
+    pub fn metrics_table(&self) -> &[u8] {
+        self.metrics.as_deref().unwrap_or(&[])
+    }
+
+    /// The same metrics table, shared rather than copied, for a widget to keep and compare.
+    pub(crate) fn shared_metrics_table(&self) -> Option<Rc<[u8]>> {
+        self.metrics.clone()
+    }
+
+    /// How many runs override font size or letter spacing.
+    pub fn metrics_entry_count(&self) -> usize {
+        let table = self.metrics_table();
+        if table.len() < 4 {
+            return 0;
+        }
+        u32::from_le_bytes([table[0], table[1], table[2], table[3]]) as usize
+    }
+
+    /// Decoded per-span metrics entries, or empty if absent or malformed.
+    pub fn span_metrics(&self) -> Vec<SpanMetric> {
+        decode_metrics_table(self.metrics_table()).unwrap_or_default()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -560,4 +599,83 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+/// One 16-byte entry in a `SpanMetrics` side table: `span: u32`, `font_size: f32` (NaN = unset),
+/// `letter_spacing: f32` (NaN = unset), `reserved: u32` (0).
+pub const SPAN_METRICS_ENTRY_LEN: usize = 16;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpanMetric {
+    pub span: u32,
+    pub font_size: f32,
+    pub letter_spacing: f32,
+}
+
+impl SpanMetric {
+    pub const fn new(span: u32, font_size: f32, letter_spacing: f32) -> Self {
+        Self {
+            span,
+            font_size,
+            letter_spacing,
+        }
+    }
+}
+
+/// Encodes per-span metrics into the `SpanMetrics` blob (`count: u32` followed by 16-byte entries).
+pub fn encode_metrics_table(entries: &[SpanMetric]) -> Option<Rc<[u8]>> {
+    if entries.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(4 + entries.len() * SPAN_METRICS_ENTRY_LEN);
+    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    for entry in entries {
+        out.extend_from_slice(&entry.span.to_le_bytes());
+        out.extend_from_slice(&entry.font_size.to_le_bytes());
+        out.extend_from_slice(&entry.letter_spacing.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+    }
+    Some(Rc::from(out))
+}
+
+/// Decodes a `SpanMetrics` blob, rejecting truncated blobs, trailing bytes, non-zero reserved
+/// words, or duplicate span indices.
+pub fn decode_metrics_table(table: &[u8]) -> Option<Vec<SpanMetric>> {
+    if table.is_empty() {
+        return Some(Vec::new());
+    }
+    if table.len() < 4 {
+        return None;
+    }
+    let count = u32::from_le_bytes([table[0], table[1], table[2], table[3]]) as usize;
+    let expected = 4usize.checked_add(count.checked_mul(SPAN_METRICS_ENTRY_LEN)?)?;
+    if table.len() != expected {
+        return None;
+    }
+    let mut seen = Vec::with_capacity(count);
+    let mut decoded = Vec::with_capacity(count);
+    for i in 0..count {
+        let at = 4 + i * SPAN_METRICS_ENTRY_LEN;
+        let span = u32::from_le_bytes([table[at], table[at + 1], table[at + 2], table[at + 3]]);
+        let font_size =
+            f32::from_le_bytes([table[at + 4], table[at + 5], table[at + 6], table[at + 7]]);
+        let letter_spacing =
+            f32::from_le_bytes([table[at + 8], table[at + 9], table[at + 10], table[at + 11]]);
+        let reserved = u32::from_le_bytes([
+            table[at + 12],
+            table[at + 13],
+            table[at + 14],
+            table[at + 15],
+        ]);
+        if reserved != 0 || seen.contains(&span) {
+            return None;
+        }
+        seen.push(span);
+        decoded.push(SpanMetric {
+            span,
+            font_size,
+            letter_spacing,
+        });
+    }
+    Some(decoded)
 }

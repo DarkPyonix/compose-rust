@@ -3843,6 +3843,33 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 ],
             )
         }
+        Modifier::Mask {
+            brush,
+            repeat,
+            size_mode,
+            size_width,
+            size_height,
+            pos_x,
+            pos_y,
+        } => {
+            let flags = u32::from(*repeat) | (u32::from(*size_mode) << 8);
+            let first = u64::from(*brush) | (u64::from(flags) << 32);
+            (
+                46,
+                [
+                    first,
+                    pack_floats(*size_width, *size_height),
+                    pack_floats(*pos_x, *pos_y),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+            )
+        }
         Modifier::Transform {
             a,
             b,
@@ -4180,6 +4207,24 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 ])
             },
         }),
+        46 => {
+            let brush = first as u32;
+            let flags = (first >> 32) as u32;
+            let repeat = (flags & 0xff) as u8;
+            let size_mode = ((flags >> 8) & 0xff) as u8;
+            if (flags >> 16) != 0 || repeat > 5 || size_mode > 3 {
+                return Err(ProtocolError::InvalidModifier(46));
+            }
+            Ok(Modifier::Mask {
+                brush,
+                repeat,
+                size_mode,
+                size_width: unpack_low(second),
+                size_height: unpack_high(second),
+                pos_x: unpack_low(third),
+                pos_y: unpack_high(third),
+            })
+        }
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
