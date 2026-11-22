@@ -167,6 +167,7 @@ internal fun HostCodeEditor(
 /** The editor's own offset down its document, as an axis a scroll request can move. */
 private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     state = scrollable,
+    reversed = true,
     value = { offset },
     max = { max },
     viewport = viewport,

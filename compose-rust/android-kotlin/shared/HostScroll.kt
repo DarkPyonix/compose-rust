@@ -367,6 +367,8 @@ internal fun ScrollState.axis(): ScrollAxis = ScrollAxis(
  * viewport [viewport] long that is now at [current], or null to leave the axis alone.
  */
 internal fun aimAxis(align: Int, start: Double, size: Double, viewport: Int, current: Int): Double? =
+    /** True where [state] takes the pointer's travel, so a delta above zero scrolls back. */
+    val reversed: Boolean = false,
     when (align) {
         ScrollWire.ALIGN_START -> start
         ScrollWire.ALIGN_CENTER -> start + size / 2 - viewport / 2.0
@@ -435,7 +437,8 @@ internal class OffsetScrollSurface(
             launch {
                 unlessRefused {
                     if (animate) {
-                        axis.state.animateScrollBy((target - axis.value()).toFloat())
+                        val by = (target - axis.value()).toFloat()
+                        axis.state.animateScrollBy(if (axis.reversed) -by else by)
                     } else {
                         axis.jump(target)
                     }
