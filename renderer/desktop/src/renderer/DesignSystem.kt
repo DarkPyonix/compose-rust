@@ -1214,7 +1214,15 @@ data class SheetStyle(
     val padding: Dp,
     val borderWidth: Dp,
     val borderColor: Color,
+    /**
+     * How far below the top safe area a bottom sheet stops when it is opened out to its
+     * large resting height, so a strip of the page stays in sight above it.
+     */
+    val largeDetentMargin: Dp = SHEET_LARGE_DETENT_MARGIN,
 )
+
+/** The room a sheet at its large resting height leaves above itself where a system names none. */
+internal val SHEET_LARGE_DETENT_MARGIN: Dp = 16.dp
 
 /**
  * Where a transient message appears.

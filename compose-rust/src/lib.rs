@@ -120,6 +120,7 @@ pub use schema::{
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{MinimapSide, WordWrapMode};
 pub use schema::BackSource;
+pub use schema::SheetDetents;
 pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
