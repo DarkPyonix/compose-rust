@@ -5,7 +5,7 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Protocol
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import java.io.BufferedReader
@@ -59,7 +59,7 @@ object OffscreenPreview {
             density = Density(safeScale),
             content = {
                 CompositionLocalProvider(LocalFrameRequests provides frames) {
-                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
+                    WindowContent(rememberComposeRustHost(FakeHostConnection(mutations)))
                 }
             },
         )
@@ -108,7 +108,7 @@ object OffscreenPreview {
             density = Density(safeScale),
             content = {
                 CompositionLocalProvider(LocalFrameRequests provides frames) {
-                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
+                    WindowContent(rememberComposeRustHost(FakeHostConnection(mutations)))
                 }
             },
         )

@@ -147,13 +147,12 @@ impl PreviewContext {
     }
 
     /// Override the fixed Unix timestamp in seconds (e.g. from `--now`).
-    pub fn with_now_unix_secs(mut self, unix_secs: i64) -> Self {
+    pub fn set_now_unix_secs(&mut self, unix_secs: i64) {
         self.now_unix_secs = unix_secs;
-        self
     }
 
     /// Override the deterministic seed.
-    pub fn with_seed(mut self, seed: u64) -> Self {
+    pub fn set_seed(&mut self, seed: u64) {
         self.seed = seed;
         self.rng_state.store(
             if seed == 0 {
@@ -163,7 +162,6 @@ impl PreviewContext {
             },
             Ordering::Relaxed,
         );
-        self
     }
 
     /// Logical preview size.

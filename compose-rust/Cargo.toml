@@ -69,3 +69,6 @@ compose-rust-macros = { path = "macros", version = "0.0.12" }
 # per-call cost.
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+
+[lints]
+workspace = true

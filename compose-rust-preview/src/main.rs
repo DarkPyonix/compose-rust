@@ -60,14 +60,13 @@ fn resolve_crate(package: Option<&str>) -> Result<(PathBuf, String), String> {
             .into_iter()
             .filter_map(Result::ok)
         {
-            if entry.file_name() == "Cargo.toml" && entry.file_type().is_file() {
-                if let Some(dir) = entry.path().parent() {
-                    if let Ok(name) = read_crate_name(dir) {
-                        if name == pkg {
-                            return Ok((dir.to_path_buf(), name));
-                        }
-                    }
-                }
+            if entry.file_name() == "Cargo.toml"
+                && entry.file_type().is_file()
+                && let Some(dir) = entry.path().parent()
+                && let Ok(name) = read_crate_name(dir)
+                && name == pkg
+            {
+                return Ok((dir.to_path_buf(), name));
             }
         }
         return Err(format!("package `{pkg}` not found under {}", cwd.display()));
@@ -86,15 +85,13 @@ fn read_crate_name(crate_dir: &Path) -> Result<String, String> {
             in_package = trimmed == "[package]";
             continue;
         }
-        if in_package {
-            if let Some(rest) = trimmed.strip_prefix("name") {
-                let rest = rest.trim();
-                if let Some(val) = rest.strip_prefix('=') {
-                    let v = val.trim().trim_matches('"').trim_matches('\'');
-                    if !v.is_empty() {
-                        return Ok(v.to_string());
-                    }
-                }
+        if in_package
+            && let Some(rest) = trimmed.strip_prefix("name")
+            && let Some(val) = rest.trim().strip_prefix('=')
+        {
+            let v = val.trim().trim_matches('"').trim_matches('\'');
+            if !v.is_empty() {
+                return Ok(v.to_string());
             }
         }
     }
