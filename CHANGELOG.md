@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A button that names no kind sends no kind
+
+A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
+
 ### The macOS renderer's Kotlin heap stops near what is in use
 
 The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
