@@ -20,7 +20,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * FR-78 and FR-53: an application of several windows reads and writes the clipboard and runs
+ * An application of several windows reads and writes the clipboard and runs
  * file operations like one of a single window. Each of its windows draws its own `Window`
  * node (`LocalWindowNodeId` is never 0), so whatever wires the clipboard has to be one of
  * them: the window opened last serves, and when it closes the one before it takes over.

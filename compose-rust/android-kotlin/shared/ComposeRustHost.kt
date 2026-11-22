@@ -122,6 +122,12 @@ fun interface EventDispatcher {
  * intermediate states of a batch are never drawn.
  */
 class ComposeRustHost(private val connection: HostConnection) : EventDispatcher {
+    /**
+     * The windows that can serve the clipboard and file operations, oldest first. The last one
+     * serves (ComposeRustTree); every window of a multi-window application is one.
+     */
+    internal val clipboardServers = ArrayList<ClipboardServer>()
+
     val table: NodeTable = NodeTable()
 
     val roots: List<Int> get() = table.roots
@@ -534,41 +540,56 @@ private fun ComposeRustTree(
     // A storage answer from the browser is delivered at the top of the frame it asks for.
     SideEffect { host.table.storage.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
-    // shares it, so the root window's is enough.
+    // shares the system's clipboard, so one window serves it: the one that opened last, and
+    // when it goes, the one before it. A window of several draws its own node
+    // (windowNodeId != 0) and serves like the one window of a single window application.
     @Suppress("DEPRECATION")
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     // The suspending clipboard, which is the only one a browser can read, and the scope its
     // reads run in: the composition's own, so they run on the UI thread.
     val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
     val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
-    if (windowNodeId == 0) {
-        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
-        DisposableEffect(host) { onDispose { host.table.fileCalls.detach() } }
-        SideEffect {
-            host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+    val clipboardServer = remember(host) { ClipboardServer() }
+    clipboardServer.install = {
+        host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+            @Suppress("DEPRECATION")
+            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+        }
+        host.table.clipboardReads.launcher = { read ->
+            clipboardScope.launch(block = { read() })
+        }
+        // File operations suspend on the same scope, on the UI thread.
+        host.table.fileCalls.launcher = { operation ->
+            clipboardScope.launch(block = { operation() })
+        }
+        host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+            // A platform with a suspending read uses it. Elsewhere the clipboard manager
+            // answers at once, which every other target supports.
+            val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+            if (platformRead != null) {
+                platformRead(composeClipboard)
+            } else {
                 @Suppress("DEPRECATION")
-                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
-            }
-            host.table.clipboardReads.launcher = { read ->
-                clipboardScope.launch(block = { read() })
-            }
-            // File operations suspend on the same scope, on the UI thread.
-            host.table.fileCalls.launcher = { operation ->
-                clipboardScope.launch(block = { operation() })
-            }
-            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
-                // A platform with a suspending read uses it. Elsewhere the clipboard manager
-                // answers at once, which every other target supports.
-                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
-                if (platformRead != null) {
-                    platformRead(composeClipboard)
-                } else {
-                    @Suppress("DEPRECATION")
-                    clipboardManager.getText()?.text
-                }
+                clipboardManager.getText()?.text
             }
         }
     }
+    DisposableEffect(host, clipboardServer) {
+        host.clipboardServers += clipboardServer
+        clipboardServer.install()
+        onDispose {
+            val serving = host.clipboardServers.lastOrNull() === clipboardServer
+            host.clipboardServers -= clipboardServer
+            if (serving) {
+                // What this window's scope was running never finishes: answered now, once.
+                host.table.clipboardReads.detach()
+                host.table.fileCalls.detach()
+                host.clipboardServers.lastOrNull()?.install?.invoke()
+            }
+        }
+    }
+    // A recomposition hands the serving window's newest clipboard and scope over.
+    SideEffect { if (host.clipboardServers.lastOrNull() === clipboardServer) clipboardServer.install() }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
@@ -1421,4 +1442,9 @@ internal fun pageInsets(
  */
 var platformKeyboardInset: @Composable () -> Dp = {
     with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
+}
+
+/** One window's way of serving the clipboard and file operations: [install] wires them to it. */
+internal class ClipboardServer {
+    var install: () -> Unit = {}
 }

@@ -541,7 +541,7 @@ private fun ComposeRustTree(
     SideEffect { host.table.storage.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares the system's clipboard, so one window serves it: the one that opened last, and
-    // when it goes, the one before it (FR-78, FR-53). A window of several draws its own node
+    // when it goes, the one before it. A window of several draws its own node
     // (windowNodeId != 0) and serves like the one window of a single window application.
     @Suppress("DEPRECATION")
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
