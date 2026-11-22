@@ -12,6 +12,7 @@ check() { # expected description files...
 }
 check false "Windows renderer only" renderer/windows/src/Main.kt renderer/desktop/scripts/build-windows.sh .github/workflows/windows-static.yml
 check false "the Windows consumer check and the multi-window fixture it builds" scripts/check-windows-consumer.sh compose-rust/tests/fixtures/multi-window/src/app.rs
+check false "the HiDPI check on Windows, its scale tool and its fixture" .github/scripts/hidpi-windows-check.sh .github/scripts/set-display-scale.c compose-rust/tests/fixtures/hidpi/src/main.rs
 check true "the consumer fixture (the macOS single executable builds it)" compose-rust/tests/fixtures/consumer/src/main.rs
 check false "Linux renderer only" renderer/linux/src/shared/Window.kt .github/scripts/check-linux-input-access.sh
 check true "the packager and the single-executable check (macOS legs run them)" .github/scripts/package-static-renderer.sh renderer/desktop/scripts/build-windows.sh

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A Linux window redraws when the display scale changes
+
+The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
+
 ### The macOS renderer's Kotlin heap stops near what is in use
 
 The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
