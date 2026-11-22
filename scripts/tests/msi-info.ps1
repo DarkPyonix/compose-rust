@@ -3,8 +3,7 @@
 Reads an .msi's Property table and fails when the package is not what was packed.
 
 .DESCRIPTION
-The Windows counterpart of `dpkg-deb --info` and `rpm -qp --info` (FR-22.6 criteria 5 and
-10): it opens the installer database through the Windows Installer COM object, prints
+The Windows counterpart of `dpkg-deb --info` and `rpm -qp --info`: it opens the installer database through the Windows Installer COM object, prints
 every property, and checks that the product name and manufacturer are there and that the
 version is the one given to `vpk pack`. Nothing is installed.
 
@@ -16,9 +15,9 @@ The version given to `vpk pack --packVersion`. Velopack may add a fourth part, s
 product version must start with this.
 
 .PARAMETER ExpectedScope
-PerUser or PerMachine, as given to `vpk pack --instLocation`. It is printed with the
-scope properties of the table (ALLUSERS, MSIINSTALLPERUSER); the table is not asserted
-against, because Velopack's WiX template decides how it spells a scope.
+PerUser or PerMachine, as given to `vpk pack --instLocation`. Velopack's WiX template
+spells PerMachine as ALLUSERS=1 and PerUser as no ALLUSERS at all (seen in compose-rust
+run 45009251902), so PerMachine must have ALLUSERS=1 and PerUser must not.
 #>
 [CmdletBinding()]
 param(
@@ -55,6 +54,12 @@ if ($ExpectedScope) {
 $problems = @()
 foreach ($required in 'ProductName', 'Manufacturer', 'ProductVersion', 'ProductCode', 'UpgradeCode') {
     if (-not $properties[$required]) { $problems += "the table has no $required" }
+}
+if ($ExpectedScope -eq 'PerMachine' -and $properties['ALLUSERS'] -ne '1') {
+    $problems += "packed PerMachine but ALLUSERS is '$($properties['ALLUSERS'])', not 1"
+}
+if ($ExpectedScope -eq 'PerUser' -and $properties['ALLUSERS'] -eq '1') {
+    $problems += 'packed PerUser but ALLUSERS is 1 (a per-machine install)'
 }
 if ($properties['ProductVersion'] -and -not ([string]$properties['ProductVersion']).StartsWith($Version)) {
     $problems += "ProductVersion is $($properties['ProductVersion']), packed as $Version"
