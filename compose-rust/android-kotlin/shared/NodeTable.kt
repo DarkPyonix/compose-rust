@@ -1405,6 +1405,13 @@ class NodeTable {
                     widget == WidgetKind.Checkbox ||
                     widget == WidgetKind.RadioButton
 
+                // The mixed state and the border colour belong to a Checkbox alone: a radio
+                // button and a switch have no third state, and their outlines are the ring
+                // and the track.
+                PropertyKind.Indeterminate,
+                PropertyKind.OutlineColor,
+                -> widget == WidgetKind.Checkbox
+
                 // A linear layout gathers the radio buttons inside it into one group.
                 PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
