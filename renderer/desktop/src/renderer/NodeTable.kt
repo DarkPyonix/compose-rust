@@ -90,6 +90,12 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      */
     internal val scroll: ScrollPort? = if (widget in NodeTable.SCROLL_CONTAINERS) ScrollPort(id) else null
 
+    init {
+        // An editor says its offset in an event of its own as well. The scroll report for
+        // a move leaves with that event, so the port asks whether it is still to come.
+        if (code != null) scroll?.companionOwes = code::owesScroll
+    }
+
     /**
      * Count of active scroll requests that need to know where this node is drawn. Nothing
      * records that for a node nobody asked about, and overlapping requests on the same
@@ -1038,9 +1044,10 @@ class NodeTable {
 
     private fun collectCode(node: Node, includeReports: Boolean = false) {
         val code = node.code ?: return
-        outbox += node.codeEvents(code.drainOutput(includeReports)) { message ->
+        val events = node.codeEvents(code.drainOutput(includeReports)) { message ->
             fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
+        outbox += scrolls.paired(node.scroll, events)
     }
 
     private fun create(mutation: Mutation.Create) {
