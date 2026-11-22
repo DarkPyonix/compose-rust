@@ -484,7 +484,7 @@ impl NodeWriter {
         };
 
         let slot_of = |name: &str| match name {
-            "weight" => Some(WEIGHT),
+            "weight" | "weight_unfilled" => Some(WEIGHT),
             "fill_max_width" => Some(FILL_MAX_WIDTH),
             "match_parent_size" => Some(MATCH_PARENT_SIZE),
             "fill_max_height" => Some(FILL_MAX_HEIGHT),
@@ -603,6 +603,7 @@ impl NodeWriter {
                 )))
             }
             "weight" => Some(Some((WEIGHT, Modifier::Weight(float(value)?)))),
+            "weight_unfilled" => Some(Some((WEIGHT, Modifier::WeightUnfilled(float(value)?)))),
             "width" => Some(Some((WIDTH, Modifier::Width(float(value)?)))),
             "height" => Some(Some((HEIGHT, Modifier::Height(float(value)?)))),
             "padding" => Some(Some((PADDING, Modifier::Padding(float(value)?)))),
