@@ -513,7 +513,10 @@ impl Model {
     /// The tree under the root, in a form that does not depend on node or handler ids.
     ///
     /// Event properties carry handler ids, which each path allocates in its own order, so
-    /// they are written as present or absent. Everything else is written as it is.
+    /// they are written as present or absent. A node's Modifiers are written in slot order
+    /// without their slot numbers, which belong to the protocol version that wrote them:
+    /// the Renderer applies the slots that are set in order, so the order is what the tree
+    /// holds. Everything else is written as it is.
     pub fn dump(&self) -> String {
         let mut out = String::new();
         self.dump_node(0, 0, &mut out);
@@ -535,8 +538,10 @@ impl Model {
                 out.push_str(&format!(" {name}={value:?}"));
             }
         }
-        for (index, modifier) in &entry.modifiers {
-            out.push_str(&format!(" m{index}={modifier}"));
+        // In slot order, without the slot's number: the number is the wire's, and the
+        // protocol renumbered the slots between the two revisions compared here.
+        for modifier in entry.modifiers.values() {
+            out.push_str(&format!(" modifier={modifier}"));
         }
         out.push('\n');
         for child in &entry.children {
@@ -1089,6 +1094,64 @@ mod tests {
             first_difference("Root\n", "Root\n  Column\n"),
             Some((2, String::new(), "Column".to_owned()))
         );
+    }
+
+    fn modifier(node: u32, index: u16, modifier: &str) -> Record {
+        Record::SetModifier {
+            node,
+            index,
+            modifier: modifier.to_owned(),
+        }
+    }
+
+    // A Modifier's slot number belongs to the protocol version that wrote it. The pinned
+    // Dioxus path writes a shape in slot 5 and a padding in slot 10, and this checkout
+    // writes them in 12 and 22. NodeTable.setModifier keeps a node's Modifiers in a list
+    // indexed by slot and applies the ones that are set in that order, so what a tree
+    // holds is the Modifiers and their order.
+    #[test]
+    fn fr39_model_shows_the_same_tree_when_only_the_slot_numbers_differ() {
+        let pinned = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 10, "PaddingRole(Md)"),
+            modifier(1, 5, "ShapeRole(Large)"),
+        ]]);
+        let today = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 12, "ShapeRole(Large)"),
+            modifier(1, 22, "PaddingRole(Md)"),
+        ]]);
+        assert_eq!(pinned.dump(), today.dump());
+    }
+
+    // The order is still part of the tree: the same two Modifiers the other way round are
+    // applied the other way round.
+    #[test]
+    fn fr39_model_tells_apart_modifiers_in_another_order() {
+        let shape_first = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "ShapeRole(Large)"),
+            modifier(1, 10, "PaddingRole(Md)"),
+        ]]);
+        let padding_first = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "PaddingRole(Md)"),
+            modifier(1, 10, "ShapeRole(Large)"),
+        ]]);
+        assert_ne!(shape_first.dump(), padding_first.dump());
+    }
+
+    // Clearing a slot takes its Modifier out of the tree, whatever the slot's number.
+    #[test]
+    fn fr39_model_drops_a_cleared_modifier() {
+        let cleared = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "ShapeRole(Large)"),
+            modifier(1, 10, "PaddingRole(Md)"),
+            modifier(1, 5, "Empty"),
+        ]]);
+        let never_set = model(&[vec![create(1, "Surface"), modifier(1, 22, "PaddingRole(Md)")]]);
+        assert_eq!(cleared.dump(), never_set.dump());
     }
 
     const SWEEP_SCREEN: &str = "Root\n  Column\n    Text Text=Text(\"0-0\")\n    Button OnClick=handler Text=Text(\"Increment\")\n";
