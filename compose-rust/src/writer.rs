@@ -1072,9 +1072,7 @@ impl NodeWriter {
         // Letter spacing has the same problem: CSS `letter-spacing: 0` is a real 0, drawn
         // with no extra spacing, where an unset spacing takes the role's. So its unset value
         // is NaN (or nothing), and an explicit 0 is written like any other value.
-        let neutral = if property == PropertyKind::TypeRole {
-            matches!(value, PropertyValue::None)
-        } else if property == PropertyKind::Count {
+        let neutral = if matches!(property, PropertyKind::TypeRole | PropertyKind::Count) {
             matches!(value, PropertyValue::None)
         } else if property == PropertyKind::LetterSpacing {
             match value {
