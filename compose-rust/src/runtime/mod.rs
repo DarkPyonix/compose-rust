@@ -57,6 +57,7 @@ pub use state::{
     on_application_reopen, on_notification_activated, on_window_requested, remember_node_size,
     structural_equality_policy,
 };
+pub use state::current_node_breakpoint;
 
 use composer::{Composer, GroupId};
 use std::cell::RefCell;
