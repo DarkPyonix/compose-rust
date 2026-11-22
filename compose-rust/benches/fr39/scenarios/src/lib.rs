@@ -1150,7 +1150,10 @@ mod tests {
             modifier(1, 10, "PaddingRole(Md)"),
             modifier(1, 5, "Empty"),
         ]]);
-        let never_set = model(&[vec![create(1, "Surface"), modifier(1, 22, "PaddingRole(Md)")]]);
+        let never_set = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 22, "PaddingRole(Md)"),
+        ]]);
         assert_eq!(cleared.dump(), never_set.dump());
     }
 

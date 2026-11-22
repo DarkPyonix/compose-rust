@@ -376,100 +376,97 @@ pub fn app() {
             });
         }),
         {
-            Column!(
-                modifier = Modifier.fill_max_width().fill_max_height(),
-                {
-                    Box!(
-                        modifier = Modifier.fill_max_width().fill_max_height(),
-                        alignment = Alignment::TopCenter,
-                        {
-                            Column!(
-                                modifier = Modifier
-                                    .fill_max_width_if(measure.is_none())
-                                    .width_if(measure)
-                                    .fill_max_height()
-                                    .padding_role(SpaceRole::Md),
-                                space_role = SpaceRole::Md,
-                                {
-                                    if !stacked {
-                                        composer(Rc::clone(&compose), draft);
-                                    }
-                                    list_view();
+            Column!(modifier = Modifier.fill_max_width().fill_max_height(), {
+                Box!(
+                    modifier = Modifier.fill_max_width().fill_max_height(),
+                    alignment = Alignment::TopCenter,
+                    {
+                        Column!(
+                            modifier = Modifier
+                                .fill_max_width_if(measure.is_none())
+                                .width_if(measure)
+                                .fill_max_height()
+                                .padding_role(SpaceRole::Md),
+                            space_role = SpaceRole::Md,
+                            {
+                                if !stacked {
+                                    composer(Rc::clone(&compose), draft);
                                 }
-                            );
-                        }
-                    );
+                                list_view();
+                            }
+                        );
+                    }
+                );
 
-                    // The same composer, arriving from an edge, where there is no room for
-                    // it at the head of the list.
-                    let close = compose_open;
-                    Sheet!(
-                        compose_open.get() && stacked,
-                        move || close.set(false),
-                        modifier = Modifier.fill_max_width(),
-                        {
-                            Column!(
-                                modifier = Modifier.fill_max_width(),
-                                space_role = SpaceRole::Md,
-                                {
-                                    Row!(
-                                        modifier = Modifier.fill_max_width(),
-                                        alignment = Alignment::CenterStart,
-                                        {
-                                            Text!(
-                                                "Add Task",
-                                                type_role = TypeRole::Subtitle,
-                                                modifier = Modifier.weight(1.0)
-                                            );
-                                            let close = compose_open;
-                                            Button!(
-                                                "Close",
-                                                move || close.set(false),
-                                                variant = ButtonVariant::Filled
-                                            );
-                                        }
-                                    );
-                                    Separator!(None);
-                                    if stacked {
-                                        composer(Rc::clone(&compose), draft);
+                // The same composer, arriving from an edge, where there is no room for
+                // it at the head of the list.
+                let close = compose_open;
+                Sheet!(
+                    compose_open.get() && stacked,
+                    move || close.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        Column!(
+                            modifier = Modifier.fill_max_width(),
+                            space_role = SpaceRole::Md,
+                            {
+                                Row!(
+                                    modifier = Modifier.fill_max_width(),
+                                    alignment = Alignment::CenterStart,
+                                    {
+                                        Text!(
+                                            "Add Task",
+                                            type_role = TypeRole::Subtitle,
+                                            modifier = Modifier.weight(1.0)
+                                        );
+                                        let close = compose_open;
+                                        Button!(
+                                            "Close",
+                                            move || close.set(false),
+                                            variant = ButtonVariant::Filled
+                                        );
                                     }
+                                );
+                                Separator!(None);
+                                if stacked {
+                                    composer(Rc::clone(&compose), draft);
                                 }
-                            );
-                        }
-                    );
+                            }
+                        );
+                    }
+                );
 
-                    // What this sample is, and the one control that belongs to the sample.
-                    let dismiss = about_open;
-                    Sheet!(
-                        about_open.get(),
-                        move || dismiss.set(false),
-                        modifier = Modifier.fill_max_width(),
-                        {
-                            let fill: Rc<dyn Fn()> = {
-                                let (tasks, next_id, about_open) = (tasks, next_id, about_open);
-                                Rc::new(move || {
-                                    let start = next_id.get_untracked();
-                                    tasks.update(|list| {
-                                        list.reserve(BULK_COUNT);
-                                        for offset in 0..BULK_COUNT as u64 {
-                                            let id = start + offset;
-                                            list.push(Task {
-                                                id,
-                                                title: format!("Generated task {id}"),
-                                                done: offset % 3 == 0,
-                                            });
-                                        }
-                                    });
-                                    next_id.set(start + BULK_COUNT as u64);
-                                    about_open.set(false);
-                                })
-                            };
-                            let close: Rc<dyn Fn()> = { Rc::new(move || about_open.set(false)) };
-                            about_panel(total, fill, close);
-                        }
-                    );
-                }
-            );
+                // What this sample is, and the one control that belongs to the sample.
+                let dismiss = about_open;
+                Sheet!(
+                    about_open.get(),
+                    move || dismiss.set(false),
+                    modifier = Modifier.fill_max_width(),
+                    {
+                        let fill: Rc<dyn Fn()> = {
+                            let (tasks, next_id, about_open) = (tasks, next_id, about_open);
+                            Rc::new(move || {
+                                let start = next_id.get_untracked();
+                                tasks.update(|list| {
+                                    list.reserve(BULK_COUNT);
+                                    for offset in 0..BULK_COUNT as u64 {
+                                        let id = start + offset;
+                                        list.push(Task {
+                                            id,
+                                            title: format!("Generated task {id}"),
+                                            done: offset % 3 == 0,
+                                        });
+                                    }
+                                });
+                                next_id.set(start + BULK_COUNT as u64);
+                                about_open.set(false);
+                            })
+                        };
+                        let close: Rc<dyn Fn()> = { Rc::new(move || about_open.set(false)) };
+                        about_panel(total, fill, close);
+                    }
+                );
+            });
         }
     );
 }

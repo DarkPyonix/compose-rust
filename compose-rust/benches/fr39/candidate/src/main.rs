@@ -292,13 +292,17 @@ mod tests {
         // Call the bank and Buy milk were deleted through their row menus; Water the plants
         // was added before the list window opened and stays in it.
         assert!(
-            recorded.final_tree.contains("Text=Text(\"Water the plants\")"),
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Water the plants\")"),
             "the task that was never deleted is not on screen:\n{}",
             recorded.final_tree
         );
         for gone in ["Buy milk", "Call the bank"] {
             assert!(
-                !recorded.final_tree.contains(&format!("Text=Text(\"{gone}\")")),
+                !recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{gone}\")")),
                 "{gone} is still on screen after its row menu deleted it:\n{}",
                 recorded.final_tree
             );
@@ -310,7 +314,9 @@ mod tests {
         let recorded = run_scenario("long_list_scroll");
         // The window ends back at the top of the five thousand generated rows.
         assert!(
-            recorded.final_tree.contains("Text=Text(\"Generated task 1\")"),
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Generated task 1\")"),
             "the list window is not back at the top:\n{}",
             recorded.final_tree
         );
