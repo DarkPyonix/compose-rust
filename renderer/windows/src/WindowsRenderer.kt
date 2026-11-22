@@ -34,6 +34,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
     Win32EditMenu.install()
     Notifications.platform = Win32Notifications()
+    // Windows' "Show animations in Windows" is the reduced-motion setting the Host is told and
+    // the press feedback and motion roles follow (FR-41.2, FR-51).
+    installWindowsReducedMotion(::win32ClientAreaAnimation)
     // Asked for by the build that proves several windows work here (see
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
     // application start when it passed.
