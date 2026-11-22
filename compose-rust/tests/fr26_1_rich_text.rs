@@ -627,6 +627,69 @@ fn fr26_1_a_rich_field_writes_the_property_and_its_two_listeners() {
     );
 }
 
+/// Whether a batch turns `RichText` on for a node.
+fn turns_rich_text_on(batch: &[u8]) -> bool {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::SetProp {
+                    property: PropertyKind::RichText,
+                    value: compose_rust::protocol::PropertyValue::Bool(true),
+                    ..
+                }
+            )
+        })
+}
+
+#[test]
+fn fr26_1_a_handler_without_rich_turns_rich_text_on() {
+    // The formatting at the selection only comes from a field that keeps formatting, so
+    // asking to hear it is asking for a rich field. No state is bound, so the document,
+    // which nobody hears, gets no listener.
+    let (_host, tree, batch) = start(|| {
+        TextField!("", |_| {}, on_format = Some(|_: TextFormat| {}));
+    });
+    assert!(
+        turns_rich_text_on(&batch),
+        "on_format alone is a rich field"
+    );
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnTextFormat).len(),
+        1
+    );
+    assert!(
+        tree.handled("TextField", PropertyKind::OnRichTextChanged)
+            .is_empty()
+    );
+
+    // The same for the document.
+    let (_host, tree, batch) = start(|| {
+        TextField!("", |_| {}, on_rich_change = Some(|_: RichDocument| {}));
+    });
+    assert!(
+        turns_rich_text_on(&batch),
+        "on_rich_change alone is a rich field"
+    );
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnRichTextChanged)
+            .len(),
+        1
+    );
+    assert!(
+        tree.handled("TextField", PropertyKind::OnTextFormat)
+            .is_empty()
+    );
+
+    // A field with neither handler and no state stays plain.
+    let (_host, _tree, batch) = start(|| {
+        TextField!("", |_| {});
+    });
+    assert!(!turns_rich_text_on(&batch));
+}
+
 #[test]
 fn fr26_1_format_writes_exactly_one_format_text_record_in_the_next_batch() {
     let (mut host, mut tree, first) = start(|| {
