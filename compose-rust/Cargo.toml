@@ -29,6 +29,11 @@ name = "codegen"
 path = "src/bin/codegen.rs"
 bench = false
 
+[[bench]]
+name = "measure_sidebar"
+path = "benches/measure_sidebar.rs"
+harness = false
+
 # The browser's Host is a wasm module the page fetches, built by
 # renderer/web/scripts/build-host.sh. It has no `main`: the Renderer's module owns the
 # loop, and the page calls the entry point this example exports once both modules exist.
