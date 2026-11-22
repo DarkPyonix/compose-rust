@@ -187,6 +187,11 @@ fn every_modifier() -> Vec<Modifier> {
             dash_dp: 4.0,
             gap_dp: 4.0,
         },
+        Modifier::Backdrop {
+            blur_dp: 20.0,
+            saturation: 1.8,
+            tint: Paint::Literal(Color::argb(0x66ff_ffff)),
+        },
         Modifier::HoverStyle {
             fill: Some(Paint::Role(ColorRole::Primary)),
             fill_alpha: 0.12,

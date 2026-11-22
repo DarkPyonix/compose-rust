@@ -100,6 +100,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.glassLift
 import dev.darkpyonix.composerust.design.glassSurface
+import dev.darkpyonix.composerust.foundation.hostBackdrop
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.TableError
 
@@ -142,7 +143,12 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // came last, after the padding and the clip, and a glass composer was drawn as a
     // capsule inside its own padding with the lift cut off at the edge.
     val material = lastOrNull { it is ProtocolModifier.Material } as ProtocolModifier.Material?
-    val surface = if (material == null) {
+    // The application's own blur is a surface too, and where a node has both it is the one
+    // that is drawn: it was chosen for this node, and the material was left to the system.
+    val backdrop = lastOrNull { it is ProtocolModifier.Backdrop } as ProtocolModifier.Backdrop?
+    val surface = if (backdrop != null) {
+        Modifier.hostBackdrop(backdrop.blurDp, backdrop.saturation, theme.color(backdrop.tint), shape)
+    } else if (material == null) {
         Modifier
     } else {
         // Resolved by the running design system, which answers with blur where it blurs
@@ -268,6 +274,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
             is ProtocolModifier.PressFeedback -> chain
+            // Drawn as the node's surface, through `surface` above.
+            is ProtocolModifier.Backdrop -> chain
             // Read through `hoverStyle`, `focusRing` and `pressStyle` above: they change how
             // the press, the hover and the focus are drawn, and on their own draw nothing.
             is ProtocolModifier.HoverStyle -> chain

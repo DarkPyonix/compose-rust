@@ -230,7 +230,7 @@ internal fun HostDialog(
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    platformModalOverlayWindow(
+    ModalOverlayWindow(
         {
             open.set(false)
             dismiss(node, dispatcher)

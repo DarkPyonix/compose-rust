@@ -445,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             MODIFIER_SCHEMA.len(),
-            44,
+            45,
             "the number of modifiers moved: {on_purpose}"
         );
         assert_eq!(

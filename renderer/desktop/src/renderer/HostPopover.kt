@@ -389,8 +389,12 @@ private fun PopoverContent(
         }
         ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null)
         // The recorded page does not reach into a popup, for the reason a menu gives.
+        // The application's own blur reads the window's page through positions on the
+        // screen, which mean the same thing on both sides of a popup.
+        val page = LocalWindowBackdrop.current
         CompositionLocalProvider(
             LocalGlassBackdrop provides null,
+            LocalAppBackdrop provides page,
             LocalMenuKeyboard provides menuKeys,
         ) {
             Column(
