@@ -13,8 +13,6 @@ publish.workspace = true
 fr39-scenarios = { path = "../scenarios" }
 compose-rust = { path = "../../..", default-features = false, features = ["mock-renderer"] }
 fr39-screen-calculator = { path = "../screens/calculator" }
+fr39-screen-chat = { path = "../screens/chat" }
 fr39-screen-minimal = { path = "../screens/minimal" }
-# Chat and todo still come from the shipped samples until their October screens land in
-# ../screens, in the change stacked on this one.
-sample-chat = { path = "../../../../samples/chat" }
-sample-todo = { path = "../../../../samples/todo" }
+fr39-screen-todo = { path = "../screens/todo" }
