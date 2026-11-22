@@ -50,6 +50,7 @@ pub use effects::{
 };
 pub use host::{ComposeHost, Recomposer, application, launch, recomposer_for};
 pub use seam::{Batch, Runtime};
+pub use state::current_node_breakpoint;
 pub use state::{
     DerivedState, MutableState, SnapshotMutationPolicy, State, StateError, current_design_system,
     current_notification_permission, current_window_breakpoint, current_window_size,
