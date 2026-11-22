@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, androidx.compose.ui.InternalComposeUiApi::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeCanvas
 import dev.darkpyonix.composerust.protocol.Chrome
 import java.lang.System
 import kotlin.math.abs
@@ -63,9 +64,10 @@ internal const val FR82_EXPECT_DPI_ENV = "FR82_EXPECT_DPI"
  * `compose-rust: <name>: FAILED <why>` or `compose-rust: <name>: skipped <why>`.
  */
 internal fun runFr82WindowsChecksIfAsked(): Boolean? {
-    if (System.getenv(FR82_WINDOWS_CHECK_ENV) == null) return null
+    val asked = System.getenv(FR82_WINDOWS_CHECK_ENV) ?: return null
+    if (asked == "live") return runLiveCheck()
     val frame = try {
-        Fr82Frame.capture()
+        Fr82Window.open().use { it.frame() }
     } catch (error: Throwable) {
         System.err.println("compose-rust: fr82 windows checks: FAILED the scene could not be drawn and captured: ${error.message}")
         return false
@@ -81,6 +83,9 @@ internal fun runFr82WindowsChecksIfAsked(): Boolean? {
         "fr82_one_dp_line_is_whole_device_pixels_at_integer_scales" to { oneDpLines(frame) },
         "fr82_curved_edges_are_antialiased" to { curvedEdges(frame) },
         "fr82_glyph_edges_are_not_blurred" to { glyphEdges(frame) },
+        "fr82_fractional_scale_matches_offscreen_compose" to { fractionalMatchesOffscreen(frame) },
+        // Run on its own, with the scale tool (COMPOSE_RUST_FR82_WINDOWS_CHECK=live).
+        "fr82_scale_change_redraws_at_the_new_scale" to { "${SKIP}run with $FR82_WINDOWS_CHECK_ENV=live" },
     )
     var passed = true
     for ((name, body) in checks) {
@@ -121,9 +126,61 @@ private class Fr82Frame(
     val screen: ByteArray,
 ) {
     val scale: Float get() = dpi / 96f
+}
+
+/**
+ * A window showing the diagnostic scene, opened once and measured as often as a check asks:
+ * [frame] draws a frame, reads it back and copies the screen. [turnFor] serves it without
+ * input, which is how a scale change has to be followed.
+ */
+private class Fr82Window private constructor(val window: Win32Window) : AutoCloseable {
+    /** The densities the scene was drawn at, in the order they came. */
+    val densities = ArrayList<Float>()
+
+    /** Serves the window for [millis], or until [until] answers true: the pump, then its turn. */
+    fun turnFor(millis: Long, until: () -> Boolean = { false }) {
+        val start = TimeSource.Monotonic.markNow()
+        while (start.elapsedNow().inWholeMilliseconds < millis && !until()) {
+            Win32Loop.pump(0.016)
+            window.turn()
+            val density = window.drawnDensity
+            if (densities.lastOrNull() != density) densities += density
+        }
+    }
+
+    fun frame(): Fr82Frame {
+        var drawn: ByteArray? = null
+        var width = 0
+        var height = 0
+        window.readBack = { pixels, w, h ->
+            drawn = pixels
+            width = w
+            height = h
+        }
+        window.draw()
+        turnFor(500)
+        val pixels = checkNotNull(drawn) { "the frame could not be read back" }
+        val client = clientSize(window.handle)
+        return Fr82Frame(
+            dpi = (window.pixelsPerPoint() * 96f).roundToInt(),
+            awarenessIsPerMonitorV2 = windowIsPerMonitorV2(window.handle),
+            clientWidth = client.first,
+            clientHeight = client.second,
+            surfaceWidth = width,
+            surfaceHeight = height,
+            density = window.drawnDensity,
+            drawn = pixels,
+            screen = captureClient(window.handle, client.first, client.second),
+        )
+    }
+
+    override fun close() {
+        window.destroy()
+        window.release()
+    }
 
     companion object {
-        fun capture(): Fr82Frame {
+        fun open(): Fr82Window {
             val start = TimeSource.Monotonic.markNow()
             val window = checkNotNull(
                 Win32Window.openOf(
@@ -137,49 +194,11 @@ private class Fr82Frame(
                     ),
                 ) { start.elapsedNow().inWholeNanoseconds },
             ) { "no window (no Direct3D 12 adapter)" }
-            try {
-                window.setContent {
-                    Box(Modifier.fillMaxSize().background(Color.White)) { Fr82DiagnosticScene() }
-                }
-                SetForegroundWindow(window.handle.reinterpret())
-                turnFor(window, 1_000)
-                var drawn: ByteArray? = null
-                var width = 0
-                var height = 0
-                window.readBack = { pixels, w, h ->
-                    drawn = pixels
-                    width = w
-                    height = h
-                }
-                window.draw()
-                turnFor(window, 500)
-                val pixels = checkNotNull(drawn) { "the frame could not be read back" }
-                val client = clientSize(window.handle)
-                val screen = captureClient(window.handle, client.first, client.second)
-                return Fr82Frame(
-                    dpi = (window.pixelsPerPoint() * 96f).roundToInt(),
-                    awarenessIsPerMonitorV2 = windowIsPerMonitorV2(window.handle),
-                    clientWidth = client.first,
-                    clientHeight = client.second,
-                    surfaceWidth = width,
-                    surfaceHeight = height,
-                    density = window.drawnDensity,
-                    drawn = pixels,
-                    screen = screen,
-                )
-            } finally {
-                window.destroy()
-                window.release()
+            window.setContent {
+                Box(Modifier.fillMaxSize().background(Color.White)) { Fr82DiagnosticScene() }
             }
-        }
-
-        /** Serves the window for [millis]: the pump, then its turn, about once a frame. */
-        private fun turnFor(window: Win32Window, millis: Long) {
-            val until = TimeSource.Monotonic.markNow()
-            while (until.elapsedNow().inWholeMilliseconds < millis) {
-                Win32Loop.pump(0.016)
-                window.turn()
-            }
+            SetForegroundWindow(window.handle.reinterpret())
+            return Fr82Window(window).also { it.turnFor(1_000) }
         }
     }
 }
@@ -259,23 +278,30 @@ private fun surfaceIsDevicePixels(frame: Fr82Frame): String? {
 /** Criterion 2: the screen shows the drawn frame: mean channel difference <= 1, over 8 on <= 0.1 %. */
 private fun screenMatchesDrawnFrame(frame: Fr82Frame): String? {
     if (frame.drawn.size != frame.screen.size) return "drawn ${frame.drawn.size} bytes, captured ${frame.screen.size}"
+    val (mean, share) = difference(frame.drawn, frame.screen)
+    return if (within(mean, share)) null else "mean channel difference $mean, ${share * 100} % of pixels over 8"
+}
+
+/** Two BGRA pictures of one size: the mean channel difference, and the share of pixels over 8 on a channel. */
+private fun difference(a: ByteArray, b: ByteArray): Pair<Double, Double> {
     var sum = 0L
     var over = 0
-    val pixels = frame.drawn.size / 4
+    val pixels = a.size / 4
     for (pixel in 0 until pixels) {
         var worst = 0
         for (channel in 0 until 3) {
             val index = pixel * 4 + channel
-            val difference = abs((frame.drawn[index].toInt() and 0xFF) - (frame.screen[index].toInt() and 0xFF))
-            sum += difference
-            if (difference > worst) worst = difference
+            val d = abs((a[index].toInt() and 0xFF) - (b[index].toInt() and 0xFF))
+            sum += d
+            if (d > worst) worst = d
         }
         if (worst > 8) over++
     }
-    val mean = sum.toDouble() / (pixels * 3)
-    val share = over.toDouble() / pixels
-    return if (mean <= 1.0 && share <= 0.001) null else "mean channel difference $mean, ${share * 100} % of pixels over 8"
+    return sum.toDouble() / (pixels * 3) to over.toDouble() / pixels
 }
+
+/** Criterion 2's tolerance: mean channel difference at most 1, at most 0.1 % of pixels over 8. */
+private fun within(mean: Double, share: Double): Boolean = mean <= 1.0 && share <= 0.001
 
 /** The grey (green channel) of the screen's pixel at device pixel ([x], [y]). */
 private fun Fr82Frame.grey(x: Int, y: Int): Int = screen[(y * clientWidth + x) * 4 + 1].toInt() and 0xFF
@@ -343,4 +369,125 @@ private fun glyphEdges(frame: Fr82Frame): String? {
     // The text sits at (24, 76) dp, 16 sp; its middle row is about 76 + 9 dp.
     val (width, _) = frame.transition(frame.px(24f), frame.px(85f), 1, 0, frame.px(12f))
     return if (width <= 2) null else "the glyph's edge is $width device pixels wide"
+}
+
+/**
+ * The diagnostic scene drawn off screen by Compose at [density] into [width] by [height] device
+ * pixels (Skia's raster backend), BGRA premultiplied, or null.
+ */
+private fun offscreen(width: Int, height: Int, density: Float): ByteArray? {
+    val scene = androidx.compose.ui.scene.CanvasLayersComposeScene(
+        density = androidx.compose.ui.unit.Density(density),
+        size = androidx.compose.ui.unit.IntSize(width, height),
+        coroutineContext = kotlinx.coroutines.Dispatchers.Unconfined,
+    )
+    try {
+        scene.setContent { Box(Modifier.fillMaxSize().background(Color.White)) { Fr82DiagnosticScene() } }
+        val info = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.PREMUL)
+        val surface = org.jetbrains.skia.Surface.makeRaster(info)
+        scene.render(surface.canvas.asComposeCanvas(), 0L)
+        scene.render(surface.canvas.asComposeCanvas(), 16_000_000L)
+        val bitmap = org.jetbrains.skia.Bitmap()
+        return try {
+            if (!bitmap.allocPixels(info) || !surface.readPixels(bitmap, 0, 0)) null
+            else bitmap.readPixels(info, info.minRowBytes, 0, 0)
+        } finally {
+            bitmap.close()
+            surface.close()
+        }
+    } finally {
+        scene.close()
+    }
+}
+
+/** [pixels] (BGRA, [width] by [height]) stretched to [toWidth] by [toHeight] with linear sampling. */
+private fun stretched(pixels: ByteArray, width: Int, height: Int, toWidth: Int, toHeight: Int): ByteArray? {
+    val from = org.jetbrains.skia.ImageInfo(width, height, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.PREMUL)
+    val to = org.jetbrains.skia.ImageInfo(toWidth, toHeight, org.jetbrains.skia.ColorType.BGRA_8888, org.jetbrains.skia.ColorAlphaType.PREMUL)
+    val image = org.jetbrains.skia.Image.makeRaster(from, pixels, from.minRowBytes)
+    val surface = org.jetbrains.skia.Surface.makeRaster(to)
+    surface.canvas.drawImageRect(
+        image,
+        org.jetbrains.skia.Rect.makeWH(width.toFloat(), height.toFloat()),
+        org.jetbrains.skia.Rect.makeWH(toWidth.toFloat(), toHeight.toFloat()),
+        org.jetbrains.skia.SamplingMode.LINEAR,
+        null,
+        true,
+    )
+    val bitmap = org.jetbrains.skia.Bitmap()
+    return try {
+        if (!bitmap.allocPixels(to) || !surface.readPixels(bitmap, 0, 0)) null
+        else bitmap.readPixels(to, to.minRowBytes, 0, 0)
+    } finally {
+        bitmap.close()
+        image.close()
+        surface.close()
+    }
+}
+
+/**
+ * Criterion 4: at a fractional scale the screen is what Compose draws off screen at that
+ * density, within criterion 2's tolerance; and the same scene drawn at density 1 and stretched
+ * is not, which shows the comparison can tell a stretched picture.
+ */
+private fun fractionalMatchesOffscreen(frame: Fr82Frame): String? {
+    val s = frame.scale
+    if (abs(s - s.roundToInt()) <= 0.001f) return "${SKIP}scale $s is an integer"
+    val w = frame.clientWidth
+    val h = frame.clientHeight
+    val direct = offscreen(w, h, s) ?: return "the scene could not be drawn off screen"
+    val (mean, share) = difference(direct, frame.screen)
+    if (!within(mean, share)) return "the screen differs from Compose drawn off screen at $s: mean $mean, ${share * 100} % over 8"
+    val small = offscreen((w / s).roundToInt(), (h / s).roundToInt(), 1f) ?: return "the scene could not be drawn at density 1"
+    val upscaled = stretched(small, (w / s).roundToInt(), (h / s).roundToInt(), w, h) ?: return "the stretched scene could not be made"
+    val (stretchedMean, stretchedShare) = difference(upscaled, frame.screen)
+    return if (!within(stretchedMean, stretchedShare)) null
+    else "a stretched picture passes the tolerance too (mean $stretchedMean), so the comparison cannot tell"
+}
+
+/** The scale tool FR82_SCALE_TOOL names, run to set the display to [percent]. Answers whether it did. */
+private fun setScale(percent: Int): Boolean {
+    val tool = System.getenv("FR82_SCALE_TOOL") ?: return false
+    return platform.posix.system("\"\"$tool\" $percent --fit\"") == 0
+}
+
+/**
+ * Criterion 6, run on its own (COMPOSE_RUST_FR82_WINDOWS_CHECK=live, display at 200 %, the scale
+ * tool in FR82_SCALE_TOOL): the display goes to 125 % while the window is open, and with no input
+ * the window draws at the new scale within 2 s, once, at the same size in dp, and criteria 1, 2
+ * and 4 hold there; back to 200 %, criteria 1, 2 and 3 hold. The density the scene is drawn at
+ * stands for DensityChanged, which the renderer sends from that density (DensityChangedTest).
+ */
+private fun runLiveCheck(): Boolean {
+    val name = "fr82_scale_change_redraws_at_the_new_scale"
+    val answer = try {
+        Fr82Window.open().use { open ->
+            val before = open.frame()
+            if (before.dpi != 192) return@use "the run did not start at 200 % (dpi ${before.dpi})"
+            val dpWidth = before.clientWidth / before.scale
+            open.densities.clear()
+            open.densities += before.density
+            if (!setScale(125)) return@use "the display did not go to 125 %"
+            open.turnFor(2_000) { abs(open.window.drawnDensity - 1.25f) < 0.001f }
+            if (abs(open.window.drawnDensity - 1.25f) >= 0.001f) return@use "no frame at 1.25 within 2 s (density ${open.window.drawnDensity})"
+            if (open.densities.count { abs(it - 1.25f) < 0.001f } != 1) return@use "the density went ${open.densities}"
+            val at125 = open.frame()
+            val dpAfter = at125.clientWidth / at125.scale
+            if (abs(dpAfter - dpWidth) > 1f) return@use "the window was $dpWidth dp wide and is $dpAfter dp"
+            surfaceIsDevicePixels(at125)?.let { return@use "at 125 %: $it" }
+            screenMatchesDrawnFrame(at125)?.let { return@use "at 125 %: $it" }
+            fractionalMatchesOffscreen(at125)?.takeUnless { it.startsWith(SKIP) }?.let { return@use "at 125 %: $it" }
+            if (!setScale(200)) return@use "the display did not go back to 200 %"
+            open.turnFor(2_000) { abs(open.window.drawnDensity - 2f) < 0.001f }
+            val at200 = open.frame()
+            surfaceIsDevicePixels(at200)?.let { return@use "back at 200 %: $it" }
+            screenMatchesDrawnFrame(at200)?.let { return@use "back at 200 %: $it" }
+            oneDpLines(at200)?.takeUnless { it.startsWith(SKIP) }?.let { return@use "back at 200 %: $it" }
+            null
+        }
+    } catch (error: Throwable) {
+        "threw ${error.message}"
+    }
+    if (answer == null) System.err.println("compose-rust: $name: ok") else System.err.println("compose-rust: $name: FAILED $answer")
+    return answer == null
 }

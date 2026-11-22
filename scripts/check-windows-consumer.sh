@@ -318,6 +318,20 @@ for percent in 100 125 150 200; do
         grep -qE "^compose-rust: $name: (ok|skipped)" "$fr82_log" || failed+=("$name at $percent % (see the lines above)")
     done
 done
+
+echo "== 3c3. a scale change while the window is open (FR-82 criterion 6)"
+# The window opens at 200 %; the check itself sets the display to 125 % and back with the
+# same tool, and the window has to follow with no input.
+if [[ -x "$scale_tool" ]] && "$scale_tool" 200 --fit > "$scratch/set-display-scale-live.log" 2>&1; then
+    live_log="$scratch/fr82-windows-live.log"
+    status=0
+    ( cd "$scratch/alone" && COMPOSE_RUST_FR82_WINDOWS_CHECK=live FR82_SCALE_TOOL="$(cygpath -w "$scale_tool")" timeout 300 ./consumer.exe --self-check ) 2> "$live_log" || status=$?
+    grep -E 'fr82' "$live_log" || true
+    grep -q "^compose-rust: fr82_scale_change_redraws_at_the_new_scale: ok" "$live_log" \
+        || failed+=("fr82_scale_change_redraws_at_the_new_scale (status $status; see the lines above)")
+else
+    failed+=("the display did not go to 200 % for the scale change check")
+fi
 [[ -x "$scale_tool" ]] && "$scale_tool" 100 --fit > /dev/null 2>&1 || true
 
 echo "== 3d. an application with two windows, through LaunchBuilder::windows()"
