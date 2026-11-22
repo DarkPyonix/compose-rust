@@ -484,9 +484,9 @@ source = "git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100
 dependencies = [
  "dioxus-compose",
  "sample-academic",
- "sample-calculator 0.1.0 (git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869)",
+ "sample-calculator",
  "sample-chat 0.1.0 (git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869)",
- "sample-minimal 0.1.0 (git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869)",
+ "sample-minimal",
  "sample-notepad",
  "sample-podcast",
  "sample-selfcare",
@@ -861,9 +861,9 @@ version = "0.0.0"
 dependencies = [
  "compose-rust 0.0.12",
  "fr39-scenarios",
- "sample-calculator 0.1.0",
+ "fr39-screen-calculator",
+ "fr39-screen-minimal",
  "sample-chat 0.1.0",
- "sample-minimal 0.1.0",
  "sample-todo 0.1.0",
 ]
 
@@ -873,6 +873,20 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fr39-screen-calculator"
+version = "0.0.0"
+dependencies = [
+ "compose-rust 0.0.12",
+]
+
+[[package]]
+name = "fr39-screen-minimal"
+version = "0.0.0"
+dependencies = [
+ "compose-rust 0.0.12",
 ]
 
 [[package]]
@@ -1872,13 +1886,6 @@ dependencies = [
 [[package]]
 name = "sample-calculator"
 version = "0.1.0"
-dependencies = [
- "compose-rust 0.0.12",
-]
-
-[[package]]
-name = "sample-calculator"
-version = "0.1.0"
 source = "git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869#dd1af76bd67282100de20ea7ffe5843b50886869"
 dependencies = [
  "dioxus-compose",
@@ -1899,13 +1906,6 @@ source = "git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100
 dependencies = [
  "dioxus-compose",
  "dioxus-hooks",
-]
-
-[[package]]
-name = "sample-minimal"
-version = "0.1.0"
-dependencies = [
- "compose-rust 0.0.12",
 ]
 
 [[package]]
