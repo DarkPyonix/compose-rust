@@ -41,7 +41,7 @@ On the wire it is the modifier `Backdrop` (tag 47, two words: the blur and the s
 
 `Navigation!(.., compact = CompactNavigation::Floating)` draws the destinations of a compact window as a pill-shaped bar floating over the bottom of the page, on all seven design systems. The bar is held off the sides of the window and off its bottom by the design system's margin and the bottom safe area. The page runs on under it and shows through it: where the design system's floating surfaces are glass (Liquid Glass and Cupertino) the page behind is blurred the way `Modifier::backdrop` blurs it, and elsewhere the bar is the system's own bar colour, lifted off the page. A `ScrollColumn`, a `LazyColumn` and a `LazyGrid` in the page end their content lower by what the bar covers, so the last row scrolls clear of it. It works where the `Navigation` holds its page and where it sits in a `Scaffold`'s bottom slot. Medium and Expanded windows keep the design system's rail and drawer. It travels as tag 3 of the `CompactNavigation` property (185). The schema hash changes.
 
-`window_size().safe_area.top` now carries the strip the system keeps at the top of the window, a status bar or a notch, where it used to carry only a desktop window's caption. On a phone it was 0 before. A window with both reports their sum.
+**Behavior change.** `window_size().safe_area.top` now carries the strip the system keeps at the top of the window, a status bar or a notch, where it used to carry only a desktop window's caption. On a phone it was 0 before. A window with both reports their sum. An application that added its own status bar padding on a phone now gets that room twice: remove its own padding and use `safe_area.top`.
 
 ## v0.0.12
 
