@@ -33,7 +33,7 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 ### A page that measures nodes is answered when the window is resized
 
-A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28).
+A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28). A `CodeEditor` first put on screen inside a split pane or a lazy list is attached during a measure pass too, so what it has to say at that moment is sent just after the pass; everything it says later, a key's echo included, is sent at once as before (FR-38).
 
 ## v0.0.12
 

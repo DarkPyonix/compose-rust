@@ -534,7 +534,10 @@ private fun DrawnSurface(
     }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
-    SideEffect { callbacks.onOutput() }
+    // The first of these, and the first focus state, are the editor being put on screen.
+    val output = remember(scope) { FirstOutputLater(scope) }
+    val focusOutput = remember(scope) { FirstOutputLater(scope) }
+    SideEffect { output.send(callbacks) }
     // Scrolling redraws without recomposing, so the lines on screen are read from a flow.
     LaunchedEffect(rows, viewportHeight, rowPx, padTopPx) {
         snapshotFlow { vertical.offset }.collect { scroll ->
@@ -603,7 +606,7 @@ private fun DrawnSurface(
                 .onFocusChanged {
                     focused = it.isFocused
                     model.focusChanged(it.isFocused)
-                    callbacks.onOutput()
+                    focusOutput.send(callbacks)
                 }
                 .focusable()
                 .onKeyEvent { event ->
