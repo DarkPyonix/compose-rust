@@ -147,7 +147,12 @@ class CodeEditorTest {
         for (path in listOf(CodeEditorPath.Windowed, CodeEditorPath.Drawn)) {
             for (holder in listOf(WidgetKind.SplitPane, WidgetKind.LazyColumn)) {
                 defaultCodeEditorPath = path
-                runComposeUiTest {
+                // The test scene that queues a coroutine, as every window does. The one the
+                // other tests use runs a launched coroutine inside the call that launched
+                // it, so "after the pass" would be tested as "inside it": the Host would be
+                // called while the holder's composition is still being applied, whatever
+                // the editor did.
+                androidx.compose.ui.test.v2.runComposeUiTest {
                     val case = "$path in $holder"
                     val connection = FakeHostConnection(
                         listOf(
