@@ -5902,6 +5902,24 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 **더 줄이려면 IME 등록 메타데이터를 건드려야 합니다.** `ImeReachabilityFeature`가 패키지 단위로 등록하면서 약 7.8MB의 이미지 힙을 만듭니다. 이것을 좁히는 것이 남은 유일한 큰 레버지만, 실패하면 입력기가 텍스트 필드를 건드리는 순간 프로세스가 죽습니다(§6). **사람이 네이티브 빌드에서 한글을 직접 입력해 확인할 수 있을 때만 시도합니다.**
 
+**Kotlin/Native 빈 창 측정 방법 (Linux, Windows; #59)**
+
+위 표와 Windows 숫자는 GraalVM 네이티브 이미지로 잰 것이다. 지금 데스크톱이 싣는 Kotlin/Native 렌더러의 빈 창은 아래 방법으로 잰다. 이 방법은 보고만 하고 판정하지 않는다. 56MB 목표와 위 표는 그대로 둔다. Kotlin/Native 숫자는 이 방법의 첫 실행 결과로 다음 변경에서 OS별로 기록한다(#59, 아직 없음).
+
+- **앱**: `compose-rust/tests/fixtures/blank-window`. 800x600dp 창 하나에 창을 채우는 빈 `Box` 하나뿐이다. 내용과 입력이 없으므로 프로세스가 쥔 메모리는 렌더러, 그래픽 서피스, 창의 몫이다.
+- **빌드**: 같은 커밋의 릴리스 렌더러에 링크한다. Linux는 `build-linux.sh --release`로 그 자리에서 만들고, Windows는 같은 실행의 `windows-static-renderer-kit`을 받는다.
+- **지표**:
+
+| OS | 지표 | 읽는 곳 | 참고값 |
+|---|---|---|---|
+| Linux (ubuntu-latest, Xvfb) | PSS | `/proc/<pid>/smaps_rollup` | RSS (`/proc/<pid>/status`) |
+| Windows (windows-latest) | private working set | `\Process(<name>)\Working Set - Private` 카운터. 읽지 못하면 `PrivateMemorySize64`(private bytes)로 대신하고, 요약에 어느 쪽인지 적는다 | working set |
+
+- **시점과 대표값**: 앱을 3번 띄운다. 매번 시작 후 10초와 60초에 한 번씩 읽고, 띄운 pid로 닫는다. 각 시점마다 3개의 중앙값을 보고하고 최소, 최대를 함께 적는다. 한 번의 실행은 아무 데나 떨어지고, 3개는 가운데가 있는 가장 작은 수이기 때문이다.
+- **실행**: 리더가 `ci.yml`을 `suites: memory_report`로 dispatch한다. `all`, `fast`, `measure`에는 들어가지 않는다. 결과는 잡 요약의 표와, 모든 샘플을 담은 `memory-report-linux-x64`, `memory-report-windows-x64` 아티팩트(JSON)다.
+- **실패 조건**: 첫 판독 전에 앱이 사라지거나 판독이 하나도 없을 때만 실패한다. 숫자로는 실패하지 않는다. 아무것도 재지 못한 보고가 통과로 읽히면 안 되기 때문이다.
+- **한계**: CI 러너에는 그래픽 카드가 없다. Linux는 Xvfb 위의 Mesa 소프트웨어 래스터라이저로, Windows는 Basic Render Driver의 WARP로 100% 배율에서 그린다. 실제 그래픽 드라이버 메모리는 잡히지 않는다. 실제 하드웨어의 200% 분해(#171)는 소유자 확인 항목으로 남는다.
+
 ### 5.3 렌더러 획득 (NFR-10, NFR-11)
 
 **요구사항: `Cargo.toml`에 `dioxus-compose`를 추가하는 것이 설치의 전부입니다.** 설정할 환경 변수, 손으로 내려받을 파일, 실행할 스크립트가 없습니다. `cargo build`가 렌더러를 확보하고 링크합니다.
