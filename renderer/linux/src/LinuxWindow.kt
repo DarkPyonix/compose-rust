@@ -6,13 +6,8 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import androidx.compose.foundation.ContextMenuItem
-import androidx.compose.foundation.ContextMenuRepresentation
-import androidx.compose.foundation.ContextMenuState
-import androidx.compose.foundation.LocalContextMenuRepresentation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +20,6 @@ import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
@@ -36,15 +30,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.foundation.DrawnOsMenuHost
 import dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
-import dev.darkpyonix.composerust.foundation.NativeRect
-import dev.darkpyonix.composerust.foundation.OsMenuEntry
-import dev.darkpyonix.composerust.foundation.OsMenuPresenter
-import dev.darkpyonix.composerust.foundation.OsMenuRequest
-import dev.darkpyonix.composerust.foundation.OsMenuResult
-import dev.darkpyonix.composerust.foundation.normalizeOsMenu
-import dev.darkpyonix.composerust.foundation.resolveOsMenuPath
 import dev.darkpyonix.composerust.protocol.ColorScheme
-import kotlin.math.roundToInt
 import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalZoom
@@ -381,7 +367,6 @@ internal class LinuxWindow private constructor(
                 )
             }
             val drawnMenu = remember { DrawnOsMenuPresenter() }
-            val contextMenu = remember(drawnMenu) { LinuxOsMenuContextMenuRepresentation(drawnMenu) }
             DrawnOsMenuHost(drawnMenu) {
                 CompositionLocalProvider(
                     LocalZoom provides zoom,
@@ -389,7 +374,6 @@ internal class LinuxWindow private constructor(
                     LocalSystemDarkObserver provides { resolvedDark() },
                     LocalClipboard provides clipboard,
                     LocalClipboardManager provides clipboardManager,
-                    LocalContextMenuRepresentation provides contextMenu,
                     // A node the application made a drag region (`WindowDrag(true)`) moves the
                     // window from the press it is holding: the window manager takes the pointer
                     // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
@@ -652,51 +636,5 @@ internal class LinuxWindowClipboardManager(
     @Suppress("GetterSetterNames")
     override fun setClip(clipEntry: ClipEntry?) {
         writeText(clipEntry?.getPlainText().orEmpty())
-    }
-}
-
-/**
- * Bridges Compose's [ContextMenuRepresentation] to [OsMenuPresenter] on the Kotlin/Native Linux
- * window so text context menus share the same normalized [OsMenuEntry] list, order, and enabled
- * state as OS menus.
- */
-internal class LinuxOsMenuContextMenuRepresentation(
-    private val presenter: OsMenuPresenter,
-) : ContextMenuRepresentation {
-
-    @Composable
-    override fun Representation(state: ContextMenuState, items: () -> List<ContextMenuItem>) {
-        val status = state.status
-        if (status !is ContextMenuState.Status.Open) return
-        val layoutDirection = LocalLayoutDirection.current
-        DisposableEffect(status) {
-            val offered = items()
-            val entries = normalizeOsMenu(
-                offered.mapIndexed { index, item ->
-                    OsMenuEntry.Item(id = index, label = item.label, enabled = item.enabled)
-                },
-            )
-            if (entries.isEmpty()) {
-                state.status = ContextMenuState.Status.Closed
-                return@DisposableEffect onDispose {}
-            }
-            val rect = status.rect
-            val anchor = NativeRect(
-                x = rect.left.roundToInt(),
-                y = rect.top.roundToInt(),
-                width = (rect.right - rect.left).roundToInt().coerceAtLeast(1),
-                height = (rect.bottom - rect.top).roundToInt().coerceAtLeast(1),
-            )
-            val handle = presenter.open(OsMenuRequest(entries, anchor, layoutDirection)) { result ->
-                state.status = ContextMenuState.Status.Closed
-                if (result is OsMenuResult.Chosen) {
-                    val chosen = resolveOsMenuPath(entries, result.path)
-                    if (chosen != null) {
-                        offered.getOrNull(chosen.id)?.takeIf { it.enabled }?.onClick?.invoke()
-                    }
-                }
-            }
-            onDispose { handle.close() }
-        }
     }
 }
