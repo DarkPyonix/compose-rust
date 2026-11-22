@@ -15,8 +15,7 @@ import platform.CoreGraphics.CGRectMake
 import platform.UIKit.UIAction
 import platform.UIKit.UIMenu
 import platform.UIKit.UIMenuElementAttributesDisabled
-import platform.UIKit.UIMenuElementStateOff
-import platform.UIKit.UIMenuElementStateOn
+import platform.UIKit.UIMenuElementState
 import platform.UIKit.UIMenuOptionsDisplayInline
 import platform.UIKit.UIWindow
 import kotlin.test.Test
@@ -68,12 +67,12 @@ class IosOsMenuPresenterTest {
         val save = firstSection.children[0] as UIAction
         assertEquals("Save", save.title)
         assertEquals("Cmd+S", save.discoverabilityTitle)
-        assertEquals(UIMenuElementStateOn, save.state)
+        assertEquals(UIMenuElementState.UIMenuElementStateOn, save.state)
         assertEquals(0uL, save.attributes and UIMenuElementAttributesDisabled)
 
         val paste = firstSection.children[1] as UIAction
         assertEquals("Paste", paste.title)
-        assertEquals(UIMenuElementStateOff, paste.state)
+        assertEquals(UIMenuElementState.UIMenuElementStateOff, paste.state)
         assertEquals(UIMenuElementAttributesDisabled, paste.attributes and UIMenuElementAttributesDisabled)
 
         val export = secondSection.children[0] as UIMenu

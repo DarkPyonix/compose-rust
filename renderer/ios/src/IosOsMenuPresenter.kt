@@ -19,13 +19,13 @@ import platform.UIKit.UIColor
 import platform.UIKit.UIContextMenuConfiguration
 import platform.UIKit.UIContextMenuInteraction
 import platform.UIKit.UIContextMenuInteractionAnimatingProtocol
+import platform.UIKit.UIContextMenuInteractionDelegateProtocol
 import platform.UIKit.UIControlEventTouchDown
 import platform.UIKit.UIImage
 import platform.UIKit.UIMenu
 import platform.UIKit.UIMenuElement
 import platform.UIKit.UIMenuElementAttributesDisabled
-import platform.UIKit.UIMenuElementStateOff
-import platform.UIKit.UIMenuElementStateOn
+import platform.UIKit.UIMenuElementState
 import platform.UIKit.UIMenuOptionsDisplayInline
 import platform.UIKit.UISemanticContentAttributeForceLeftToRight
 import platform.UIKit.UISemanticContentAttributeForceRightToLeft
@@ -149,7 +149,11 @@ internal class IosOsMenuPresenter(private val window: UIWindow) : OsMenuPresente
                 if (!entry.enabled) {
                     attributes = UIMenuElementAttributesDisabled
                 }
-                state = if (entry.checked) UIMenuElementStateOn else UIMenuElementStateOff
+                state = if (entry.checked) {
+                    UIMenuElementState.UIMenuElementStateOn
+                } else {
+                    UIMenuElementState.UIMenuElementStateOff
+                }
                 entry.shortcutLabel?.let { discoverabilityTitle = it }
             }
         }
@@ -189,7 +193,12 @@ internal class IosOsMenuPresenter(private val window: UIWindow) : OsMenuPresente
 
 private class OsMenuAnchorButton(
     private val onEnded: () -> Unit,
-) : UIButton(frame = CGRectMake(0.0, 0.0, 0.0, 0.0)) {
+) : UIButton(frame = CGRectMake(0.0, 0.0, 0.0, 0.0)), UIContextMenuInteractionDelegateProtocol {
+
+    override fun contextMenuInteraction(
+        interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation: kotlinx.cinterop.CValue<platform.CoreGraphics.CGPoint>,
+    ): UIContextMenuConfiguration? = null
 
     @ObjCSignatureOverride
     override fun contextMenuInteraction(
@@ -197,11 +206,6 @@ private class OsMenuAnchorButton(
         willEndForConfiguration: UIContextMenuConfiguration,
         animator: UIContextMenuInteractionAnimatingProtocol?,
     ) {
-        super.contextMenuInteraction(
-            interaction = interaction,
-            willEndForConfiguration = willEndForConfiguration,
-            animator = animator,
-        )
         // Defer dismissal to the next main-queue turn after UIKit's dismissal animation so
         // any selected UIAction handler fires first and wins the OsMenuResultOnce race.
         val finish = {
