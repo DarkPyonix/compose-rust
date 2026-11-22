@@ -500,9 +500,10 @@ impl Host {
     fn publish_notification_permission(
         &mut self,
         state: crate::schema::NotificationPermission,
+        scheduling: crate::schema::NotificationScheduling,
     ) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
-        if crate::notification::publish_permission(state) {
+        if crate::notification::publish_permission(state, scheduling) {
             self.runtime.render(None);
         }
         self.flush_messages();
@@ -759,11 +760,11 @@ impl Host {
                 }
                 return self.notification_activated(action, key);
             }
-            EventPayload::NotificationPermissionChanged(state) => {
+            EventPayload::NotificationPermissionChanged { state, scheduling } => {
                 if event.node_id != 0 || event.handler_id != 0 {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
-                return self.publish_notification_permission(state);
+                return self.publish_notification_permission(state, scheduling);
             }
             // About the platform, like the permission above: no node and no handler, and
             // a repeat of the same answer wakes nobody.

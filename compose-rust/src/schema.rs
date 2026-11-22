@@ -454,6 +454,12 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
     hash = hash_bytes(hash, &SEMANTICS_STATE_MASK.to_le_bytes());
+    // Record lengths the tables above do not carry. A field appended to one of these moves
+    // the length, so the two sides cannot agree on a hash and disagree on the layout.
+    hash = hash_bytes(
+        hash,
+        b"record-len:PostNotification=64;NotificationPermissionChanged=24;",
+    );
     hash
 }
 
@@ -1219,6 +1225,16 @@ define_wire_enum!(NOTIFICATION_PERMISSION_SCHEMA, NotificationPermission {
     Unsupported = 4,
 });
 
+// Whether a notification given a delivery time (`Notification::deliver_at`) will still be
+// shown if the application is not running when the time comes. `Persistent` hands it to the
+// platform's own scheduler. `WhileRunning` keeps a timer inside the process, so quitting
+// cancels it. `Unsupported` cannot hold a notification for later at all.
+define_wire_enum!(NOTIFICATION_SCHEDULING_SCHEMA, NotificationScheduling {
+    Persistent = 1,
+    WhileRunning = 2,
+    Unsupported = 3,
+});
+
 // The design systems of phase one. Later ones append variants here and nowhere else: a new
 // design system is one variant plus one token table and rule implementation in the Renderer.
 //
@@ -1598,6 +1614,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "NotificationPermission",
         variants: NOTIFICATION_PERMISSION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "NotificationScheduling",
+        variants: NOTIFICATION_SCHEDULING_SCHEMA,
     },
     RoleEnumSchema {
         name: "WordBreak",
@@ -4406,9 +4426,12 @@ pub enum EventPayload<'a> {
         action: u32,
         key: &'a str,
     },
-    /// Whether notifications may be shown, sent once after start and then only when the
-    /// answer changes.
-    NotificationPermissionChanged(NotificationPermission),
+    /// Whether notifications may be shown, and whether one given a delivery time survives
+    /// the application quitting. Sent once after start and then only when either changes.
+    NotificationPermissionChanged {
+        state: NotificationPermission,
+        scheduling: NotificationScheduling,
+    },
     /// One committed edit to a code editor's document.
     ///
     /// The range is in the document as it stood before the edit, and `version` is the

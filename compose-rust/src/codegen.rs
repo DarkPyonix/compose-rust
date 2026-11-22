@@ -7,13 +7,14 @@ use crate::schema::{
     ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
     ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
     FieldSlot, FieldType, HOVER_PHASE_SCHEMA, KEY_SCHEMA, Key, MODIFIER_SCHEMA,
-    NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
-    NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
-    ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
-    WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
-    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WEB_TABLE_GLOBAL, WIDGET_SCHEMA,
-    WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    NOTIFICATION_PERMISSION_SCHEMA, NOTIFICATION_SCHEDULING_SCHEMA, NotificationImportance,
+    NotificationPermission, NotificationPresentation, NotificationScheduling, PROPERTY_SCHEMA,
+    PROTOCOL_VERSION, Paint, PropertyKind, ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole,
+    SpaceRole, Theme, WEB_BATCH_BYTES, WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES,
+    WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_LEND_EVENT_BUFFER_SYMBOL,
+    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
+    WEB_TABLE_GLOBAL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA,
+    WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -450,6 +451,8 @@ sealed interface Mutation {
         val action2: String,
         val importance: NotificationImportance,
         val presentation: NotificationPresentation,
+        /** Unix epoch milliseconds (UTC) to show it at. 0 means now. */
+        val deliverAtMs: Long,
     ) : Mutation
 
     /** Takes back the notification posted under `key`, if it is still showing. */
@@ -809,7 +812,9 @@ object ScrollWire {
                 output.push_str(", val action: Int, val key: String");
             }
             EventPayloadType::NotificationPermission => {
-                output.push_str(", val state: NotificationPermission");
+                output.push_str(
+                    ", val state: NotificationPermission, val scheduling: NotificationScheduling",
+                );
             }
             EventPayloadType::CodeChange => output.push_str(
                 ", val version: Int, val startLine: Int, val startColumn: Int, val endLine: Int, val endColumn: Int, val text: String",
@@ -1427,7 +1432,7 @@ object Protocol {
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
-                        requireRecordLength(length, 56, offset)
+                        requireRecordLength(length, 64, offset)
                         Mutation.PostNotification(
                             readString(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
@@ -1437,6 +1442,7 @@ object Protocol {
                             readString(batch, base, available, offset + 44),
                             notificationImportance(readU16(batch, base, available, offset + 52), offset + 52),
                             notificationPresentation(readU16(batch, base, available, offset + 54), offset + 54),
+                            readU64(batch, base, available, offset + 56),
                         )
                     }
                     TAG_WITHDRAW_NOTIFICATION -> {
@@ -1751,7 +1757,7 @@ object Protocol {
             EventPayloadType::DesignSystem => 20,
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::NotificationActivation => 28,
-            EventPayloadType::NotificationPermission => 20,
+            EventPayloadType::NotificationPermission => 24,
             EventPayloadType::CodeChange => 44,
             EventPayloadType::CodeEditRejected => 44,
             EventPayloadType::CodeHover => 36,
@@ -1963,6 +1969,9 @@ object Protocol {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str(
                     "                    out.putInt(notificationPermissionTag(event.state))\n",
+                );
+                output.push_str(
+                    "                    out.putInt(notificationSchedulingTag(event.scheduling))\n",
                 );
                 output.push_str("                }\n");
             }
@@ -2382,6 +2391,18 @@ object Protocol {
         writeln!(
             output,
             "        NotificationPermission.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    output.push_str(
+        "    private fun notificationSchedulingTag(scheduling: NotificationScheduling): Int = when (scheduling) {\n",
+    );
+    for variant in NOTIFICATION_SCHEDULING_SCHEMA {
+        writeln!(
+            output,
+            "        NotificationScheduling.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -3663,8 +3684,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             }),
             offset_dp: Some(96.0),
         },
-        // The three notification commands: six string references and two closed enums, one
-        // string reference, and a bare header that is the shortest record on the wire.
+        // The three notification commands: six string references, two closed enums and a delivery
+        // time, one string reference, and a bare header that is the shortest record on the wire.
         Mutation::PostNotification {
             key: "session/7",
             title: "세션이 끝났습니다",
@@ -3674,6 +3695,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             action_2: "",
             importance: NotificationImportance::Urgent,
             presentation: NotificationPresentation::WhenInactive,
+            // A moment in 2026 that needs all eight bytes of the field to survive.
+            deliver_at_ms: 1_795_000_000_123,
         },
         Mutation::WithdrawNotification { key: "session/7" },
         Mutation::RequestNotificationPermission,
@@ -4479,7 +4502,10 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
         HostEvent {
             node_id: 0,
             handler_id: 0,
-            payload: EventPayload::NotificationPermissionChanged(NotificationPermission::Denied),
+            payload: EventPayload::NotificationPermissionChanged {
+                state: NotificationPermission::Denied,
+                scheduling: NotificationScheduling::WhileRunning,
+            },
         },
         HostEvent {
             node_id: 12,
@@ -4916,48 +4942,48 @@ pub fn generate_vector_description() -> String {
       {{ "type": "ValueChanged", "offset": 186, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
       {{ "type": "WindowSizeChanged", "offset": 210, "length": 48, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0, "safeAreaBottom": 0.0 }},
       {{ "type": "NotificationActivated", "offset": 258, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 295, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "CodeChanged", "offset": 315, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
-      {{ "type": "CodeEditRejected", "offset": 363, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
-      {{ "type": "CodeHovered", "offset": 407, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
-      {{ "type": "CodeSaveRequested", "offset": 443, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
-      {{ "type": "DecorationActivated", "offset": 467, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
-      {{ "type": "AnimationEvent", "offset": 491, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 531, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 551, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
-      {{ "type": "SelectionChanged", "offset": 623, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 659, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 687, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 711, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 735, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
-      {{ "type": "WindowCloseRequested", "offset": 759, "length": 16, "nodeId": 20, "handlerId": 201 }},
-      {{ "type": "WindowFocusChanged", "offset": 775, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
-      {{ "type": "WindowMoved", "offset": 795, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
-      {{ "type": "WindowDrag", "offset": 827, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
-      {{ "type": "WindowDragOver", "offset": 859, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
-      {{ "type": "WindowUnavailable", "offset": 891, "length": 16, "nodeId": 20, "handlerId": 205 }},
-      {{ "type": "WindowClosed", "offset": 907, "length": 16, "nodeId": 20, "handlerId": 206 }},
-      {{ "type": "WindowRequested", "offset": 923, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 957, "length": 16, "nodeId": 0, "handlerId": 0 }},
-      {{ "type": "FileDialogResult", "offset": 973, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
-      {{ "type": "ClipboardText", "offset": 1046, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
-      {{ "type": "IoAnswer", "offset": 1097, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
-      {{ "type": "IoAnswer", "offset": 1134, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
-      {{ "type": "FileHandles", "offset": 1170, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
-      {{ "type": "StorageLocation", "offset": 1241, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
-      {{ "type": "ScrollChanged", "offset": 1323, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
-      {{ "type": "CodeMetrics", "offset": 1395, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1419, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
-      {{ "type": "MotionFinished", "offset": 1443, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
-      {{ "type": "CaretRect", "offset": 1467, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "PositionRect", "offset": 1507, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "CodePointer", "offset": 1547, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
-      {{ "type": "CodeEditGroupResult", "offset": 1627, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
-      {{ "type": "ColorSchemeChanged", "offset": 1663, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
-      {{ "type": "SelectionsChanged", "offset": 1683, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
-      {{ "type": "DensityChanged", "offset": 1759, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
-      {{ "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
+      {{ "type": "NotificationPermissionChanged", "offset": 295, "length": 24, "nodeId": 0, "handlerId": 0, "state": "Denied", "scheduling": "WhileRunning" }},
+      {{ "type": "CodeChanged", "offset": 319, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 367, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 411, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 447, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 471, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 495, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 535, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 555, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 627, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 663, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 691, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 715, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 739, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 763, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 779, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 799, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 831, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 863, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 895, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 911, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 927, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 961, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "FileDialogResult", "offset": 977, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
+      {{ "type": "ClipboardText", "offset": 1050, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
+      {{ "type": "IoAnswer", "offset": 1101, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
+      {{ "type": "IoAnswer", "offset": 1138, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
+      {{ "type": "FileHandles", "offset": 1174, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
+      {{ "type": "StorageLocation", "offset": 1245, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
+      {{ "type": "ScrollChanged", "offset": 1327, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
+      {{ "type": "CodeMetrics", "offset": 1399, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1423, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "MotionFinished", "offset": 1447, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
+      {{ "type": "CaretRect", "offset": 1471, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "PositionRect", "offset": 1511, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "CodePointer", "offset": 1551, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
+      {{ "type": "CodeEditGroupResult", "offset": 1631, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
+      {{ "type": "ColorSchemeChanged", "offset": 1667, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
+      {{ "type": "SelectionsChanged", "offset": 1687, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
+      {{ "type": "DensityChanged", "offset": 1763, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
+      {{ "type": "NativeViewParent", "offset": 1783, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1815, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
     ]
   }}
 }}

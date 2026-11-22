@@ -4,9 +4,9 @@ use crate::schema::{
     AssetKind, BackgroundRepeat, ColorScheme, DesignSystem, FileDelivery, FileDialogKind,
     FileDialogStatus, FileOp, IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
     MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
-    WidgetKind, modifier_extra_words,
+    NotificationImportance, NotificationPermission, NotificationPresentation,
+    NotificationScheduling, Paint, PropertyKind, SEMANTICS_STATE_MASK, Selection, SemanticsRole,
+    ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -241,6 +241,8 @@ pub enum Mutation<'a> {
         action_2: &'a str,
         importance: NotificationImportance,
         presentation: NotificationPresentation,
+        /// When to show it, in Unix epoch milliseconds (UTC). 0 means now.
+        deliver_at_ms: i64,
     },
     /// Takes back the notification posted under `key`, if it is still showing.
     WithdrawNotification {
@@ -813,7 +815,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 key: read_string(bytes, 20, record_len)?,
             }
         }
-        EVENT_NOTIFICATION_PERMISSION_CHANGED if record_len == 20 => {
+        EVENT_NOTIFICATION_PERMISSION_CHANGED if record_len == 24 => {
             let raw = read_u32(bytes, 16)?;
             let state = u16::try_from(raw)
                 .ok()
@@ -821,7 +823,14 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 .ok_or(ProtocolError::InvalidValueKind(
                     raw.min(u32::from(u16::MAX)) as u16,
                 ))?;
-            crate::schema::EventPayload::NotificationPermissionChanged(state)
+            let raw = read_u32(bytes, 20)?;
+            let scheduling = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| NotificationScheduling::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::NotificationPermissionChanged { state, scheduling }
         }
         EVENT_ANIMATION if record_len == 40 => {
             let raw_kind = u16::from(read_u8(bytes, 20)?);
@@ -1415,12 +1424,15 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(system)).to_le_bytes());
         return Ok(());
     }
-    if let crate::schema::EventPayload::NotificationPermissionChanged(state) = event.payload {
+    if let crate::schema::EventPayload::NotificationPermissionChanged { state, scheduling } =
+        event.payload
+    {
         output.extend_from_slice(&EVENT_NOTIFICATION_PERMISSION_CHANGED.to_le_bytes());
-        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&24_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(scheduling)).to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::AnimationEvent {
@@ -2033,7 +2045,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
         | crate::schema::EventPayload::DesignSystemResolved(_)
-        | crate::schema::EventPayload::NotificationPermissionChanged(_)
+        | crate::schema::EventPayload::NotificationPermissionChanged { .. }
         | crate::schema::EventPayload::CodeChanged { .. }
         | crate::schema::EventPayload::CodeEditRejected { .. }
         | crate::schema::EventPayload::CodeHovered { .. }
@@ -2628,8 +2640,9 @@ impl BatchEncoder {
                 action_2,
                 importance,
                 presentation,
+                deliver_at_ms,
             } => {
-                self.begin_record(TAG_POST_NOTIFICATION, 52);
+                self.begin_record(TAG_POST_NOTIFICATION, 60);
                 self.put_string_ref(key)?;
                 self.put_string_ref(title)?;
                 self.put_string_ref(body)?;
@@ -2638,6 +2651,7 @@ impl BatchEncoder {
                 self.put_string_ref(action_2)?;
                 self.put_u16(*importance as u16);
                 self.put_u16(*presentation as u16);
+                self.put_i64(*deliver_at_ms);
             }
             Mutation::WithdrawNotification { key } => {
                 self.begin_record(TAG_WITHDRAW_NOTIFICATION, 8);
@@ -2874,6 +2888,10 @@ impl BatchEncoder {
     }
 
     fn put_u64(&mut self, value: u64) {
+        self.records.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_i64(&mut self, value: i64) {
         self.records.extend_from_slice(&value.to_le_bytes());
     }
 }
@@ -3268,7 +3286,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 end_column: read_u32(bytes, payload + 24)?,
                 text: read_string(bytes, payload + 28, records_len)?,
             },
-            TAG_POST_NOTIFICATION if len == 56 => {
+            TAG_POST_NOTIFICATION if len == 64 => {
                 let raw_importance = read_u16(bytes, payload + 48)?;
                 let raw_presentation = read_u16(bytes, payload + 50)?;
                 Mutation::PostNotification {
@@ -3282,6 +3300,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                         .map_err(|()| ProtocolError::InvalidNotification(raw_importance))?,
                     presentation: NotificationPresentation::try_from(raw_presentation)
                         .map_err(|()| ProtocolError::InvalidNotification(raw_presentation))?,
+                    deliver_at_ms: read_u64(bytes, payload + 52)? as i64,
                 }
             }
             TAG_WITHDRAW_NOTIFICATION if len == 12 => Mutation::WithdrawNotification {
@@ -4884,11 +4903,13 @@ mod tests {
             action_2: "",
             importance: NotificationImportance::Urgent,
             presentation: NotificationPresentation::WhenInactive,
+            deliver_at_ms: 0,
         }
     }
 
     /// The three notification commands keep the lengths the wire fixes for them: six string
-    /// references and two closed enums, one string reference, and a bare header.
+    /// references, two closed enums and a delivery time, one string reference, and a bare
+    /// header.
     #[test]
     fn fr36_notification_commands_round_trip_at_their_fixed_lengths() {
         let mutations = [
@@ -4911,7 +4932,7 @@ mod tests {
         assert_eq!(
             lengths,
             [
-                (TAG_POST_NOTIFICATION, 56),
+                (TAG_POST_NOTIFICATION, 64),
                 (TAG_WITHDRAW_NOTIFICATION, 12),
                 (TAG_REQUEST_NOTIFICATION_PERMISSION, 4),
             ]
@@ -5023,6 +5044,62 @@ mod tests {
         );
     }
 
+    /// The post record was 56 bytes before it carried a delivery time. A Renderer that still
+    /// writes that length is out of step with this Host and is told so, not read as a
+    /// notification with the last eight bytes missing.
+    #[test]
+    fn fr36_a_post_record_at_the_old_56_bytes_is_rejected() {
+        let mut bytes = vec![0, 0, 12, 0, 12 + 56, 0, 0, 0, 1, 0, 0, 0];
+        bytes.extend_from_slice(&TAG_POST_NOTIFICATION.to_le_bytes());
+        bytes.extend_from_slice(&56_u16.to_le_bytes());
+        bytes.extend_from_slice(&[0; 52]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+    }
+
+    /// A delivery time rides in the last eight bytes of the 64-byte record, and a negative
+    /// one (before the epoch) survives the trip as well.
+    #[test]
+    fn fr36_a_scheduled_notification_round_trips_at_64_bytes() {
+        for deliver_at_ms in [1_795_000_000_123_i64, 1, -5_000] {
+            let mutation = match post_notification() {
+                Mutation::PostNotification {
+                    key,
+                    title,
+                    body,
+                    channel,
+                    action_1,
+                    action_2,
+                    importance,
+                    presentation,
+                    ..
+                } => Mutation::PostNotification {
+                    key,
+                    title,
+                    body,
+                    channel,
+                    action_1,
+                    action_2,
+                    importance,
+                    presentation,
+                    deliver_at_ms,
+                },
+                _ => unreachable!(),
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            let bytes = encoder.finish().unwrap();
+            assert_eq!(read_u16(bytes, ENVELOPE_LEN + 2).unwrap(), 64);
+            assert_eq!(
+                read_u64(bytes, ENVELOPE_LEN + 56).unwrap() as i64,
+                deliver_at_ms
+            );
+            assert_eq!(decode_batch(bytes).unwrap(), [mutation]);
+        }
+    }
+
     /// The two notification events: a word and a string after the common head, and a word
     /// on its own.
     #[test]
@@ -5048,14 +5125,27 @@ mod tests {
             NotificationPermission::Denied,
             NotificationPermission::Unsupported,
         ] {
-            let changed = HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: crate::EventPayload::NotificationPermissionChanged(state),
-            };
-            encode_event(&changed, &mut bytes).unwrap();
-            assert_eq!(bytes.len(), 20);
-            assert_eq!(decode_event(&bytes).unwrap(), changed);
+            for scheduling in [
+                NotificationScheduling::Persistent,
+                NotificationScheduling::WhileRunning,
+                NotificationScheduling::Unsupported,
+            ] {
+                let changed = HostEvent {
+                    node_id: 0,
+                    handler_id: 0,
+                    payload: crate::EventPayload::NotificationPermissionChanged {
+                        state,
+                        scheduling,
+                    },
+                };
+                encode_event(&changed, &mut bytes).unwrap();
+                assert_eq!(bytes.len(), 24);
+                assert_eq!(
+                    read_u32(&bytes, 20).unwrap(),
+                    u32::from(u16::from(scheduling))
+                );
+                assert_eq!(decode_event(&bytes).unwrap(), changed);
+            }
         }
     }
 
@@ -5067,9 +5157,10 @@ mod tests {
             &HostEvent {
                 node_id: 0,
                 handler_id: 0,
-                payload: crate::EventPayload::NotificationPermissionChanged(
-                    NotificationPermission::Granted,
-                ),
+                payload: crate::EventPayload::NotificationPermissionChanged {
+                    state: NotificationPermission::Granted,
+                    scheduling: NotificationScheduling::Persistent,
+                },
             },
             &mut bytes,
         )
@@ -5079,6 +5170,34 @@ mod tests {
             decode_event(&bytes),
             Err(ProtocolError::InvalidValueKind(5))
         );
+    }
+
+    /// A scheduling answer outside the three is reported the same way an unknown permission
+    /// state is.
+    #[test]
+    fn fr36_unknown_scheduling_is_a_protocol_error() {
+        for raw in [0_u32, 4, 70_000] {
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id: 0,
+                    handler_id: 0,
+                    payload: crate::EventPayload::NotificationPermissionChanged {
+                        state: NotificationPermission::Granted,
+                        scheduling: NotificationScheduling::Persistent,
+                    },
+                },
+                &mut bytes,
+            )
+            .unwrap();
+            bytes[20..24].copy_from_slice(&raw.to_le_bytes());
+            assert_eq!(
+                decode_event(&bytes),
+                Err(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16
+                ))
+            );
+        }
     }
 
     /// A notification has a body and at most two buttons, so an activation naming a third

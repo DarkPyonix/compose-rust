@@ -16,11 +16,15 @@
 //! for any worker's change, and the next batch carries it. Nothing here is a queue on the
 //! boundary: the boundary still only sees a batch handed over inside a call.
 
-use crate::schema::{NotificationImportance, NotificationPermission, NotificationPresentation};
+use crate::schema::{
+    NotificationImportance, NotificationPermission, NotificationPresentation,
+    NotificationScheduling,
+};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// One notification, built and then posted.
 ///
@@ -44,6 +48,8 @@ pub struct Notification {
     pub(crate) actions: [String; 2],
     pub(crate) importance: NotificationImportance,
     pub(crate) presentation: NotificationPresentation,
+    /// Unix epoch milliseconds (UTC) to show it at. 0 is now.
+    pub(crate) deliver_at_ms: i64,
 }
 
 impl Notification {
@@ -56,6 +62,7 @@ impl Notification {
             actions: [String::new(), String::new()],
             importance: NotificationImportance::Normal,
             presentation: NotificationPresentation::Always,
+            deliver_at_ms: 0,
         }
     }
 
@@ -112,6 +119,28 @@ impl Notification {
     /// Whether it is shown while the application's window is the active one.
     pub fn presentation(mut self, presentation: NotificationPresentation) -> Self {
         self.presentation = presentation;
+        self
+    }
+
+    /// Shows it at `at` instead of now.
+    ///
+    /// What happens to it when the application is not running at that time is
+    /// [`notification_scheduling`]'s answer: a platform that keeps its own schedule shows it
+    /// anyway, one that does not shows it only while the process lives.
+    ///
+    /// A time already past is delivered at once, as if no time had been given. Posting again
+    /// under the same [`key`](Self::key) replaces the pending one, and
+    /// [`withdraw_notification`] cancels it before it shows. Without a key a pending
+    /// notification can be neither replaced nor cancelled. To name a wall-clock time, build
+    /// the instant with [`crate::time::instant_of`].
+    pub fn deliver_at(mut self, at: SystemTime) -> Self {
+        self.deliver_at_ms = match at.duration_since(UNIX_EPOCH) {
+            Ok(after) => i64::try_from(after.as_millis()).unwrap_or(i64::MAX),
+            // Before the epoch is long past, which means now. 0 already means that, so it
+            // goes out as 1 to keep "a time was given" and "none was" apart on the wire.
+            Err(_) => 1,
+        }
+        .max(1);
         self
     }
 
@@ -281,6 +310,10 @@ thread_local! {
     /// Both sides start from here, so the Renderer only has to report a difference.
     static PERMISSION: Cell<NotificationPermission> =
         const { Cell::new(NotificationPermission::NotDetermined) };
+    /// Starts at `Unsupported`, the answer that promises nothing, until the Renderer reports
+    /// once after start.
+    static SCHEDULING: Cell<NotificationScheduling> =
+        const { Cell::new(NotificationScheduling::Unsupported) };
     static PERMISSION_SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     static ACTIVATION_HANDLERS: RefCell<Vec<(u64, ActivationHandler)>> =
         const { RefCell::new(Vec::new()) };
@@ -306,17 +339,33 @@ pub fn notification_permission() -> NotificationPermission {
     PERMISSION.with(Cell::get)
 }
 
-/// Records the Renderer's answer and wakes the components that asked about it.
+/// Whether a notification given a delivery time survives the application quitting, as the
+/// Renderer last reported. Available outside a component too.
 ///
-/// Returns whether any component was woken, which is what decides whether the Host renders.
-pub(crate) fn publish_permission(state: NotificationPermission) -> bool {
+/// `Persistent`: the platform keeps the schedule and shows it with the application closed.
+/// `WhileRunning`: a timer inside the process shows it, so quitting cancels it (Linux and
+/// the web). `Unsupported`: it cannot be held for later at all. The value before the first
+/// report is `Unsupported`.
+pub fn notification_scheduling() -> NotificationScheduling {
+    SCHEDULING.with(Cell::get)
+}
+
+/// Records the Renderer's answers and wakes the components that asked about them.
+///
+/// Permission and scheduling travel in one event, and both wake the same readers. Returns
+/// whether any component was woken, which is what decides whether the Host renders.
+pub(crate) fn publish_permission(
+    state: NotificationPermission,
+    scheduling: NotificationScheduling,
+) -> bool {
     if state == NotificationPermission::Unsupported && POSTED.load(Ordering::Acquire) {
         explain_unsupported();
     }
-    if PERMISSION.with(Cell::get) == state {
+    if PERMISSION.with(Cell::get) == state && SCHEDULING.with(Cell::get) == scheduling {
         return false;
     }
     PERMISSION.with(|current| current.set(state));
+    SCHEDULING.with(|current| current.set(scheduling));
     PERMISSION_SUBSCRIBERS.with_borrow(|subscribers| {
         for subscriber in subscribers {
             (subscriber.notify)();
@@ -390,6 +439,7 @@ pub fn reset_notifications() {
     queue().clear();
     PENDING.store(false, Ordering::Release);
     PERMISSION.with(|current| current.set(NotificationPermission::NotDetermined));
+    SCHEDULING.with(|current| current.set(NotificationScheduling::Unsupported));
     PERMISSION_SUBSCRIBERS.with_borrow_mut(Vec::clear);
     ACTIVATION_HANDLERS.with_borrow_mut(Vec::clear);
     POSTED.store(false, Ordering::Release);
@@ -458,6 +508,46 @@ mod tests {
         assert_eq!(notification.actions, [String::new(), String::new()]);
         assert_eq!(notification.importance, NotificationImportance::Normal);
         assert_eq!(notification.presentation, NotificationPresentation::Always);
+        assert_eq!(notification.deliver_at_ms, 0);
+    }
+
+    #[test]
+    fn fr36_deliver_at_stores_the_instant_in_epoch_milliseconds() {
+        let at = UNIX_EPOCH + std::time::Duration::from_millis(1_795_000_000_123);
+        assert_eq!(
+            Notification::new("x").deliver_at(at).deliver_at_ms,
+            1_795_000_000_123
+        );
+    }
+
+    /// 0 means "now" on the wire, so an instant at or before the epoch is sent as 1: it is
+    /// in the past, and a past time is delivered at once.
+    #[test]
+    fn fr36_deliver_at_clamps_instants_before_the_epoch() {
+        let before = UNIX_EPOCH - std::time::Duration::from_secs(10);
+        assert_eq!(Notification::new("x").deliver_at(before).deliver_at_ms, 1);
+        assert_eq!(
+            Notification::new("x").deliver_at(UNIX_EPOCH).deliver_at_ms,
+            1
+        );
+    }
+
+    #[test]
+    fn fr36_the_scheduling_answer_starts_unsupported_and_follows_the_renderer() {
+        reset_notifications();
+        assert_eq!(
+            notification_scheduling(),
+            NotificationScheduling::Unsupported
+        );
+        publish_permission(
+            NotificationPermission::Granted,
+            NotificationScheduling::Persistent,
+        );
+        assert_eq!(
+            notification_scheduling(),
+            NotificationScheduling::Persistent
+        );
+        reset_notifications();
     }
 
     #[test]

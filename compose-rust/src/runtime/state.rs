@@ -12,7 +12,7 @@
 
 use super::composer::Observer;
 use super::{with_composer, with_composer_if_idle};
-use crate::schema::{DesignSystem, NotificationPermission};
+use crate::schema::{DesignSystem, NotificationPermission, NotificationScheduling};
 use crate::window::WindowSize;
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -632,6 +632,7 @@ pub(crate) struct Ambient {
     pub(crate) window: MutableState<WindowSize>,
     pub(crate) design: MutableState<DesignSystem>,
     pub(crate) permission: MutableState<NotificationPermission>,
+    pub(crate) scheduling: MutableState<NotificationScheduling>,
     /// What each window of a multi-window application last measured, as a state per
     /// window, made when a composable in that window first reads it.
     pub(crate) windows: HashMap<u32, WindowAmbient>,
@@ -656,6 +657,7 @@ impl Drop for Ambient {
             release_state(self.window.key),
             release_state(self.design.key),
             release_state(self.permission.key),
+            release_state(self.scheduling.key),
         ];
         drop(values);
     }
@@ -667,6 +669,7 @@ impl Ambient {
             window: mutable_state_of(crate::window::window_size()),
             design: mutable_state_of(crate::design::design_system()),
             permission: mutable_state_of(crate::notification::notification_permission()),
+            scheduling: mutable_state_of(crate::notification::notification_scheduling()),
             windows: HashMap::new(),
             deriveds: HashMap::new(),
         }
@@ -798,6 +801,14 @@ pub fn current_notification_permission() -> NotificationPermission {
     match with_composer_if_idle(|composer| composer.ambient.permission) {
         Some(state) => state.get(),
         None => crate::notification::notification_permission(),
+    }
+}
+
+/// Whether a notification given a delivery time survives quitting, recorded as read.
+pub fn current_notification_scheduling() -> NotificationScheduling {
+    match with_composer_if_idle(|composer| composer.ambient.scheduling) {
+        Some(state) => state.get(),
+        None => crate::notification::notification_scheduling(),
     }
 }
 

@@ -20,7 +20,7 @@ fn handle(payload: &EventPayload<'_>) {
         EventPayload::LifecycleStart => {}
         EventPayload::LifecycleStop => {}
         EventPayload::NotificationActivated { .. } => {}
-        EventPayload::NotificationPermissionChanged(_) => {}
+        EventPayload::NotificationPermissionChanged { .. } => {}
         EventPayload::CodeChanged { .. } => {}
         EventPayload::CodeEditRejected { .. } => {}
         EventPayload::CodeHovered { .. } => {}

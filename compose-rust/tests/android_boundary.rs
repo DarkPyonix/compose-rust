@@ -111,6 +111,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
             action_2: "",
             importance: NotificationImportance::Normal,
             presentation: NotificationPresentation::WhenInactive,
+            deliver_at_ms: 0,
         }]
     );
 
@@ -195,8 +196,58 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
                 action_2: "",
                 importance: NotificationImportance::Urgent,
                 presentation: NotificationPresentation::Always,
+                deliver_at_ms: 0,
             },
             Mutation::WithdrawNotification { key: "session/7" },
+        ]
+    );
+}
+
+/// A delivery time given to `Notification::deliver_at` reaches the Renderer as epoch
+/// milliseconds in the post record, and a notification without one carries 0.
+#[test]
+fn fr36_deliver_at_writes_the_instant_into_the_batch() {
+    use compose_rust::notification::reset_notifications;
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::{ComposeHost, Notification, NotificationSender};
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let _state = frame_state();
+    reset_notifications();
+
+    let mut host = ComposeHost::with_content(|| {
+        use compose_rust::ui::Text;
+        Text!("idle");
+    });
+    host.rebuild().expect("the initial tree builds");
+
+    let sender = NotificationSender::new();
+    sender.post(
+        Notification::new("Stand up")
+            .key("reminder/1")
+            .deliver_at(UNIX_EPOCH + Duration::from_millis(1_795_000_000_123)),
+    );
+    sender.post(Notification::new("Now").key("reminder/2"));
+
+    let batch = host
+        .render_frame(16_666_667)
+        .expect("the frame renders")
+        .to_vec();
+    let times: Vec<(String, i64)> = decode_batch(&batch)
+        .expect("the frame batch decodes")
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::PostNotification {
+                key, deliver_at_ms, ..
+            } => Some((key.to_owned(), deliver_at_ms)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        times,
+        vec![
+            ("reminder/1".to_owned(), 1_795_000_000_123),
+            ("reminder/2".to_owned(), 0),
         ]
     );
 }

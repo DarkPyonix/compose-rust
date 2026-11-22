@@ -972,7 +972,10 @@ mod tests {
         screen.dispatch(
             0,
             0,
-            EventPayload::NotificationPermissionChanged(NotificationPermission::Unsupported),
+            EventPayload::NotificationPermissionChanged {
+                state: NotificationPermission::Unsupported,
+                scheduling: compose_rust::NotificationScheduling::Unsupported,
+            },
         );
         assert!(
             screen.shows("Permission: Unsupported"),

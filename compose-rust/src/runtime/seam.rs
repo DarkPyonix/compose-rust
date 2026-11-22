@@ -180,6 +180,7 @@ impl Batch {
                     action_2: &notification.actions[1],
                     importance: notification.importance,
                     presentation: notification.presentation,
+                    deliver_at_ms: notification.deliver_at_ms,
                 });
             }
             NotificationCommand::Withdraw(key) => {

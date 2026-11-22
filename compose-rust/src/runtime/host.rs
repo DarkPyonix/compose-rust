@@ -41,12 +41,13 @@ impl Recomposer {
     /// A runtime for `content`, composed by [`Recomposer::rebuild`].
     pub fn new(content: impl Fn() + 'static) -> Self {
         let composition = Composition::new();
-        let (window, design, permission) = {
+        let (window, design, permission, scheduling) = {
             let composer = composition.composer.borrow();
             (
                 composer.ambient.window,
                 composer.ambient.design,
                 composer.ambient.permission,
+                composer.ambient.scheduling,
             )
         };
         // The values themselves stay in the modules the Host publishes them to. A state
@@ -60,7 +61,10 @@ impl Recomposer {
                 design.set(crate::design::design_system())
             }))),
             Box::new(crate::notification::subscribe_permission(Arc::new(
-                move || permission.set(crate::notification::notification_permission()),
+                move || {
+                    permission.set(crate::notification::notification_permission());
+                    scheduling.set(crate::notification::notification_scheduling());
+                },
             ))),
         ];
         Self {

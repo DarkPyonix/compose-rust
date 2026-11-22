@@ -94,7 +94,7 @@ pub use input::{
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
-    request_notification_permission, withdraw_notification,
+    notification_scheduling, request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
@@ -105,10 +105,10 @@ pub use schema::{
     EditGroupStatus, EventPayload, GenericFamily, GutterDecorationKind, HoverPhase, IconRole, Key,
     LoopMode, MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, SheetPresentation, Snap, SpaceRole, TextAlign,
-    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
-    WordBreak,
+    NotificationScheduling, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind,
+    RevealAlign, SCHEMA_HASH, Selection, SemanticsRole, Severity, ShapeRole, SheetPresentation,
+    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
+    WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

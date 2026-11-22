@@ -82,6 +82,19 @@ impl LocalDate {
         }
     }
 
+    /// The date `year`-`month`-`day`, with its weekday worked out. `month` runs from 1 and
+    /// `day` from 1. A date that is not on the calendar is not checked, so pass real ones.
+    pub fn new(year: i32, month: u8, day: u8) -> Self {
+        let mut date = LocalDate {
+            year,
+            month,
+            day,
+            weekday: Weekday::Monday,
+        };
+        date.weekday = Weekday::from_days_since_epoch(date.days_since_epoch());
+        date
+    }
+
     /// How many days after 1970-01-01 this date is. Negative for a date before it.
     pub fn days_since_epoch(&self) -> i64 {
         let month = i64::from(self.month);
@@ -108,6 +121,24 @@ pub struct LocalDateTime {
     /// How far ahead of UTC the user's time zone is at this moment, daylight saving
     /// included. Negative west of Greenwich.
     pub utc_offset_seconds: i32,
+}
+
+impl LocalDateTime {
+    /// A wall-clock time on `year`-`month`-`day` at `hour`:`minute`, with no seconds.
+    ///
+    /// The offset field is filled with zero, because a wall-clock time does not say which
+    /// offset applies until a zone is chosen. [`instant_of`] ignores it and asks the
+    /// operating system for the zone's offset at that time.
+    pub fn new(year: i32, month: u8, day: u8, hour: u8, minute: u8) -> Self {
+        LocalDateTime {
+            date: LocalDate::new(year, month, day),
+            hour,
+            minute,
+            second: 0,
+            nanosecond: 0,
+            utc_offset_seconds: 0,
+        }
+    }
 }
 
 /// Today's date in the user's time zone.
@@ -144,6 +175,35 @@ pub fn local_at(instant: SystemTime) -> LocalDateTime {
         second: (second_of_day % 60) as u8,
         nanosecond,
         utc_offset_seconds: offset,
+    }
+}
+
+/// The instant at which the wall clock in the user's time zone shows `local`.
+///
+/// Uses the date, hour, minute, second and nanosecond of `local` and the time zone the
+/// operating system is set to for that wall-clock time, so a daylight saving rule that
+/// applies on that date is honoured. `local.utc_offset_seconds` is not read.
+///
+/// A wall-clock time that never happens (the hour skipped when clocks go forward) resolves
+/// to the instant just after the jump, and one that happens twice (clocks go back) to one
+/// of its two instants. Both are what the settling below lands on, not a promise about which.
+pub fn instant_of(local: &LocalDateTime) -> SystemTime {
+    let local_seconds = local.date.days_since_epoch() * 86_400
+        + i64::from(local.hour) * 3600
+        + i64::from(local.minute) * 60
+        + i64::from(local.second);
+    // The offset depends on the instant, which is what is being looked for. Start from the
+    // offset at the wall-clock number read as if it were UTC, then ask again at the guess
+    // it gave; one more round settles a guess that straddled a daylight saving change.
+    let mut guess = local_seconds - i64::from(platform::utc_offset_seconds(local_seconds));
+    for _ in 0..2 {
+        guess = local_seconds - i64::from(platform::utc_offset_seconds(guess));
+    }
+    if guess >= 0 {
+        UNIX_EPOCH + Duration::new(guess as u64, local.nanosecond)
+    } else {
+        UNIX_EPOCH - Duration::from_secs(guess.unsigned_abs())
+            + Duration::from_nanos(u64::from(local.nanosecond))
     }
 }
 
@@ -509,4 +569,37 @@ mod platform {
 #[cfg(target_family = "wasm")]
 pub(crate) fn on_frame() {
     platform::frame();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fr36_a_wall_clock_time_round_trips_through_its_instant() {
+        let wanted = LocalDateTime::new(2026, 11, 24, 9, 30);
+        let seen = local_at(instant_of(&wanted));
+        assert_eq!(seen.date, wanted.date);
+        assert_eq!(
+            (seen.hour, seen.minute, seen.second, seen.nanosecond),
+            (9, 30, 0, 0)
+        );
+    }
+
+    #[test]
+    fn fr36_an_instant_is_the_wall_clock_minus_the_offset_it_reports() {
+        let wanted = LocalDateTime::new(2027, 7, 1, 23, 59);
+        let instant = instant_of(&wanted);
+        let seen = local_at(instant);
+        let seconds = instant.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let wall = wanted.date.days_since_epoch() * 86_400 + 23 * 3600 + 59 * 60;
+        assert_eq!(seconds, wall - i64::from(seen.utc_offset_seconds));
+    }
+
+    #[test]
+    fn fr36_a_local_date_knows_its_weekday() {
+        // 1970-01-01 was a Thursday, and 2026-11-24 is a Tuesday.
+        assert_eq!(LocalDate::new(1970, 1, 1).weekday, Weekday::Thursday);
+        assert_eq!(LocalDate::new(2026, 11, 24).weekday, Weekday::Tuesday);
+    }
 }
