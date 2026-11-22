@@ -3292,7 +3292,11 @@ mod tests {
             assert_eq!(destination.len(), 1, "{label} should be one destination");
             let carried = screen.mock.integer(destination[0], PropertyKind::Count);
             let row_button = screen.mock.buttons_off_the_navigation(label);
-            assert_eq!(row_button.len(), 1, "the list of lists has no row for {label}");
+            assert_eq!(
+                row_button.len(),
+                1,
+                "the list of lists has no row for {label}"
+            );
             let row = screen.mock.parents[&row_button[0]];
             let shown: Vec<i64> = screen
                 .mock
@@ -3312,7 +3316,10 @@ mod tests {
             );
             counted += usize::from(shown[0] > 0);
         }
-        assert!(counted > 0, "every count was zero, so the comparison proves little");
+        assert!(
+            counted > 0,
+            "every count was zero, so the comparison proves little"
+        );
     }
 
     /// Search is a destination that opens a sheet, and the page behind it narrows to the
