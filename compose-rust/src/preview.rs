@@ -53,8 +53,15 @@ impl PreviewSize {
     /// Physical pixel dimensions `(width_px, height_px)` at `scale`.
     pub fn pixel_dimensions(self, scale: f32) -> (u32, u32) {
         let (w, h) = self.dimensions();
-        let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-        (((w as f32) * s).round().max(1.0) as u32, ((h as f32) * s).round().max(1.0) as u32)
+        let s = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        (
+            ((w as f32) * s).round().max(1.0) as u32,
+            ((h as f32) * s).round().max(1.0) as u32,
+        )
     }
 
     /// Horizontal window size class derived from the logical width.
@@ -78,9 +85,11 @@ impl PreviewSize {
             _ => {}
         }
         let lower = trimmed.to_ascii_lowercase();
-        let (w_str, h_str) = lower
-            .split_once('x')
-            .ok_or_else(|| format!("invalid preview size '{trimmed}': expected Desktop, Laptop, Tablet, Phone, or WxH"))?;
+        let (w_str, h_str) = lower.split_once('x').ok_or_else(|| {
+            format!(
+                "invalid preview size '{trimmed}': expected Desktop, Laptop, Tablet, Phone, or WxH"
+            )
+        })?;
         let w: u32 = w_str
             .parse()
             .map_err(|_| format!("invalid preview width '{w_str}' in '{trimmed}'"))?;
@@ -121,11 +130,19 @@ impl PreviewContext {
             size,
             scheme,
             system,
-            scale: if scale.is_finite() && scale > 0.0 { scale } else { 1.0 },
+            scale: if scale.is_finite() && scale > 0.0 {
+                scale
+            } else {
+                1.0
+            },
             fixture,
             now_unix_secs: DEFAULT_PREVIEW_NOW_UNIX_SECS,
             seed,
-            rng_state: AtomicU64::new(if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed }),
+            rng_state: AtomicU64::new(if seed == 0 {
+                0x9e37_79b9_7f4a_7c15
+            } else {
+                seed
+            }),
         }
     }
 
@@ -139,7 +156,11 @@ impl PreviewContext {
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self.rng_state.store(
-            if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed },
+            if seed == 0 {
+                0x9e37_79b9_7f4a_7c15
+            } else {
+                seed
+            },
             Ordering::Relaxed,
         );
         self
@@ -262,7 +283,13 @@ impl PreviewVariant {
 
     /// Construct a [`PreviewContext`] for this variant.
     pub fn context(&self) -> PreviewContext {
-        PreviewContext::new(self.size, self.scheme, self.system, self.scale, self.fixture)
+        PreviewContext::new(
+            self.size,
+            self.scheme,
+            self.system,
+            self.scale,
+            self.fixture,
+        )
     }
 }
 
@@ -308,7 +335,8 @@ impl PreviewSpec {
             self.scales
         };
 
-        let mut out = Vec::with_capacity(sizes.len() * schemes.len() * systems.len() * scales.len());
+        let mut out =
+            Vec::with_capacity(sizes.len() * schemes.len() * systems.len() * scales.len());
         for &size in sizes {
             for &scale in scales {
                 for &scheme in schemes {
@@ -383,7 +411,11 @@ pub const fn system_slug(system: DesignSystem) -> &'static str {
 
 /// Format a scale factor without trailing `.0` for integer scales (`1.0` -> `"1"`, `1.5` -> `"1.5"`).
 pub fn format_scale(scale: f32) -> String {
-    let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let s = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
     if (s - s.round()).abs() < 1e-6 {
         format!("{}", s.round() as u32)
     } else {
@@ -427,10 +459,8 @@ where
         safe_area: crate::window::WindowSafeArea::default(),
     });
     crate::design::publish(ctx.system());
-    let mut host = crate::runtime::ComposeHost::with_content_and_theme(
-        move || preview_fn(&ctx),
-        theme,
-    );
+    let mut host =
+        crate::runtime::ComposeHost::with_content_and_theme(move || preview_fn(&ctx), theme);
     let bytes = host
         .rebuild()
         .map_err(|e| format!("preview composition failed: {e:?}"))?

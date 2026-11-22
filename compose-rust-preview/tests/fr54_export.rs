@@ -88,7 +88,10 @@ fn fr54_export_scheme_and_system_flags() {
 
     assert_eq!(
         &l_img.pixels[0..4],
-        &color_to_rgba(background_color(DesignSystem::Material3, ColorScheme::Light))
+        &color_to_rgba(background_color(
+            DesignSystem::Material3,
+            ColorScheme::Light
+        ))
     );
     assert_eq!(
         &d_img.pixels[0..4],
@@ -139,7 +142,11 @@ fn fr54_export_uses_a_virtual_clock() {
     let bytes_a = fs::read(&a).unwrap();
 
     let (b, _) = export_preview_png(&looping, &out).unwrap();
-    assert_eq!(bytes_a, fs::read(&b).unwrap(), "looping animation must settle deterministically");
+    assert_eq!(
+        bytes_a,
+        fs::read(&b).unwrap(),
+        "looping animation must settle deterministically"
+    );
 
     let at_250 = ExportRequest {
         at_ms: Some(250),
@@ -231,6 +238,9 @@ fn fr54_compare_and_check() {
 
     // Size mismatch: fails naming both dimensions without scaling.
     let err = compare_pngs(&a, &c, None, None).unwrap_err();
-    assert!(err.contains("4x4") && err.contains("8x4"), "unexpected error: {err}");
+    assert!(
+        err.contains("4x4") && err.contains("8x4"),
+        "unexpected error: {err}"
+    );
     let _ = fs::remove_dir_all(&dir);
 }

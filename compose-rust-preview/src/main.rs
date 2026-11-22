@@ -1,8 +1,12 @@
 //! `compose-rust-preview` CLI: `list`, `export`, and `watch`.
 
-use compose_rust::preview::{PreviewSize, format_scale, platform_default_system, scheme_slug, system_slug};
+use compose_rust::preview::{
+    PreviewSize, format_scale, platform_default_system, scheme_slug, system_slug,
+};
 use compose_rust::{ColorScheme, DesignSystem};
-use compose_rust_preview::discover::{DiscoveredPreview, discover_in_crate, matches_glob, parse_system_name};
+use compose_rust_preview::discover::{
+    DiscoveredPreview, discover_in_crate, matches_glob, parse_system_name,
+};
 use compose_rust_preview::image_cmp::compare_pngs;
 use compose_rust_preview::render::{ExportRequest, export_batch_via_renderer, export_preview_png};
 use std::env;
@@ -31,7 +35,9 @@ fn run(args: &[String]) -> Result<(), String> {
         "list" => cmd_list(rest),
         "export" => cmd_export(rest),
         "watch" => cmd_watch(rest),
-        other => Err(format!("unknown subcommand `{other}`; expected list, export, or watch")),
+        other => Err(format!(
+            "unknown subcommand `{other}`; expected list, export, or watch"
+        )),
     }
 }
 
@@ -49,7 +55,11 @@ fn resolve_crate(package: Option<&str>) -> Result<(PathBuf, String), String> {
             }
         }
         // Scan shallowly for matching package name in Cargo.toml.
-        for entry in WalkDir::new(&cwd).max_depth(3).into_iter().filter_map(Result::ok) {
+        for entry in WalkDir::new(&cwd)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             if entry.file_name() == "Cargo.toml" && entry.file_type().is_file() {
                 if let Some(dir) = entry.path().parent() {
                     if let Ok(name) = read_crate_name(dir) {
@@ -88,7 +98,10 @@ fn read_crate_name(crate_dir: &Path) -> Result<String, String> {
             }
         }
     }
-    Err(format!("no [package] name in {}/Cargo.toml", crate_dir.display()))
+    Err(format!(
+        "no [package] name in {}/Cargo.toml",
+        crate_dir.display()
+    ))
 }
 
 fn cmd_list(args: &[String]) -> Result<(), String> {
@@ -152,7 +165,10 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
             }
             "--preview" => {
                 i += 1;
-                preview_glob = args.get(i).ok_or("--preview requires an id or glob")?.clone();
+                preview_glob = args
+                    .get(i)
+                    .ok_or("--preview requires an id or glob")?
+                    .clone();
             }
             "--size" => {
                 i += 1;
@@ -190,19 +206,27 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
             }
             "--batch" => {
                 i += 1;
-                batch_path = Some(PathBuf::from(args.get(i).ok_or("--batch requires a file path")?));
+                batch_path = Some(PathBuf::from(
+                    args.get(i).ok_or("--batch requires a file path")?,
+                ));
             }
             "--out" => {
                 i += 1;
-                out_dir = Some(PathBuf::from(args.get(i).ok_or("--out requires a directory")?));
+                out_dir = Some(PathBuf::from(
+                    args.get(i).ok_or("--out requires a directory")?,
+                ));
             }
             "--compare" => {
                 i += 1;
-                compare_path = Some(PathBuf::from(args.get(i).ok_or("--compare requires a PNG path")?));
+                compare_path = Some(PathBuf::from(
+                    args.get(i).ok_or("--compare requires a PNG path")?,
+                ));
             }
             "--check" => {
                 i += 1;
-                check_dir = Some(PathBuf::from(args.get(i).ok_or("--check requires a directory")?));
+                check_dir = Some(PathBuf::from(
+                    args.get(i).ok_or("--check requires a directory")?,
+                ));
             }
             "--max-diff" => {
                 i += 1;
@@ -224,17 +248,25 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
         .filter(|p| matches_glob(&preview_glob, &p.id))
         .collect();
     if previews.is_empty() {
-        return Err(format!("no #[Preview] matched `{preview_glob}` in crate `{name}`"));
+        return Err(format!(
+            "no #[Preview] matched `{preview_glob}` in crate `{name}`"
+        ));
     }
 
     let mut written = Vec::new();
     for p in previews {
-        let sizes = size_override.map(|s| vec![s]).unwrap_or_else(|| p.effective_sizes());
-        let schemes = scheme_override.clone().unwrap_or_else(|| p.effective_schemes());
+        let sizes = size_override
+            .map(|s| vec![s])
+            .unwrap_or_else(|| p.effective_sizes());
+        let schemes = scheme_override
+            .clone()
+            .unwrap_or_else(|| p.effective_schemes());
         let systems = system_override
             .map(|s| vec![s])
             .unwrap_or_else(|| p.effective_systems());
-        let scales = scale_override.map(|s| vec![s]).unwrap_or_else(|| p.effective_scales());
+        let scales = scale_override
+            .map(|s| vec![s])
+            .unwrap_or_else(|| p.effective_scales());
 
         for size in sizes {
             for &scale in &scales {
@@ -255,7 +287,10 @@ fn cmd_export(args: &[String]) -> Result<(), String> {
                             export_preview_png(&req, &out_dir)?
                         };
                         if clock.capped_at_limit {
-                            eprintln!("warning: {} did not settle within 10s; captured at 10000ms", p.id);
+                            eprintln!(
+                                "warning: {} did not settle within 10s; captured at 10000ms",
+                                p.id
+                            );
                         }
                         println!("{}", png_path.display());
                         written.push(png_path);
@@ -345,7 +380,12 @@ fn cmd_watch(args: &[String]) -> Result<(), String> {
             }
             "--scheme" => {
                 i += 1;
-                scheme = match args.get(i).ok_or("--scheme requires light|dark")?.to_ascii_lowercase().as_str() {
+                scheme = match args
+                    .get(i)
+                    .ok_or("--scheme requires light|dark")?
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
                     "light" => ColorScheme::Light,
                     "dark" => ColorScheme::Dark,
                     other => return Err(format!("invalid --scheme `{other}`")),

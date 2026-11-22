@@ -1,11 +1,9 @@
 //! Tests for the `#[Preview]` attribute macro and `compose_rust::preview` runtime types.
 
+use compose_rust::preview::{DEFAULT_PREVIEW_NOW_UNIX_SECS, format_scale, preview_filename};
 use compose_rust::{
     ColorScheme, DesignSystem, Preview, PreviewContext, PreviewSize, WindowHeightClass,
     WindowSizeClass,
-};
-use compose_rust::preview::{
-    DEFAULT_PREVIEW_NOW_UNIX_SECS, format_scale, preview_filename,
 };
 
 #[Preview]
@@ -75,12 +73,21 @@ fn fr54_preview_sizes_and_classes_match_spec() {
     assert_eq!(PreviewSize::Desktop.size_class(), WindowSizeClass::Expanded);
     assert_eq!(PreviewSize::Tablet.size_class(), WindowSizeClass::Medium);
     assert_eq!(PreviewSize::Phone.size_class(), WindowSizeClass::Compact);
-    assert_eq!(PreviewSize::Desktop.height_class(), WindowHeightClass::Expanded);
-    assert_eq!(PreviewSize::Laptop.height_class(), WindowHeightClass::Medium);
+    assert_eq!(
+        PreviewSize::Desktop.height_class(),
+        WindowHeightClass::Expanded
+    );
+    assert_eq!(
+        PreviewSize::Laptop.height_class(),
+        WindowHeightClass::Medium
+    );
 
     assert_eq!(PreviewSize::parse("Desktop").unwrap(), PreviewSize::Desktop);
     assert_eq!(PreviewSize::parse("phone").unwrap(), PreviewSize::Phone);
-    assert_eq!(PreviewSize::parse("800x600").unwrap(), PreviewSize::Custom(800, 600));
+    assert_eq!(
+        PreviewSize::parse("800x600").unwrap(),
+        PreviewSize::Custom(800, 600)
+    );
     assert!(PreviewSize::parse("0x600").is_err());
     assert!(PreviewSize::parse("bad").is_err());
 }
