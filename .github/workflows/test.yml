@@ -340,8 +340,11 @@ jobs:
       - name: Install the pinned Rust toolchain
         # consumer-crate.test.sh builds a crate that depends on compose-rust, to check
         # that an application with no build script of its own links, loads the renderer
-        # and starts.
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+        # and starts. setup-check.test.sh runs scripts/setup-check.sh for real, which
+        # requires rustfmt and clippy because scripts/check.sh runs both. The runner's
+        # preinstalled stable carried them; a fresh minimal install of the pinned version
+        # does not, so they are named here.
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy && rustup default "$RUST_TOOLCHAIN"
 
       - name: Install the Linux renderer's link libraries
         # The published Linux renderer is a static archive that leaves X11, GL, fontconfig

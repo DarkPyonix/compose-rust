@@ -210,7 +210,7 @@ internal class LinuxWindow private constructor(
         }
 
     private val scene = CanvasLayersComposeScene(
-        density = Density(DENSITY),
+        density = zoom.density(displayScale),
         size = x11.measure().let { IntSize(it.width, it.height) },
         coroutineContext = work,
         platformContext = platformContext,
@@ -218,11 +218,10 @@ internal class LinuxWindow private constructor(
 
     init {
         // How far the start got, in the words the native image's window uses: the window is
-        // open and the scene is made, at the size and density it was made with. The density is
-        // corrected to the screen's in the first frame, as every later change of it is.
+        // open and the scene is made, at the size and density it was made with.
         val opened = x11.measure()
         WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
-        WindowStartReport.sceneCreated(opened.width, opened.height, DENSITY)
+        WindowStartReport.sceneCreated(opened.width, opened.height, scene.density.density)
     }
 
     /** Whether anything has been drawn yet, so the first turn always draws one. */
