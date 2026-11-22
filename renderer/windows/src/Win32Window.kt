@@ -138,6 +138,13 @@ internal class Win32Window private constructor(
     /** The handle of the window, which names it to the C side. */
     val handle: COpaquePointer get() = native.window
 
+    /**
+     * The window's place for the Host's platform views, provided to its content as
+     * `LocalNativeViewWindow`. It hears the window's events after the scene and the scale of
+     * every frame.
+     */
+    val nativeViews = WindowsNativeViewWindow(native)
+
     /** How many pixels a point is on the monitor the window is on. */
     fun pixelsPerPoint(): Float = native.measure().scale
 
@@ -236,6 +243,7 @@ internal class Win32Window private constructor(
                 routeFileDrop(event)
                 // Told which desktop it is, because the key numbers are Windows' own.
                 scene.receive(event, win32 = true)
+                nativeViews.receive(event)
                 textInput.receive(event)
                 noteForEditMenu(event)
                 heard = true
@@ -278,6 +286,7 @@ internal class Win32Window private constructor(
             textScale.receive(event)
             routeFileDrop(event)
             if (!withheld(event)) scene.receive(event, win32 = true)
+            nativeViews.receive(event)
             textInput.receive(event)
             noteForEditMenu(event)
             heard = true
@@ -497,6 +506,10 @@ internal class Win32Window private constructor(
             return false
         }
         scene.render(surface.canvas.asComposeCanvas(), nanos)
+        // After the layout of this frame, so the views placed again for a new scale are placed
+        // where it put them; they reach the screen with this frame (the window places them
+        // after the present).
+        nativeViews.scaleSeen(measured.scale)
         // Submitted, not only recorded: a buffer presented before Skia's command list runs is
         // a buffer with nothing in it.
         surface.flushAndSubmit(true)
@@ -528,6 +541,7 @@ internal class Win32Window private constructor(
         RasterDraw.draw(RasterVariant.chosen, target.pixels, target.rowBytes, fitted.width, fitted.height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
         }
+        nativeViews.scaleSeen(measured.scale)
         Win32Loop.endRasterFrame()
         return true
     }

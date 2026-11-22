@@ -32,6 +32,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // its own on a right click, and the window puts up the system's instead (Win32EditMenu),
     // keeping Compose's shut while it does.
     androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
+    // This renderer's windows have a place for the Host's platform views, so a batch
+    // that attaches one is not refused.
+    dev.darkpyonix.composerust.foundation.NativeViewPlatform.available = true
     Win32EditMenu.install()
     Notifications.platform = Win32Notifications()
     // Asked for by the build that proves several windows work here (see
@@ -82,7 +85,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
-        window.setContent { WindowContent(host) }
+        window.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.darkpyonix.composerust.foundation.LocalNativeViewWindow provides window.nativeViews,
+            ) {
+                WindowContent(host)
+            }
+        }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -94,6 +103,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
                 dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
+                dev.darkpyonix.composerust.foundation.LocalNativeViewWindow provides window.nativeViews,
             ) {
                 WindowContent(
                     host,

@@ -144,7 +144,7 @@ private fun windowContent(
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { WindowContent(host) }
+            ForWindow(nodeId, window) { WindowContent(host) }
         }
     }
     val actions = WindowActions(
@@ -154,7 +154,7 @@ private fun windowContent(
         maximised = window.maximised,
     )
     return {
-        ForWindow(nodeId) {
+        ForWindow(nodeId, window) {
             CompositionLocalProvider(
                 LocalWindowActions provides actions,
                 dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
@@ -166,10 +166,12 @@ private fun windowContent(
 }
 
 @Composable
-private fun ForWindow(nodeId: Int, content: @Composable () -> Unit) {
+private fun ForWindow(nodeId: Int, window: Win32Window, content: @Composable () -> Unit) {
     CompositionLocalProvider(
         LocalWindowNodeId provides nodeId,
         LocalServesFrames provides false,
+        // The window's place for the Host's platform views, one for the window's life.
+        dev.darkpyonix.composerust.foundation.LocalNativeViewWindow provides window.nativeViews,
     ) {
         content()
     }
