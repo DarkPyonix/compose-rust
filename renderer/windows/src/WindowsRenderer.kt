@@ -95,7 +95,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Whatever the chrome, a `WindowDrag(true)` node moves the window (FR-19.9) and the
     // system's light or dark setting is followed while the window is open (FR-44).
     if (systemChrome) {
-        window.setContent { WindowsPlatformLocals(window) { WindowContent(host) } }
+        window.setContent { WindowsPlatformLocals(window, host, asked?.icon ?: 0) { WindowContent(host) } }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -107,7 +107,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             ) {
-                WindowsPlatformLocals(window) {
+                WindowsPlatformLocals(window, host, asked?.icon ?: 0) {
                     WindowContent(
                         host,
                         caption = dev.darkpyonix.composerust.runtime.WindowCaption(
@@ -137,11 +137,18 @@ private val WINDOWS_CAPTION_HEIGHT = 32.dp
 
 /**
  * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
- * moves [window] (FR-19.9, through [windowsWindowDrag]), and the system's dark setting is
- * followed while the window is open (FR-44).
+ * moves [window] (FR-19.9, through [windowsWindowDrag]), the system's dark setting is
+ * followed while the window is open (FR-44), and the window wears icon asset [icon] once it
+ * has arrived (FR-19.3; 0 for none).
  */
 @androidx.compose.runtime.Composable
-internal fun WindowsPlatformLocals(window: Win32Window, content: @androidx.compose.runtime.Composable () -> Unit) {
+internal fun WindowsPlatformLocals(
+    window: Win32Window,
+    host: ComposeRustHost,
+    icon: Int,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    WindowsIconEffect(host, window, icon)
     androidx.compose.runtime.CompositionLocalProvider(
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { windowsWindowDrag(window) },
         dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides { rememberWin32SystemDark().value },
