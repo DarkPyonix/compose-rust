@@ -767,4 +767,22 @@ class AccessibilityModifierTest {
             assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.ProtocolError>())
         }
     }
+
+    /** The checked field's fourth value, 3, is a mixed node: neither checked nor unchecked. */
+    @Test
+    fun fr68_semantics_checked_mixed_reaches_the_tree() {
+        val box = 1
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Staged")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Checkbox, 3)),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertEquals(Role.Checkbox, config.getOrNull(SemanticsProperties.Role))
+            assertEquals(ToggleableState.Indeterminate, config.getOrNull(SemanticsProperties.ToggleableState))
+        }
+    }
 }

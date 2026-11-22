@@ -68,7 +68,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Outline
@@ -80,18 +79,15 @@ import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import androidx.compose.ui.unit.dp
@@ -102,6 +98,7 @@ import dev.darkpyonix.composerust.design.glassLift
 import dev.darkpyonix.composerust.design.glassSurface
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.TableError
+import dev.darkpyonix.composerust.ui.node.blurredShadow
 
 /**
  * Rebuilds a Compose `Modifier` chain from the Host's modifier value list.
@@ -1033,35 +1030,16 @@ private fun Modifier.boxShadow(
             }
         }
     }
-    // CSS's blur radius is twice the standard deviation of the Gaussian it blurs with. The
-    // shape is drawn into a layer with room for the blur around it, and the layer is
-    // blurred as a whole.
-    val sigma = blur / 2f
-    val margin = ceil(3f * sigma)
-    val layer = obtainGraphicsLayer()
-    layer.record(
-        this,
-        layoutDirection,
-        IntSize(ceil(shadowWidth + 2f * margin).toInt(), ceil(shadowHeight + 2f * margin).toInt()),
-    ) {
-        translate(margin, margin) { drawPath(shapePath, brush) }
-    }
-    layer.renderEffect = BlurEffect(composeBlurRadius(sigma), composeBlurRadius(sigma), TileMode.Decal)
+    // CSS's blur radius is twice the standard deviation of the Gaussian it blurs with. How the
+    // shape is blurred is the platform's: one path with a blurring paint on the Skia
+    // renderers, a blurred layer on Android.
+    val drawShadow = blurredShadow(shapePath, brush, blur / 2f, shadowWidth, shadowHeight)
     onDrawBehind {
         clipPath(boxPath, ClipOp.Difference) {
-            translate(dx - spread - margin, dy - spread - margin) { drawLayer(layer) }
+            translate(dx - spread, dy - spread) { drawShadow() }
         }
     }
 }
-
-/**
- * The radius Compose's blur takes for a Gaussian of standard deviation [sigma].
- *
- * Compose turns a blur radius r into a deviation of 0.57735 r + 0.5, the conversion Skia
- * and Android both use, so this is that conversion run backwards. Below half a pixel there
- * is nothing to blur.
- */
-private fun composeBlurRadius(sigma: Float): Float = max(0f, (sigma - 0.5f) / 0.57735f)
 
 /**
  * A corner radius after a shadow's spread, as CSS Backgrounds 3 gives it: a radius of zero

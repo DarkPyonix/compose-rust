@@ -26,8 +26,9 @@ use windows_crt::{
 };
 
 use renderer_dir::{
-    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RendererKind, RendererLinkage, RendererSource,
-    Request, acquire_renderer, artifact_target, default_cache_root, renderer_linkage,
+    CACHE_DIR_ENV, FetchError, RENDERER_DIR_ENV, RENDERER_URL_ENV, RendererKind, RendererLinkage,
+    RendererSource, Request, acquire_renderer, artifact_target, default_cache_root,
+    renderer_linkage, schema_hash_in_messages,
 };
 
 /// Point at a directory holding a static renderer built in a checkout of this repository
@@ -73,6 +74,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed={MACOS_STATIC_ENV}");
     println!("cargo:rerun-if-env-changed={LINUX_STATIC_ENV}");
     println!("cargo:rerun-if-env-changed={CACHE_DIR_ENV}");
+    println!("cargo:rerun-if-env-changed={RENDERER_URL_ENV}");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_RENDERER_DIR");
     println!("cargo:rerun-if-env-changed=DIOXUS_COMPOSE_CACHE_DIR");
     println!("cargo:rerun-if-env-changed={DOCS_RS_ENV}");
@@ -211,6 +213,15 @@ fn main() {
         .chain((target_os != "windows").then_some(shared_dir.as_path()))
         .collect();
     let cache_root = cache_root();
+    // The schema this crate was generated from. It is what a renderer has to match, so it is
+    // also what the cache is keyed by and what a renderer is looked up by when the release
+    // for this version was built from another one.
+    let crate_schema_hash = read_hash(&manifest_dir.join("schema-hash.txt"));
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("schema-hash.txt").display()
+    );
+    let renderer_url = std::env::var(RENDERER_URL_ENV).ok();
 
     let renderer = match acquire_renderer(&Request {
         env_dir: renamed_var(RENDERER_DIR_ENV, "DIOXUS_COMPOSE_RENDERER_DIR")
@@ -221,6 +232,8 @@ fn main() {
         crate_version: &crate_version,
         target: &target,
         target_os: &target_os,
+        crate_schema_hash: crate_schema_hash.as_deref(),
+        release_base_url: renderer_url.as_deref(),
         fetch: Some(&fetch),
     }) {
         Ok(renderer) => renderer,
@@ -237,10 +250,23 @@ fn main() {
         // tens of megabytes is worth a line; it is written in the past tense because Cargo
         // replays a cached build script's warnings on later builds, and a line claiming to
         // be downloading something would then be a lie.
-        println!(
-            "cargo:warning=compose-rust: unpacked the renderer for v{crate_version} ({target}) into {}",
-            renderer.lib_dir.display()
-        );
+        match crate_schema_hash
+            .as_deref()
+            .filter(|_| renderer.schema_release)
+        {
+            // The release for this version was built from another schema, so the renderer
+            // published for this crate's schema was the one unpacked. Saying so is what
+            // tells a surprising build apart from an ordinary one in the log.
+            Some(hash) => println!(
+                "cargo:warning=compose-rust: unpacked the renderer published for schema {} ({target}) into {}",
+                schema_hash_in_messages(hash),
+                renderer.lib_dir.display()
+            ),
+            None => println!(
+                "cargo:warning=compose-rust: unpacked the renderer for v{crate_version} ({target}) into {}",
+                renderer.lib_dir.display()
+            ),
+        }
     }
 
     let lib_dir = renderer.lib_dir;
@@ -1023,12 +1049,16 @@ package {package}
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.ui.platform.AndroidNativeViewWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
@@ -1042,6 +1072,8 @@ class MainActivity : ComponentActivity() {{
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {{
             AndroidNotifications.permissionAnswered()
         }}
+
+    private var nativeViews: AndroidNativeViewWindow? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
@@ -1063,15 +1095,27 @@ class MainActivity : ComponentActivity() {{
         AndroidNotifications.handle(intent)
         val host = ComposeRustRuntime.host()
         ComposeRustRuntime.attached()
+        val root = FrameLayout(this)
         val view = ComposeView(this)
+        val slotWindow = AndroidNativeViewWindow(root)
+        nativeViews = slotWindow
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
             // grows down into the gesture bar, and whatever is left over is kept off the
             // page there.
-            ComposeRustContent(host, Modifier.fillMaxSize())
+            CompositionLocalProvider(LocalNativeViewWindow provides slotWindow) {{
+                ComposeRustContent(host, Modifier.fillMaxSize())
+            }}
         }}
-        setContentView(view)
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        setContentView(root)
     }}
 
     override fun onStart() {{
@@ -1091,6 +1135,8 @@ class MainActivity : ComponentActivity() {{
     }}
 
     override fun onDestroy() {{
+        nativeViews?.close()
+        nativeViews = null
         // The process may stay without an Activity, and a worker's notification still has
         // to go out from it.
         ComposeRustRuntime.detached()
@@ -1142,10 +1188,11 @@ fn check_schema_agreement(lib_dir: &Path) {
              this crate.\n\n  renderer: {renderer}\n  crate:    {crate_hash}\n\nA program \
              built from the two would compile, start, open a window and draw nothing, \
              because the first call across the boundary is refused.\n\nThe renderer at \
-             {} is the one to replace. A published renderer only matches the crate \
-             version it was published with, so a checkout whose schema has moved needs one \
-             built from that checkout: run the renderer build for this platform, or point \
-             COMPOSE_RUST_RENDERER_DIR at one that was.\n\n",
+             {} is the one to replace. A renderer named by COMPOSE_RUST_RENDERER_DIR, \
+             DXC_MACOS_NATIVE_LIB or DXC_LINUX_NATIVE_LIB, or built in this checkout, is \
+             used as it is: build it again from this tree, or unset the variable (or remove \
+             the checkout's renderer build) and the build looks up the renderer published \
+             for this crate's schema by itself.\n\n",
             lib_dir.display()
         ),
     }

@@ -359,7 +359,7 @@ private fun PopoverContent(
     }
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onDismiss = { dismiss(node, dispatcher) }
-    val menuEntries = popoverMenuEntries(node, content, table)
+    val menuEntries = menuEntriesIn(node, content, table)
     Popup(
         popupPositionProvider = provider,
         // Escape is not the popup's to act on: the overlay stack gives it to the topmost
@@ -413,48 +413,4 @@ private fun PopoverContent(
             }
         }
     }
-}
-
-/**
- * The entries of a popover whose content is a menu, in tree order, or null when the popover
- * is not a menu.
- *
- * A popover is a menu when it or a node in its content declares [SemanticsRole.Menu], or when
- * its content holds nodes that declare [SemanticsRole.MenuItem]. When items are marked with
- * [SemanticsRole.MenuItem], those nodes are the entries. Otherwise the direct children of the
- * node that declared [SemanticsRole.Menu] are the entries, as in a `Menu` widget.
- */
-private fun popoverMenuEntries(
-    popover: Node,
-    content: List<Int>,
-    table: NodeTable,
-): List<Int>? {
-    val menuItems = mutableListOf<Int>()
-    var menuContainer: Node? = if (popover.declaredSemanticsRole() == SemanticsRole.Menu) popover else null
-
-    fun walk(id: Int) {
-        val current = table.node(id) ?: return
-        when (current.declaredSemanticsRole()) {
-            SemanticsRole.MenuItem -> {
-                menuItems += id
-                return
-            }
-            SemanticsRole.Menu -> if (menuContainer == null) menuContainer = current
-            else -> {}
-        }
-        // Do not descend into a nested overlay's own content.
-        if (current.widget == WidgetKind.Popover ||
-            current.widget == WidgetKind.Menu ||
-            current.widget == WidgetKind.Dialog ||
-            current.widget == WidgetKind.Sheet
-        ) {
-            return
-        }
-        for (childId in current.children) walk(childId)
-    }
-
-    for (childId in content) walk(childId)
-    if (menuItems.isNotEmpty()) return menuItems
-    val container = menuContainer ?: return null
-    return if (container.id == popover.id) content else container.children
 }

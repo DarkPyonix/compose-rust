@@ -56,6 +56,13 @@
 #     the same files.
 #   - A dispatch with no tag, or with `desktop_only`, builds and uploads workflow artifacts
 #     and creates no release (a dry run). `desktop_only` skips Android, iOS and the web.
+#   - `samples` narrows the desktop build to the samples it names. ci.yml's owner_checks
+#     suite builds owner-checks alone this way, on the desktop only.
+#
+# The owner-checks sample is also uploaded on its own, as owner-checks-macos-arm64,
+# owner-checks-windows-x64, owner-checks-linux-x64 and owner-checks-linux-arm64: the app a
+# person runs for the hand checks before a release, with a README.txt that says how to
+# start it and which commit it was built from (.github/scripts/owner-checks-download.sh).
 
 name: Samples test
 
@@ -79,6 +86,12 @@ on:
         required: false
         type: boolean
         default: false
+      samples:
+        description: Samples to build on the desktop, by directory name and separated by
+          commas (owner-checks); empty builds every sample
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       windows_kit_built:
@@ -99,6 +112,12 @@ on:
         required: false
         type: boolean
         default: false
+      samples:
+        description: Samples to build on the desktop, by directory name and separated by
+          commas (owner-checks); empty builds every sample
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -355,6 +374,8 @@ jobs:
         run: echo "DXC_WINDOWS_NATIVE_LIB=$(cygpath -m "$RUNNER_TEMP/renderer-kit")" >> "$GITHUB_ENV"
 
       - name: Build every sample against it
+        env:
+          SAMPLES: ${{ inputs.samples }}
         # A sample that does not build is skipped rather than allowed to end the run. The
         # point of this workflow is to put programs in front of people, and one sample
         # failing to compile on one platform is not a reason to ship none of the other ten
@@ -365,6 +386,9 @@ jobs:
         run: |
           set -uo pipefail
           [[ -z "${RENDERER:-}" ]] || export COMPOSE_RUST_RENDERER_DIR="$RENDERER"
+          # The commit, for a sample's about screen to show which build it is.
+          COMPOSE_RUST_SAMPLE_COMMIT="$(git rev-parse HEAD)"
+          export COMPOSE_RUST_SAMPLE_COMMIT
           : > built.txt
           : > skipped.txt
           for manifest in samples/*/Cargo.toml; do
@@ -374,6 +398,11 @@ jobs:
             # is not a failure and must not be reported as one.
             if [[ ! -f "samples/$app/src/main.rs" ]]; then
               echo "-- $app is a library, not an application"
+              continue
+            fi
+            # Only the samples asked for, when the run named some.
+            if [[ -n "${SAMPLES// /}" && ",${SAMPLES// /}," != *",$app,"* ]]; then
+              echo "-- $app was not asked for"
               continue
             fi
             echo "== sample-$app"
@@ -558,6 +587,28 @@ jobs:
         with:
           name: samples-${{ matrix.target }}
           path: artifacts/
+
+      - name: Lay out the owner-checks download
+        # The app a person runs for the hand checks before a release, under a name of its
+        # own with a README.txt, so nobody has to find it among the other samples.
+        id: owner_checks
+        if: hashFiles('built.txt') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -qx owner-checks built.txt; then
+            echo "owner-checks was not built for ${{ matrix.target }}, so there is no download"
+            exit 0
+          fi
+          .github/scripts/owner-checks-download.sh "${{ matrix.target }}" "$(git rev-parse HEAD)" \
+            owner-checks-download | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the owner-checks download
+        if: steps.owner_checks.outputs.name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.owner_checks.outputs.name }}
+          path: owner-checks-download/${{ steps.owner_checks.outputs.name }}/
 
   android:
     needs: requested
