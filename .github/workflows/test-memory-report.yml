@@ -79,6 +79,7 @@ jobs:
           key: compose-linux-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
+        id: kotlin-cache
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -105,7 +106,7 @@ jobs:
         run: ./renderer/scripts/build-compose.sh --target linux
 
       - name: Keep the patched Compose for the next run
-        if: steps.compose-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && steps.compose-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository
@@ -114,6 +115,15 @@ jobs:
       - name: Build the static renderer
         # Release, as the linux-x64 release asset is built.
         run: ./renderer/desktop/scripts/build-linux.sh --release
+
+      - name: Keep the Kotlin toolchain for the next run
+        if: github.event_name != 'pull_request' && steps.kotlin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+          key: ${{ steps.kotlin-cache.outputs.cache-primary-key }}
 
       - name: Install the Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
