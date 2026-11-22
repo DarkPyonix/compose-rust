@@ -5801,7 +5801,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 |---|---|---|---|
 | NFR-1 | JVM 불필요 | 배포물에 JRE가 없고, `java`가 없는 머신에서 실행됨 | Agreed |
 | NFR-2 | 코어 웹뷰 불필요 | 코어 크레이트는 WKWebView, WebView2, WebKitGTK에 링크하지 않음(웹뷰는 opt-in 별도 크레이트로만 제공) | Agreed |
-| NFR-3 | 데스크톱 무게 | 빈 창 < 56MB(OS별 지표는 아래), 배포 용량 < 100MB. 측정 기준과 근거는 §5.2. 한도는 56MB 그대로이고, 지표와 상태는 OS별이다 ([leader, 2026-11-22]). **macOS**: 지표 physical footprint. 충족. Kotlin/Native 렌더러의 값은 35.1~39MB이고 `docs/platforms.md`의 "빈 창 하나가 쓰는 메모리"가 적고 있다. **Windows**: 지표 private working set. 충족. +60초 18.8MB, +10초 19.9MB. CI 러너의 WARP(소프트웨어 D3D12) 어댑터에서 잰 값이고 실행 45010220308이 근거다. **Linux**: 지표 PSS. CI에서는 판정하지 않음. Xvfb 위의 Mesa 소프트웨어 GL(llvmpipe)에서 +60초 81.1MB, +10초 82.3MB이고 실행 45010220308이 근거다. libLLVM과 libgallium이 41MB이고 나머지가 약 40MB다. 하드웨어 GPU를 쓰는 Linux의 판독은 소유자 항목이다(DarkPyonix/darkpyonix#141) | Agreed |
+| NFR-3 | 데스크톱 무게 | 빈 창 < 56MB(OS별 지표는 아래), 배포 용량 < 100MB. 측정 기준과 근거는 §5.2. 한도는 56MB 그대로이고, 지표와 상태는 OS별이다 ([leader, 2026-11-22]). **macOS**: 지표 physical footprint. 충족. Kotlin/Native 렌더러의 값은 35.1~39MB이고 `docs/platforms.md`의 "빈 창 하나가 쓰는 메모리"가 적고 있다. **Windows**: 지표 private working set. 충족. +60초 18.8MiB, +10초 19.9MiB. CI 러너의 WARP(소프트웨어 D3D12) 어댑터에서 잰 값이고 실행 45010220308이 근거다. **Linux**: 지표 PSS. CI에서는 판정하지 않음. Xvfb 위의 Mesa 소프트웨어 GL(llvmpipe)에서 +60초 81.1MiB, +10초 82.3MiB이고 실행 45010220308이 근거다. 소프트웨어 GL이 약 40MiB이고 나머지는 중앙값에서 약 41MiB다. 하드웨어 GPU를 쓰는 Linux의 판독은 소유자 항목이다(DarkPyonix/darkpyonix#141) | Agreed |
 | NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족으로 적었던 기록**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 이 기록이 스스로 적듯 Linux와 Windows는 빌드와 스모크 테스트까지이고, 같은 화면을 확인한 기록이 없습니다. 또 macOS의 확인은 데스크톱 렌더러가 Kotlin/Native 정적 렌더러로 바뀌기(NFR-14, 2026-10-04) 전의 렌더러로 한 것입니다 | Agreed |
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족으로 적었던 기록**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 지금 `renderer/desktop/src`에서만 Compose의 실험 또는 내부 API 표시(`@ExperimentalComposeUiApi`, `@ExperimentalTextApi`, `@InternalComposeUiApi`)를 쓰는 파일이 15개이고(2026-11-21에 그 세 이름으로 grep), 어댑터 한 파일에 모여 있지 않습니다. 그래서 2026-09-22의 근거는 더 이상 맞지 않습니다 | Agreed |
@@ -5924,11 +5924,11 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 - **실행**: CI 실행 45010220308 (`ci/targeted-1`, 스위트 `test_compose_from_fork,memory_report`). 잰 커밋은 82236d3e이다. 이 커밋은 PR #989의 머리 2ed7e7a9를 `ci/targeted-1`에 합친 것이다.
 - **조건**: `blank-window`, 창 800x600, 3번 띄워 중앙값. 두 잡 "Blank window memory (Linux, x64)"와 "(Windows, x64)"가 모두 성공했다.
-- 단위: 요약 표의 MB는 kB를 1024로 나눈 값이다.
+- 단위: 이 절의 MiB는 kB를 1024로 나눈 값이다. CI 요약이 계산한 그대로다.
 
 Linux (PSS, Xvfb 위의 Mesa 소프트웨어 GL)
 
-| 시점 | 값 | 중앙값 (MB) | 최소 (MB) | 최대 (MB) |
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
 |---|---|---|---|---|
 | +10초 | **PSS** | **82.3** | 82.1 | 92.1 |
 | +10초 | RSS (참고) | 108.7 | 108.6 | 118.5 |
@@ -5941,23 +5941,23 @@ Linux (PSS, Xvfb 위의 Mesa 소프트웨어 GL)
 | +60초 | PSS file | 52.5 | 52.4 | 58.4 |
 | +60초 | Private dirty | 27.6 | 27.5 | 31.6 |
 
-Linux PSS 내역. 첫 번째 실행(launch 1)의 +60초 판독이고, `smaps-launch-1.txt`가 그 시점의 가장 큰 매핑 25개를 담는다. 이 실행의 PSS는 93191kB(91.0MB)로 3번 중 가장 크다. 이 표의 MB는 kB를 1000으로 나눈 값이다.
+Linux PSS 내역. 첫 번째 실행(launch 1)의 +60초 판독이고, `smaps-launch-1.txt`가 그 시점의 가장 큰 매핑 25개를 담는다. 이 실행의 PSS는 93191kB(91.0MiB)로 3번 중 가장 크다. kB는 파일의 값이고 MiB는 kB를 1024로 나눈 값이다.
 
-| 매핑 | PSS (kB) | PSS (MB) |
+| 매핑 | PSS (kB) | PSS (MiB) |
 |---|---|---|
-| libLLVM.so.21.1 | 32310 | 32.3 |
-| blank-window 실행 파일 | 21120 | 21.1 |
-| `[heap]` | 15636 | 15.6 |
-| `[anonymous]` | 9904 | 9.9 |
-| libgallium | 8832 | 8.8 |
-| 나머지 합계 | 5389 | 5.4 |
-| **합계** | **93191** | **93.2** |
+| libLLVM.so.21.1 | 32310 | 31.6 |
+| blank-window 실행 파일 | 21120 | 20.6 |
+| `[heap]` | 15636 | 15.3 |
+| `[anonymous]` | 9904 | 9.7 |
+| libgallium | 8832 | 8.6 |
+| 나머지 합계 | 5389 | 5.3 |
+| **합계** | **93191** | **91.0** |
 
-libLLVM과 libgallium은 Mesa 소프트웨어 래스터라이저(llvmpipe)의 몫이고 합쳐 41.1MB다. 하드웨어 GPU에서는 이 둘이 없을 수 있으므로 이 값을 Linux 일반의 값으로 읽지 않는다.
+libLLVM + libgallium = 41142kB (40.2MiB), launch 1. 둘은 Mesa 소프트웨어 래스터라이저(llvmpipe)의 몫이다. 하드웨어 GPU에서는 없을 수 있으므로 이 값을 Linux 일반의 값으로 읽지 않는다. 중앙값 81.1MiB에서 40.2MiB를 빼면 나머지는 약 41MiB다.
 
 Windows (private working set, WARP)
 
-| 시점 | 값 | 중앙값 (MB) | 최소 (MB) | 최대 (MB) |
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
 |---|---|---|---|---|
 | +10초 | **Private working set** | **19.9** | 19.9 | 19.9 |
 | +10초 | Working set (참고) | 61.2 | 61.2 | 62.7 |
