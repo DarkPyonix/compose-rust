@@ -73,6 +73,8 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     // the window's own menu on, and an application that draws its own keeps it off.
     "fr33_1_windows_focused_field_turns_the_system_edit_menu_on",
     "fr33_1_windows_drawn_menu_leaves_the_system_edit_menu_off",
+    // The system's file dialog, owned by the window that asked (FR-72).
+    "fr72_windows_file_dialog_opens_on_its_window_and_ends_with_it",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -101,6 +103,7 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::wheelTurnedForwardScrollsTowardTheTop,
         ::focusedFieldTurnsTheSystemEditMenuOn,
         ::drawnMenuLeavesTheSystemEditMenuOff,
+        ::fileDialogOpensOnItsWindowAndEndsWithIt,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -126,6 +129,62 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/**
+ * FR-72: a `ShowFileDialog` for a window opens the system's file dialog owned by that window,
+ * without stopping the loop, and a window that goes away ends its dialog with exactly one
+ * Cancelled. Before the Windows renderer installed a platform, every request was Unavailable
+ * at once.
+ */
+private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
+    val before = FileDialogs.platform
+    val beforeInstalled = installedWindowsFileDialogs
+    val dialogs = WindowsFileDialogPlatform()
+    FileDialogs.platform = dialogs
+    installedWindowsFileDialogs = dialogs
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + windowNode(2))
+    try {
+        dialogs.nodeWindow = { id -> h.host.table.fileDialogs.windowResolver(id) }
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        fun results() = h.connection.events.filterIsInstance<HostEvent.FileDialogResult>().filter { it.request == 7 }
+        h.batch(
+            Mutation.ShowFileDialog(
+                request = 7,
+                window = 1,
+                kind = dev.darkpyonix.composerust.protocol.FileDialogKind.OpenFile,
+                defaultFilter = 0,
+                title = "fr72 check",
+                directory = "",
+                name = "",
+                filters = "",
+            ),
+        )
+        // The dialog is up, owned by window 1, and the loop still turns while it is.
+        h.until("the file dialog to open on window 1") {
+            platform.windows.GetWindow(one.handle.reinterpret(), GW_ENABLEDPOPUP) != null
+        }
+        check(results().isEmpty()) { "the request was answered ${results().map { it.status }} while its dialog was open" }
+        h.forMillis(300)
+        check(results().isEmpty()) { "the dialog ended by itself: ${results().map { it.status }}" }
+
+        // Window 1 goes away: its dialog ends with one cancel, and window 2 is untouched.
+        h.batch(Mutation.Remove(1))
+        h.until("the dialog of the removed window to end") { results().isNotEmpty() }
+        h.forMillis(300)
+        check(results().size == 1) { "the request was answered ${results().size} times" }
+        check(results().single().status == dev.darkpyonix.composerust.protocol.FileDialogStatus.Cancelled) {
+            "the dialog of a removed window ended ${results().single().status}, not Cancelled"
+        }
+        check(h.backend.find(2) != null) { "window 2 went with window 1's dialog" }
+    } finally {
+        FileDialogs.platform = before
+        installedWindowsFileDialogs = beforeInstalled
+        h.close()
+    }
+}
+
+/** GetWindow's "the enabled popup this window owns": a dialog it is the owner of. */
+private const val GW_ENABLEDPOPUP = 6u
 
 /** A text field holding [value] in window [windowId]. */
 private fun textFieldIn(windowId: Int, id: Int, value: String): List<Mutation> = listOf(

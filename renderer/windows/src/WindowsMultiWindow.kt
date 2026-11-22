@@ -32,6 +32,8 @@ internal fun runMultiWindow(host: ComposeRustHost): Int {
     val windows = Win32System.windows
     val loop = MultiWindowLoop(host) { windows.postQuit(0) }
     loop.attach()
+    // A file dialog for node 0 in an application of several windows goes to the first open one.
+    installedWindowsFileDialogs?.rootWindow = { loop.backend.handles.firstOrNull() }
     if (loop.backend.openCount == 0 && host.roots.isNotEmpty()) {
         // Windows were asked for and none opened. Told to the application as WindowUnavailable
         // where it listens, and to the person here, as a window on its own says it.
@@ -114,10 +116,12 @@ internal class MultiWindowLoop(
             // A pump with no window does not wait, and a loop that kept the policy
             // `KeepRunning` with none open would spin.
             Win32Loop.pump(0.0)
+            deliverWindowsFileDialogs()
             platform.windows.Sleep(IDLE_MILLIS)
             return false
         }
         Win32Loop.pump(if (rest) FRAME_SECONDS else 0.0)
+        deliverWindowsFileDialogs()
         return backend.turn()
     }
 

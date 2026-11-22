@@ -46,7 +46,14 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
         modifier.nativeFileDrop(node, dispatcher)
     }
+    // The file dialogs (FR-72), before the Host exists: the node table takes the platform when
+    // it is made, and the first batch may already ask for one. The windows they belong to are
+    // handed in once they exist.
+    val fileDialogs = WindowsFileDialogPlatform()
+    installedWindowsFileDialogs = fileDialogs
+    FileDialogs.platform = fileDialogs
     val host = ComposeRustHost(connection())
+    fileDialogs.nodeWindow = { id -> host.table.fileDialogs.windowResolver(id) }
     host.start()
 
     // What the application asked for. A window that said nothing is listed under whatever
@@ -80,6 +87,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         return RendererApi.RUN_FAILED
     }
 
+    fileDialogs.rootWindow = { window.handle }
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
         window.setContent { WindowContent(host) }
