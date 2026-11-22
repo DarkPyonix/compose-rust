@@ -2139,6 +2139,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 
 ### FR-23 브러시, 폰트, 재질 (`Draft`)
 
+> **검증 기록(#58).** 선형 브러시 해석과 미등록 ID 보고는 `fr23_a_gradient_is_read_into_a_brush`, `fr23_an_unregistered_brush_is_reported_rather_than_guessed`로 확인했습니다. 여섯 시스템의 `Surface` 픽셀과 브러시 사용 중 Host의 무할당은 확인하지 않았습니다. 글꼴 해석, 다른 역할 유지, 폴백은 `fr23_a_role_resolved_to_a_registered_font_is_written_in_it`, `fr23_naming_a_font_for_one_role_leaves_the_others_alone`, `fr23_an_id_that_names_nothing_leaves_the_role_on_the_system_face`로 확인했습니다. 재질의 시스템별 채움 및 불투명 대체는 `fr23_the_same_material_gives_a_different_fill_in_each_system`, `fr23_a_surface_that_cannot_blur_falls_back_to_an_opaque_fill`로 확인했습니다.
+
 13.7이 셋을 뺐고, 셋 다 같은 이유였습니다. 값이 `(u64, u64)` 모디파이어 슬롯에 들어가지 않는다는 것입니다. 그것은 맞지만 기능을 빼는 근거는 아닙니다. FR-16이 이미 리소스를 등록하고 id로 참조하는 길을 냈고, 셋 다 그 길을 씁니다. 레코드는 고정 길이로 남고 PR-4는 그대로입니다.
 
 #### 23.1 그라데이션과 이미지 브러시
@@ -2161,6 +2163,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
 
 ### FR-24 모션 (`Draft`)
+
+> **검증 기록(#58).** `fr24_each_design_system_answers_standard_with_its_own_length`, `fr24_a_system_asked_to_hold_still_answers_every_role_with_no_run`은 모션 역할의 해석을 확인합니다. 24.1의 종료, 중단, 모션 감소, 첫 배치, 핸들러 없음, 삭제 및 왕복 시험은 아래 기준에 적었습니다. 일곱 시스템의 실제 전환 시간과 시스템별 단일 종료 이벤트, 정상 상태 무할당은 확인하지 않았습니다.
 
 13.7은 "애니메이션 스펙"을 뺐고 그 이유는 옳았습니다. Host가 duration과 easing을 보내면 디자인 시스템이 모션을 결정한다는 FR-14가 무너집니다. 빠져 있던 것은 값이 아니라 **말할 방법**이었습니다. 색과 간격이 역할로 말해지듯 모션도 역할로 말합니다.
 
@@ -2206,27 +2210,31 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 
 ### FR-25 Grid (`Draft`)
 
+> **검증 기록(#58).** `fr25_a_window_grows_to_the_rows_it_touches`, `fr25_the_last_row_may_be_short`, `fr25_an_empty_window_stays_empty`는 행 범위를 확인합니다. 1,000개 그리드의 실제 스크롤, 창 크기 변경 뒤의 열과 순서, 그리고 크기 0 아이템의 경계 호출 수는 확인하지 않았습니다.
+
 지연 그리드입니다. FR-8이 한 축을 창으로 보는 규약을 정했고, 그리드는 그 규약을 행 단위로 씁니다. 두 번째 윈도잉 프로토콜을 만들지 않습니다.
 
 - `LazyGrid`: 열 수를 고정으로 받거나(`columns`), 최소 폭으로 받습니다(`min_column_width`). 후자는 Renderer가 자기 폭으로 열 수를 정하므로 크기 클래스와 같은 종류의 판단이고, Host는 관여하지 않습니다.
 - 창 프로토콜은 FR-8 그대로입니다. 요청 단위가 아이템이 아니라 **행**이라는 것만 다릅니다. 행 하나는 열 수만큼의 아이템이고, 마지막 행은 덜 찰 수 있습니다.
 - 수용 기준: 아이템 1000개짜리 그리드가 보이는 행만 만들고, 스크롤이 창을 옮기며, 창 밖 아이템의 노드는 존재하지 않습니다. 창 크기가 바뀌어 열 수가 달라지면 행 경계가 다시 계산되고 아이템 순서는 유지됩니다. 크기 0 아이템으로 채운 그리드가 경계 호출을 되풀이하지 않습니다(FR-8과 같은 회귀).
 
-### FR-26 서식 있는 텍스트 (`Draft`)
+### FR-26 서식 있는 텍스트 (`Done`)
 
 `Text`의 스팬 모델입니다. 위젯을 더하는 것이 아니라 `Text`가 구간마다 다른 역할을 가질 수 있게 하는 것입니다.
 
 - `Text`에 선택적인 스팬 목록을 싣습니다. 스팬 하나는 `(시작, 길이, TypeRole?, Paint?, 굵게, 기울임, 밑줄, 취소선, 링크 핸들러 id?)`입니다. 고정 길이 레코드이고 FR-16의 바이트와 같은 방식으로 레코드 영역 뒤에 놓입니다.
 - 마크다운은 **Host 쪽 편의 함수**입니다. Rust에서 마크다운을 스팬으로 바꿔 보내고, 경계에는 스팬만 건넙니다. 렌더러가 마크다운을 아는 일은 없습니다.
 - 링크: 스팬이 핸들러 id를 들고 있으면 그 구간이 눌렸을 때 `Clicked`를 보냅니다. 새 이벤트 태그를 만들지 않습니다.
-- **스팬은 배경 `Paint`도 싣습니다** (2026-10-03 추가, `Draft`). 구간 하나의 글자 뒤만 칠하는 것으로, diff 안에서 실제로 바뀐 단어를 강조하는 것(13.1-3의 `DiffAddedEmphasis`, `DiffRemovedEmphasis`)이 그 쓰임입니다. 줄 전체의 배경은 지금처럼 노드의 `Modifier::Background`이고, 이것은 줄 안의 일부입니다.
+- **스팬은 배경 `Paint`도 싣습니다** (2026-10-03 추가, `Done`). 구간 하나의 글자 뒤만 칠하는 것으로, diff 안에서 실제로 바뀐 단어를 강조하는 것(13.1-3의 `DiffAddedEmphasis`, `DiffRemovedEmphasis`)이 그 쓰임입니다. 줄 전체의 배경은 지금처럼 노드의 `Modifier::Background`이고, 이것은 줄 안의 일부입니다.
   - 스팬 레코드는 28바이트에서 **36바이트**가 됩니다. 글자색 `Paint` 뒤에 `background: Paint`(u64) 하나를 더하고, 0은 "배경 없음"입니다. 글자색과 배경을 한 `Paint` 자리에 플래그로 번갈아 싣는 방법은 쓰지 않습니다. 한 구간이 둘을 같이 가질 수 없게 되고, 바뀐 단어는 대개 글자색(문법 역할)과 배경(diff 강조)을 같이 가집니다.
   - 받는 값은 다른 `Paint` 자리와 같습니다. 역할이 먼저이고 리터럴은 탈출구입니다(13.1). 속성 태그는 그대로 `Spans`(64)이고, 레코드 길이가 바뀌므로 스키마 해시가 움직입니다. 레코드는 Rust 쪽(`spans.rs`)에 정의하고 Kotlin 디코더는 codegen이 생성합니다(FR-7).
   - 배경은 구간의 글자 상자를 칠하며, 줄이 바뀌는 구간은 줄마다 따로 칠합니다. 모양과 안쪽 여백은 두지 않습니다. 그것은 디자인 시스템이 정할 것이 생기면 그때 역할로 말할 일입니다.
-- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**일부 증명**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간이 다르게 그려지고 링크만 클릭을 보고하는 것, 스팬 없는 `Text`의 레코드가 그대로인 것은 시험이 없습니다]
+- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**증명됨**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간의 그리기 및 링크 클릭은 `fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click`, 스팬이 없는 `Text`는 `fr26_a_text_with_no_spans_keeps_its_record_size_and_path`가 확인합니다]
 - 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다. [**증명됨**: `fr26_a_background_paints_behind_its_own_run_and_nowhere_else`, `fr26_a_run_with_a_colour_and_a_background_draws_both`, `fr26_a_run_carries_its_colour_and_its_background_apart`, `fr26_the_runs_in_the_vector_decode_to_the_same_values`, `fr26_a_run_without_a_background_paints_nothing_behind_it`]
 
 ### FR-27 파일 드래그 앤 드롭 (`Draft`)
+
+> **검증 기록(#58).** `fr27_two_paths_arrive_as_one_event`, `fr27_files_let_go_where_no_target_is_reach_nothing`, `fr27_an_unreadable_path_is_dropped_and_the_rest_arrive`로 각 동작을 확인했습니다. Windows 이벤트 경로는 `fr27_windows_window_file_events_reach_the_target_under_them`이 확인합니다. 세 데스크톱에서 실제 파일을 떨어뜨리는 확인은 남았습니다.
 
 창에 파일을 떨어뜨리는 것입니다. 포인터 드래그 자체는 FR-18이고 이것과 별개입니다.
 
@@ -2236,6 +2244,8 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 - 수용 기준: 데스크톱에서 파일 두 개를 떨어뜨리면 경로 두 개가 한 이벤트로 도착합니다. 받을 준비가 없는 노드 위에서는 이벤트가 발생하지 않습니다. 경로에 UTF-8이 아닌 바이트가 있으면 그 파일을 버리고 나머지를 전달하며, 프로세스를 중단하지 않습니다.
 
 ### FR-28 노드 크기 관찰 (`Draft`)
+
+> **검증 기록(#58).** `fr28_an_observed_node_reports_both_classes_in_one_event`, `fr28_first_measurement_always_reports`, `fr28_every_dp_node_reports_a_resize_inside_one_class`, `fr28_every_dp_coalesces_measurements_within_a_frame` 및 `fr28_every_dp_off_by_default_keeps_the_record_bytes`를 확인했습니다. 미구독 트리의 경계 호출 수, 기본 모드에서 같은 클래스 안의 변화 억제, 노드 삭제 뒤 구독 해제는 별도 확인이 남았습니다.
 
 FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답합니다. 컨테이너 질의(container query)에 해당하는 것으로, 창이 아니라 자기가 놓인 자리에 맞춰 모습을 바꾸는 컴포넌트가 이것을 씁니다.
 
@@ -2249,6 +2259,8 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - 수용 기준: 구독이 하나도 없는 트리의 프레임당 경계 호출 수가 FR-20만 있을 때와 같습니다. 구독한 노드의 폭이 클래스 경계를 넘으면 이벤트가 한 번 오고, 같은 클래스 안에서 바뀌는 동안에는 오지 않습니다. 노드가 트리에서 사라지면 구독도 사라집니다.
 
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
+
+> **검증 기록(#58).** `fr29_a_window_made_of_chrome_lets_its_backdrop_through`, `fr29_a_window_that_did_not_ask_is_painted_as_before`는 그리기 경로를 확인합니다. `fr29_light_theme_asks_the_window_for_aqua`, `fr29_dark_theme_asks_the_window_for_dark_aqua`, `fr29_follow_system_leaves_the_window_on_the_system`은 창에 요청할 모양을 확인합니다. 실제 창 뒤 배경을 바꾼 두 장의 캡처, 재질이 없는 창에 `NSVisualEffectView`가 없는지, Windows와 Linux의 대체 그리기는 확인이 남았습니다.
 
 14.1-2가 "우리가 그릴 수 없는 것"으로 분류했던 것입니다. macOS에서 창 뒤의 시스템 배경을 비추는 재질이고, `NSVisualEffectView`가 그립니다.
 
