@@ -1,0 +1,24 @@
+# The application the HiDPI check runs in: `.github/scripts/hidpi-windows-check.sh` and
+# `hidpi-linux-check.sh` start it with `--check` and COMPOSE_RUST_FR82_CHECK set, and the
+# renderer draws its marker scene and checks it in place of this program's tree.
+#
+# compose-rust's Windows manifest is a feature of this crate, on by default, so the same
+# program also builds without it (`--no-default-features`). The check of per-monitor v2 DPI
+# awareness runs in both: an application that embeds a manifest of its own turns
+# compose-rust's off, and its windows have to be just as sharp.
+#
+# Its own workspace root, like the consumer fixture beside it, and no build script.
+[workspace]
+
+[package]
+name = "hidpi"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["windows-manifest"]
+windows-manifest = ["compose-rust/windows-manifest"]
+
+[dependencies]
+compose-rust = { path = "../../..", default-features = false, features = ["native-renderer"] }
