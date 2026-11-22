@@ -5801,7 +5801,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 |---|---|---|---|
 | NFR-1 | JVM 불필요 | 배포물에 JRE가 없고, `java`가 없는 머신에서 실행됨 | Agreed |
 | NFR-2 | 코어 웹뷰 불필요 | 코어 크레이트는 WKWebView, WebView2, WebKitGTK에 링크하지 않음(웹뷰는 opt-in 별도 크레이트로만 제공) | Agreed |
-| NFR-3 | 데스크톱 무게 | 빈 창 physical footprint < 56MB, 배포 용량 < 100MB. 측정 기준과 근거는 §5.2 | Agreed |
+| NFR-3 | 데스크톱 무게 | 빈 창 < 56MB(OS별 지표는 아래), 배포 용량 < 100MB. 측정 기준과 근거는 §5.2. 한도는 56MB 그대로이고, 지표와 상태는 OS별이다 ([leader, 2026-11-22]). **macOS**: 지표 physical footprint. 충족. Kotlin/Native 렌더러의 값은 35.1~39MB이고 `docs/platforms.md`의 "빈 창 하나가 쓰는 메모리"가 적고 있다. **Windows**: 지표 private working set. 충족. +60초 18.8MB, +10초 19.9MB. CI 러너의 WARP(소프트웨어 D3D12) 어댑터에서 잰 값이고 실행 45010220308이 근거다. **Linux**: 지표 PSS. CI에서는 판정하지 않음. Xvfb 위의 Mesa 소프트웨어 GL(llvmpipe)에서 +60초 81.1MB, +10초 82.3MB이고 실행 45010220308이 근거다. libLLVM과 libgallium이 41MB이고 나머지가 약 40MB다. 하드웨어 GPU를 쓰는 Linux의 판독은 소유자 항목이다(DarkPyonix/darkpyonix#141) | Agreed |
 | NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족으로 적었던 기록**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 이 기록이 스스로 적듯 Linux와 Windows는 빌드와 스모크 테스트까지이고, 같은 화면을 확인한 기록이 없습니다. 또 macOS의 확인은 데스크톱 렌더러가 Kotlin/Native 정적 렌더러로 바뀌기(NFR-14, 2026-10-04) 전의 렌더러로 한 것입니다 | Agreed |
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족으로 적었던 기록**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 지금 `renderer/desktop/src`에서만 Compose의 실험 또는 내부 API 표시(`@ExperimentalComposeUiApi`, `@ExperimentalTextApi`, `@InternalComposeUiApi`)를 쓰는 파일이 15개이고(2026-11-21에 그 세 이름으로 grep), 어댑터 한 파일에 모여 있지 않습니다. 그래서 2026-09-22의 근거는 더 이상 맞지 않습니다 | Agreed |
@@ -5841,7 +5841,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 
 **측정 기준은 macOS의 physical footprint입니다.** RSS는 이미지에서 매핑된 깨끗한 페이지까지 세기 때문에 실제 점유량을 과장합니다. 같은 프로세스가 RSS 127MB, footprint 54MB로 두 배 넘게 차이납니다. Activity Monitor의 "메모리" 열이 footprint입니다. 측정은 `desktop/scripts/measure-memory.sh`로 재현합니다.
 
-**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창)**
+**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창, 예전 GraalVM 이미지)**
 
 | 영역 | dirty | 정체 |
 |---|---|---|
@@ -5864,7 +5864,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 3. **로케일과 도달 가능 코드는 footprint에 영향이 없습니다.** 이미지 코드와 읽기 전용 힙은 `__TEXT`(18MB)와 깨끗한 `__DATA`(8.7MB)에 들어가고, footprint는 dirty 페이지만 셉니다. 이 레버들은 디스크 용량(65MB)을 줄이지 resident를 줄이지 않습니다.
 4. **`skiko.buffering=DOUBLE`은 JVM에서는 1.9MB를 줄이지만 네이티브 이미지에서는 동작하지 않습니다.** Skiko의 속성 보관 객체가 이미지 빌드 시점에 초기화돼서, 시작 시점에 설정한 값이 너무 늦게 도착합니다. IOSurface가 9408KB로 동일한 것을 측정으로 확인했습니다.
 
-**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`)**
+**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`, 예전 GraalVM 이미지)**
 
 지표가 다릅니다. macOS는 physical footprint, Windows는 작업 관리자가 "메모리" 열에 보여 주는
 private working set입니다. 직접 빼서 비교할 수 있는 값이 아니지만, **비교가 유리한 쪽이
@@ -5904,7 +5904,7 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 
 **Kotlin/Native 빈 창 측정 방법 (Linux, Windows; #59)**
 
-위 표와 Windows 숫자는 GraalVM 네이티브 이미지로 잰 것이다. 지금 데스크톱이 싣는 Kotlin/Native 렌더러의 빈 창은 아래 방법으로 잰다. 이 방법은 보고만 하고 판정하지 않는다. 56MB 목표와 위 표는 그대로 둔다. Kotlin/Native 숫자는 이 방법의 첫 실행 결과로 다음 변경에서 OS별로 기록한다(#59, 아직 없음).
+위 표와 Windows 숫자는 GraalVM 네이티브 이미지로 잰 것이다. 지금 데스크톱이 싣는 Kotlin/Native 렌더러의 빈 창은 아래 방법으로 잰다. 이 방법은 보고만 하고 판정하지 않는다. 56MB 목표와 위 표는 그대로 둔다. Kotlin/Native 숫자는 이 방법의 첫 실행 결과로 아래에 OS별로 기록한다(#59).
 
 - **앱**: `compose-rust/tests/fixtures/blank-window`. 800x600dp 창 하나에 창을 채우는 빈 `Box` 하나뿐이다. 내용과 입력이 없으므로 프로세스가 쥔 메모리는 렌더러, 그래픽 서피스, 창의 몫이다.
 - **빌드**: 같은 커밋의 릴리스 렌더러에 링크한다. Linux는 `build-linux.sh --release`로 그 자리에서 만들고, Windows는 같은 실행의 `windows-static-renderer-kit`을 받는다.
@@ -5919,6 +5919,54 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 - **실행**: 리더가 `ci.yml`을 `suites: memory_report`로 dispatch한다. `all`, `fast`, `measure`에는 들어가지 않는다. 결과는 잡 요약의 표와, 모든 샘플을 담은 `memory-report-linux-x64`, `memory-report-windows-x64` 아티팩트(JSON)다.
 - **실패 조건**: 첫 판독 전에 앱이 사라지거나 판독이 하나도 없을 때만 실패한다. 숫자로는 실패하지 않는다. 아무것도 재지 못한 보고가 통과로 읽히면 안 되기 때문이다.
 - **한계**: CI 러너에는 그래픽 카드가 없다. Linux는 Xvfb 위의 Mesa 소프트웨어 래스터라이저로, Windows는 Basic Render Driver의 WARP로 100% 배율에서 그린다. 실제 그래픽 드라이버 메모리는 잡히지 않는다. 실제 하드웨어의 200% 분해(#171)는 소유자 확인 항목으로 남는다.
+
+**Kotlin/Native 빈 창 결과 (2026-11-22, #59)**
+
+- **실행**: CI 실행 45010220308 (`ci/targeted-1`, 스위트 `test_compose_from_fork,memory_report`). 잰 커밋은 82236d3e이다. 이 커밋은 PR #989의 머리 2ed7e7a9를 `ci/targeted-1`에 합친 것이다.
+- **조건**: `blank-window`, 창 800x600, 3번 띄워 중앙값. 두 잡 "Blank window memory (Linux, x64)"와 "(Windows, x64)"가 모두 성공했다.
+- 단위: 요약 표의 MB는 kB를 1024로 나눈 값이다.
+
+Linux (PSS, Xvfb 위의 Mesa 소프트웨어 GL)
+
+| 시점 | 값 | 중앙값 (MB) | 최소 (MB) | 최대 (MB) |
+|---|---|---|---|---|
+| +10초 | **PSS** | **82.3** | 82.1 | 92.1 |
+| +10초 | RSS (참고) | 108.7 | 108.6 | 118.5 |
+| +10초 | PSS anonymous | 28.8 | 28.8 | 32.8 |
+| +10초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +10초 | Private dirty | 28.8 | 28.8 | 50.6 |
+| +60초 | **PSS** | **81.1** | 80.9 | 91.0 |
+| +60초 | RSS (참고) | 107.4 | 107.3 | 117.4 |
+| +60초 | PSS anonymous | 27.6 | 27.5 | 31.6 |
+| +60초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +60초 | Private dirty | 27.6 | 27.5 | 31.6 |
+
+Linux PSS 내역. 첫 번째 실행(launch 1)의 +60초 판독이고, `smaps-launch-1.txt`가 그 시점의 가장 큰 매핑 25개를 담는다. 이 실행의 PSS는 93191kB(91.0MB)로 3번 중 가장 크다. 이 표의 MB는 kB를 1000으로 나눈 값이다.
+
+| 매핑 | PSS (kB) | PSS (MB) |
+|---|---|---|
+| libLLVM.so.21.1 | 32310 | 32.3 |
+| blank-window 실행 파일 | 21120 | 21.1 |
+| `[heap]` | 15636 | 15.6 |
+| `[anonymous]` | 9904 | 9.9 |
+| libgallium | 8832 | 8.8 |
+| 나머지 합계 | 5389 | 5.4 |
+| **합계** | **93191** | **93.2** |
+
+libLLVM과 libgallium은 Mesa 소프트웨어 래스터라이저(llvmpipe)의 몫이고 합쳐 41.1MB다. 하드웨어 GPU에서는 이 둘이 없을 수 있으므로 이 값을 Linux 일반의 값으로 읽지 않는다.
+
+Windows (private working set, WARP)
+
+| 시점 | 값 | 중앙값 (MB) | 최소 (MB) | 최대 (MB) |
+|---|---|---|---|---|
+| +10초 | **Private working set** | **19.9** | 19.9 | 19.9 |
+| +10초 | Working set (참고) | 61.2 | 61.2 | 62.7 |
+| +10초 | Private bytes (참고) | 117.4 | 116.6 | 117.4 |
+| +60초 | **Private working set** | **18.8** | 18.8 | 18.9 |
+| +60초 | Working set (참고) | 60.1 | 60.1 | 61.7 |
+| +60초 | Private bytes (참고) | 116.3 | 115.6 | 116.3 |
+
+Windows의 지표는 카운터 `Working Set - Private`에서 읽었다. 같은 지표의 예전 GraalVM 값(138.7MB)은 다른 이미지의 값이므로 이 값과 이어 읽지 않는다. Linux와 Windows의 값은 서로 비교하지 않는다.
 
 ### 5.3 렌더러 획득 (NFR-10, NFR-11)
 
