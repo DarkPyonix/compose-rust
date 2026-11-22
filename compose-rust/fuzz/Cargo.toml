@@ -39,4 +39,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "host_exports"
+path = "fuzz_targets/host_exports.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
