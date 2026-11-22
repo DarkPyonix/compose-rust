@@ -5,7 +5,7 @@
 //! renders produce identical frames.
 
 use crate::schema::{ColorScheme, DesignSystem, WindowHeightClass, WindowSizeClass};
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Default preview timestamp: `2026-01-01T00:00:00Z` in Unix seconds.
 pub const DEFAULT_PREVIEW_NOW_UNIX_SECS: i64 = 1_767_225_600;
@@ -104,7 +104,7 @@ pub struct PreviewContext {
     fixture: Option<&'static str>,
     now_unix_secs: i64,
     seed: u64,
-    rng_state: Cell<u64>,
+    rng_state: AtomicU64,
 }
 
 impl PreviewContext {
@@ -125,7 +125,7 @@ impl PreviewContext {
             fixture,
             now_unix_secs: DEFAULT_PREVIEW_NOW_UNIX_SECS,
             seed,
-            rng_state: Cell::new(if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed }),
+            rng_state: AtomicU64::new(if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed }),
         }
     }
 
@@ -138,7 +138,10 @@ impl PreviewContext {
     /// Override the deterministic seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
-        self.rng_state.set(if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed });
+        self.rng_state.store(
+            if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed },
+            Ordering::Relaxed,
+        );
         self
     }
 
@@ -204,11 +207,11 @@ impl PreviewContext {
 
     /// Next deterministic pseudo-random `u64` from this context's fixed seed (xorshift64*).
     pub fn next_u64(&self) -> u64 {
-        let mut x = self.rng_state.get();
+        let mut x = self.rng_state.load(Ordering::Relaxed);
         x ^= x >> 12;
         x ^= x << 25;
         x ^= x >> 27;
-        self.rng_state.set(x);
+        self.rng_state.store(x, Ordering::Relaxed);
         x.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 }
@@ -403,4 +406,36 @@ pub const fn platform_default_system() -> DesignSystem {
     {
         DesignSystem::Material3
     }
+}
+
+/// Compose a `#[Preview]` function into its binary mutation batch for offscreen rendering.
+///
+/// The returned bytes are the exact wire-format batch that the desktop renderer decodes
+/// and draws through Compose Multiplatform + Skia.
+pub fn render_to_batch<F>(ctx: PreviewContext, preview_fn: F) -> Result<Vec<u8>, String>
+where
+    F: Fn(&PreviewContext) + Send + Sync + 'static,
+{
+    let mut theme = crate::schema::Theme::unified(ctx.system());
+    theme.color_scheme = ctx.scheme();
+    let (w, h) = ctx.size().dimensions();
+    crate::window::publish(crate::window::WindowSize {
+        width_dp: w as f32,
+        height_dp: h as f32,
+        class: ctx.size_class(),
+        height_class: ctx.height_class(),
+        safe_area: crate::window::WindowSafeArea::default(),
+    });
+    crate::design::publish(ctx.system());
+    let mut host = crate::runtime::ComposeHost::with_content_and_theme(
+        move || preview_fn(&ctx),
+        theme,
+    );
+    let bytes = host
+        .rebuild()
+        .map_err(|e| format!("preview composition failed: {e:?}"))?
+        .to_vec();
+    crate::window::reset_window_size();
+    crate::design::reset_design_system();
+    Ok(bytes)
 }

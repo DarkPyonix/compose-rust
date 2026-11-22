@@ -8,6 +8,7 @@ use compose_rust::preview::{PreviewSize, format_scale, preview_filename, scheme_
 use compose_rust::tokens::DESIGN_TOKENS;
 use compose_rust::{Color, ColorRole, ColorScheme, DesignSystem};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Virtual clock step size in milliseconds.
 pub const FRAME_STEP_MS: u64 = 16;
@@ -155,5 +156,79 @@ pub fn export_preview_png(
         ("preview.platform", platform.as_str()),
     ];
     write_png(&path, img.width, img.height, &img.pixels, &chunks)?;
+    Ok((path, clock))
+}
+
+/// Render a binary wire-format mutation batch through the desktop renderer's headless
+/// `ImageComposeScene` (`OffscreenPreviewKt`) and write a deterministic PNG with `tEXt` metadata.
+///
+/// The renderer classpath is read from `COMPOSE_RUST_PREVIEW_RENDERER_CP` (a colon/semicolon
+/// separated JVM classpath containing `renderer/desktop` and Skiko runtime jars).
+pub fn export_batch_via_renderer(
+    req: &ExportRequest,
+    batch_path: &Path,
+    out_dir: &Path,
+) -> Result<(PathBuf, ClockAdvance), String> {
+    let cp = std::env::var("COMPOSE_RUST_PREVIEW_RENDERER_CP").map_err(|_| {
+        "COMPOSE_RUST_PREVIEW_RENDERER_CP is not set; point it at the desktop renderer classpath \
+         to render real widget trees offscreen"
+            .to_string()
+    })?;
+    let java = std::env::var("JAVA_HOME")
+        .map(|h| PathBuf::from(h).join("bin").join("java"))
+        .unwrap_or_else(|_| PathBuf::from("java"));
+    let clock = advance_virtual_clock(req.at_ms, req.animation_duration_ms);
+    let (w_dp, h_dp) = req.size.dimensions();
+    let (w_px, h_px) = req.size.pixel_dimensions(req.scale);
+    let rgba_tmp = out_dir.join(format!(
+        ".{}.rgba",
+        preview_filename(&req.id, req.size, req.scale, req.scheme, req.system)
+    ));
+    std::fs::create_dir_all(out_dir)
+        .map_err(|e| format!("failed to create {}: {e}", out_dir.display()))?;
+
+    let status = Command::new(&java)
+        .arg("-Djava.awt.headless=true")
+        .arg("-cp")
+        .arg(&cp)
+        .arg("dev.darkpyonix.composerust.ui.platform.OffscreenPreviewKt")
+        .arg("--batch")
+        .arg(batch_path)
+        .arg("--width")
+        .arg(w_dp.to_string())
+        .arg("--height")
+        .arg(h_dp.to_string())
+        .arg("--scale")
+        .arg(req.scale.to_string())
+        .arg("--at-ms")
+        .arg(clock.settled_ms.to_string())
+        .arg("--out")
+        .arg(&rgba_tmp)
+        .status()
+        .map_err(|e| format!("failed to spawn OffscreenPreviewKt via {}: {e}", java.display()))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&rgba_tmp);
+        return Err(format!("OffscreenPreviewKt exited with {status}"));
+    }
+    let rgba = std::fs::read(&rgba_tmp)
+        .map_err(|e| format!("failed to read {}: {e}", rgba_tmp.display()))?;
+    let _ = std::fs::remove_file(&rgba_tmp);
+
+    let filename = preview_filename(&req.id, req.size, req.scale, req.scheme, req.system);
+    let path = out_dir.join(filename);
+    let size_str = format!("{w_dp}x{h_dp}");
+    let scale_str = format_scale(req.scale);
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let renderer_ver = env!("CARGO_PKG_VERSION");
+    let chunks = [
+        ("preview.id", req.id.as_str()),
+        ("preview.size", size_str.as_str()),
+        ("preview.scheme", scheme_slug(req.scheme)),
+        ("preview.system", system_slug(req.system)),
+        ("preview.scale", scale_str.as_str()),
+        ("preview.renderer", renderer_ver),
+        ("preview.platform", platform.as_str()),
+    ];
+    write_png(&path, w_px, h_px, &rgba, &chunks)?;
     Ok((path, clock))
 }

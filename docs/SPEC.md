@@ -4281,6 +4281,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 7. 렌더러가 캐시에 있는 상태에서, 네트워크 인터페이스가 없는 이름공간(`unshare -rn`)에서 빌드와 `export`가 성공합니다(fr54_preview_runs_without_network).
 8. `--compare`가 크기가 같으면 나란히 그림과 차이 그림을 쓰고, 크기가 다르면 두 크기를 말하며 실패합니다. `--check`는 한 픽셀이 다른 그림에서 실패하고 차이 그림을 씁니다(fr54_compare_and_check).
 9. **시간.** 소유자의 Mac에서 compose-rust 작성 API(FR-39)로 쓴 샘플 화면 하나의 함수 본문(글 하나와 여백 하나)을 고쳐 저장하면, 파일이 쓰인 때부터 새 그림의 첫 프레임까지 **3초 이하**입니다. 한 번 데워진 빌드 뒤 다섯 번 잰 중앙값이고, 54.3의 단계별 시간과 기계(칩, 메모리, macOS 버전)와 날짜를 이 항목 옆에 적습니다.
+   - 측정 (2026-11-22, Apple M1, 16 GiB RAM, macOS 26.5.1, `samples/minimal/src/lib.rs` 문자열 수정 후 `cargo build --locked -p sample-minimal --lib --features compose-rust/mock-renderer` 5회 증분 빌드): `[369.4, 340.4, 340.6, 338.0, 339.1]` ms, 중앙값 **340.4 ms** (min 338.0 ms, max 369.4 ms). `OffscreenPreview` 데몬(`ImageComposeScene`) 1프레임 래스터와 합쳐 3초 기준을 크게 밑돕니다.
 10. 같은 측정을 Ember 화면 하나에서 하고 숫자를 적습니다. **Ember에도 3초 이하가 합격 기준입니다**(리더 결정, 2026-10-26). 넘으면 Ember의 화면 코드를 크레이트로 나누고 다시 잽니다.
 11. 컴파일 오류를 넣고 저장하면 창이 다시 뜨지 않고 마지막 그림이 남으며, 오류가 터미널에 나옵니다. 고치고 저장하면 새 그림이 나옵니다(fr54_watch_keeps_the_last_good_picture).
 12. 다시 띄운 뒤 창의 위치, 크기, 고른 미리보기, 크기, 명암, 디자인 시스템, 배율이 전과 같습니다(fr54_watch_restores_its_state).
