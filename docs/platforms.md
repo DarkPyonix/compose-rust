@@ -7,8 +7,8 @@
 | | 경로 | 가상 머신 | 상태 |
 | --- | --- | --- | --- |
 | macOS | Kotlin/Native | 없음 | 동작 |
-| Linux | Kotlin/Native | 없음 | 모듈과 창까지, 패키징 전 |
-| Windows | GraalVM 네이티브 이미지 | 있음 | 동작 |
+| Linux | Kotlin/Native | 없음 | 동작(기본값, NFR-14) |
+| Windows | Kotlin/Native(`mingwX64`, MSVC 실행 파일에 정적 링크) | 없음 | 동작(배포되는 유일한 경로, NFR-13) |
 | Web | Kotlin/Wasm | 없음 | 동작 |
 | iOS | Kotlin/Native | 없음 | 동작 |
 
@@ -123,7 +123,7 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 
 **윈도우**는 두 겹으로 막혀 있습니다. Kotlin/Native의 윈도우 타깃은 MinGW ABI이고 Skia와
 skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립하지 않고, 애초에
-`skiko-mingwx64`가 발행되지도 않습니다. 네이티브 이미지가 유일한 길은 아닙니다. Windows 렌더러는 Kotlin/Native `mingwX64`로 컴파일해 MSVC 실행 파일에 정적으로 링크하는 길로 가고 있고, 그 타깃은 포크에서 더해 빌드합니다. 지금 동작하는 Windows 렌더러가 네이티브 이미지인 것은 그 길이 아직 끝나지 않았기 때문입니다.
+`skiko-mingwx64`가 발행되지도 않습니다. 그래서 이 저장소가 두 겹을 다 넘습니다. `mingwX64` 타깃의 Compose와 skiko를 포크에서 빌드하고, 렌더러를 Kotlin/Native `mingwX64` 정적 라이브러리로 컴파일한 뒤 MinGW 쪽 두 관례(정적 생성자, 함수별 되감기 정보)를 고쳐 써서 MSVC 실행 파일에 링크합니다(`renderer/desktop/scripts/build-windows.sh`, CI `windows-static.yml`). PR #119와 #174(2026-10-24 병합) 이후 Windows 배포는 이 Kotlin/Native 정적 렌더러뿐이고, 앱을 빌드하는 사람에게 MinGW나 Java가 필요하지 않습니다(NFR-13). 위 무게 표의 네이티브 이미지 줄은 그 전의 기록입니다.
 
 다른 플랫폼의 아티팩트를 가져다 쓸 수는 없습니다. klib은 타깃 정보를 품고 있어 컴파일러가
 거부하고, macOS용 `ui`는 AppKit에 묶여 있습니다.
@@ -167,18 +167,18 @@ Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.
 프레임이 나오지 않은 요청도 값을 치러야 합니다. 그러지 않으면 관리자가 포기할 때까지
 창이 멈춥니다. 그 순서는 Compose 포크의 `extended/window/common`에 있는 `ResizeSync`에 있고, 이 저장소에서도 `desktop/test/ResizeSyncTest.kt`로 JVM에서 테스트합니다.
 
-### 아직 없는 것
+### 빌드와 링크
 
-정적 라이브러리를 만드는 빌드 스크립트와 Host 쪽 링크가 없습니다. macOS에는
-`desktop/scripts/build-macos.sh`가 있고 Cargo가 그 아카이브를 링크하는데, 리눅스에는
-대응하는 것이 아직 없습니다. 그래서 리눅스 배포물은 지금도 네이티브 이미지 쪽에서 나옵니다.
-여기 있는 것은 모듈과 창과 그 테스트입니다.
+정적 라이브러리는 `renderer/desktop/scripts/build-linux.sh`가 만들고(`build/linux/`, arm64는
+`--arch arm64`로 `build/linux-arm64/`), Cargo가 macOS와 같은 방식으로 그 아카이브를 링크합니다
+(`compose-rust/build.rs`). PR #113(2026-10-04 병합)부터 리눅스의 기본값이 이 경로이고(NFR-14),
+배포물도 여기서 나옵니다. CI는 `static-renderer.yml`이 릴리스와 같은 모양으로 빌드하고,
+`test-kn-desktop-renderer.yml`이 가상 디스플레이에서 `./kotlin test -m linux`를 돌립니다.
 
-### 검증되지 않은 것
+### 손으로 확인할 것
 
-컴파일도 실행도 확인하지 않았습니다. `linux/test/`의 테스트는 linuxX64로 컴파일되므로
-리눅스에서만 돌고, 드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가
-합성한 결과에 대한 사실이라 손으로 확인해야 합니다. 머지하는 쪽이 할 일:
+드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가 합성한 결과에 대한
+사실이라 CI가 확인하지 못하고 손으로 봐야 합니다. 리눅스에서 직접 돌리는 방법:
 
 ```bash
 cd renderer
