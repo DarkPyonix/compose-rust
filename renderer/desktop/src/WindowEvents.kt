@@ -142,7 +142,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
 
 
 /**
- * The keyboard modifiers a window recorded with a pointer event (FR-46.2). The Windows window
+ * The keyboard modifiers a window recorded with a pointer event. The Windows window
  * records them as 1 Shift, 2 Ctrl, 4 Alt, 8 Win, as it does for keys; the X11 window and AppKit
  * as AppKit's flag bits (Shift 1 shl 17, Control 18, Option 19, Command 20).
  */

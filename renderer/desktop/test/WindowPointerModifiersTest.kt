@@ -24,7 +24,7 @@ import org.jetbrains.skia.Surface
 import org.thisisthepy.compose.window.WindowEvent
 
 /**
- * FR-46.2: a pointer event from a window of our own carries the keyboard modifiers held with
+ * A pointer event from a window of our own carries the keyboard modifiers held with
  * it, Shift, Ctrl, Alt and Meta, so the Host's `Pointer.modifiers` says them. The windows record
  * them (Win32: 1 Shift, 2 Ctrl, 4 Alt, 8 Win; X11 and AppKit: the AppKit flag bits 17 to 20) and
  * the scene was never told, so every pointer reached the Host with modifiers 0.
