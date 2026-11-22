@@ -91,7 +91,10 @@ pub fn Scaffold<'a>(
 /// `compact` is what the destinations become in a compact window. With `Default` the
 /// design system answers, which is a bottom bar on most of them. `Sidebar` puts the
 /// sidebar away behind a toggle on every design system, and `None` leaves the destinations
-/// off a compact window so the screen can reach them its own way. Medium and Expanded
+/// off a compact window so the screen can reach them its own way. `Floating` draws them as
+/// a pill-shaped bar floating over the bottom of the page, clear of the window's edges and
+/// of the bottom safe area; the page runs on under it, and a scroll container in the page
+/// is given room at its end so its last content is not behind the bar. Medium and Expanded
 /// windows keep the design system's rail and drawer whatever this says, and the screen
 /// still never asks how wide the window is.
 ///
