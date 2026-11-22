@@ -142,6 +142,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // direct call on one thread and the Host keeps its state there.
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
+    var exitRequested = false
+    val singleWindow = SingleWindowSession(host, onExit = { exitRequested = true })
+    singleWindow.attach()
     val asked = host.table.window
     val options = nativeWindowOptions(host, backdropSupported = true)
     val backdrop = options.backdrop
@@ -161,6 +164,8 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     val window = openNativeWindow(options.title, options.width, options.height)
     if (window == null) {
         System.err.println("compose-rust: this machine has no Metal device")
+        singleWindow.shutdown()
+        host.shutdown()
         return
     }
     // The window's appearance is the theme's scheme, not the system's: the material behind
@@ -239,7 +244,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
         ) {
-            NativeWindowContent(host, caption.value.copy(fullSize = asked?.chrome == Chrome.FullSize), actions = null)
+            NativeWindowContent(
+                host,
+                caption.value.copy(fullSize = asked?.chrome == Chrome.FullSize),
+                actions = null,
+                session = singleWindow,
+            )
         }
     }
     installApplicationMenu(options.title)
@@ -362,7 +372,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     try {
         // A plain loop rather than a clock: it waits for the window rather than for a
         // refresh. What a frame is drawn at comes from the display link, above.
-        while (!isWindowClosed()) {
+        while (!isWindowClosed() && !exitRequested) {
             if (autoExitMillis != null &&
                 (System.nanoTime() - started) / NANOS_PER_MILLI >= autoExitMillis
             ) {
@@ -404,6 +414,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         scene.forgetPointer()
         scene.close()
         context.close()
+        singleWindow.shutdown()
         host.shutdown()
     }
 }

@@ -122,12 +122,15 @@ private fun runRendererWithHost(
     } else {
         rememberWindowState()
     }
+    val dynamicTitle = remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     Window(
         onCloseRequest = ::exitApplication,
         // The application's own name where it gave one. A desktop lists windows by their
         // title, and every window this ever opened was listed as the renderer's name,
         // which is the library's name and not any application's.
-        title = asked?.title?.takeIf { it.isNotEmpty() } ?: "ComposeRust",
+        title = dynamicTitle.value?.takeIf { it.isNotEmpty() }
+            ?: asked?.title?.takeIf { it.isNotEmpty() }
+            ?: "ComposeRust",
         undecorated = undecorated,
         transparent = wantsBackdrop,
         resizable = asked?.resizable ?: true,
@@ -252,8 +255,14 @@ private fun runRendererWithHost(
                 if (caption.height > 0.dp) {
                     WindowDraggableArea(Modifier.fillMaxWidth().height(caption.height)) {}
                 }
-                ComposeRustContent(
-                    rememberStartedComposeRustHost(host),
+                val startedHost = rememberStartedComposeRustHost(host)
+                val singleWindow = rememberSingleWindowSession(
+                    startedHost,
+                    onExit = ::exitApplication,
+                    onTitle = { dynamicTitle.value = it },
+                )
+                SingleWindowHostContent(
+                    singleWindow,
                     Modifier.fillMaxSize(),
                     // Content runs under the caption on purpose, but a widget sitting
                     // where the window buttons are would leave both unusable. The strip

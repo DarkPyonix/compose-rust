@@ -98,7 +98,9 @@ internal fun NativeWindowContent(
     actions: WindowActions?,
     drag: @Composable BoxScope.() -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
+    session: SingleWindowSession? = null,
 ) {
+    val activeSession = session ?: rememberSingleWindowSession(host)
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
         ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
     CompositionLocalProvider(
@@ -111,7 +113,7 @@ internal fun NativeWindowContent(
     ) {
         Box(Modifier.fillMaxSize()) {
             drag()
-            WindowContent(host, caption = caption)
+            SingleWindowHostContent(activeSession, caption = caption)
             overlay()
         }
     }
