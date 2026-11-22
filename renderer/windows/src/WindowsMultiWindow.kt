@@ -144,7 +144,7 @@ private fun windowContent(
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { WindowContent(host) }
+            ForWindow(nodeId) { WindowsPlatformLocals(window) { WindowContent(host) } }
         }
     }
     val actions = WindowActions(
@@ -155,11 +155,10 @@ private fun windowContent(
     )
     return {
         ForWindow(nodeId) {
-            CompositionLocalProvider(
-                LocalWindowActions provides actions,
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
-            ) {
-                WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+            CompositionLocalProvider(LocalWindowActions provides actions) {
+                WindowsPlatformLocals(window) {
+                    WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+                }
             }
         }
     }
