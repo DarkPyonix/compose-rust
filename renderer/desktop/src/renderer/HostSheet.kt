@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.layout
 import dev.darkpyonix.composerust.ui.floatProp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -282,10 +283,17 @@ internal fun HostSheet(
 
     platformModalOverlayWindow(close, onEscape) {
         val focusManager = LocalFocusManager.current
-        ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        val menuEntries = menuEntriesIn(node, node.children, table)
+        val menuKeys = if (menuEntries != null) {
+            rememberMenuKeyboard(menuEntries, table)
+        } else {
+            null
+        }
+        ModalOverlayFocus(node.id, surfaceRequester, onEscape, focusSurface = menuKeys == null)
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
         val keyboard = overlayKeyboardInset()
+        CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
         Box(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
@@ -449,6 +457,7 @@ internal fun HostSheet(
                     .then(aboveKeyboard)
                     .testTag(sheetTestTag(node.id))
                     .then(focusTrap)
+                    .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
                     .modalOverlaySurface(node.id, surfaceRequester)
                     .then(sized)
                     .then(dragModifier)
@@ -508,6 +517,7 @@ internal fun HostSheet(
                     }
                 }
             }
+        }
         }
     }
 }

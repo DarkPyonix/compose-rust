@@ -1255,6 +1255,14 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
 3. iOS 시스템 탭 막대도 각 역할을 시스템 심볼로 변환합니다. 아이콘 버튼은 빈 글자일 때도 역할에 맞는 접근성 이름을 갖습니다.
 4. 가벼운 테마와 어두운 테마에서 전 역할을 검사하고, 계산기와 팟캐스트 참조에 필요한 역할을 각 화면이 사용할 수 있습니다.
 
+**삭제 아이콘 역할** (이슈 #593). 지우는 동작의 뜻 `Delete=40`을 `IconRole` 끝에 추가합니다. 기존 태그 1–39(`Refresh=39`까지)는 그대로입니다. 그림은 휴지통이고, iOS 시스템 심볼은 `trash`입니다. 목록 행, 메일, 파일 관리자처럼 지우는 동작이 있는 화면이 글자 대신 이 뜻을 보냅니다.
+
+수용 기준:
+1. `Delete`가 태그 40으로 인코딩·디코딩되며 기존 태그와 미지의 태그 동작이 변하지 않습니다(fr16_sample_icon_roles_have_stable_tags_and_reach_buttons).
+2. 일곱 디자인 시스템 모두 `Delete`에 휴지통 아이콘을 그리며, 글자가 빈 아이콘 버튼도 빈 글리프로 남지 않고 접근성 이름을 갖습니다(fr16_sample_roles_have_artwork_in_every_system_and_scheme, fr16_sample_icon_buttons_draw_and_have_accessible_names).
+3. iOS 시스템 탭 막대는 `Delete`를 `trash` 심볼로 변환합니다.
+4. `samples/minimal`의 삭제 동작은 "Delete" 글자 대신 빨간 사각형(`palette::DELETE`) 위의 흰 `Delete` 아이콘으로 그려집니다.
+
 **SVG 에셋 아이콘**(이슈 #303). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
 
 ### FR-17 커스텀 드로잉 (`Agreed`)
@@ -1540,7 +1548,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 - Kotlin/Native 데스크톱 창: 렌더러의 `macos/`, `linux/` 모듈과 D18의 `windows/` 모듈의 창 부분
 - 이슈 #26이 함께 꼽는 것: GraalVM native-image에서 AWT를 걷어내는 경로, macOS 창 재질(FR-29)
 
-지금 이 코드는 `renderer/desktop/c/`와 렌더러의 Kotlin 소스, 플랫폼 모듈에 있습니다. 옮긴 뒤 이 저장소에는 포크가 내놓는 창을 쓰는 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다. 옮기는 동안 창이 빌드되지 않거나 나빠지는 기간이 생기면 안 되므로, 이 저장소의 사본은 포크가 아래 기준을 통과할 때까지 남깁니다.
+지금 이 코드는 포크의 `extended/window/` 모듈(`common`, `windows-shared`, `native/macos`, `native/linux`, `graalvm`)로 옮겨졌고, 이 저장소의 중복 사본은 지워졌습니다(`ffa9cd60`). 이 저장소에는 포크가 내놓는 창을 부르는 연결 코드만 남고, 창에 관한 변경은 포크의 커밋으로 들어갑니다.
 
 수용 기준 (이슈 #26):
 
@@ -2253,9 +2261,9 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
-> **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
+> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
 >
-> **1.0 뒤([leader, 2026-11-21]).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어가지 않습니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
+> **1.0 작업(소유자, 2026-11-21).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어갑니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
 적응형 애플리케이션은 디자인 시스템의 이름을 묻지 않고 자기가 놓는 것이 무엇인지 말합니다.
 렌더러의 `ComponentRules`가 그 뜻을 현재 디자인 시스템의 모양과 배치로 바꿉니다.
@@ -2473,7 +2481,9 @@ if design.is_apple() {
 
 > [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
 
-- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows와 Linux는 각 OS의 메뉴입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다.
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows는 Win32 팝업 메뉴(`TrackPopupMenuEx`)입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다. **[leader, 2026-11-22]** 소유자의 2025-10-05 원칙은 기본 OS 네이티브 메뉴이지만, Linux(X11)에는 툴킷 없는 표준 OS 팝업 메뉴가 없으므로 데스크톱 메뉴 경로가 생기기 전까지 디자인 시스템이 그린 메뉴를 기본값으로 쓰며 다른 OS와 같은 항목과 사용 가능 상태를 유지합니다.
+- **붙여넣기(Paste) 사용 가능 상태는 클립보드를 따릅니다([leader, 2026-11-22]).** 클립보드에 텍스트가 있을 때만 붙여넣기 항목이 활성화되고, 비어 있거나 텍스트가 아니면 비활성화됩니다.
+- **`Menu`와 `Dropdown` 팝업은 디자인 시스템이 그린 팝업을 유지합니다([leader, 2026-11-22]).** 텍스트 우클릭 메뉴와 달리 `Menu`와 `Dropdown`은 아이콘, 보조 설명, 선택 표시, 맞춤 행(Ember의 모델·브랜치 선택기 등)을 담으므로 디자인 시스템 팝업으로 그리고, 메뉴 키보드(화살표 순환, Home/End, Enter, Escape, 키보드 포커스 표시)를 제공합니다.
 - **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
 - **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
 - **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
@@ -2487,6 +2497,9 @@ if design.is_apple() {
 4. `ContextMenuDataProvider` 항목과 텍스트 항목(잘라내기, 복사, 붙여넣기, 전체 선택)이 두 방식에서 같은 순서와 같은 사용 가능 상태입니다. 항목 목록을 비교하는 시험으로 확인합니다.
 5. 같은 장면에서 GraalVM 경로와 Kotlin/Native 경로가 같은 항목과 같은 메뉴 종류를 냅니다(일치 시험).
 6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
+7. Linux(X11) 기본 텍스트 메뉴는 다른 OS와 같은 항목과 사용 가능 상태로 디자인 시스템 메뉴를 냅니다(시험 이름 `fr33_1_linux_drawn_text_menu_matches_items_and_enabled_state`).
+8. 클립보드가 비어 있으면 붙여넣기 항목이 비활성화되고, 클립보드에 텍스트가 있으면 활성화됩니다(시험 이름 `fr33_1_paste_enabled_state_follows_clipboard`).
+9. `Menu`와 `Dropdown` 팝업은 디자인 시스템 팝업으로 그려지며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape)를 가집니다(시험 이름 `fr33_1_menu_and_dropdown_popups_use_design_system_popup`).
 
 ### FR-36 OS 알림 (`Draft`)
 
@@ -3017,6 +3030,12 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
    > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
 
    1. **시나리오는 구현 전에 고정합니다.** 벤치 시나리오를 구현보다 먼저 커밋하고, 그 뒤에 바꾸려면 소유자의 승인이 필요합니다. 두 묶음입니다. (a) 바뀐 동적 슬롯 수 1, 5, 17, 33, 65, 129의 스윕. (b) 샘플에 기록해 둔 실제 상호작용의 재생: 계산기 입력, todo 추가와 삭제, chat 스트리밍, 긴 목록의 스크롤과 윈도잉, 탭 전환. 벤치를 위해 만든 화면이나 한쪽에 유리하게 만든 화면은 넣지 않습니다.
+
+      > **벤치의 Renderer 모델 정정(2026-11-22, [leader, 2026-11-22]).** 벤치가 Renderer의 노드 테이블 대신 쓰는 Rust 모델(`compose-rust/benches/fr39/scenarios`의 `Model`)이 이제 만들어졌지만 삽입되지 않은 노드를 루트로 둡니다. Renderer의 노드 테이블(`renderer/desktop/src/renderer/NodeTable.kt`)이 하는 그대로입니다. 만들어진 노드는 만든 순서대로 루트 목록에 들어가고, `Insert`나 `Move`가 부모 밑에 놓으면 그 목록에서 빠지며, `Remove`로 사라집니다. 노드 0 밑으로의 `Insert`는 같은 목록의 그 위치에 들어갑니다.
+      >
+      > 이전의 모델은 노드 0 밑에 `Insert`된 노드만 보았습니다. 고정한 Dioxus 경로는 최상위 노드를 만들기만 하고 삽입하지 않습니다. 그래서 모델에서는 그 경로의 화면이 비어 있었고, 비교는 첫 시나리오 `sweep_1`의 첫 클릭에서 멈췄습니다. 이 정정 전에는 고정한 기준선에 대해 측정이 한 번도 돌지 못했습니다. 이 정정은 시나리오 크레이트 안의 변경이지만 시나리오는 아닙니다. 시나리오와 판정 규칙은 바뀌지 않았습니다. 이 규칙은 기록을 더하지 않으므로 Mutation 수와 바이트 수를 세는 방식도 그대로입니다.
+      >
+      > 커밋은 `6d22f442`입니다. 규칙을 고정하는 테스트는 `fr39_model_keeps_a_created_never_inserted_node_as_a_root`, `fr39_model_orders_inferred_roots_by_creation_not_by_id`, `fr39_model_places_an_insert_under_the_root_among_the_inferred_roots`, `fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into`, `fr39_model_drops_an_inferred_root_on_remove`, `fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere`, `fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`입니다.
    2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
    3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
    4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
@@ -3064,7 +3083,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 > **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
 >
-> **1.0 뒤([leader, 2026-11-21]).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어가지 않습니다. 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
+> **1.0 작업(소유자, 2026-11-21).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어갑니다. 아직 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -3813,7 +3832,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 ### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
-> **1.0 뒤([leader, 2026-11-21]).** `Mask`는 1.0에 들어가지 않습니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
+> **1.0 작업(소유자, 2026-11-21).** `Mask`는 1.0에 들어갑니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
 
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
@@ -3955,9 +3974,9 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 4. `PressFeedback`으로 값을 바꾸거나 끌 수 있고, 눌러도 Host로 가는 이벤트가 `Clicked` 하나뿐입니다.
 5. `Enabled`가 거짓인 면과 `TextField`는 반응하지 않습니다.
 
-### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
+### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355, #931)
 
-> **1.0 뒤([leader, 2026-11-21]).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어가지 않습니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
+> **1.0 작업(소유자, 2026-11-21).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어갑니다. iOS/iPadOS(`IosWindowBackend`)와 Android(`AndroidWindowBackend`) 백엔드가 구현되었습니다(이슈 #931).
 
 소유자 지시(2026-10-26, 원문):
 
@@ -4182,16 +4201,21 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
   - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
   - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.viewport_size() -> f32`: 주축의 뷰포트 크기(dp). `ScrollColumn`은 높이, `ScrollRow`는 폭입니다. 읽은 스코프는 크기가 바뀔 때 다시 실행됩니다. 한 쪽씩 넘기는 화살표가 창 폭으로 짐작하지 않고 이 값만큼 옮길 수 있게 합니다([leader, 2026-11-21], 이슈 #818).
   - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
   - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
 - `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
 - 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
   - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
-  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다. 이 와이어 보고는 그대로 남습니다. 다만 `ScrollState`는 아래와 같이 이 보고를 읽지 않으므로, `ScrollState`를 붙인 컨테이너에는 이 핸들러가 없고 Renderer도 그 컨테이너에는 `RangeRequested`를 보내지 않습니다. 이 핸들러를 직접 붙이는 Host만 이 보고를 받습니다.
+- **`ScrollState`는 `ScrollChanged` 보고를 읽습니다**([leader, 2026-11-21], 이슈 #818). `scroll_state`를 붙인 `ScrollColumn`/`ScrollRow`는 `OnRangeRequested` 대신 FR-80의 `OnScrollChanged` 핸들러(속성 태그 186)를 답니다. `ScrollState`는 Renderer의 `ScrollChanged` 보고에서 주축의 세 값을 읽습니다. `ScrollColumn`은 `y_px`, `max_y_px`, `viewport_height_px`이고, `ScrollRow`는 `x_px`, `max_x_px`, `viewport_width_px`입니다. 보고가 최대 거리를 직접 실으므로 내용 크기에서 빼서 구하지 않습니다.
+  - 단위([leader, 2026-11-21], 리더가 이 식을 확인함). 보고는 물리 픽셀이고 세 값은 레이아웃 dp입니다. `dp = px ÷ (scale × 1.2^level)`입니다. `scale`은 `DensityChanged`(FR-43.1)의 값이고, `1.2^level`은 `ZoomChanged`(FR-43)의 `level`에서 나오는 앱의 확대 몫(`Zoom::app()`)입니다. 둘 다 그 컨테이너가 있는 창의 것입니다. FR-80이 CSS px에 쓰는 `k`(운영체제 글자 크기까지 곱한 배율)를 쓰지 않는 이유가 있습니다. Renderer는 네이티브 위젯을 `Density(scale × 1.2^level, fontScale = 운영체제 글자 크기)`로 그리므로, 운영체제 글자 크기는 dp 길이에 들어가지 않습니다. 이 식이어야 `offset()`이 `scroll_to`가 받는 dp와 같고, 지금까지 `RangeRequested`가 보고하던 dp와도 같습니다. 값은 보고가 올 때 바꿉니다. 밀도나 배율이 바뀌면 Renderer가 새 픽셀 값으로 보고를 다시 보내므로(FR-80), 그때 다시 바뀝니다.
+  - 첫 보고 전에는 세 값이 모두 `0.0`입니다. `offset()`과 `max_offset()`이 지금 첫 보고 전에 돌려주는 값과 같습니다. 음수는 `0.0`으로 읽고, 유한하지 않은 값은 그 칸을 바꾸지 않습니다. 뷰포트가 0인 보고를 받으면 `viewport_size()`는 `0.0`입니다.
 
 수용 기준.
-1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
-2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`, 그리고 `ScrollChanged`로는 `fr62_scroll_state_container_reports_offset_max_and_viewport_through_scroll_changed`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_reads_offset_from_scroll_changed`).
+3. `scroll_state`를 붙인 컨테이너는 `OnScrollChanged`를 보내고 `OnRangeRequested`는 보내지 않습니다(`fr62_scroll_state_subscribes_scroll_changed_and_not_range_requested`). `viewport_size()`는 첫 보고 전에 `0.0`이고(`fr62_viewport_size_is_zero_before_the_first_report`), 보고 뒤에는 `ScrollColumn`의 높이(`fr62_viewport_size_reads_the_height_of_a_scroll_column`)와 `ScrollRow`의 폭(`fr62_viewport_size_reads_the_width_of_a_scroll_row`)입니다. 밀도 2와 확대 수준 1에서 720px는 300dp입니다(`fr62_scroll_state_converts_pixels_with_the_density_and_the_app_zoom`). 뷰포트가 0인 보고 뒤에는 `0.0`입니다(`fr62_a_report_with_no_viewport_reads_as_zero`). 운영체제 글자 크기가 1이 아니어도 세 값은 레이아웃 dp 그대로입니다. 표시 배율 1.5, 확대 수준 2에서 글자 크기가 1.0에서 1.3으로 바뀌어 `k`가 움직여도, 같은 보고는 같은 `offset()`, `max_offset()`, `viewport_size()`가 됩니다(`fr62_scroll_state_values_do_not_move_with_the_system_text_size`).
 
 **스크롤 맞춤**(이슈 #547). `ScrollRow`과 `ScrollColumn`에 `snap(Snap)`이 있습니다. `Snap::None`(기본)과 `Snap::ItemStart`입니다. `ItemStart`이면 끌기나 튕기기가 끝난 뒤 가장 가까운 직접 자식의 시작 가장자리가 보이는 영역의 시작에 맞춰 멈춥니다(CSS `scroll-snap-type: x mandatory`와 `scroll-snap-align: start`). Compose의 snap fling 동작으로 그립니다. 속성 `Snap` 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 390dp인 `ScrollRow` 안의 390dp 자식 셋에서 첫 자식의 절반을 넘게 끌고 놓으면 둘째 자식의 시작에 멈추고, 절반이 안 되게 끌면 첫 자식으로 돌아옵니다(fr62_scroll_row_snaps_to_item_start). `Snap::None`은 지금과 같습니다.
 
@@ -4319,6 +4343,23 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **RadioButton의 색과 크기, 라디오 묶음**(이슈 #545). `RadioButton`에 `ring_color`, `dot_color`, `size(side)`가 있습니다. Checkbox와 같은 방식으로 기존 `ContainerColor`, `CheckColor`, `ControlSize` 속성을 씁니다. 지정하지 않으면 디자인 시스템이 그립니다(일곱 시스템 모두). `Column`과 `Row`의 `radio_group(true)`(속성 `RadioGroup`, 속성 태그 198, bool)는 그 노드에 접근성 역할 radiogroup을 주고, 그 안의 RadioButton들은 탭 정지 하나(선택된 것, 없으면 첫째)를 나누며 위, 아래, 왼쪽, 오른쪽 화살표가 선택을 옮깁니다. 옮기면 그 버튼의 `on_click`이 한 번 가고, 선택 상태는 Host가 정합니다. 수용 기준: 세 버튼 묶음에서 Tab은 묶음에 한 번만 멈추고, 아래 화살표가 다음 버튼의 클릭을 한 번 보내며 포커스를 옮깁니다(fr67_radio_group_arrow_keys_move_the_selection). `ring_color`를 준 버튼의 고리 픽셀이 그 색입니다(fr67_radio_button_colours).
 
 **Slider 손잡이 크기**(이슈 #718). `Slider::thumb_size(dp)`(속성 `ThumbSize`, 속성 태그 202, f32). 지정하지 않으면 디자인 시스템의 크기입니다. 트랙 높이와 누르는 영역은 바뀌지 않습니다(누르는 영역은 최소 44dp를 지킵니다). 수용 기준: `thumb_size(12)`인 슬라이더의 손잡이 지름이 12dp이고, 손잡이를 끌면 값이 바뀝니다(fr67_slider_thumb_size).
+
+**Switch 손잡이 그림자와 트랙 테두리**([leader, 2026-11-21], 이슈 #818). 요청한 쪽: darkpyonix-ember. 목업의 토글은 손잡이 아래에 옅은 그림자가 있고, 다크 테마의 꺼짐 상태에서 가장 잘 보입니다. 지금 `Switch`는 트랙과 손잡이의 색만 받아서 이 모양을 낼 수 없습니다.
+
+- `Switch`에 선택 매개변수 `thumb_elevation`(dp)과 `track_border`(`(폭 dp, Paint)`)가 있습니다. 순서는 `size` 뒤입니다. 주지 않으면 속성이 나가지 않고, 스위치는 지금과 똑같이 그려집니다.
+- `thumb_elevation`은 속성 `ThumbElevation`(속성 태그 212, `f32` dp)입니다. 값 모양은 `Slider`의 `ThumbSize`(202)와 같습니다. 손잡이 아래에 그 높이만큼 퍼지고 아래로 조금 내려앉은 부드러운 그림자를 그립니다. 그림자는 손잡이와 함께 움직이고, 트랙 모양으로 잘리므로 트랙 밖으로 나가지 않습니다. 주지 않으면 디자인 시스템의 기본입니다. 지금 일곱 디자인 시스템은 모두 스위치 손잡이에 그림자를 그리지 않으므로, 주지 않은 스위치는 그림자가 없습니다. `0`은 그림자 없음이고, 디자인 시스템이 그림자를 그리는 경우에도 지웁니다. 음수나 유한하지 않은 값은 주지 않은 것과 같습니다.
+- `track_border`는 속성 `TrackBorder`(속성 태그 213)이고, 값은 12바이트 덩어리입니다. 앞 4바이트는 폭(`f32` dp), 뒤 8바이트는 `Paint` 비트(`u64`)이며 둘 다 리틀 엔디언입니다. 폭과 `Paint`의 순서와 모양은 `Border` 수정자(수정자 태그 14)의 두 칸과 같고, 값 여러 개를 한 속성의 덩어리에 싣는 방식은 `ControlSize`(126)와 같습니다. 속성 하나에 폭과 색을 함께 실어서, 색 없는 폭이나 폭 없는 색이 생기지 않습니다. 켜짐과 꺼짐 모두 그 폭과 색의 테두리를 트랙 모양을 따라 그립니다. `track_color`처럼 상태마다 다른 테두리가 필요하면 앱이 상태에 맞는 값을 보냅니다. 폭 `0`은 테두리 없음입니다. 12바이트보다 짧은 값이나 폭이 음수 또는 유한하지 않은 값은 주지 않은 것과 같습니다.
+- `track_border`를 주지 않으면 디자인 시스템의 테두리이고, 지금과 같습니다. Material 3는 라이브러리 `Switch`가 꺼짐에 2dp `Outline`을 그리고 켜짐에는 그리지 않습니다. Fluent, GNOME, Breeze는 두 상태 모두 1dp `Outline`입니다. Cupertino, Deepin, Liquid Glass는 테두리가 없습니다. `track_color`를 준 스위치는 어느 시스템에서나 테두리가 없습니다(FR-67의 지금 동작).
+- Material 3의 라이브러리 `Switch`는 손잡이 그림자와 테두리 폭을 받지 않습니다. 그래서 두 값 중 하나라도 오면, FR-67의 다른 색과 크기처럼 공용 컨트롤 그리기로 그립니다. 나머지 여섯 시스템은 원래 공용 컨트롤 그리기로 그립니다. 둘 다 Renderer 안의 코드이므로 Compose 포크를 고치지 않습니다.
+- 앱이 이 속성을 더는 주지 않으면 제거가 전달되고, Renderer는 그 칸을 디자인 시스템 기본으로 되돌립니다(FR-67의 다른 값과 같음).
+
+수용 기준.
+1. 두 매개변수를 주지 않은 `Switch`는 `ThumbElevation`도 `TrackBorder`도 보내지 않습니다(`fr67_switch_sends_no_thumb_elevation_or_track_border_unless_given`).
+2. `thumb_elevation = 2.0`은 `ThumbElevation`을 `f32` 2.0으로, `track_border = (1.5, ink)`는 `TrackBorder`를 폭 1.5의 비트와 `ink`의 `Paint` 비트를 이은 12바이트로 보냅니다(`fr67_switch_thumb_elevation_and_track_border_travel_with_their_bytes`).
+3. 같은 값으로 다시 그리면 아무 레코드도 나가지 않고(`fr67_switch_same_thumb_elevation_and_track_border_send_nothing_again`), 값을 바꾸면 그 속성의 `SetProp` 하나만 나갑니다(`fr67_switch_changed_thumb_elevation_sends_one_set_prop`).
+4. 일곱 디자인 시스템 모두에서 `thumb_elevation = 4.0`인 꺼진 스위치는 손잡이와 트랙 아래 끝 사이의 픽셀이 `thumb_elevation = 0.0`인 스위치보다 어둡고, 손잡이에서 먼 트랙 끝의 픽셀은 같습니다. 공용 컨트롤 그리기로 그리는 여섯 시스템에서는 주지 않은 스위치와 `0.0`인 스위치의 픽셀이 같습니다(`fr67_switch_thumb_elevation_draws_a_shadow_under_the_thumb`).
+5. 일곱 디자인 시스템 모두에서 `track_border = (2.0, red)`인 스위치의 트랙 가장자리가 빨간색입니다(`fr67_switch_track_border_draws_in_the_width_and_colour_named`). 폭 `0`이면 가장자리가 빨갛지 않습니다(`fr67_switch_track_border_of_zero_width_draws_none`).
+6. 두 속성을 모두 받은 뒤 제거된 스위치는 처음부터 주지 않은 스위치와 같은 픽셀로 그려집니다(`fr67_removing_thumb_elevation_and_track_border_restores_the_default`).
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
@@ -4896,7 +4937,7 @@ pub mod storage {
 - **옵트인은 노드마다입니다.** 핸들러 속성 `OnScrollChanged`(속성 태그 186)가 붙은 노드만 보고하고, `ObserveSize`처럼 구독 하나가 핸들러 하나입니다. 붙지 않은 노드는 아무것도 보내지 않고 비용도 없으며, 아무도 붙이지 않은 트리의 와이어는 지금과 한 바이트도 다르지 않습니다. 핸들러를 떼거나 노드가 없어지면 보고가 멈춥니다. 명령은 핸들러 없이도 쓸 수 있습니다.
 - **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
 - **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
-- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
+- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 와이어 보고는 바뀌지 않습니다. `ui::ScrollState`는 `RangeRequested` 대신 이 항목의 `ScrollChanged`를 읽습니다(FR-62, [leader, 2026-11-21], 이슈 #818). 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
 - **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(19)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(20)입니다(17과 18은 FR-79의 `DUPLICATE_IO_REQUEST`와 FR-72의 `DUPLICATE_FILE_CALL`이 먼저 썼습니다): NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
 - **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
 - **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
@@ -4919,9 +4960,9 @@ pub mod storage {
 14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
-### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
+### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680, #932)
 
-> **1.0 뒤([leader, 2026-11-21]).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어가지 않습니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
+> **1.0 작업(소유자, 2026-11-21).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어갑니다. iOS와 Android 렌더러 구현이 더해졌으며, Windows/Linux/Web이 뒤따릅니다(이슈 #932).
 
 요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
 
@@ -4985,7 +5026,7 @@ pub mod storage {
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
 
-> **1.0 뒤([leader, 2026-11-21]).** 아래 "지금 코드와의 차이"에 적은 빈자리(macOS 두 창의 배율 변경 알림, macOS GraalVM 창의 밀도, Linux의 두 창)와 캡처 시험(기준 1에서 8)은 1.0에 들어가지 않습니다(이슈 #18).
+> **1.0 작업(소유자, 2026-11-21).** 아래 "지금 코드와의 차이"에 적은 빈자리(macOS 두 창의 배율 변경 알림, macOS GraalVM 창의 밀도, Linux의 두 창)와 캡처 시험(기준 1에서 8)은 1.0에 들어갑니다. 아직 되어 있지 않습니다(이슈 #18).
 
 소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
 
@@ -5773,7 +5814,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174가 2026-10-24에 develop에 병합됐습니다. 이슈 #24는 열려 있습니다. Windows는 이 정적 렌더러 하나만 배포합니다(§5.6) |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows의 PR #119, #174는 2026-10-24에 병합됐고, Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다(§5.6). compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
-| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed. 1.0에 들어가지 않습니다([leader, 2026-11-21]). 스키마 해시로 찾는 길이 아직 없고, 캐시는 크레이트 버전으로 나뉩니다(`compose-rust/build/renderer_dir.rs`의 `cached_renderer_dir`, 이슈 #293) |
+| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed. 1.0에 들어갑니다(소유자, 2026-11-21). 스키마 해시로 찾는 길이 아직 없고, 캐시는 크레이트 버전으로 나뉩니다(`compose-rust/build/renderer_dir.rs`의 `cached_renderer_dir`, 이슈 #293) |
 | NFR-17 | 메모리 안정성 | 같은 화면을 몇 천 프레임 그려도 런타임이 붙들고 있는 메모리가 늘지 않음. 규격과 수용 기준은 §5.8 (소유자 보고, 2026-10-26) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)

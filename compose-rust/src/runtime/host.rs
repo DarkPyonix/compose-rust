@@ -425,6 +425,25 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             width_dp: *width_dp,
             height_dp: *height_dp,
         }),
+        (
+            EventCallback::Scroll(handler),
+            EventPayload::ScrollChanged {
+                x_px,
+                y_px,
+                max_x_px,
+                max_y_px,
+                viewport_width_px,
+                viewport_height_px,
+                ..
+            },
+        ) => (*handler.borrow_mut())(super::composer::ScrollReport {
+            x_px: *x_px,
+            y_px: *y_px,
+            max_x_px: *max_x_px,
+            max_y_px: *max_y_px,
+            viewport_width_px: *viewport_width_px,
+            viewport_height_px: *viewport_height_px,
+        }),
         (EventCallback::Window(handler), payload) => {
             let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {
                 return Err(ProtocolError::InvalidValueKind(0));
