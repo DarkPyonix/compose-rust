@@ -186,6 +186,89 @@ class FontStackTest {
     }
 
     @Test
+    fun fr48_weight_comes_from_the_font_file() = runComposeUiTest {
+        val light = TinyIconFont.build(family = "Tiny Static", weight = 300, advance = 1000)
+        val bold = TinyIconFont.build(family = "Tiny Static", weight = 700, advance = 1600)
+        val variable = TinyIconFont.buildVariable(
+            family = "Tiny Variable",
+            minWeight = 100,
+            defaultWeight = 400,
+            maxWeight = 900,
+            defaultAdvance = 1200,
+            deltaAtMin = -600,
+            deltaAtMax = 1000,
+        )
+        val noRole = PropertyKind.TypeRole to PropertyValue.Integer(TYPE_ROLE_NONE.toLong())
+        val size = 20f
+        val staticLightNode = NODE + 20
+        val staticBoldNode = NODE + 21
+        val varLightNode = NODE + 22
+        val varBoldNode = NODE + 23
+        val varAsset = SECOND_FACE + 1
+        val batch = listOf(
+            register(LATIN, light),
+            register(HANGUL, bold),
+            register(varAsset, variable),
+            Mutation.Create(COLUMN, WidgetKind.Column),
+            Mutation.Create(staticLightNode, WidgetKind.Text),
+            Mutation.SetProp(staticLightNode, PropertyKind.Text, PropertyValue.Text("A")),
+            Mutation.SetProp(staticLightNode, noRole.first, noRole.second),
+            Mutation.SetProp(staticLightNode, PropertyKind.FontSize, PropertyValue.Float(size)),
+            Mutation.SetProp(staticLightNode, PropertyKind.Font, PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(LATIN))))),
+            Mutation.Create(staticBoldNode, WidgetKind.Text),
+            Mutation.SetProp(staticBoldNode, PropertyKind.Text, PropertyValue.Text("A")),
+            Mutation.SetProp(staticBoldNode, noRole.first, noRole.second),
+            Mutation.SetProp(staticBoldNode, PropertyKind.FontSize, PropertyValue.Float(size)),
+            Mutation.SetProp(staticBoldNode, PropertyKind.Font, PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(HANGUL))))),
+            Mutation.Create(varLightNode, WidgetKind.Text),
+            Mutation.SetProp(varLightNode, PropertyKind.Text, PropertyValue.Text("A")),
+            Mutation.SetProp(varLightNode, noRole.first, noRole.second),
+            Mutation.SetProp(varLightNode, PropertyKind.FontSize, PropertyValue.Float(size)),
+            Mutation.SetProp(varLightNode, PropertyKind.FontWeight, PropertyValue.Integer(300L)),
+            Mutation.SetProp(varLightNode, PropertyKind.Font, PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(varAsset))))),
+            Mutation.Create(varBoldNode, WidgetKind.Text),
+            Mutation.SetProp(varBoldNode, PropertyKind.Text, PropertyValue.Text("A")),
+            Mutation.SetProp(varBoldNode, noRole.first, noRole.second),
+            Mutation.SetProp(varBoldNode, PropertyKind.FontSize, PropertyValue.Float(size)),
+            Mutation.SetProp(varBoldNode, PropertyKind.FontWeight, PropertyValue.Integer(700L)),
+            Mutation.SetProp(varBoldNode, PropertyKind.Font, PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(varAsset))))),
+            Mutation.Insert(COLUMN, staticLightNode, 0),
+            Mutation.Insert(COLUMN, staticBoldNode, 1),
+            Mutation.Insert(COLUMN, varLightNode, 2),
+            Mutation.Insert(COLUMN, varBoldNode, 3),
+        )
+        startHost(FakeHostConnection(batch), Density(1f))
+
+        val staticLightWidth = drawnLayout(staticLightNode).let { it.getLineRight(0) - it.getLineLeft(0) }
+        val staticBoldWidth = drawnLayout(staticBoldNode).let { it.getLineRight(0) - it.getLineLeft(0) }
+        assertTrue(
+            abs(staticLightWidth - 1.0f * size) <= 0.51f,
+            "static light face should draw 1.0em (${1.0f * size}), drew $staticLightWidth",
+        )
+        assertTrue(
+            abs(staticBoldWidth - 1.6f * size) <= 0.51f,
+            "static bold face should draw 1.6em (${1.6f * size}), drew $staticBoldWidth",
+        )
+        assertTrue(staticBoldWidth > staticLightWidth + 5f, "two static weight files must draw differently")
+
+        // Variable font: default 400 -> 1.2em (24px); wght=300 -> 1.0em (20px); wght=700 -> 1.8em (36px).
+        val varLightWidth = drawnLayout(varLightNode).let { it.getLineRight(0) - it.getLineLeft(0) }
+        val varBoldWidth = drawnLayout(varBoldNode).let { it.getLineRight(0) - it.getLineLeft(0) }
+        assertTrue(
+            abs(varLightWidth - 1.0f * size) <= 0.51f,
+            "variable font at weight 300 should draw 1.0em (${1.0f * size}), drew $varLightWidth",
+        )
+        assertTrue(
+            abs(varBoldWidth - 1.8f * size) <= 0.51f,
+            "variable font at weight 700 should draw 1.8em (${1.8f * size}), drew $varBoldWidth",
+        )
+        assertTrue(
+            varBoldWidth > varLightWidth + 10f,
+            "variable font at weights 300 ($varLightWidth) and 700 ($varBoldWidth) must draw differently",
+        )
+    }
+
+    @Test
     fun fr48_missing_glyph_falls_to_next_font() = runComposeUiTest {
         val fonts = listOf(FontRef.Asset(LATIN), FontRef.Asset(HANGUL), FontRef.Generic(GenericFamily.SansSerif))
         val noRole = PropertyKind.TypeRole to PropertyValue.Integer(TYPE_ROLE_NONE.toLong())

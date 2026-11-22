@@ -67,6 +67,7 @@ sealed interface Asset {
             val weight: Int,
             val italic: Boolean,
             val hasGlyph: (Int) -> Boolean,
+            val fonts: List<androidx.compose.ui.text.font.Font> = listOf(font),
         )
     }
 
@@ -539,7 +540,7 @@ internal fun decodeFontStack(bytes: ByteArray, lookup: (Int) -> Asset?): Asset.F
  */
 private fun stackMember(fonts: List<Asset.Font>): FontChain.Member {
     val faces = fonts.map { it.face!! }
-    val family = FontFamily(faces.map { it.font })
+    val family = FontFamily(faces.flatMap { it.fonts })
     return FontChain.Member(family) { codePoint -> faces.any { it.hasGlyph(codePoint) } }
 }
 

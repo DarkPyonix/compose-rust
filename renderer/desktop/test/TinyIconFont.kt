@@ -40,18 +40,61 @@ internal object TinyIconFont {
         advance: Int = ADVANCE,
         italic: Boolean = false,
     ): ByteArray {
-        val tables = sortedMapOf(
-            "OS/2" to os2(codePoint, weight, advance, italic),
-            "cmap" to cmap(codePoint),
-            "glyf" to glyf(advance),
-            "head" to head(advance),
-            "hhea" to hhea(advance),
-            "hmtx" to hmtx(advance),
-            "loca" to loca(),
-            "maxp" to maxp(),
-            "name" to name(family),
-            "post" to post(),
+        return assemble(
+            sortedMapOf(
+                "OS/2" to os2(codePoint, weight, advance, italic),
+                "cmap" to cmap(codePoint),
+                "glyf" to glyf(advance),
+                "head" to head(advance),
+                "hhea" to hhea(advance),
+                "hmtx" to hmtx(advance),
+                "loca" to loca(),
+                "maxp" to maxp(),
+                "name" to name(family),
+                "post" to post(),
+            ),
         )
+    }
+
+    /**
+     * A variable TrueType font with a `wght` axis from [minWeight] to [maxWeight] (default
+     * [defaultWeight]), where glyph 1 (`A` and [codePoint]) widens linearly along `wght`
+     * by [deltaAtMin] at [minWeight] and [deltaAtMax] at [maxWeight].
+     *
+     * Both `gvar` (outline and phantom points) and `HVAR` (horizontal advance metrics) are
+     * written so CoreText, FreeType and DirectWrite all produce the same varied advance.
+     */
+    fun buildVariable(
+        codePoint: Int = CODE_POINT,
+        family: String = "Tiny Variable",
+        minWeight: Int = 100,
+        defaultWeight: Int = 400,
+        maxWeight: Int = 900,
+        defaultAdvance: Int = 1200,
+        deltaAtMin: Int = -600,
+        deltaAtMax: Int = 1000,
+    ): ByteArray {
+        val maxAdvance = maxOf(defaultAdvance, defaultAdvance + deltaAtMin, defaultAdvance + deltaAtMax)
+        return assemble(
+            sortedMapOf(
+                "HVAR" to hvar(deltaAtMin, deltaAtMax),
+                "OS/2" to os2(codePoint, defaultWeight, defaultAdvance, italic = false),
+                "cmap" to cmap(codePoint),
+                "fvar" to fvar(minWeight, defaultWeight, maxWeight),
+                "glyf" to glyf(defaultAdvance),
+                "gvar" to gvar(deltaAtMin, deltaAtMax),
+                "head" to head(maxAdvance),
+                "hhea" to hhea(maxAdvance),
+                "hmtx" to hmtx(defaultAdvance),
+                "loca" to loca(),
+                "maxp" to maxp(),
+                "name" to name(family, includeWeightAxis = true),
+                "post" to post(),
+            ),
+        )
+    }
+
+    private fun assemble(tables: Map<String, ByteArray>): ByteArray {
         val count = tables.size
         var power = 1
         var selector = 0
@@ -215,14 +258,23 @@ internal object TinyIconFont {
         short(0)
     }
 
-    private fun name(familyName: String): ByteArray {
+    private fun name(familyName: String, includeWeightAxis: Boolean = false): ByteArray {
         val family = familyName.toByteArray(Charsets.UTF_16BE)
         val style = "Regular".toByteArray(Charsets.UTF_16BE)
-        return table(6 + 24 + family.size + style.size) {
+        val records = buildList {
+            add(Triple(1, family, 0))
+            add(Triple(2, style, family.size))
+            if (includeWeightAxis) {
+                add(Triple(256, "Weight".toByteArray(Charsets.UTF_16BE), family.size + style.size))
+            }
+        }
+        val stringsSize = records.sumOf { it.second.size }
+        val headerAndRecords = 6 + 12 * records.size
+        return table(headerAndRecords + stringsSize) {
             short(0)
-            short(2)
-            short(30)
-            for ((id, text, at) in listOf(Triple(1, family, 0), Triple(2, style, family.size))) {
+            short(records.size)
+            short(headerAndRecords)
+            for ((id, text, at) in records) {
                 short(3)
                 short(1)
                 short(0x409)
@@ -230,8 +282,104 @@ internal object TinyIconFont {
                 short(text.size)
                 short(at)
             }
-            put(family)
-            put(style)
+            for ((_, text, _) in records) put(text)
+        }
+    }
+
+    /** Font Variations table with one `wght` axis and no named instances. */
+    private fun fvar(minWeight: Int, defaultWeight: Int, maxWeight: Int) = table(36) {
+        short(1)
+        short(0)
+        short(16)
+        short(2)
+        short(1)
+        short(20)
+        short(0)
+        short(8)
+        put("wght".encodeToByteArray())
+        putInt(minWeight shl 16)
+        putInt(defaultWeight shl 16)
+        putInt(maxWeight shl 16)
+        short(0)
+        short(256)
+    }
+
+    /** Horizontal Metrics Variations table: direct glyph-id mapping for the two glyphs. */
+    private fun hvar(deltaAtMin: Int, deltaAtMax: Int) = table(66) {
+        // Header (20 bytes)
+        short(1)
+        short(0)
+        putInt(20)
+        putInt(0)
+        putInt(0)
+        putInt(0)
+        // ItemVariationStore (12 bytes)
+        short(1)
+        putInt(12)
+        short(1)
+        putInt(28)
+        // VariationRegionList (16 bytes): 1 axis, 2 regions ([-1,-1,0] and [0,1,1] in F2DOT14)
+        short(1)
+        short(2)
+        short(-0x4000)
+        short(-0x4000)
+        short(0)
+        short(0)
+        short(0x4000)
+        short(0x4000)
+        // ItemVariationData (18 bytes): 2 items, 2 word deltas, 2 regions [0, 1]
+        short(2)
+        short(2)
+        short(2)
+        short(0)
+        short(1)
+        // Glyph 0 (.notdef)
+        short(0)
+        short(0)
+        // Glyph 1 (block)
+        short(deltaAtMin)
+        short(deltaAtMax)
+    }
+
+    /** Glyph Variations table: widens glyph 1's right edge and right phantom point along `wght`. */
+    private fun gvar(deltaAtMin: Int, deltaAtMax: Int) = table(78) {
+        // Header (20 bytes)
+        short(1)
+        short(0)
+        short(1)
+        short(2)
+        putInt(26)
+        short(2)
+        short(0)
+        putInt(30)
+        // glyphVariationDataOffsets (6 bytes, uint16 in half-bytes): glyph 0 empty, glyph 1 = 48 bytes
+        short(0)
+        short(0)
+        short(24)
+        // sharedTuples (4 bytes): peak -1.0, peak +1.0 in F2DOT14
+        short(-0x4000)
+        short(0x4000)
+        // GlyphVariationData for glyph 1 (48 bytes): 2 tuples, data at +12
+        short(2)
+        short(12)
+        // TupleVariationHeader 0 (18 bytes of serialized deltas, shared tuple 0, all points)
+        short(18)
+        short(0)
+        // TupleVariationHeader 1 (18 bytes of serialized deltas, shared tuple 1, all points)
+        short(18)
+        short(1)
+        for (delta in listOf(deltaAtMin, deltaAtMax)) {
+            // 8 points (4 contour + 4 phantom): X deltas as 16-bit run, Y deltas all zero.
+            put(0x47.toByte())
+            short(0)
+            short(delta)
+            short(delta)
+            short(0)
+            short(0)
+            short(delta)
+            short(0)
+            short(0)
+            put(0x87.toByte())
         }
     }
 
