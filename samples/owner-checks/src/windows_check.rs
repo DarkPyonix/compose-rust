@@ -179,6 +179,12 @@ fn second_window(windows: Windows) {
             windows.heard(String::from("WindowClosed second"));
             windows.second_open.set(false);
         }),
+        // The platform refused the window. The line says so, and the button can try again:
+        // left open, the flag would make every later press a change to nothing.
+        on_unavailable = Some(move || {
+            windows.heard(String::from("WindowUnavailable second"));
+            windows.second_open.set(false);
+        }),
         content = move || {
             Column!(
                 modifier = Modifier
@@ -215,6 +221,11 @@ fn tab_window(index: usize, windows: Windows) {
         restore_key = TAB_KEYS[index],
         on_closed = Some(move || {
             windows.heard(format!("WindowClosed {}", TAB_KEYS[index]));
+            windows.torn.update(|torn| torn[index] = false);
+        }),
+        // The platform could not open a window for the tab, so it goes back where it was.
+        on_unavailable = Some(move || {
+            windows.heard(format!("WindowUnavailable {}", TAB_KEYS[index]));
             windows.torn.update(|torn| torn[index] = false);
         }),
         content = move || {

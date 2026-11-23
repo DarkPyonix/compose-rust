@@ -1138,6 +1138,51 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// A second window the platform refused is shown on the line, and the button opens it
+    /// again. Left open, the flag made every later press a change to nothing.
+    #[test]
+    fn fr53_a_refused_second_window_is_shown_and_can_be_opened_again() {
+        let mut screen = Screen::windows_check();
+        assert!(screen.press(windows_check::OPEN_SECOND));
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, windows_check::SECOND_KEY)
+            .expect("the second window is asked for");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowUnavailable)
+            .expect("the second window hears that the platform refused it");
+        screen.dispatch(window, handler, EventPayload::WindowUnavailable);
+        assert_eq!(screen.window_nodes(), 1);
+        assert!(screen.shows("Last window event: WindowUnavailable second"));
+        assert!(screen.press(windows_check::OPEN_SECOND));
+        assert_eq!(
+            screen.window_nodes(),
+            2,
+            "the button asks for the window again"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A tab whose window the platform refused goes back into the first window.
+    #[test]
+    fn fr53_a_refused_tab_window_puts_the_tab_back() {
+        let mut screen = Screen::windows_check();
+        screen.request_window("tab:a");
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, "tab:a")
+            .expect("the tab has a window");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowUnavailable)
+            .expect("the tab's window hears that the platform refused it");
+        screen.dispatch(window, handler, EventPayload::WindowUnavailable);
+        assert_eq!(screen.window_nodes(), 1);
+        assert_eq!(
+            screen.strings_of(PropertyKind::TearOffKey),
+            vec!["tab:a".to_owned(), "tab:b".to_owned()]
+        );
+        assert!(screen.shows("Last window event: WindowUnavailable tab:a"));
+        compose_rust::window::reset_window_size();
+    }
+
     /// A tab or a window dragged over a window's strip is shown on the line.
     #[test]
     fn fr53_a_drag_over_the_strip_is_shown() {
