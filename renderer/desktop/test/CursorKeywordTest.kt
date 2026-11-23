@@ -2,8 +2,8 @@ package dev.darkpyonix.composerust.test
 
 import dev.darkpyonix.composerust.foundation.CursorKeywordIcon
 import dev.darkpyonix.composerust.foundation.cursorIconOf
-import dev.darkpyonix.composerust.ui.PointerShape
-import dev.darkpyonix.composerust.ui.nearestPointerShape
+import dev.darkpyonix.composerust.ui.platform.PointerShape
+import dev.darkpyonix.composerust.ui.platform.nearestPointerShape
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
