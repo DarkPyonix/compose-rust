@@ -1,0 +1,41 @@
+// Sends every Gradle build on a CI runner to a Maven Central mirror before Maven Central.
+//
+// GitHub's runners share addresses, and Maven Central answers them "429 Too Many Requests"
+// for minutes at a time (run 44910665959: kotlin-stdlib 2.0.21, protobuf-java 3.25.5), which
+// no retry outlasts. renderer/scripts/build-compose.sh installs this into the Gradle user
+// home's init.d on CI with @MIRROR@ replaced, so the fork's Compose build and every later
+// Gradle build on that runner read the mirror.
+//
+// Each Maven Central repository a build declares (mavenCentral(), or a maven { url } at
+// repo.maven.apache.org or repo1.maven.org) is pointed at the mirror where it stands, and
+// Maven Central itself is added right after it for anything the mirror does not hold yet.
+// Every other repository keeps its place, so an order a build relies on (the fork takes
+// skiko from mavenLocal before Central for mingwX64) is unchanged.
+def mirror = '@MIRROR@'
+def fallbackName = 'MavenCentralBehindMirror'
+def centralUrls = ['https://repo.maven.apache.org/maven2', 'https://repo1.maven.org/maven2']
+
+def mirrorCentral = { RepositoryHandler repos ->
+    repos.withType(MavenArtifactRepository).all { repo ->
+        if (repo.name == fallbackName) return
+        if (!centralUrls.contains(repo.url.toString().replaceAll('/+$', ''))) return
+        repo.url = mirror
+        if (repos.findByName(fallbackName) == null) {
+            repos.maven {
+                name = fallbackName
+                url = 'https://repo.maven.apache.org/maven2/'
+            }
+        }
+    }
+}
+
+beforeSettings { settings ->
+    mirrorCentral(settings.buildscript.repositories)
+    mirrorCentral(settings.pluginManagement.repositories)
+    mirrorCentral(settings.dependencyResolutionManagement.repositories)
+}
+
+allprojects { project ->
+    mirrorCentral(project.buildscript.repositories)
+    mirrorCentral(project.repositories)
+}

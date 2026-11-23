@@ -1,0 +1,17 @@
+{
+  "os": "linux",
+  "application": "blank-window",
+  "window": "800x600",
+  "launches": 3,
+  "readings_s": [10, 60],
+  "metric": "pss_kb",
+  "method": "PSS from /proc/<pid>/smaps_rollup",
+  "columns": [["pss_kb", "PSS"], ["rss_kb", "RSS (reference)"]],
+  "samples": [
+    {"launch": 1, "at_s": 10, "pid": 11, "pss_kb": 61440, "rss_kb": 102400},
+    {"launch": 1, "at_s": 60, "pid": 11, "pss_kb": 59392, "rss_kb": 100352},
+    {"launch": 2, "at_s": 10, "pid": 12, "pss_kb": 71680, "rss_kb": 112640},
+    {"launch": 2, "at_s": 60, "pid": 12, "pss_kb": 60416, "rss_kb": 101376},
+    {"launch": 3, "at_s": 10, "pid": 13, "pss_kb": 66560, "rss_kb": 107520}
+  ]
+}

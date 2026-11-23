@@ -80,9 +80,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         return RendererApi.RUN_FAILED
     }
 
+    // The window's own light or dark, for what the system draws of it: the caption of a window
+    // with the system's chrome, and the frame of every window. Given before the first frame
+    // from the theme the first batch set, and again whenever the application changes it.
+    val colorScheme = WindowSchemeFollower { scheme ->
+        setWindowColorScheme(windowAppearanceCode(scheme))
+    }
+    colorScheme.follow(host.table.theme)
+
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
-        window.setContent { WindowContent(host) }
+        window.setContent {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
+            }
+            WindowContent(host)
+        }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -91,6 +104,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             maximised = window.maximised,
         )
         window.setContent {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
+            }
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
                 dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
