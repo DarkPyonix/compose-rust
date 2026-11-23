@@ -111,33 +111,9 @@ fn main_window(windows: Windows) {
                         modifier = Modifier.fill_max_width().padding_role(SpaceRole::Lg),
                         space_role = SpaceRole::Md,
                         {
-                            crate::header(
-                                "Windows",
-                                "Several windows of one application: a second window that \
-                                 keeps drawing, and tabs that tear off into windows of their own.",
-                            );
-                            crate::steps(
-                                "What to do and what must be seen",
-                                &[
-                                    "Press \"Open a second window\". A second window opens, and its \
-                                     count of seconds climbs once a second, as this one does.",
-                                    "On a desktop, press Tab A and drag it out of this window. A \
-                                     window opens under the pointer and follows it until you let go.",
-                                    "On Android 15 or later, hold Tab A, then drag it to the side of \
-                                     the screen. The system opens it as a window beside this one. \
-                                     Below Android 15 nothing is dragged.",
-                                    "On an iPad, hold Tab A, then drag it to the edge of the screen. \
-                                     A new window opens with it. On an iPhone nothing is dragged.",
-                                    "Each time, the line at the bottom says WindowRequested with the \
-                                     tab's key, and the tab is gone from this window.",
-                                    "Drag a tab or a torn-off window over the strip of another \
-                                     window. The line says WindowDragOver: Enter, Move, then Leave \
-                                     or Drop.",
-                                    "Close a torn-off window through the system (swipe it away in \
-                                     Recents, or close it in the iPad's app switcher). The line says \
-                                     WindowClosed and the tab is back here.",
-                                ],
-                            );
+                            // The controls come before the steps, so that a phone shows
+                            // them without scrolling.
+                            crate::header("Windows", "The steps are below the controls.");
                             tab_strip(windows);
                             Button!(
                                 OPEN_SECOND,
@@ -145,6 +121,22 @@ fn main_window(windows: Windows) {
                                 accessible_name = OPEN_SECOND
                             );
                             shared(windows);
+                            crate::steps(
+                                "What to do and what must be seen",
+                                &[
+                                    "Press \"Open a second window\". Its seconds climb too.",
+                                    "Desktop: drag Tab A out. A window follows the pointer.",
+                                    "Android 15 or later: hold Tab A, drag it to a screen edge \
+                                     or onto the desktop. It opens as a window of its own.",
+                                    "iPad: hold Tab A, drag it to a screen edge. A window opens.",
+                                    "Each time the line says WindowRequested with the tab's key, \
+                                     and the tab leaves this window.",
+                                    "Drag a tab or window over another window's strip. The line \
+                                     says WindowDragOver: Enter, Move, then Leave or Drop.",
+                                    "Close a torn-off window from Recents or the app switcher. \
+                                     The line says WindowClosed and the tab comes back.",
+                                ],
+                            );
                         }
                     );
                 }
