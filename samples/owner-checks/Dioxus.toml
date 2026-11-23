@@ -19,3 +19,15 @@ long_description = "Notifications, a platform view inside the window, a caption 
 
 [macos]
 bundle_name = "Owner-checks"
+
+# The sample's windows check opens several windows, which on an iPad are
+# scenes. A bundle that lists no scene manifest gets one scene, and the system makes a scene
+# from a dragged tab only for an activity type the bundle names. With the manifest the
+# renderer starts every launch through its scene delegate, the single-window screens of this
+# sample included, where one scene draws the one window as before. Only this sample asks for
+# it, so the other samples start the way they always have.
+[ios.plist]
+NSUserActivityTypes = ["dev.darkpyonix.composerust.window"]
+
+[ios.plist.UIApplicationSceneManifest]
+UIApplicationSupportsMultipleScenes = true
