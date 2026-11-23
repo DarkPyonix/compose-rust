@@ -60,6 +60,12 @@ class NativePlatformContext(
     /** Sets the shape of the pointer, by the number [pointerShapeOf] answers with. */
     private val setCursor: (Int) -> Unit,
     private val focused: () -> Boolean = { true },
+    /**
+     * Sets the pointer's shape by its CSS keyword (FR-47.1), on a window that can: the fork's
+     * table gives each keyword its closest shape there. Null where the window knows only the
+     * few shapes of [PointerShape]; a keyword then takes the nearest of those.
+     */
+    private val setCursorShape: ((org.thisisthepy.compose.window.CursorShape) -> Unit)? = null,
 ) : PlatformContext {
 
     override val windowInfo: WindowInfo = NativeWindowInfo(size, focused)
@@ -74,7 +80,14 @@ class NativePlatformContext(
      * looks like anyway.
      */
     override fun setPointerIcon(pointerIcon: PointerIcon) {
-        setCursor(pointerShapeOf(pointerIcon))
+        val keyword = (pointerIcon as? dev.darkpyonix.composerust.foundation.CursorKeywordIcon)
+            ?.let { org.thisisthepy.compose.window.CursorShape.fromWire(it.keyword) }
+        val byKeyword = setCursorShape
+        if (keyword != null && byKeyword != null) {
+            byKeyword(keyword)
+        } else {
+            setCursor(pointerShapeOf(pointerIcon))
+        }
     }
 
     override suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing =
@@ -95,7 +108,40 @@ internal fun pointerShapeOf(pointerIcon: PointerIcon): Int = when (pointerIcon) 
     // The split pane's divider, which asks for the shape the platform uses for dragging
     // something left or right.
     dev.darkpyonix.composerust.foundation.platformResizeCursor -> PointerShape.RESIZE_LEFT_RIGHT
+    is dev.darkpyonix.composerust.foundation.CursorKeywordIcon ->
+        org.thisisthepy.compose.window.CursorShape.fromWire(pointerIcon.keyword)
+            ?.let(::nearestPointerShape) ?: PointerShape.ARROW
     else -> PointerShape.ARROW
+}
+
+/**
+ * The nearest of the few shapes every desktop window here knows, for a CSS `cursor` keyword on
+ * a window that cannot set one by keyword (FR-47.1). Anything without a near shape is the arrow.
+ */
+internal fun nearestPointerShape(shape: org.thisisthepy.compose.window.CursorShape): Int {
+    return when (shape) {
+        org.thisisthepy.compose.window.CursorShape.Pointer,
+        org.thisisthepy.compose.window.CursorShape.Grab,
+        org.thisisthepy.compose.window.CursorShape.Grabbing,
+        -> PointerShape.HAND
+        org.thisisthepy.compose.window.CursorShape.Text,
+        org.thisisthepy.compose.window.CursorShape.VerticalText,
+        -> PointerShape.TEXT
+        org.thisisthepy.compose.window.CursorShape.Crosshair,
+        org.thisisthepy.compose.window.CursorShape.Cell,
+        -> PointerShape.CROSSHAIR
+        org.thisisthepy.compose.window.CursorShape.ColResize,
+        org.thisisthepy.compose.window.CursorShape.EResize,
+        org.thisisthepy.compose.window.CursorShape.WResize,
+        org.thisisthepy.compose.window.CursorShape.EwResize,
+        -> PointerShape.RESIZE_LEFT_RIGHT
+        org.thisisthepy.compose.window.CursorShape.RowResize,
+        org.thisisthepy.compose.window.CursorShape.NResize,
+        org.thisisthepy.compose.window.CursorShape.SResize,
+        org.thisisthepy.compose.window.CursorShape.NsResize,
+        -> PointerShape.RESIZE_UP_DOWN
+        else -> PointerShape.ARROW
+    }
 }
 
 /** What a pointer can look like, in the small set the renderer and each window's C side agree on. */

@@ -1,6 +1,6 @@
 package dev.darkpyonix.composerust.test
 
-import dev.darkpyonix.composerust.foundation.CursorShapeIcon
+import dev.darkpyonix.composerust.foundation.CursorKeywordIcon
 import dev.darkpyonix.composerust.foundation.cursorIconOf
 import dev.darkpyonix.composerust.ui.PointerShape
 import dev.darkpyonix.composerust.ui.nearestPointerShape
@@ -22,12 +22,13 @@ class CursorKeywordTest {
         // Auto=0 .. None=35, numbered as the wire numbers them.
         for (value in 1..35) {
             val icon = cursorIconOf(value.toLong())
-            assertTrue(icon is CursorShapeIcon, "value $value")
-            assertEquals(value, icon.shape.ordinal, "value $value is the fork's shape of the same number")
+            assertTrue(icon is CursorKeywordIcon, "value $value")
+            val shape = CursorShape.fromWire(icon.keyword)
+            assertEquals(value, shape?.ordinal, "value $value is the fork's shape of the same number")
         }
-        assertEquals(CursorShape.Pointer, (cursorIconOf(2) as CursorShapeIcon).shape)
-        assertEquals(CursorShape.NwseResize, (cursorIconOf(34) as CursorShapeIcon).shape)
-        assertEquals(CursorShape.None, (cursorIconOf(35) as CursorShapeIcon).shape)
+        assertEquals(CursorShape.Pointer, CursorShape.fromWire((cursorIconOf(2) as CursorKeywordIcon).keyword))
+        assertEquals(CursorShape.NwseResize, CursorShape.fromWire((cursorIconOf(34) as CursorKeywordIcon).keyword))
+        assertEquals(CursorShape.None, CursorShape.fromWire((cursorIconOf(35) as CursorKeywordIcon).keyword))
     }
 
     @Test
