@@ -219,6 +219,34 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x7A -> Key.F11
     0x7B -> Key.F12
     0x5D -> Key.Menu
+    // The punctuation keys, named by where they sit on a US layout (VK_OEM_*), as the HID
+    // usage names them too. What they type on another layout arrives as text.
+    0xBA -> Key.Semicolon
+    0xBB -> Key.Equals
+    0xBC -> Key.Comma
+    0xBD -> Key.Minus
+    0xBE -> Key.Period
+    0xBF -> Key.Slash
+    0xC0 -> Key.Grave
+    0xDB -> Key.LeftBracket
+    0xDC -> Key.Backslash
+    0xDD -> Key.RightBracket
+    0xDE -> Key.Apostrophe
+    0x2D -> Key.Insert
+    0x14 -> Key.CapsLock
+    // WM_KEYDOWN names a modifier without its side (VK_SHIFT, VK_CONTROL, VK_MENU); the left
+    // one stands for it. The sided codes are mapped for a window that hands them over.
+    0x10 -> Key.ShiftLeft
+    0x11 -> Key.CtrlLeft
+    0x12 -> Key.AltLeft
+    0xA0 -> Key.ShiftLeft
+    0xA1 -> Key.ShiftRight
+    0xA2 -> Key.CtrlLeft
+    0xA3 -> Key.CtrlRight
+    0xA4 -> Key.AltLeft
+    0xA5 -> Key.AltRight
+    0x5B -> Key.MetaLeft
+    0x5C -> Key.MetaRight
     else -> Key.Unknown
 }
 
