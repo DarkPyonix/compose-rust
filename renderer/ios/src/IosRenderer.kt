@@ -187,6 +187,7 @@ internal class IosTabDropDelegate(
         return session.locationInView(view).useContents { x.toFloat() to y.toFloat() }
     }
 
+    @ObjCSignatureOverride
     override fun dropInteraction(interaction: UIDropInteraction, canHandleSession: UIDropSessionProtocol): Boolean =
         sourceOf(canHandleSession) != null
 
