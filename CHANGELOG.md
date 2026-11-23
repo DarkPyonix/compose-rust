@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A tab tears off into a new iPad scene, and every iOS scene draws
+
+On iPadOS the system's drag interaction lifts a node with a `tear_off_key` after a long press, and a drop at the edge of the screen makes a new scene, for which the application hears `WindowRequested` with the key. A tab dragged over another scene of the application reaches that scene's `on_window_drag_over` nodes, whose event names the scene the tab is over, and that scene takes the drop only over such a node. On an iPhone no drag starts. Every scene of an application with several windows now draws from its own frames, where before only the event that changed it redrew it, and a scene reconnected after the process died is matched by its restore key rather than by the old process' node id. An application needs `UIApplicationSceneManifest` with `UIApplicationSupportsMultipleScenes` and `NSUserActivityTypes` with `dev.darkpyonix.composerust.window` under `[ios.plist]` in its `Dioxus.toml` for either ([#931](https://github.com/DarkPyonix/compose-rust/issues/931), FR-53).
+
 ### A tab with a `tear_off_key` tears off into a window of its own on the desktop
 
 A node with a `tear_off_key` can now be pulled out into a window of its own in an application that runs several windows; before, nothing started the drag on any platform. On a desktop window (macOS, Windows, Linux) a press on the node that leaves the window sends `WindowRequested` with the key, and the `Window` node the application puts in for it follows the pointer until the button is released. A drag that stays inside the window is not a tear-off, and a tap is still a click. The renderer now also has what Android's Activities and iOS' scenes need to draw several windows and to hear a tab dragged over them, which those renderers use in the changes that follow ([#355](https://github.com/DarkPyonix/compose-rust/issues/355), [#931](https://github.com/DarkPyonix/compose-rust/issues/931), FR-53).
