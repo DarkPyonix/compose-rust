@@ -4,8 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -54,6 +56,34 @@ internal suspend fun serveWindowFrames(
  */
 fun windowFrameDriverWanted(mode: WindowMode?, openWindows: Int, attachedWindows: Int): Boolean =
     mode == WindowMode.Windows && openWindows > 0 && attachedWindows > 0
+
+/**
+ * The window that the Activity an Android application was started with draws, in an
+ * application of several windows. An Activity the renderer launched as a window is bound by the
+ * node id or the key it carries; this is the one the launcher started.
+ *
+ * It draws the application's first `Window` node, through the platform window [windowFor] has
+ * for it (the one it claimed when the process started, or the one it draws again after the
+ * process was revived). With no `Window` node left in [table], the user closed the application's
+ * last window (Back on the first window, or sweeping it out of Recents) and the process stayed:
+ * a start from the launcher is then the user asking for a window. The application is asked for
+ * one through [requestWindow], as for any window the system made with no node for it (an empty
+ * restore key), and the Activity draws the node it answers with, or is closed when it answers
+ * with none. Drawing the tree's root instead left a blank window that nothing ever filled,
+ * because the application never heard that the user had come back.
+ *
+ * Null when a `Window` node exists that has no platform window: the Activity then draws the
+ * tree's root, as it did before.
+ */
+fun <W : PlatformWindow> startedActivityWindow(
+    table: NodeTable,
+    windowFor: (nodeId: Int) -> W?,
+    requestWindow: () -> W?,
+): W? {
+    val first = table.roots.firstOrNull { table.node(it)?.widget == WidgetKind.Window }
+        ?: return requestWindow()
+    return windowFor(first)
+}
 
 /**
  * One window's frame clock, for a platform where each window draws in a composition of its
