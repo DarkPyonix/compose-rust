@@ -93,7 +93,10 @@ pub fn windows_check_app() {
 /// The first window: the tabs, the button that opens the second window, and what to do.
 fn main_window(windows: Windows) {
     Window!(
-        move || windows.main_open.set(false),
+        move || {
+            windows.heard(format!("WindowCloseRequested {MAIN_KEY}"));
+            windows.main_open.set(false);
+        },
         title = "Owner checks: windows",
         size = (720.0, 640.0),
         restore_key = MAIN_KEY,
@@ -133,6 +136,9 @@ fn main_window(windows: Windows) {
                                      and the tab leaves this window.",
                                     "Drag a tab or window over another window's strip. The line \
                                      says WindowDragOver: Enter, Move, then Leave or Drop.",
+                                    "Press Back in a torn-off window (Android) or its close \
+                                     button (desktop). The line says WindowCloseRequested with \
+                                     the tab's key, the window closes and the tab comes back.",
                                     "Close a torn-off window from Recents or the app switcher. \
                                      The line says WindowClosed and the tab comes back.",
                                 ],
@@ -148,7 +154,10 @@ fn main_window(windows: Windows) {
 /// The second window, which shows the same shared lines as the first.
 fn second_window(windows: Windows) {
     Window!(
-        move || windows.second_open.set(false),
+        move || {
+            windows.heard(format!("WindowCloseRequested {SECOND_KEY}"));
+            windows.second_open.set(false);
+        },
         title = "Owner checks: second window",
         size = (520.0, 440.0),
         restore_key = SECOND_KEY,
@@ -178,7 +187,13 @@ fn second_window(windows: Windows) {
 
 /// A tab in a window of its own. Closing it puts the tab back in the first window.
 fn tab_window(index: usize, windows: Windows) {
-    let put_back = move || windows.torn.update(|torn| torn[index] = false);
+    // A close request (Back on Android, the close button on the desktop) is the application's
+    // to answer, and it answers by putting the tab back, which closes the window. The line
+    // says so, so the check can tell a close request from a window the system closed.
+    let put_back = move || {
+        windows.heard(format!("WindowCloseRequested {}", TAB_KEYS[index]));
+        windows.torn.update(|torn| torn[index] = false);
+    };
     Window!(
         put_back,
         title = TAB_NAMES[index],

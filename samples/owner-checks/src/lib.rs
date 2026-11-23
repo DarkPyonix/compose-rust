@@ -1072,6 +1072,46 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// A close request (Back in a torn-off Android window, its close button on the desktop)
+    /// is answered by putting the tab back, which removes the window, and the line says it
+    /// was a close request rather than a window the system closed.
+    #[test]
+    fn fr53_a_close_request_is_shown_and_puts_the_tab_back() {
+        let mut screen = Screen::windows_check();
+        screen.request_window("tab:a");
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, "tab:a")
+            .expect("the tab has a window");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowCloseRequested)
+            .expect("the tab's window hears a close request");
+        screen.dispatch(window, handler, EventPayload::WindowCloseRequested);
+        assert_eq!(screen.window_nodes(), 1);
+        assert_eq!(
+            screen.strings_of(PropertyKind::TearOffKey),
+            vec!["tab:a".to_owned(), "tab:b".to_owned()]
+        );
+        assert!(screen.shows("Last window event: WindowCloseRequested tab:a"));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A close request in the second window closes it and is shown on the line.
+    #[test]
+    fn fr53_a_close_request_in_the_second_window_is_shown() {
+        let mut screen = Screen::windows_check();
+        assert!(screen.press(windows_check::OPEN_SECOND));
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, windows_check::SECOND_KEY)
+            .expect("the second window is open");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowCloseRequested)
+            .expect("the second window hears a close request");
+        screen.dispatch(window, handler, EventPayload::WindowCloseRequested);
+        assert_eq!(screen.window_nodes(), 1);
+        assert!(screen.shows("Last window event: WindowCloseRequested second"));
+        compose_rust::window::reset_window_size();
+    }
+
     /// A tab or a window dragged over a window's strip is shown on the line.
     #[test]
     fn fr53_a_drag_over_the_strip_is_shown() {
