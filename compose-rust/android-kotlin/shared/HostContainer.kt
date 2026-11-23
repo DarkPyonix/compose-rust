@@ -4,6 +4,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.design.CaptionTitleAlignment
 import dev.darkpyonix.composerust.design.CaptionTitlePlacement
+import dev.darkpyonix.composerust.design.platformCaption
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -312,7 +313,7 @@ internal fun HostTopAppBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val title = node.text(PropertyKind.Text)
-            val captionStyle = theme.rules.caption(theme)
+            val captionStyle = platformCaption(theme)
             val titleInBar = title.isNotEmpty() &&
                 !(caption.height > 0.dp && captionStyle.titlePlacement == CaptionTitlePlacement.SystemCaption)
             val centred = caption.height > 0.dp &&
@@ -442,7 +443,7 @@ private fun FloatingTopAppBar(
     ) {
         val title = node.text(PropertyKind.Text)
         val titleInBar = title.isNotEmpty() &&
-            !(caption.height > 0.dp && theme.rules.caption(theme).titlePlacement == CaptionTitlePlacement.SystemCaption)
+            !(caption.height > 0.dp && platformCaption(theme).titlePlacement == CaptionTitlePlacement.SystemCaption)
         if (titleInBar) {
             BarTitle(node, title, theme)
         }
