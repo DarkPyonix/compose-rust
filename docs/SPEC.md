@@ -289,7 +289,9 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - `Modifier::PaddingRole(SpaceRole)`, 기존 `Modifier::Padding(f32)`는 유지합니다.
 - `Modifier::PaddingEach { start, top, end, bottom }`, f32 4개.
 - `Modifier::Weight(f32)`, `RowScope`/`ColumnScope`의 weight입니다. 부모 데이터이므로 자식을 쌓는 레이아웃만 적용할 수 있고, 자식을 세로로 쌓는 컨테이너(`Card`, `Surface`, `ScrollColumn`)도 `Column`과 같게 적용합니다. 몫이 되는 축은 부모가 쌓는 축입니다: `Column` 아래에서는 높이, `Row` 아래에서는 너비이며, `Box`처럼 쌓지 않는 부모 아래에서는 어느 축도 정하지 않습니다.
+- `Modifier::WeightUnfilled(f32)`(빌더 `Modifier::weight_unfilled(f32)`, 와이어 태그 `48`, `[provisional, #981]`): Compose `Modifier.weight(w, fill = false)`에 대응합니다. `Weight`와 같은 가중치 슬롯을 공유하며, 부모가 배분한 몫을 최대 제약으로만 넘기고 최소 제약은 0으로 둡니다. 짧은 자식은 내재 크기만 차지해 형제가 바로 옆에 놓이고, 긴 자식은 남은 공간(몫) 이하로 줄어들거나 말줄임됩니다. `Row`, `Column`과 세로 쌓기 컨테이너(`Card`, `Surface`, `ScrollColumn`)에 모두 적용됩니다.
 - 수용 기준: 높이가 정해진 `Surface` 안에서 `weight` 1과 3을 받은 자식 둘이 높이를 1:3으로 나눕니다. **(2026-09-21 통과)**
+- 수용 기준(#981): 폭 300px `Row`의 `[짧은 Text(weight_unfilled=1.0), 40px Box]`에서 짧은 Text는 내재 너비(100px 미만)만 차지하고 40px Box가 바로 옆에 붙으며, 폭 200px `Row`의 `[긴 Text(weight_unfilled=1.0), 60px Box]`에서 긴 Text는 남은 140px 이하로 제한되고 60px Box가 200px 안에 온전히 들어갑니다(`WeightUnfilledTest`, `fr13_weight_unfilled_round_trips`).
 - `Column`/`Row` 속성: `arrangement`(`Start|Center|End|SpaceBetween|SpaceAround|SpaceEvenly`), `spacing`(f32 dp) 또는 `space_role`, `alignment`(교차축 정렬).
 - `Box` 속성: `alignment`(9점 정렬).
 - 수용 기준: 위 속성/Modifier가 전부 `(tag, u64, u64)` 안에 들어가고, 인코딩 후 디코딩 결과가 입력과 같습니다.

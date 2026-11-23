@@ -3843,6 +3843,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 ],
             )
         }
+        Modifier::WeightUnfilled(value) => (48, two_words(float_word(*value), 0)),
         Modifier::Transform {
             a,
             b,
@@ -4180,6 +4181,7 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 ])
             },
         }),
+        48 => Ok(Modifier::WeightUnfilled(f32::from_bits(first as u32))),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

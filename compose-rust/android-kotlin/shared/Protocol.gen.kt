@@ -1341,6 +1341,7 @@ sealed interface Modifier {
     data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
     data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
     data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
+    data class WeightUnfilled(val value: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1932,7 +1933,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -9105973135176326103L
+    const val SCHEMA_HASH: Long = 546888143443213545L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -4259,6 +4260,7 @@ object Protocol {
         43 -> 1
         44 -> 0
         45 -> 1
+        48 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4310,6 +4312,7 @@ object Protocol {
             43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            48 -> Modifier.WeightUnfilled(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

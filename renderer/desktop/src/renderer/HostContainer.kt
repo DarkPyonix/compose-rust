@@ -395,7 +395,7 @@ private fun RowScope.BarChild(childId: Int, table: NodeTable, dispatcher: EventD
         childId,
         table,
         dispatcher,
-        if (weight == null) Modifier else Modifier.weight(weight),
+        if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill),
     )
 }
 
