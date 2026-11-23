@@ -171,6 +171,12 @@ class AndroidWindowBackend(
     private var initialClaimed = false
     private val windows = LinkedHashMap<Int, AndroidActivityWindow>()
 
+    /**
+     * Hears a tear-off drag pass over the application's windows ([acceptTearOffDrops]) and
+     * tells their drop targets. Set by the runtime to its window manager.
+     */
+    var tabDrags: WindowManager? = null
+
     override val supportsMultipleWindows: Boolean
         get() = multiWindowSupported()
 
@@ -272,11 +278,15 @@ class AndroidWindowBackend(
      * application offers the same thing as a menu action that puts a `Window` node in.
      *
      * [shadow] is what the user sees under the finger; by default the whole of [view].
+     * [sourceWindow] is the `Window` node the drag starts in. It travels as the drag's local
+     * state, which only this process' windows see, so the window it came from is not told it
+     * passed over itself.
      */
     fun startTearOffDrag(
         view: View,
         restoreKey: String,
         shadow: View.DragShadowBuilder = View.DragShadowBuilder(view),
+        sourceWindow: Int = 0,
     ): Boolean {
         // Spelled out rather than through androidTearOffSupported, so the API check below is
         // one the Android tooling can see.
@@ -302,7 +312,7 @@ class AndroidWindowBackend(
         return view.startDragAndDrop(
             clip,
             shadow,
-            null,
+            sourceWindow,
             View.DRAG_FLAG_GLOBAL_SAME_APPLICATION or View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG,
         )
     }
@@ -349,17 +359,39 @@ class AndroidWindowBackend(
      * Makes [view], the root of one of the application's windows, take a tear-off drag dropped
      * on it. A drop the application's own window takes is handled, so the system does not open
      * a window for it: a tab dropped back inside a window stays where it was.
+     *
+     * While the drag is over the window, its place goes to [tabDrags], which tells the node
+     * under it that registered for a drag passing over (`WindowDragOver`). The place is in the
+     * view's pixels, which are the pixels the window's content is laid out in: the content
+     * fills the window from its top left corner.
      */
     fun acceptTearOffDrops(view: View) {
-        view.setOnDragListener { _, event ->
-            // Interested in its own drags only; once interested, it takes their drop.
+        view.setOnDragListener { target, event ->
+            // Interested in its own drags only; once interested, it hears the rest of them
+            // and takes their drop.
             if (event.action == DragEvent.ACTION_DRAG_STARTED) {
-                event.clipDescription?.hasMimeType(MIMETYPE_TEAR_OFF) == true
-            } else {
-                true
+                return@setOnDragListener event.clipDescription?.hasMimeType(MIMETYPE_TEAR_OFF) == true
             }
+            val manager = tabDrags
+            val window = windowOfView(target)
+            val source = event.localState as? Int ?: 0
+            when (event.action) {
+                DragEvent.ACTION_DRAG_LOCATION -> if (manager != null) {
+                    manager.tabDragMoved(window, source, event.x, event.y)
+                    // Moves are sent once per frame, so a frame is asked for.
+                    FrameRequests.request()
+                }
+                DragEvent.ACTION_DRAG_EXITED -> manager?.tabDragExited(window)
+                DragEvent.ACTION_DROP -> manager?.tabDropped(window, source, event.x, event.y)
+                DragEvent.ACTION_DRAG_ENDED -> manager?.tabDragEnded()
+            }
+            true
         }
     }
+
+    /** The `Window` node whose Activity [view] is the root of, or 0. */
+    private fun windowOfView(view: View): Int =
+        windows.values.firstOrNull { it.dragView() === view }?.nodeId ?: 0
 
     companion object {
         const val EXTRA_WINDOW_NODE_ID = "dev.darkpyonix.composerust.WINDOW_NODE_ID"
@@ -384,7 +416,7 @@ internal class AndroidTearOffDrag(private val backend: AndroidWindowBackend) : T
 
     override fun start(request: TearOffRequest): Boolean {
         val view = backend.windowFor(request.windowId)?.dragView() ?: return false
-        return backend.startTearOffDrag(view, request.key, TearOffShadow(request))
+        return backend.startTearOffDrag(view, request.key, TearOffShadow(request), request.windowId)
     }
 }
 

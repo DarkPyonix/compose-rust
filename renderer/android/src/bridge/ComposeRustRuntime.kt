@@ -150,7 +150,10 @@ object ComposeRustRuntime {
             processToken = processToken,
         ).also { createdBackend ->
             windowBackend = createdBackend
-            val manager = WindowManager(currentHost, createdBackend, onExit = {})
+            // A tab dragged over a window finds the node under it from where the window's
+            // content laid its registered nodes out, in the same pixels the drag reports.
+            val manager = WindowManager(currentHost, createdBackend, onExit = {}, dropTargets = DropTargets.Registered)
+            createdBackend.tabDrags = manager
             // A long press and a drag on a tab carrying a `TearOffKey` starts the system drag
             // that may open it as an Activity of its own. Before Android 15 the public API has
             // no such drag, and the tab is an ordinary node.
