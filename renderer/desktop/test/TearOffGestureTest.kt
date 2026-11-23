@@ -191,7 +191,7 @@ class TearOffGestureTest {
             }
         }
         onNodeWithText("tab", useUnmergedTree = true).performMouseInput {
-            moveTo(center); press(); advanceEventTime(1_000); moveBy(Offset(60f, 0f)); release()
+            moveTo(center); press(); advanceEventTime(1_000); moveBy(Offset(200f, 0f)); release()
         }
         onNodeWithText("tab", useUnmergedTree = true).performMouseInput { moveTo(center); press(); release() }
         assertEquals(1, clicks(s, TAB_CLICK))
