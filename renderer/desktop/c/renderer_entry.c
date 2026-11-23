@@ -773,3 +773,19 @@ void dxc_native_window_begin_drag_at(int32_t edge, float x, float y) {
     (void)y;
 }
 #endif
+
+/*
+ * The Win32 window's caption ownership and light/dark scheme, called from Win32Window.kt on
+ * every desktop because the platform switch reaches all three loops; only Windows defines
+ * them in win32_window.c.
+ */
+#ifndef _WIN32
+void dxc_native_window_configure_app_caption(int32_t enabled) {
+    (void)enabled;
+}
+
+int32_t dxc_native_window_set_color_scheme(int32_t scheme) {
+    (void)scheme;
+    return 0;
+}
+#endif

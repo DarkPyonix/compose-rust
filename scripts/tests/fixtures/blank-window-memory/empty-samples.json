@@ -1,0 +1,8 @@
+{
+  "os": "linux",
+  "launches": 3,
+  "readings_s": [10, 60],
+  "metric": "pss_kb",
+  "columns": [["pss_kb", "PSS"]],
+  "samples": []
+}
