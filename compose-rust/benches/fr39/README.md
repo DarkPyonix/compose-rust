@@ -24,7 +24,9 @@ today's samples. No scenario changed.
 | Screen | Taken from | Redrawn by | Where the Dioxus path decided |
 | --- | --- | --- | --- |
 | `screens/calculator` | `samples/calculator` at `fea50dc5` | `c4da9e5f`, `67c730b5` | nowhere |
+| `screens/chat` | `samples/chat` at `fea50dc5` | `8d963582`, `51390409` | the assistant's canned replies for "hello", "stream" and the detailed length take the rsx! words |
 | `screens/minimal` | `samples/minimal` at `fea50dc5` | `3712197e` | nowhere |
+| `screens/todo` | `samples/todo` at `fea50dc5` | `e92b33a6` | the in-place edit field shows the row's title as its placeholder and starts empty |
 
 Each fixture was checked against the rsx! screen at the pinned revision
 (dioxus-compose `dd1af76b`, `samples/native-widgets/<name>`), and where the October
