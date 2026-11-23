@@ -205,6 +205,9 @@ pub struct SemanticsState {
     pub click_action: bool,
     pub focus_action: bool,
     pub has_popup: bool,
+    /// Whether the node is a modal: while it is on screen, only the nodes inside it are in
+    /// the accessibility tree, and Tab does not leave it.
+    pub modal: bool,
 }
 
 impl SemanticsState {
@@ -219,6 +222,7 @@ impl SemanticsState {
         click_action: false,
         focus_action: false,
         has_popup: false,
+        modal: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -293,6 +297,14 @@ impl SemanticsState {
         }
     }
 
+    /// A node that is a modal, as a dialog drawn in the page announces itself.
+    pub const fn modal(modal: bool) -> Self {
+        Self {
+            modal,
+            ..Self::NONE
+        }
+    }
+
     /// Says whether the node is checked, keeping every other field.
     pub const fn with_checked(mut self, checked: bool) -> Self {
         self.checked = Some(checked);
@@ -353,6 +365,12 @@ impl SemanticsState {
         self
     }
 
+    /// Says whether the node is a modal, keeping every other field.
+    pub const fn with_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
+        self
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -383,6 +401,7 @@ impl SemanticsState {
             } else {
                 0
             }
+            | if self.modal { SEMANTICS_MODAL_BIT } else { 0 }
     }
 }
 
@@ -1223,6 +1242,14 @@ impl Modifier {
     /// Whether the node opens a popup, as a menu button announces it.
     pub const fn has_popup(mut self, has_popup: bool) -> Self {
         self.semantics_state.has_popup = has_popup;
+        self
+    }
+
+    /// Makes the node a modal when true: while it is on screen, only the nodes inside it are
+    /// in the accessibility tree, and Tab and Shift+Tab do not move focus out of it. A
+    /// `Dialog` and a `Sheet` are modal already; this is for a node drawn in the page.
+    pub const fn modal(mut self, modal: bool) -> Self {
+        self.semantics_state.modal = modal;
         self
     }
 

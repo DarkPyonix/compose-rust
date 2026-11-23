@@ -299,9 +299,12 @@ internal fun HostSheet(
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
         val keyboard = overlayKeyboardInset()
+        val exposed = LocalOverlayFocusStack.current.exposesOverlay(node.id)
         CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
         Box(
             Modifier
+                // A modal opened over this one hides it, as this one hides the page.
+                .behindModal(!exposed)
                 .testTag(sheetScrimTestTag(node.id))
                 .fillMaxSize()
                 // A scrim that dims the window dims a platform view too: it is covered.

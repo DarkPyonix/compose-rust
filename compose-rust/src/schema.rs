@@ -2707,8 +2707,9 @@ pub enum Modifier {
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
-    /// accessibility tree, the two action bits expose a click and a focus action, and
-    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup.
+    /// accessibility tree, the two action bits expose a click and a focus action,
+    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup, and `SEMANTICS_MODAL_BIT` makes
+    /// the node a modal that leaves everything outside it out of the accessibility tree.
     Semantics {
         role: SemanticsRole,
         state: u32,
@@ -2850,8 +2851,11 @@ pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
 pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
 /// The bit that says the node opens a popup.
 pub const SEMANTICS_HAS_POPUP_BIT: u32 = 1 << 13;
+/// The bit that makes the node a modal: while it is in the tree and not hidden, only the
+/// nodes inside it stay in the accessibility tree, and Tab does not leave it.
+pub const SEMANTICS_MODAL_BIT: u32 = 1 << 14;
 /// Every bit `Modifier::Semantics::state` may set.
-pub const SEMANTICS_STATE_MASK: u32 = 0b11_1111_1111_1111;
+pub const SEMANTICS_STATE_MASK: u32 = 0b111_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,

@@ -736,12 +736,12 @@ class AccessibilityModifierTest {
     fun nfr7_unknown_semantics_bit_is_a_protocol_error() {
         val box = 1
         runComposeUiTest {
-            // Bit 14 is the first one above the has-popup bit.
+            // Bit 15 is the first one above the modal bit.
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
                     Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 14)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 15)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
@@ -759,7 +759,7 @@ class AccessibilityModifierTest {
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 14) - 1)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 15) - 1)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }

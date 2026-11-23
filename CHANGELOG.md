@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A modal hides what is behind it from assistive technology
+
+While a `Dialog` or a `Sheet` is open, every node outside it leaves the accessibility tree: the page, its app bars and navigation, and any overlay opened before it. With overlays stacked, only the topmost is read. Closing it brings the rest back, and focus still returns to the control that opened it. Tab and Shift+Tab go round inside an open `Dialog` as they already did inside a `Sheet`. Any other node becomes a modal with `Modifier::modal(true)` or `SemanticsState::modal(true)`: while it is on screen only the nodes inside it are read, and Tab and Shift+Tab do not move focus out of it. A `Popover` with the bit is modal while it is open. The bit is bit 14 of the `Semantics` state word (`SEMANTICS_MODAL_BIT`), so `SEMANTICS_STATE_MASK` grows by one bit and the schema hash changes ([#938](https://github.com/DarkPyonix/compose-rust/issues/938)).
+
 ### Build failures no longer send a crate user to a script only a checkout has
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).

@@ -4,8 +4,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.hideFromAccessibility
+import dev.darkpyonix.composerust.foundation.behindModal
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -952,12 +951,15 @@ private fun ComposeRustTree(
                     }
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
-                val backgroundA11y = if (overlayFocusStack.hasOpenModal) {
-                    Modifier.clearAndSetSemantics { hideFromAccessibility() }
-                } else {
+                // While a modal overlay is up, the page behind it leaves the accessibility
+                // tree, app bars and navigation included: the overlay is its own root, so it
+                // is not under this box. A node of the page with the modal bit hides only
+                // what is outside it, node by node, so the page stays.
+                Box(
                     Modifier
-                }
-                Box(Modifier.padding(top = pageTop, bottom = pageBottom).then(backgroundA11y)) {
+                        .padding(top = pageTop, bottom = pageBottom)
+                        .behindModal(overlayFocusStack.hidesPage),
+                ) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)

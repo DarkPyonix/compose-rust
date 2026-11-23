@@ -549,3 +549,36 @@ fn fr68_semantics_state_is_non_exhaustive() {
         "`pub struct SemanticsState` has no `#[non_exhaustive]` among the attributes above it"
     );
 }
+
+#[Composable]
+fn Modal() {
+    Column!({
+        Button!("Behind", || {});
+        Column!(modifier = Modifier.role(Role::Group).modal(true), {
+            Text!("Inside");
+        });
+        Box!(
+            modifier = Modifier.semantics(Role::None, "", SemanticsState::modal(true)),
+            {}
+        );
+    });
+}
+
+/// The modal bit is bit 14 of the state word, from the builder and from the state alike, and
+/// `with_modal` sets it the way the constructor does.
+#[test]
+fn fr71_modal_modifier_sends_bit_14() {
+    let dump = start(Modal).dump();
+    assert!(
+        dump.contains("Semantics { role: Group, state: 16384 }"),
+        "{dump}"
+    );
+    assert!(
+        dump.contains("Semantics { role: None, state: 16384 }"),
+        "{dump}"
+    );
+    let unset = SemanticsState::default();
+    assert!(unset.with_modal(true).modal);
+    assert_eq!(unset.with_modal(true), SemanticsState::modal(true));
+    assert_eq!(unset.with_modal(true).with_modal(false), unset);
+}

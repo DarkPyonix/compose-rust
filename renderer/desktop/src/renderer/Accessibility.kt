@@ -41,9 +41,20 @@ private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
 private const val FOCUS_ACTION_BIT = 1 shl 12
 private const val HAS_POPUP_BIT = 1 shl 13
+private const val MODAL_BIT = 1 shl 14
 
 /** Every bit the state word of a `Semantics` modifier may set. */
-internal const val SEMANTICS_STATE_MASK = (1 shl 14) - 1
+internal const val SEMANTICS_STATE_MASK = (1 shl 15) - 1
+
+/**
+ * Whether the Host made this node a modal with the modal bit, and did not hide it: while it
+ * is on screen, only what is inside it stays in the accessibility tree.
+ */
+internal fun Node.declaresModal(): Boolean {
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+        ?: return false
+    return declared.state and MODAL_BIT != 0 && declared.state and HIDDEN_BIT == 0
+}
 
 /**
  * Whether the Host asked for this node to offer a focus action to assistive technology.

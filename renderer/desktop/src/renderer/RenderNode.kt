@@ -100,6 +100,7 @@ import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
 import dev.darkpyonix.composerust.ui.accessibility
+import dev.darkpyonix.composerust.foundation.behindModal
 import dev.darkpyonix.composerust.ui.offersFocusAction
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
@@ -208,6 +209,13 @@ private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
 /**
+ * The widgets whose content is drawn in a window of its own over the page. One that carries
+ * the modal bit is modal through that window and the overlay stack, never as a node of the
+ * page.
+ */
+private val OVERLAY_KINDS = setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Popover, WidgetKind.Menu)
+
+/**
  * Interprets one node of the table into real Compose widgets.
  *
  * Only the node's own state is read here, so a `SetProp` on a sibling cannot invalidate this
@@ -229,9 +237,20 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // Outermost of all: a node beside the path down to the modal on top leaves the
+    // accessibility tree with everything under it. A node with the modal bit holds Tab and
+    // Shift+Tab inside itself. An overlay with the bit is modal through its own window
+    // instead, so it is not recorded here.
+    val modalStack = dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack.current
+    val behind = modalStack.isBesideInTreeModal(nodeId, node.parentId)
+    val holdsFocus = if (node.widget in OVERLAY_KINDS) {
+        Modifier
+    } else {
+        dev.darkpyonix.composerust.foundation.inTreeModal(node, table)
+    }
     // Outside everything else the node has, so the larger area is centred on the box the
     // node is drawn in and its neighbours are laid out against that box as before.
-    val profiled = measured.sticky(node).minTouchTarget(node, dispatcher)
+    val profiled = measured.behindModal(behind).then(holdsFocus).sticky(node).minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
