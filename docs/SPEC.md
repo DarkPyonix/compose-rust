@@ -4562,6 +4562,32 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다()(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
 8. [leader, provisional] (darkpyonix leader, 2026-11-15) **컨테이너 역할(#838).** 컨테이너 역할(Menu, List, Group, TabList, Tree, Navigation)을 가진 노드는 자식을 하나로 합치지 않고 각 자식을 따로 접근 가능한 노드로 남기며(순회 그룹), 목록형(Menu, List, TabList, Tree)은 자식 수를 담은 컬렉션 정보를 낸다. 플랫폼 역할 매핑이 있는 창(macOS GraalVM, Windows, Linux)에서는 메뉴·목록·그룹 역할로 읽힌다 (fr71_a_container_role_keeps_its_children_as_separate_nodes). Kotlin/Native macOS 창의 역할은 #782의 역할 훅이 들어온 뒤에 성립하며, 그때까지 이 부분은 완료가 아니다.
+9. [leader, 2026-11-23] **모달은 뒤의 노드를 접근성 트리에서 뺍니다(#938).**
+   - **무엇이 모달인가.** 열린 `Dialog`와 `Sheet`는 표현 방식과 상관없이 모달입니다. 다른 노드는 `Semantics` 수정자의 상태 비트 `modal`(비트 14, `1 << 14`)로 모달이 되고, 와이어에서 모달을 알아보는 길은 이 비트 하나입니다. 이 비트를 가진 `Popover`는 열려 있는 동안 모달이고, 그 밖의 노드는 트리에 있고 `hidden`이 아닌 동안 모달입니다. Host API는 `Modifier::modal(bool)`과 `SemanticsState::modal`입니다. 비트는 추가 전용이고 `SEMANTICS_STATE_MASK`가 넓어지므로 스키마 해시가 움직입니다. 모르는 비트가 `ProtocolError`라는 기준 4는 비트 15부터 적용됩니다.
+   - **"뒤"의 뜻.** 모달이 하나라도 열려 있으면 가장 나중에 열린 모달 하나만 노출됩니다. 그 모달의 하위 트리에 있지 않은 모든 노드는 접근성 트리에서 빠집니다. 앱 바, 탐색, 페이지의 다른 노드, 그보다 먼저 열린 `Dialog`, `Sheet`, `Popover`가 모두 여기에 듭니다. 모달 안에서 연 `Popover`처럼 그 모달보다 나중에 열린 비모달 오버레이는 남습니다. 모달이 닫히거나 비트가 꺼지면 빠졌던 노드가 다시 들어오고, 겹친 모달이면 그 아래 모달이 다시 맨 위가 됩니다. 일시 메시지(21.4, 노드가 아님)와 Renderer가 그리는 창 단추(닫기, 최소화, 최대화)는 창의 것이라 이 규칙 밖이며 그대로 남습니다.
+   - **플랫폼.** Renderer는 이 일을 공용 Compose 의미 트리에서 합니다(빠지는 노드와 그 하위 트리의 의미를 지우고 `hideFromAccessibility`로 둡니다). 그래서 그 트리를 읽는 모든 플랫폼의 접근성 트리에 똑같이 적용됩니다. macOS, Windows, Linux 창의 브리지, Android, iOS, 웹이 모두 그렇습니다. 플랫폼 고유의 모달 표시(`accessibilityModal`, UIA `IsModal`, AT-SPI `MODAL` 상태)는 포크의 창 코드이고 이 기준이 약속하지 않습니다.
+   - **키보드.** 열린 `Dialog`와 `Sheet` 안에서 Tab과 Shift+Tab은 오버레이 안을 돌고 밖으로 나가지 않습니다(21.3.1의 포커스 규칙을 `Dialog`에도 같이 적용합니다). `modal` 비트를 가진 노드 안에서 Tab과 Shift+Tab은 그 노드 밖으로 나가지 않고, 끝에 닿으면 그 자리에 머뭅니다. Host의 포커스 요청(FR-65)은 막지 않습니다. 열릴 때 포커스가 오버레이 안으로 가고 닫히면 연 컨트롤로 돌아가는 것은 21.3.2의 규칙 그대로이며 이 기준이 새로 정하지 않습니다(`fr21_escape_returns_focus_to_the_opener`).
+   - 수용 기준(자동):
+     1. 열린 `Dialog` 뒤의 버튼은 의미 트리에 없고, 대화상자 안의 버튼은 있습니다. 닫으면 뒤의 버튼이 돌아옵니다(`fr71_modal_hides_background_from_accessibility_tree`).
+     2. 열린 `Sheet` 위에 `Dialog`를 열면 시트의 내용과 페이지가 모두 빠지고 대화상자의 내용만 남습니다. 대화상자를 닫으면 시트의 내용이 돌아오고 페이지는 계속 빠져 있습니다(`fr71_stacked_modals_expose_only_the_topmost`).
+     3. 페이지 안의 `Column`에 `modal` 비트를 주면 그 `Column`의 형제와 조상의 다른 자식이 빠지고 `Column` 안의 노드는 남습니다. 비트를 떼면 모두 돌아옵니다(`fr71_a_node_with_the_modal_bit_hides_everything_outside_it`).
+     4. 열린 `Dialog` 안의 두 버튼 사이에서 Tab을 거듭 누르면 포커스가 대화상자 안을 돌아 첫 버튼으로 돌아오고, Shift+Tab도 대화상자 밖으로 나가지 않습니다(`fr71_dialog_tab_and_shift_tab_cycle_inside`). `Sheet`는 `fr21_centered_sheet_focus_trap_and_tab_cycle`이 같은 것을 확인합니다.
+     5. `modal` 비트를 가진 노드 안에서 Tab과 Shift+Tab을 거듭 눌러도 포커스가 그 노드 밖으로 나가지 않습니다(`fr71_tab_does_not_leave_a_node_with_the_modal_bit`).
+     6. `modal` 비트가 와이어로 왕복하고 비트 15가 `ProtocolError`가 됩니다(`fr71_modal_bit_round_trips`, `nfr7_unknown_semantics_bit_is_a_protocol_error`). `Modifier::modal(true)`가 상태 단어에 `1 << 14`를 보냅니다(`fr71_modal_modifier_sends_bit_14`).
+   - 사람 손으로 확인하는 항목: `Dialog`를 연 채 VoiceOver(macOS, iOS), TalkBack, Narrator로 창을 훑어 대화상자 뒤의 노드가 읽히지 않고, 닫은 뒤 다시 읽히는지 확인합니다.
+10. [leader, 2026-11-23] **콤보박스, 목록 상자, 선택지(#942).**
+    - **어휘.** 역할 열거에 `ComboBox`(20), `ListBox`(21), `Option`(22)을 이어 붙입니다. 속성 219 `ActiveDescendant`(정수, 노드 id)는 `ComboBox` 노드에 두고, 그 콤보박스가 여는 `ListBox` 안의 `Option` 노드 가운데 지금 키보드가 가리키는 하나를 가리킵니다(WAI-ARIA `aria-activedescendant`). 속성이 없거나 0이면 가리키는 선택지가 없습니다. 없는 노드의 id는 오류가 아니고 가리키는 선택지가 없는 것으로 읽습니다. 선택지 목록을 다시 그리는 사이에 잠깐 생길 수 있는 일이기 때문입니다. 추가 전용이고 스키마 해시가 움직입니다.
+    - **Host API.** `Modifier::role(Role::ComboBox)`, `Role::ListBox`, `Role::Option`, 그리고 `Modifier::active_descendant(&FocusHandle)`입니다. 선택지 위젯에 `focus_handle`로 묶은 손잡이를 넘기면 그 손잡이가 수정자를 만드는 때에 묶여 있는 노드의 id가 나갑니다. 아직 아무 노드에도 묶이지 않은 손잡이는 아무것도 보내지 않습니다. dioxus-compose처럼 노드 id를 직접 아는 쪽은 `active_descendant` 속성을 정수로 씁니다.
+    - **Renderer, 모든 플랫폼 공통.** Compose의 `Role`에는 세 역할의 대응이 없으므로 1단계의 규칙대로 `stateDescription`에 역할 이름(`combobox`, `listbox`, `option`)을 싣습니다. `ListBox`는 기준 8의 컨테이너 역할입니다(순회 그룹, 자식 수를 담은 컬렉션 정보). Compose 의미 트리에는 `aria-activedescendant`에 해당하는 관계 속성이 없습니다. 그래서 Renderer는 가리키는 선택지의 이름(그 노드의 `AccessibleName`, 없으면 그 노드와 자손의 `Text`)을 콤보박스의 `stateDescription` 끝에 덧붙입니다. TalkBack에는 상태 설명으로, iOS VoiceOver에는 요소의 값으로 갑니다. 관계 자체는 노출되지 않습니다.
+    - **macOS 창.** `ComboBox`는 `ElementRole.COMBO_BOX`(AXComboBox), `ListBox`는 `LIST`, `Option`은 `LIST_ITEM`으로 나갑니다(GraalVM 창과 Kotlin/Native 창의 역할 훅 모두). 창이 역할을 제 말로 하므로 GraalVM 창은 값에서 역할 이름을 빼고, 편집할 수 없는 콤보박스에서는 가리키는 선택지의 이름만 값으로 냅니다. 편집할 수 있는 콤보박스(`TextField`)의 값은 입력한 글자이므로, 이 창에서는 선택지의 이름이 나가지 않습니다. AX의 관계 속성(선택된 자식 등)은 포크 브리지에 없어서 내보내지 않습니다.
+    - **Windows, Linux, 웹.** 각 창의 브리지가 공용 의미 트리에서 읽는 것(역할 이름이 담긴 상태 설명과 그 값)까지입니다. UIA와 AT-SPI의 관계 속성, 웹 DOM 경로의 `role="combobox"`와 `aria-activedescendant`는 없습니다. 웹 DOM 경로는 #871이 추적합니다.
+    - **위젯.** 지금 이 역할과 속성을 스스로 쓰는 위젯은 없습니다. `Dropdown`은 Compose의 `Role.DropdownList`를 그대로 쓰고, 제안 목록을 가진 `TextField`는 없습니다. 이 기준은 어휘와 그 매핑을 정하고, 앱(예: Ember의 모델 선택기)과 dioxus-compose의 `role`, `aria-activedescendant`가 수정자와 속성으로 씁니다.
+    - 수용 기준(자동):
+      1. 세 역할이 20, 21, 22로 왕복하고 스키마가 역할 22개를 나열합니다(`fr71_combobox_listbox_option_roles_round_trip`, `fr71_every_new_role_round_trips_and_is_exposed`).
+      2. `Modifier::active_descendant`가 묶인 손잡이 노드의 id를 `ActiveDescendant`로 보내고, 묶이지 않은 손잡이는 보내지 않습니다(`fr71_active_descendant_sends_the_option_node_id`).
+      3. 세 역할의 노드가 역할 이름을 담은 상태 설명을 갖고, `ListBox`는 자식 수를 담은 컬렉션 정보를 냅니다(`fr71_combobox_listbox_and_option_reach_the_accessibility_node`). macOS 창의 역할 매핑은 `fr71_platform_role_every_role_compose_cannot_name_has_the_platforms_own`이 확인합니다.
+      4. `ActiveDescendant`가 가리키는 선택지의 이름이 콤보박스의 상태 설명 끝에 붙고 편집할 수 없는 콤보박스에서는 GraalVM macOS 창의 값으로 나가며, 선택지가 바뀌면 따라 바뀌고, 없는 id는 아무것도 붙이지 않습니다(`fr71_active_descendant_names_the_active_option`).
+    - 사람 손으로 확인하는 항목: 콤보박스에 포커스를 둔 채 화살표로 가리키는 선택지를 바꾸면 VoiceOver(macOS, iOS), TalkBack, Narrator가 새 선택지의 이름을 읽는지 확인합니다.
 
 ### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 
