@@ -55,6 +55,7 @@ import platform.UIKit.UIWindow
 import platform.UIKit.UIWindowScene
 import platform.UIKit.UIWindowSceneDelegateProtocol
 import platform.UIKit.UIWindowSceneDelegateProtocolMeta
+import platform.UIKit.addInteraction
 import platform.darwin.NSObject
 
 /**
