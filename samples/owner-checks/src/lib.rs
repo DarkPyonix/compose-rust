@@ -684,7 +684,7 @@ fn asked_on_the_command_line() -> bool {
 #[Composable]
 fn root() {
     if runs_windows_check() {
-        windows_check::app();
+        windows_check::windows_check_app();
     } else {
         app();
     }
@@ -761,8 +761,8 @@ mod tests {
         fn windows_check() -> Self {
             let alone = one_host_at_a_time();
             compose_rust::window::reset_window_size();
-            let mut host =
-                ComposeHost::new(windows_check::app).with_window(window().with_windows());
+            let mut host = ComposeHost::new(windows_check::windows_check_app)
+                .with_window(window().with_windows());
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
                 host,

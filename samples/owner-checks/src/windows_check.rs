@@ -56,7 +56,7 @@ impl Windows {
 
 /// The application of the windows check: one `Window` node per open window.
 #[Composable]
-pub fn app() {
+pub fn windows_check_app() {
     let windows = remember(|| Windows {
         main_open: mutable_state_of(true),
         second_open: mutable_state_of(false),
