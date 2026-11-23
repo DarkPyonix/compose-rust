@@ -1,0 +1,15 @@
+# One empty window, for measuring what a window costs in memory and nothing else.
+#
+# Like hand-check beside it, this is its own workspace root, so `cargo build` works in this
+# directory on every desktop whatever the enclosing workspace says, and it names its edition
+# outright because an excluded crate cannot inherit one.
+[workspace]
+
+[package]
+name = "blank-window"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+compose-rust = { path = "../../.." }

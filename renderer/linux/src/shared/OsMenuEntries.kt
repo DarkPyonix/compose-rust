@@ -1,0 +1,1 @@
+../../../desktop/src/renderer/OsMenuEntries.kt
