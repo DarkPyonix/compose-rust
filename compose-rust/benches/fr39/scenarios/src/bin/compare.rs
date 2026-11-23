@@ -7,6 +7,8 @@
 //!
 //! Every ratio is printed, not only the means. A scenario whose trees differ, or whose
 //! candidate sent more records or bytes, is printed as invalid and fails the verdict.
+//! For a scenario whose trees differ, the first differing line of the two final trees is
+//! printed under the table, so the failure says what to look at.
 //! `--record` writes the table, the run conditions and the paths of the raw runs into the
 //! `fr39` entry of the given file, leaving the rest of it as it was.
 //!
@@ -14,7 +16,7 @@
 //! and ignores the timings: it is how the ported samples are checked against the `rsx!`
 //! ones after the same interactions, with one pass of each scenario.
 
-use fr39_scenarios::{Comparison, ScenarioRun, compare, quantile, verdict};
+use fr39_scenarios::{Comparison, ScenarioRun, compare, first_difference, quantile, verdict};
 use std::collections::BTreeMap;
 
 fn main() {
@@ -73,9 +75,27 @@ fn main() {
     let candidate = load(&candidate_files);
 
     let mut comparisons: Vec<Comparison> = Vec::new();
+    // What differs in each scenario whose trees differ, printed under the table.
+    let mut differences: Vec<String> = Vec::new();
     for scenario in fr39_scenarios::scenarios() {
         match (baseline.get(scenario.name), candidate.get(scenario.name)) {
-            (Some(left), Some(right)) => comparisons.push(compare(left, right)),
+            (Some(left), Some(right)) => {
+                if left.step_trees != right.step_trees {
+                    differences.push(
+                        match first_difference(&left.final_tree, &right.final_tree) {
+                            Some((line, ours, theirs)) => format!(
+                                "{}: the final trees first differ at line {line}\n  baseline:  {ours}\n  candidate: {theirs}",
+                                scenario.name
+                            ),
+                            None => format!(
+                                "{}: the final trees are equal, so the difference is only in an earlier step",
+                                scenario.name
+                            ),
+                        },
+                    );
+                }
+                comparisons.push(compare(left, right));
+            }
             (left, right) => {
                 println!(
                     "{:<20} missing a run: baseline {}, candidate {}",
@@ -128,6 +148,9 @@ fn main() {
                 format!("INVALID: {}", c.reason)
             },
         );
+    }
+    for difference in &differences {
+        println!("{difference}");
     }
     if trees_only {
         let invalid: Vec<&Comparison> = comparisons.iter().filter(|c| !c.valid).collect();

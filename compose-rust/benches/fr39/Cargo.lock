@@ -485,7 +485,7 @@ dependencies = [
  "dioxus-compose",
  "sample-academic",
  "sample-calculator",
- "sample-chat 0.1.0 (git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869)",
+ "sample-chat",
  "sample-minimal",
  "sample-notepad",
  "sample-podcast",
@@ -493,7 +493,7 @@ dependencies = [
  "sample-social",
  "sample-statistics",
  "sample-store",
- "sample-todo 0.1.0 (git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869)",
+ "sample-todo",
 ]
 
 [[package]]
@@ -862,9 +862,9 @@ dependencies = [
  "compose-rust 0.0.12",
  "fr39-scenarios",
  "fr39-screen-calculator",
+ "fr39-screen-chat",
  "fr39-screen-minimal",
- "sample-chat 0.1.0",
- "sample-todo 0.1.0",
+ "fr39-screen-todo",
 ]
 
 [[package]]
@@ -883,7 +883,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fr39-screen-chat"
+version = "0.0.0"
+dependencies = [
+ "compose-rust 0.0.12",
+]
+
+[[package]]
 name = "fr39-screen-minimal"
+version = "0.0.0"
+dependencies = [
+ "compose-rust 0.0.12",
+]
+
+[[package]]
+name = "fr39-screen-todo"
 version = "0.0.0"
 dependencies = [
  "compose-rust 0.0.12",
@@ -1895,13 +1909,6 @@ dependencies = [
 [[package]]
 name = "sample-chat"
 version = "0.1.0"
-dependencies = [
- "compose-rust 0.0.12",
-]
-
-[[package]]
-name = "sample-chat"
-version = "0.1.0"
 source = "git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100de20ea7ffe5843b50886869#dd1af76bd67282100de20ea7ffe5843b50886869"
 dependencies = [
  "dioxus-compose",
@@ -1970,13 +1977,6 @@ source = "git+https://github.com/DarkPyonix/dioxus-compose?rev=dd1af76bd67282100
 dependencies = [
  "dioxus-compose",
  "dioxus-hooks",
-]
-
-[[package]]
-name = "sample-todo"
-version = "0.1.0"
-dependencies = [
- "compose-rust 0.0.12",
 ]
 
 [[package]]

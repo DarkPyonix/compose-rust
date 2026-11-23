@@ -35,9 +35,8 @@ candidate_manifest="$bench/candidate/Cargo.toml"
 candidate_main="$bench/candidate/src/main.rs"
 functions=compose-rust/src/ui/functions/mod.rs
 
-# The screens whose fixtures have landed. Each one must exist and be what the candidate
-# links. The list grows to every screen the scenarios use: calculator, chat, minimal, todo.
-required=(calculator minimal)
+# Every screen the scenarios use. Each one must exist and be what the candidate links.
+required=(calculator chat minimal todo)
 
 tests_run=0
 tests_failed=0
@@ -148,6 +147,10 @@ fr39_bench_screens_candidate_uses_no_shipped_sample() {
         grep -qE "\bfr39_screen_$name::app\b" "$candidate_main" ||
             problems+=("$candidate_main does not start fr39_screen_$name::app")
     done
+    # With every screen a fixture, the candidate links no shipped sample at all.
+    local shipped
+    shipped="$(grep -nE "^\s*sample-[a-z0-9-]+\s*=|samples/" "$candidate_manifest" || true)"
+    [[ -n "$shipped" ]] && problems+=("$candidate_manifest still links a shipped sample: $shipped")
     if [[ ${#problems[@]} -gt 0 ]]; then
         fail_test "${FUNCNAME[0]}" "the candidate is not drawing the frozen screens" \
             "$(printf '%s\n' "${problems[@]}")"
