@@ -429,6 +429,17 @@ jobs:
             exit 1
           fi
 
+      - name: Every sample answers Velopack's hooks before opening a window
+        # Velopack's installer and updater start the program with --veloapp-install and the
+        # other hooks and wait for it to exit. Each sample is run with each hook and has to
+        # exit with 0 at once; one that opens its window instead runs into the time limit.
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffix=""; [[ "${{ runner.os }}" == Windows ]] && suffix=".exe"
+          python .github/scripts/check-sample-velopack-hooks.py \
+            --bin-dir target/release --built built.txt --exe-suffix "$suffix"
+
       - name: Package each sample
         # On every desktop platform a sample is one executable with the renderer inside it,
         # and that file is the whole archive.

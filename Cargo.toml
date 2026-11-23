@@ -24,6 +24,12 @@ members = [
 ]
 resolver = "2"
 
+[workspace.dependencies]
+# Velopack's SDK, which the desktop samples use to answer the installer's and updater's
+# hooks. Pinned to the vpk the packaging workflows install (VPK_VERSION), because Velopack
+# asks for the two to be the same version.
+velopack = "=1.2.161"
+
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
