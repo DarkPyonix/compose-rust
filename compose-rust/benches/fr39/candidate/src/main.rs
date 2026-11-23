@@ -1,5 +1,6 @@
-//! The slot table path's runs of every scenario: the samples ported to composables, through
-//! the composable Host, at this checkout.
+//! The slot table path's runs of every scenario: the sample screens the scenarios were
+//! frozen against, written in today's call form (`../screens`), through the composable Host,
+//! at this checkout.
 
 use compose_rust::ComposeHost as Host;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
@@ -46,10 +47,10 @@ fn root(app: App) -> fn() {
             SLOTS.store(slots, Ordering::Relaxed);
             sweep
         }
-        App::Calculator => sample_calculator::app,
+        App::Calculator => fr39_screen_calculator::app,
         App::Todo => sample_todo::app,
         App::Chat => sample_chat::app,
-        App::Minimal => sample_minimal::app,
+        App::Minimal => fr39_screen_minimal::app,
     }
 }
 
@@ -203,4 +204,86 @@ fn main() {
     let mut apps: Vec<App> = SLOT_SWEEP.iter().map(|slots| App::Sweep(*slots)).collect();
     apps.extend([App::Calculator, App::Todo, App::Chat, App::Minimal]);
     fr39_scenarios::main_for(&mut path, "compose", &apps);
+}
+
+#[cfg(test)]
+mod tests {
+    //! The screens the candidate draws answer every step of the frozen scenarios that use
+    //! them. Each test runs its scenario once, on the composable Host with the mock
+    //! renderer, through the same model of the Renderer's node table the measurement uses:
+    //! a step whose control is not on screen when the step comes fails the run, with the
+    //! step it failed at. Whether the trees equal the Dioxus path's is `parity.sh`'s
+    //! question, which needs the pinned baseline built beside this.
+
+    use super::*;
+    use fr39_scenarios::{ScenarioRun, scenarios};
+    use std::sync::Mutex;
+
+    /// The frame flag and the installed renderer table are process-wide, so the scenarios
+    /// run one at a time even when the test harness runs the tests on several threads.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Runs the scenario called `name` once, start to finish, and returns what it recorded.
+    fn run_scenario(name: &str) -> ScenarioRun {
+        let _turn = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = install_renderer_api(RendererApi {
+            run,
+            request_frame,
+            measure: compose_rust::measure::fake_measure,
+        });
+        let scenario = scenarios()
+            .into_iter()
+            .find(|scenario| scenario.name == name)
+            .unwrap_or_else(|| panic!("the scenarios have none called {name}"));
+        let mut path = ComposePath { host: None };
+        let recorded = fr39_scenarios::run(&mut path, "compose", &scenario, 1, 0)
+            .unwrap_or_else(|error| panic!("{name} stopped on the candidate: {error}"));
+        assert_eq!(
+            recorded.step_trees.len(),
+            scenario.steps.len(),
+            "{name} recorded a tree for some of its steps only"
+        );
+        recorded
+    }
+
+    #[test]
+    fn fr39_screen_calculator_answers_every_step_of_calculator_input() {
+        let recorded = run_scenario("calculator_input");
+        // The pad with `C` is the one the scenario keys on, and in an expanded window the
+        // tape stands beside it.
+        assert!(
+            recorded.final_tree.contains("Text=Text(\"Standard\")"),
+            "the calculator is not showing the pad the scenario keys on:\n{}",
+            recorded.final_tree
+        );
+        assert!(
+            recorded.final_tree.contains("Text=Text(\"History\")"),
+            "the tape is not beside the keys in an expanded window:\n{}",
+            recorded.final_tree
+        );
+    }
+
+    #[test]
+    fn fr39_screen_minimal_answers_every_step_of_tab_switching() {
+        let recorded = run_scenario("tab_switching");
+        // The last click is Parts, so the sheet ends on the controls group.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Everything a person can operate.\")"),
+            "the sheet did not end on the Parts group:\n{}",
+            recorded.final_tree
+        );
+        for tab in ["Panels", "Colour", "Parts"] {
+            assert!(
+                recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{tab}\")")),
+                "the strip has no {tab} segment:\n{}",
+                recorded.final_tree
+            );
+        }
+    }
 }

@@ -7,8 +7,17 @@
 # rsx! screens, and that copy exports the same boundary symbols as the one in this
 # checkout: the two can only ever be linked into separate binaries. And nothing here is
 # part of what the project publishes.
+#
+# `screens` holds the sample screens as they were when the scenarios were frozen, written in
+# today's call form: the candidate draws those, so both paths draw the same screens.
 [workspace]
-members = ["scenarios", "baseline", "candidate"]
+members = [
+    "scenarios",
+    "baseline",
+    "candidate",
+    "screens/calculator",
+    "screens/minimal",
+]
 resolver = "2"
 
 [workspace.package]
