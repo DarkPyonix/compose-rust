@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui.platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import kotlinx.coroutines.awaitCancellation
@@ -120,6 +121,46 @@ class WindowFrameClock {
     fun close() {
         closed = true
         waiters.clear()
+    }
+}
+
+/**
+ * The Host's one lifecycle, for a platform where every window has a lifecycle of its own
+ * (Android's Activities).
+ *
+ * The Host is started and stopped for the whole process: while it is stopped it holds back
+ * the frames its timers and animations ask for, in every window at once. So it hears a stop
+ * only when the last window leaves the screen, and a start only when the first one comes
+ * back. Passed on one window at a time, the window that stopped last decided for all of
+ * them: a window that went behind another, or one closed while another stayed on screen,
+ * stopped the Host under the window in front, and nothing started it again, because a
+ * window that stays on screen is never started a second time.
+ *
+ * Every call is made on the UI thread, where the Host runs.
+ */
+class WindowsOnScreen(private val dispatch: (HostEvent) -> Unit) {
+    private var started = 0
+
+    /** Whether any window is on screen. */
+    val onScreen: Boolean get() = started > 0
+
+    /** A window came on screen (an Activity's `onStart`). */
+    fun started() {
+        started += 1
+        if (started == 1) dispatch(HostEvent.LifecycleStart(NO_NODE, NO_HANDLER))
+    }
+
+    /** A window left the screen (an Activity's `onStop`). A stop with no start before it changes nothing. */
+    fun stopped() {
+        if (started == 0) return
+        started -= 1
+        if (started == 0) dispatch(HostEvent.LifecycleStop(NO_NODE, NO_HANDLER))
+    }
+
+    private companion object {
+        /** A lifecycle event addresses the Host itself, so it carries no node and no handler. */
+        const val NO_NODE = 0
+        const val NO_HANDLER = 0L
     }
 }
 
