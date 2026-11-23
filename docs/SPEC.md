@@ -4193,7 +4193,7 @@ Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 
   - **Android 15 미만, iPhone**: 끌어서 창을 만드는 길이 시스템에 없습니다. Renderer는 끌기를 시작하지 않고, 앱은 같은 일을 메뉴 동작("새 창에서 열기")으로 내어 줍니다. 메뉴 동작은 `Window` 노드를 그냥 넣는 것이고 53.9의 플랫폼별 열기가 그대로 적용됩니다.
   - **데스크톱**: 같은 속성이 같은 일을 합니다. 그 노드를 누른 포인터가 창 밖으로 나가면 Renderer가 `WindowRequested`(키, 요청 번호)를 보내고, 앱이 그 배치에서 넣은 `Window` 노드에 Renderer가 `DragFromPointer`를 대신 붙여 53.7대로 따라 옮깁니다. anchor는 누른 자리입니다. 그래서 탭을 떼어 내는 앱의 코드는 플랫폼마다 다르지 않습니다. 53.7의 Host가 정하는 길은 그대로 남습니다.
 - 시스템이 새 창을 만들면 Renderer가 루트에 `WindowRequested`(키)를 보내고, 앱은 그 키의 `Window` 노드를 넣고 원래 창의 탭을 지웁니다. 놓은 자리가 창을 만들지 않았으면(끌기 취소, 같은 창 안에 놓음) `WindowRequested`가 오지 않고 탭은 제자리에 있습니다.
-- 끌어 놓기 세션 자체는 플랫폼의 것이고, 놓이는 쪽이 같은 앱의 다른 창이면 53.7의 `WindowDragOver`가 그 창의 구독 노드에 옵니다(iPadOS의 `UIDropInteraction`, Android의 `OnDragListener`). 합치기는 데스크톱과 같습니다.
+- 끌어 놓기 세션 자체는 플랫폼의 것이고, 놓이는 쪽이 같은 앱의 다른 창이면 53.7의 `WindowDragOver`가 그 창의 구독 노드에 옵니다(iPadOS의 `UIDropInteraction`, Android의 `OnDragListener`). 합치기는 데스크톱과 같습니다. 끌리는 것이 창이 아니라 시스템의 끌어 놓기에 실린 탭이면(Android, iPadOS) `WindowDragOver`의 `window`는 탭이 지나는 창, 곧 받는 창의 `Window` 노드 id이고, 어느 탭인지는 끌어 놓기의 내용이 나릅니다. 탭이 나온 창 자신은 판정에서 빠집니다 `[leader, 2026-11-23]`.
 
 #### 53.8 프로그램으로 옮기기와 크기 바꾸기
 
