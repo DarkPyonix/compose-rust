@@ -7,11 +7,17 @@ import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Point
 import android.graphics.Rect
 import android.os.Build
+import android.view.DragEvent
 import android.view.View
 import dev.darkpyonix.composerust.protocol.ColorScheme
-import kotlinx.coroutines.awaitCancellation
+import dev.darkpyonix.composerust.runtime.TearOffDrag
+import dev.darkpyonix.composerust.runtime.TearOffRequest
+import dev.darkpyonix.composerust.runtime.TearOffTrigger
 import kotlin.math.roundToInt
 
 /**
@@ -30,6 +36,12 @@ class AndroidActivityWindow(
 ) : PlatformWindow {
     private var closed = false
     private var focused = activity?.hasWindowFocus() == true
+
+    /**
+     * This window's frame clock. The Activity's content serves it from its own frames
+     * ([ServeWindowFrames]), so the process's one driver draws when any window draws.
+     */
+    val frames = WindowFrameClock()
 
     override fun setListener(listener: PlatformWindowListener) {
         this.listener = listener
@@ -92,12 +104,16 @@ class AndroidActivityWindow(
     }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
-        awaitCancellation()
+        frames.awaitFrame(onFrame)
     }
+
+    /** The view a drag out of this window starts from, or null while no Activity is attached. */
+    fun dragView(): View? = activity?.window?.decorView
 
     override fun close() {
         if (closed) return
         closed = true
+        frames.close()
         val current = activity
         activity = null
         current?.finishAndRemoveTask()
@@ -127,6 +143,7 @@ class AndroidActivityWindow(
     fun closedBySystem() {
         if (closed) return
         closed = true
+        frames.close()
         activity = null
         listener.onClosedBySystem()
     }
@@ -144,6 +161,11 @@ class AndroidWindowBackend(
     private var rootActivity: Activity? = null,
     private val windowActivityClass: Class<out Activity>? = null,
     private val multiWindowSupported: () -> Boolean = { true },
+    /**
+     * The token of this process, carried with the node id in every window Activity's intent,
+     * so a window revived in a later process is not bound by an id that process never issued.
+     */
+    private val processToken: Long = 0L,
 ) : WindowBackend {
     private var appListener: ApplicationListener? = null
     private var initialClaimed = false
@@ -186,6 +208,7 @@ class AndroidWindowBackend(
                 addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
             }
             putExtra(EXTRA_WINDOW_NODE_ID, config.nodeId)
+            putExtra(EXTRA_WINDOW_PROCESS, processToken)
             putExtra(EXTRA_WINDOW_RESTORE_KEY, config.restoreKey)
         }
         return try {
@@ -247,8 +270,16 @@ class AndroidWindowBackend(
      * cannot show more than one window, or when no Activity is attached. Before Android 15
      * the public API has no way for an application's own drag to start an Activity, so the
      * application offers the same thing as a menu action that puts a `Window` node in.
+     *
+     * [shadow] is what the user sees under the finger; by default the whole of [view].
      */
-    fun startTearOffDrag(view: View, restoreKey: String): Boolean {
+    fun startTearOffDrag(
+        view: View,
+        restoreKey: String,
+        shadow: View.DragShadowBuilder = View.DragShadowBuilder(view),
+    ): Boolean {
+        // Spelled out rather than through androidTearOffSupported, so the API check below is
+        // one the Android tooling can see.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM || restoreKey.isEmpty()) return false
         if (!supportsMultipleWindows) return false
         val currentRoot = rootActivity ?: return false
@@ -270,7 +301,7 @@ class AndroidWindowBackend(
         )
         return view.startDragAndDrop(
             clip,
-            View.DragShadowBuilder(view),
+            shadow,
             null,
             View.DRAG_FLAG_GLOBAL_SAME_APPLICATION or View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG,
         )
@@ -314,13 +345,64 @@ class AndroidWindowBackend(
 
     fun windowFor(nodeId: Int): AndroidActivityWindow? = windows[nodeId]
 
+    /**
+     * Makes [view], the root of one of the application's windows, take a tear-off drag dropped
+     * on it. A drop the application's own window takes is handled, so the system does not open
+     * a window for it: a tab dropped back inside a window stays where it was.
+     */
+    fun acceptTearOffDrops(view: View) {
+        view.setOnDragListener { _, event ->
+            // Interested in its own drags only; once interested, it takes their drop.
+            if (event.action == DragEvent.ACTION_DRAG_STARTED) {
+                event.clipDescription?.hasMimeType(MIMETYPE_TEAR_OFF) == true
+            } else {
+                true
+            }
+        }
+    }
+
     companion object {
         const val EXTRA_WINDOW_NODE_ID = "dev.darkpyonix.composerust.WINDOW_NODE_ID"
+
+        /** The token of the process that issued [EXTRA_WINDOW_NODE_ID]. */
+        const val EXTRA_WINDOW_PROCESS = "dev.darkpyonix.composerust.WINDOW_PROCESS"
         const val EXTRA_WINDOW_RESTORE_KEY = "dev.darkpyonix.composerust.WINDOW_RESTORE_KEY"
 
         /** The MIME type of a tear-off drag, so a window it passes over can tell it apart. */
         const val MIMETYPE_TEAR_OFF = "application/vnd.dev.darkpyonix.composerust.tear-off"
 
         private const val TEAR_OFF_IDENTIFIER_PREFIX = "dev.darkpyonix.composerust.tear-off:"
+    }
+}
+
+/**
+ * Android's tear-off: a long press and a drag on a keyed node starts the system drag that may
+ * open the node's window as an Activity ([AndroidWindowBackend.startTearOffDrag]).
+ */
+internal class AndroidTearOffDrag(private val backend: AndroidWindowBackend) : TearOffDrag {
+    override val trigger: TearOffTrigger get() = TearOffTrigger.LongPressThenDrag
+
+    override fun start(request: TearOffRequest): Boolean {
+        val view = backend.windowFor(request.windowId)?.dragView() ?: return false
+        return backend.startTearOffDrag(view, request.key, TearOffShadow(request))
+    }
+}
+
+/** The node's own outline under the finger, where it was pressed, rather than the whole window. */
+private class TearOffShadow(request: TearOffRequest) : View.DragShadowBuilder() {
+    private val width = (request.width * request.density).roundToInt().coerceAtLeast(1)
+    private val height = (request.height * request.density).roundToInt().coerceAtLeast(1)
+    private val touchX = (request.x * request.density).roundToInt().coerceIn(0, width - 1)
+    private val touchY = (request.y * request.density).roundToInt().coerceIn(0, height - 1)
+    private val radius = 8f * request.density
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66808080 }
+
+    override fun onProvideShadowMetrics(outShadowSize: Point, outShadowTouchPoint: Point) {
+        outShadowSize.set(width, height)
+        outShadowTouchPoint.set(touchX, touchY)
+    }
+
+    override fun onDrawShadow(canvas: Canvas) {
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, fill)
     }
 }
