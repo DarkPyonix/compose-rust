@@ -241,6 +241,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     window.onFrameDrawn = { width, height ->
         WindowStartReport.frameDrawn(width, height)
         window.host?.describeForReaders(drew = true)
+        rendererIdleTrimmer.noteActivity()
     }
     startSingleWindowTurns(window)
     // The made-up input of a parity run, when `DXC_SYNTH` asks for it.
