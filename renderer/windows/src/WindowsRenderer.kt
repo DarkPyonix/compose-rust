@@ -34,6 +34,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
     Win32EditMenu.install()
     Notifications.platform = Win32Notifications()
+    // Windows' "Show animations in Windows" is the reduced-motion setting the Host is told and
+    // the press feedback and motion roles follow.
+    installWindowsReducedMotion(::win32ClientAreaAnimation)
     // Asked for by the build that proves several windows work here (see
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
     // application start when it passed.
@@ -80,9 +83,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         return RendererApi.RUN_FAILED
     }
 
+    // The window's own light or dark, for what the system draws of it: the caption of a window
+    // with the system's chrome, and the frame of every window. Given before the first frame
+    // from the theme the first batch set, and again whenever the application changes it.
+    val colorScheme = WindowSchemeFollower { scheme ->
+        setWindowColorScheme(windowAppearanceCode(scheme))
+    }
+    colorScheme.follow(host.table.theme)
+
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
-        window.setContent { WindowContent(host) }
+        window.setContent {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
+            }
+            WindowContent(host)
+        }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -91,6 +107,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             maximised = window.maximised,
         )
         window.setContent {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
+            }
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
                 dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },

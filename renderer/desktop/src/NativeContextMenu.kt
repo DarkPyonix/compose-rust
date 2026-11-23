@@ -4,10 +4,24 @@ import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.ContextMenuRepresentation
 import androidx.compose.foundation.ContextMenuState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLayoutDirection
+import dev.darkpyonix.composerust.foundation.NativeRect
+import dev.darkpyonix.composerust.foundation.OsMenuEntry
+import dev.darkpyonix.composerust.foundation.OsMenuPresenter
+import dev.darkpyonix.composerust.foundation.OsMenuRequest
+import dev.darkpyonix.composerust.foundation.OsMenuResult
+import dev.darkpyonix.composerust.foundation.normalizeOsMenu
+import dev.darkpyonix.composerust.foundation.resolveOsMenuPath
+import kotlin.math.roundToInt
 
 /** One entry of a menu the system draws: what it says and whether it can be chosen. */
 data class NativeMenuEntry(val label: String, val enabled: Boolean)
+
+/** This entry as an item of an entry menu, [id] being the caller's tag for it, such as its index. */
+fun NativeMenuEntry.toOsMenuEntry(id: Int): OsMenuEntry.Item =
+    OsMenuEntry.Item(id = id, label = label, enabled = enabled)
 
 /**
  * The right-click menu, drawn by the system instead of by Compose.
@@ -46,6 +60,52 @@ class NativeContextMenuRepresentation(
             state.status = ContextMenuState.Status.Closed
             KeyLog.menu("chose $chosen")
             offered.getOrNull(chosen)?.takeIf { it.enabled }?.onClick?.invoke()
+        }
+    }
+}
+
+/**
+ * Adapts Compose's [ContextMenuRepresentation] to [OsMenuPresenter] so text context menus on
+ * drawn-menu backends (Linux X11) flow through the exact same normalized [OsMenuEntry] list,
+ * order, enabled state, and single-delivery result contract as OS menus.
+ */
+class OsMenuContextMenuRepresentation(
+    private val presenter: OsMenuPresenter,
+) : ContextMenuRepresentation {
+
+    @Composable
+    override fun Representation(state: ContextMenuState, items: () -> List<ContextMenuItem>) {
+        val status = state.status
+        if (status !is ContextMenuState.Status.Open) return
+        val layoutDirection = LocalLayoutDirection.current
+        DisposableEffect(status) {
+            val offered = items()
+            val entries = normalizeOsMenu(
+                offered.mapIndexed { index, item ->
+                    NativeMenuEntry(item.label, item.enabled).toOsMenuEntry(index)
+                },
+            )
+            if (entries.isEmpty()) {
+                state.status = ContextMenuState.Status.Closed
+                return@DisposableEffect onDispose {}
+            }
+            val rect = status.rect
+            val anchor = NativeRect(
+                x = rect.left.roundToInt(),
+                y = rect.top.roundToInt(),
+                width = (rect.right - rect.left).roundToInt().coerceAtLeast(1),
+                height = (rect.bottom - rect.top).roundToInt().coerceAtLeast(1),
+            )
+            val handle = presenter.open(OsMenuRequest(entries, anchor, layoutDirection)) { result ->
+                state.status = ContextMenuState.Status.Closed
+                if (result is OsMenuResult.Chosen) {
+                    val chosen = resolveOsMenuPath(entries, result.path)
+                    if (chosen != null) {
+                        offered.getOrNull(chosen.id)?.takeIf { it.enabled }?.onClick?.invoke()
+                    }
+                }
+            }
+            onDispose { handle.close() }
         }
     }
 }

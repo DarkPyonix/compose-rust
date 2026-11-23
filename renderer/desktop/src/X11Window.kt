@@ -138,13 +138,25 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     }
     val actions = if (framed) null else nativeWindowActions()
     scene.setContent {
-        NativeWindowContent(
-            host,
-            caption,
-            actions,
-            drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
-            overlay = { if (!framed && options.resizable) NativeResizeEdges() },
-        )
+        val drawnMenu = androidx.compose.runtime.remember {
+            dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter()
+        }
+        val contextMenu = androidx.compose.runtime.remember(drawnMenu) {
+            OsMenuContextMenuRepresentation(drawnMenu)
+        }
+        dev.darkpyonix.composerust.foundation.DrawnOsMenuHost(drawnMenu) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.foundation.LocalContextMenuRepresentation provides contextMenu,
+            ) {
+                NativeWindowContent(
+                    host,
+                    caption,
+                    actions,
+                    drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
+                    overlay = { if (!framed && options.resizable) NativeResizeEdges() },
+                )
+            }
+        }
     }
     val autoStarted = System.nanoTime()
     var iconSettled = false

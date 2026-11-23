@@ -376,6 +376,14 @@ jobs:
       - name: Build, check, move and run an application
         run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
 
+      - name: Report Windows C runtime executable sizes
+        if: always()
+        run: |
+          report="$(cygpath -u "$RUNNER_TEMP")/consumer-windows/crt-sizes.md"
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Keep the application
         if: always()
         # multi-window.exe is the two-window application for the hand check of an input
