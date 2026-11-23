@@ -6,7 +6,8 @@
 # else; the executable loads only the system's libraries and nothing by a build machine
 # path; the name, identifier, description and version are the sample's; the MSIX is
 # unsigned; every file is in the checksum list with its right digest. A format that is
-# missing is a warning and a line in skipped-<target>.txt, not a failure.
+# missing fails the check by default; passing --allow-missing downgrades it to a warning
+# and records it in skipped-<target>.txt.
 #
 # The executables are a few hundred bytes made here (ELF, Mach-O and PE headers with the
 # load commands that matter), so this needs no compiler and runs the same on every system.
@@ -31,7 +32,7 @@ fail() { echo "FAIL - $1"; failures=$((failures + 1)); }
 # right except for the one fault named.
 make_case() {
     python3 -I - "$@" <<'PY'
-import hashlib, io, plistlib, struct, sys, tarfile, zipfile
+import base64, hashlib, io, os, plistlib, shutil, struct, subprocess, sys, tarfile, tempfile, zipfile
 from pathlib import Path
 
 case, target = Path(sys.argv[1]), sys.argv[2]
@@ -145,7 +146,8 @@ if platform == "windows":
             ("[Content_Types].xml", "<x/>"), ("Assets/StoreLogo.png", b"\x89PNG")]
     if fault == "signed":
         msix.append(("AppxSignature.p7x", b"PKCX"))
-    zipped(artifacts / f"demo-{target}.msix", msix)
+    if fault != "missing-format":
+        zipped(artifacts / f"demo-{target}.msix", msix)
 elif platform == "linux":
     needed = ["libc.so.6", "libX11.so.6"]
     if fault == "absolute-renderer":
@@ -153,7 +155,29 @@ elif platform == "linux":
     exe = elf(needed, "/home/runner/work/renderer/lib" if fault == "runpath" else None)
     tarball(artifacts / f"demo-{target}.tar.gz", "demo/sample-demo", exe,
             ("demo/lib/libskiko.so", b"\x7fELF") if fault == "extra-file" else None)
-    # No AppImage: assembling one needs Linux tools, and a missing format is a case too.
+    if fault != "missing-format":
+        encoded_exe = base64.b64encode(exe).decode("ascii")
+        appimage = (
+            "#!/bin/sh\n"
+            "set -eu\n"
+            'if [ "${1:-}" = "--appimage-extract" ]; then\n'
+            "  mkdir -p squashfs-root/usr/lib/sample-demo squashfs-root/usr/share/icons/hicolor/64x64/apps\n"
+            "  : > squashfs-root/AppRun\n"
+            "  : > squashfs-root/.DirIcon\n"
+            "  cat > squashfs-root/dev.example.samples.demo.desktop <<'DESKTOP'\n"
+            "[Desktop Entry]\n"
+            "Name=Demo\n"
+            "Comment=A demonstration.\n"
+            "Icon=dev.example.samples.demo\n"
+            "DESKTOP\n"
+            "  printf '\\211PNG\\r\\n\\032\\n' > squashfs-root/usr/share/icons/hicolor/64x64/apps/dev.example.samples.demo.png\n"
+            f"  printf '%s' '{encoded_exe}' | base64 -d > squashfs-root/usr/lib/sample-demo/sample-demo\n"
+            "  chmod 755 squashfs-root/usr/lib/sample-demo/sample-demo\n"
+            "fi\n"
+        )
+        appimage_path = artifacts / f"demo-{target}.AppImage"
+        appimage_path.write_text(appimage)
+        appimage_path.chmod(0o755)
 else:
     libraries = ["/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"]
     if fault == "absolute-renderer":
@@ -177,7 +201,24 @@ else:
     if fault == "extra-file":
         entries.append(("Demo.app/Contents/Frameworks/lib/libskiko.dylib", b"\xcf\xfa\xed\xfe"))
     zipped(artifacts / f"demo-{target}.app.zip", entries)
-    # No .dmg: only macOS makes one, and a missing format is a case too.
+    if fault != "missing-format":
+        dmg_path = artifacts / f"demo-{target}.dmg"
+        if sys.platform != "darwin":
+            dmg_path.write_bytes(b"dmg-fixture")
+        elif os.environ.get("SAMPLE_BUNDLES_CAN_MOUNT_DMG") == "1":
+            with tempfile.TemporaryDirectory(dir=case) as stage_dir:
+                stage = Path(stage_dir)
+                for rel, payload in entries:
+                    dest = stage / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(payload)
+                os.symlink("/Applications", stage / "Applications")
+                (stage / "If macOS will not open the app.txt").write_text("Right-click and choose Open.\n")
+                subprocess.run(
+                    ["hdiutil", "create", "-quiet", "-volname", "Demo",
+                     "-srcfolder", str(stage), "-ov", "-format", "UDZO", str(dmg_path)],
+                    check=True,
+                )
 
 sums = []
 for path in sorted(artifacts.iterdir()):
@@ -191,13 +232,14 @@ for path in sorted(artifacts.iterdir()):
 PY
 }
 
-# run_case <name> <target> <fault> <expect: ok|fail> [text the output must hold]
+# run_case <name> <target> <fault> <expect: ok|fail> [text the output must hold] [extra check flags...]
 run_case() {
     local name="$1" target="$2" fault="$3" expect="$4" text="${5:-}"
+    shift 5 2>/dev/null || shift $#
     local case="$scratch/$name" out status=0
     make_case "$case" "$target" "$fault" || { fail "$name: could not make the fixture"; return; }
     out="$(cd "$case" && python3 -I "$script" --target "$target" --artifacts artifacts \
-        --samples samples --built built.txt --version 1.2.3 2>&1)" || status=$?
+        --samples samples --built built.txt --version 1.2.3 "$@" 2>&1)" || status=$?
     if [[ "$expect" == ok && "$status" -ne 0 ]]; then
         fail "$name: refused a right bundle"; echo "$out" | sed 's/^/       /'; return
     fi
@@ -210,15 +252,47 @@ run_case() {
     pass "$name"
 }
 
+# Probe once whether this macOS environment permits mounting disk images with hdiutil.
+# Sandboxed environments deny hdiutil attach; in that case we skip creating a .dmg for the
+# happy-path macOS fixture while still testing that a missing .dmg fails by default.
+SAMPLE_BUNDLES_CAN_MOUNT_DMG=0
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    probe_dir="$scratch/dmg-probe"
+    mkdir -p "$probe_dir/src" "$probe_dir/mnt"
+    : > "$probe_dir/src/probe"
+    if hdiutil create -quiet -volname Probe -srcfolder "$probe_dir/src" -ov -format UDZO "$probe_dir/probe.dmg" >/dev/null 2>&1 \
+        && hdiutil attach -nobrowse -readonly -mountpoint "$probe_dir/mnt" "$probe_dir/probe.dmg" >/dev/null 2>&1; then
+        hdiutil detach "$probe_dir/mnt" >/dev/null 2>&1 || true
+        SAMPLE_BUNDLES_CAN_MOUNT_DMG=1
+    fi
+    rm -rf "$probe_dir"
+fi
+export SAMPLE_BUNDLES_CAN_MOUNT_DMG
+
 run_case fr22_6_1_windows_bundles_that_are_right_pass windows-x64 "" ok "ok    demo-windows-x64.msix"
-run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip"
-run_case fr22_6_1_linux_bundles_that_are_right_pass linux-x64 "" ok "ok    demo-linux-x64.tar.gz"
-run_case fr22_6_1_a_missing_format_is_a_warning_not_a_failure linux-x64 "" ok \
-    "::warning title=Format missing::sample-demo has no .AppImage for linux-x64"
-if grep -qx "demo linux-x64 AppImage" "$scratch/fr22_6_1_a_missing_format_is_a_warning_not_a_failure/artifacts/skipped-linux-x64.txt" 2>/dev/null; then
-    pass "fr22_6_1_a_missing_format_is_listed_for_the_release_notes"
+if [[ "$(uname -s)" == "Darwin" && "$SAMPLE_BUNDLES_CAN_MOUNT_DMG" -eq 0 ]]; then
+    run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip" --allow-missing
 else
-    fail "fr22_6_1_a_missing_format_is_listed_for_the_release_notes: skipped-linux-x64.txt does not name it"
+    run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip"
+fi
+run_case fr22_6_1_linux_bundles_that_are_right_pass linux-x64 "" ok "ok    demo-linux-x64.tar.gz"
+run_case fr22_6_5_a_missing_format_fails_by_default linux-x64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .AppImage for linux-x64"
+if [[ ! -e "$scratch/fr22_6_5_a_missing_format_fails_by_default/artifacts/skipped-linux-x64.txt" ]]; then
+    pass "fr22_6_5_a_missing_format_does_not_write_skipped_by_default"
+else
+    fail "fr22_6_5_a_missing_format_does_not_write_skipped_by_default: skipped-linux-x64.txt was created without --allow-missing"
+fi
+run_case fr22_6_5_a_missing_macos_format_fails_by_default macos-aarch64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .dmg for macos-aarch64"
+run_case fr22_6_5_a_missing_windows_format_fails_by_default windows-x64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .msix for windows-x64"
+run_case fr22_6_5_allow_missing_opt_in_warns_and_passes linux-x64 missing-format ok \
+    "::warning title=Format missing::sample-demo has no .AppImage for linux-x64" --allow-missing
+if grep -qx "demo linux-x64 AppImage" "$scratch/fr22_6_5_allow_missing_opt_in_warns_and_passes/artifacts/skipped-linux-x64.txt" 2>/dev/null; then
+    pass "fr22_6_5_allow_missing_opt_in_records_skipped_format"
+else
+    fail "fr22_6_5_allow_missing_opt_in_records_skipped_format: skipped-linux-x64.txt does not name it"
 fi
 run_case fr22_6_1_a_wrong_digest_fails windows-x64 bad-digest fail "records 0000"
 run_case fr22_6_1_a_file_missing_from_the_checksums_fails macos-aarch64 unlisted fail "does not list demo-macos-aarch64.tar.gz"
@@ -247,6 +321,11 @@ if grep -q 'check-sample-bundles.py' "$workflow"; then
     pass "fr22_6_1_the_samples_workflow_runs_the_check"
 else
     fail "fr22_6_1_the_samples_workflow_runs_the_check: test-samples.yml does not call it"
+fi
+if grep -q -- '--allow-missing' "$workflow"; then
+    fail "fr22_6_5_the_samples_workflow_fails_on_missing_formats: test-samples.yml passes --allow-missing"
+else
+    pass "fr22_6_5_the_samples_workflow_fails_on_missing_formats"
 fi
 
 [[ "$failures" -eq 0 ]] || { echo "$failures case(s) failed"; exit 1; }
