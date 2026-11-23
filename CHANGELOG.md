@@ -2,12 +2,18 @@
 
 ## Unreleased
 
+### `release_asset(id)` lets go of a registered font or picture
+
+`compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
+
 ### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
 
 The Windows job that packs with Velopack now builds the `.msi` twice, with `--instLocation PerUser` and `PerMachine`, and `scripts/tests/msi-info.ps1` opens each one's Property table and checks the product name, the manufacturer, the codes and that the version is the one packed. The two jobs that run `appcert.exe` on the `.msix` and `.msixbundle` (`package-windows.yml`, `package-windows-host.yml`) both require `DPIAwarenessValidation` to pass, and FR-22.6 no longer calls that check manual. The Store submission and the Store's update of an installed bundle still wait for a Partner Center account ([#3](https://github.com/DarkPyonix/compose-rust/issues/3)).
+
 ### A button that names no kind sends no kind
 
 A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
+
 ### Compose from fork test compares the fork with its own baseline
 
 The workflow no longer builds Compose a second time from JetBrains' sources and the three patches. It compares the fork's publication with a stored baseline of the fork line, one digest per published module (`renderer/scripts/compose-baseline/`), and fails on any module that differs unless the fork changed that module's sources since the baseline's revision. `.github/scripts/refresh-compose-baseline.sh <run id>` refreshes the baseline when the pin moves ([#361](https://github.com/DarkPyonix/compose-rust/issues/361)).
