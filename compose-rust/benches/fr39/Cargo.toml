@@ -16,7 +16,9 @@ members = [
     "baseline",
     "candidate",
     "screens/calculator",
+    "screens/chat",
     "screens/minimal",
+    "screens/todo",
 ]
 resolver = "2"
 
