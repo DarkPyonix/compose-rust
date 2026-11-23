@@ -904,8 +904,14 @@ fn unpack_android_kotlin() {
 /// (`windowSoftInputMode="adjustResize"`), for the same reason: there is no manifest of the
 /// renderer's own to carry it.
 ///
-/// A manifest that already says both, or that is not where the CLI puts one, is left as
-/// it is.
+/// With the `android-multi-instance` feature the same pass declares that the system UI may
+/// start the Activity as another instance, which is what lets a window torn off a
+/// multi-window application open in split screen or a desktop window. It is a feature
+/// because the build cannot see whether the application calls `LaunchBuilder::windows()`,
+/// and a one-window application should not be started twice by the system.
+///
+/// A manifest that already says all of it, or that is not where the CLI puts one, is left
+/// as it is.
 fn add_notification_permission(destination: &Path) {
     let Some(main_dir) = destination.parent() else {
         return;
@@ -915,17 +921,24 @@ fn add_notification_permission(destination: &Path) {
     let Ok(manifest) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let permitted = renderer_dir::with_notification_permission(&manifest);
-    let current = permitted.as_deref().unwrap_or(&manifest);
+    let multi_instance = std::env::var_os("CARGO_FEATURE_ANDROID_MULTI_INSTANCE").is_some();
+    let mut text = manifest.clone();
+    if let Some(permitted) = renderer_dir::with_notification_permission(&text) {
+        text = permitted;
+    }
     // The window resizes for the keyboard rather than sliding up under it, so the page
     // can stop above the keyboard and the bars keep their place.
-    let text = match renderer_dir::with_keyboard_resize(current) {
-        Some(resized) => resized,
-        None => match permitted {
-            Some(text) => text,
-            None => return,
-        },
-    };
+    if let Some(resized) = renderer_dir::with_keyboard_resize(&text) {
+        text = resized;
+    }
+    if multi_instance {
+        if let Some(declared) = renderer_dir::with_multi_instance(&text) {
+            text = declared;
+        }
+    }
+    if text == manifest {
+        return;
+    }
     if let Err(error) = std::fs::write(&manifest_path, text) {
         panic!(
             "\n\ncompose-rust: could not update the application's manifest at {}: \
@@ -1058,6 +1071,7 @@ import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.AndroidOsMenuPresenter
 import dev.darkpyonix.composerust.ui.platform.AndroidWindowBackend
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
+import dev.darkpyonix.composerust.ui.platform.ServeWindowFrames
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
 import dev.darkpyonix.composerust.ui.platform.installZoomLevelStore
@@ -1096,8 +1110,11 @@ class MainActivity : ComponentActivity() {{
         val host = ComposeRustRuntime.host()
         val requestedNodeId = savedInstanceState?.getInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
             ?: intent.getIntExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
+        // The process that issued that id. One that died left ids this process never issued.
+        val carriedProcess = savedInstanceState?.getLong(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, 0L)
+            ?: intent.getLongExtra(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, 0L)
         val restoreKey = intent.getStringExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY) ?: ""
-        val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey)
+        val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey, carriedProcess)
         activityWindow = boundWindow
         windowNodeId = boundWindow?.nodeId ?: requestedNodeId
         // Back closes a window of its own (one the renderer opened, a torn-off one, or one
@@ -1125,6 +1142,7 @@ class MainActivity : ComponentActivity() {{
         nativeViews = slotWindow
         osMenus = menuPresenter
         val renderedNodeId = windowNodeId
+        val windowFrames = boundWindow?.frames
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
@@ -1134,6 +1152,9 @@ class MainActivity : ComponentActivity() {{
                 LocalNativeViewWindow provides slotWindow,
                 LocalOsMenuPresenter provides menuPresenter,
             ) {{
+                // One window of several serves no frames itself: its clock answers the
+                // process's one driver from this content's frames.
+                ServeWindowFrames(windowFrames)
                 ComposeRustContent(host, Modifier.fillMaxSize(), windowNodeId = renderedNodeId)
             }}
         }}
@@ -1151,6 +1172,7 @@ class MainActivity : ComponentActivity() {{
         super.onSaveInstanceState(outState)
         if (windowNodeId != 0) {{
             outState.putInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, windowNodeId)
+            outState.putLong(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, ComposeRustRuntime.processToken)
         }}
     }}
 

@@ -1,15 +1,16 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import android.app.Activity
+import android.os.Build
 import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.protocol.HostEvent
-import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 /**
  * The process-wide Host.
@@ -38,6 +39,13 @@ object ComposeRustRuntime {
     private var windowBackend: AndroidWindowBackend? = null
     private var windowManager: WindowManager? = null
     private var attachedActivities = 0
+
+    /**
+     * This process' token. A window Activity carries it with its node id, in its intent and in
+     * its saved state, and a node id carried with another process' token is not trusted: that
+     * process' ids name other nodes here, or none.
+     */
+    val processToken: Long = Random.nextLong().let { if (it == 0L) 1L else it }
 
     /**
      * The application's files directory, set by [installStorageLocation] before the Host is
@@ -131,17 +139,37 @@ object ComposeRustRuntime {
      * For single-window applications this returns null and the Activity renders the implicit
      * root (`windowNodeId = 0`). For multi-window applications (`WindowMode.Windows`), the
      * first Activity claims the first `Window` node, recreated Activities rebind by [nodeId],
-     * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`.
+     * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`. An Activity
+     * started from the launcher with no window it may draw (every window closed, or the first
+     * one closed while another is shown by its own Activity) asks the same way, with an empty
+     * key, and is finished alone when the application answers with none
+     * ([startedActivityWindow]).
+     *
+     * [nodeId] is trusted only when [carriedProcess], the token it was saved or sent with, is
+     * this process' [processToken]. After the process died, the saved state and the intent
+     * still carry the dead process' id; such a window is matched by its restore key instead,
+     * and one the application does not answer for is closed and recorded nowhere.
      */
     fun attachActivity(
         activity: Activity,
         nodeId: Int,
         restoreKey: String,
+        carriedProcess: Long,
     ): AndroidActivityWindow? {
         val currentHost = host()
-        val backend = windowBackend ?: AndroidWindowBackend(rootActivity = activity).also { createdBackend ->
+        val backend = windowBackend ?: AndroidWindowBackend(
+            rootActivity = activity,
+            processToken = processToken,
+        ).also { createdBackend ->
             windowBackend = createdBackend
-            val manager = WindowManager(currentHost, createdBackend, onExit = {})
+            // A tab dragged over a window finds the node under it from where the window's
+            // content laid its registered nodes out, in the same pixels the drag reports.
+            val manager = WindowManager(currentHost, createdBackend, onExit = {}, dropTargets = DropTargets.Registered)
+            createdBackend.tabDrags = manager
+            // A long press and a drag on a tab carrying a `TearOffKey` starts the system drag
+            // that may open it as an Activity of its own. Before Android 15 the public API has
+            // no such drag, and the tab is an ordinary node.
+            if (androidTearOffSupported(Build.VERSION.SDK_INT)) manager.tearOffDrag = AndroidTearOffDrag(createdBackend)
             windowManager = manager
             manager.attach()
         }
@@ -149,21 +177,43 @@ object ComposeRustRuntime {
             backend.attachRootActivity(activity)
             return null
         }
-        if (nodeId == 0 && restoreKey.isEmpty()) {
-            backend.attachRootActivity(activity)
-            val firstWindowId = currentHost.table.roots.firstOrNull {
-                currentHost.table.node(it)?.widget == WidgetKind.Window
-            }
-            if (firstWindowId != null) {
-                val existing = backend.windowFor(firstWindowId)
-                if (existing != null) {
-                    existing.rebind(activity)
-                    return existing
+        activity.window?.decorView?.let { backend.acceptTearOffDrops(it) }
+        val trustedId = carriedWindowNodeId(nodeId, carriedProcess, processToken)
+        // Only the renderer's own launches (a window it opened, a tab torn off) carry these
+        // extras, and the intent survives recreation and process death, so they tell a window
+        // Activity from the one the application was started with.
+        val launchedAsWindow = activity.intent?.let {
+            it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID) ||
+                it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY)
+        } == true
+        // The Activity that launched the others until now, kept for a start that ends at once.
+        val previousRoot = backend.rootActivity()
+        // The Activity the application was started with launches the others, recreated or not.
+        if (!launchedAsWindow) backend.attachRootActivity(activity)
+        if (trustedId == 0 && !launchedAsWindow) {
+            // The first window when this Activity may draw it; otherwise the window the
+            // application answers the start with, or nothing, and then this Activity alone ends.
+            val started = startedActivityWindow(
+                currentHost.table,
+                windowFor = backend::windowFor,
+                mayDraw = { window -> window.mayBeDrawnBy(activity) },
+                requestWindow = {
+                    backend.activityCreated(activity, 0, restoreKey, releaseIfUnanswered = true)
+                        ?.takeIf { it.nodeId != 0 }
+                },
+            )
+            return when (started) {
+                is StartedActivity.Draw -> started.window.also { it.rebind(activity) }
+                StartedActivity.DrawRoot -> null
+                StartedActivity.FinishOnlyThis -> {
+                    // The Activity that launched the open windows stays the one that launches.
+                    previousRoot?.let { root -> if (root !== activity) backend.attachRootActivity(root) }
+                    activity.finish()
+                    null
                 }
             }
-            return null
         }
-        return backend.activityCreated(activity, nodeId, restoreKey)
+        return backend.activityCreated(activity, trustedId, restoreKey)
     }
 
     /** The active multi-window backend, once an Activity has attached. */
@@ -177,6 +227,39 @@ object ComposeRustRuntime {
         attachedActivities += 1
         unattended?.cancel()
         unattended = null
+        updateWindowFrames()
+    }
+
+    private var windowFrames: Job? = null
+
+    /**
+     * Starts or stops the one frame driver of a multi-window process. Each Activity of such
+     * an application draws one `Window` node and serves no frames of its own; the driver asks
+     * the Host once per frame, when the first of the windows' clocks ticks, on this UI thread.
+     */
+    private fun updateWindowFrames() {
+        val currentHost = host ?: return
+        val manager = windowManager ?: return
+        val wanted = windowFrameDriverWanted(
+            currentHost.table.window?.mode,
+            manager.openWindows.size,
+            attachedActivities,
+        )
+        if (!wanted) {
+            windowFrames?.cancel()
+            windowFrames = null
+            return
+        }
+        if (windowFrames != null) return
+        val requests = FrameRequests.global
+        windowFrames = scope.launch {
+            serveWindowFrames(
+                currentHost,
+                manager,
+                requests,
+                alreadyServed = if (currentHost.startedWith === requests) currentHost.requestsBeforeStart else requests.counter.value,
+            )
+        }
     }
 
     /**
@@ -185,6 +268,7 @@ object ComposeRustRuntime {
      */
     fun detached() {
         attachedActivities = (attachedActivities - 1).coerceAtLeast(0)
+        updateWindowFrames()
         if (attachedActivities > 0) return
         val host = host ?: return
         if (unattended != null) return

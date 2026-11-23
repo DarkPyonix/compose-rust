@@ -4189,7 +4189,7 @@ Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 
 
 - **`TearOffKey`(문자열) 속성.** 떼어 낼 수 있는 노드(탭)에 붙입니다. 값은 떼어 낸 뒤 생길 창의 `RestoreKey`입니다. 이 속성이 붙은 노드를 사용자가 길게 눌러 끌면 Renderer가 플랫폼의 끌어 놓기를 시작합니다.
   - **iPadOS**: `UIDragInteraction`의 `NSItemProvider`에 `NSUserActivity`(활동 종류는 앱의 창 활동, `userInfo`에 키)를 등록합니다. Safari의 탭과 같은 방식이고, 화면 가장자리에 놓으면 시스템이 새 장면을 만듭니다.
-  - **Android 15(API 35) 이상**: `View.startDragAndDrop`의 `ClipData` 항목에 창 Activity를 띄우는 `PendingIntent`(키를 실은 인텐트)의 `IntentSender`를 싣고(`ClipData.Item.Builder.setIntentSender`), `View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG`로 끌기를 시작합니다. 둘 다 API 35에서 생긴 공개 API입니다. 앱의 어느 창도 받지 않는 자리(분할 화면 자리, 자유 형태 창의 빈 자리)에 놓으면, 그 `IntentSender`로 Activity를 띄울지는 시스템이 화면 크기와 창 방식을 보고 정합니다(drag to split). 처음에 적었던 `ClipDescription.MIMETYPE_APPLICATION_ACTIVITY`와 그 `PendingIntent`를 싣는 추가 값은 숨은 API여서 API 34, 35, 36의 SDK에 없습니다. 그래서 그 길을 쓰지 않고, 공개 API가 있는 Android 15부터 끌기를 시작합니다 `[leader, 2026-11-23]`.
+  - **Android 15(API 35) 이상**: `View.startDragAndDrop`의 `ClipData` 항목에 창 Activity를 띄우는 `PendingIntent`(키를 실은 인텐트)의 `IntentSender`를 싣고(`ClipData.Item.Builder.setIntentSender`), `View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG`로 끌기를 시작합니다. 둘 다 API 35에서 생긴 공개 API입니다. 앱의 어느 창도 받지 않는 자리(분할 화면 자리, 자유 형태 창의 빈 자리)에 놓으면, 그 `IntentSender`로 Activity를 띄울지는 시스템이 화면 크기와 창 방식을 보고 정합니다(drag to split). 처음에 적었던 `ClipDescription.MIMETYPE_APPLICATION_ACTIVITY`와 그 `PendingIntent`를 싣는 추가 값은 숨은 API여서 API 34, 35, 36의 SDK에 없습니다. 그래서 그 길을 쓰지 않고, 공개 API가 있는 Android 15부터 끌기를 시작합니다 `[leader, 2026-11-23]`. Android에서 창 방식을 쓰는 앱은 그 Activity가 인스턴스 여럿을 지원한다고 선언합니다(매니페스트 속성 `android.window.PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI`, crate의 `android-multi-instance` 기능이 켭니다). 이 선언이 없으면 시스템은 놓은 탭을 거절하고 창을 열지 않습니다 `[leader, 2026-11-23]`.
   - **Android 15 미만, iPhone**: 끌어서 창을 만드는 길이 시스템에 없습니다. Renderer는 끌기를 시작하지 않고, 앱은 같은 일을 메뉴 동작("새 창에서 열기")으로 내어 줍니다. 메뉴 동작은 `Window` 노드를 그냥 넣는 것이고 53.9의 플랫폼별 열기가 그대로 적용됩니다.
   - **데스크톱**: 같은 속성이 같은 일을 합니다. 그 노드를 누른 포인터가 창 밖으로 나가면 Renderer가 `WindowRequested`(키, 요청 번호)를 보내고, 앱이 그 배치에서 넣은 `Window` 노드에 Renderer가 `DragFromPointer`를 대신 붙여 53.7대로 따라 옮깁니다. anchor는 누른 자리입니다. 그래서 탭을 떼어 내는 앱의 코드는 플랫폼마다 다르지 않습니다. 53.7의 Host가 정하는 길은 그대로 남습니다.
 - 시스템이 새 창을 만들면 Renderer가 루트에 `WindowRequested`(키)를 보내고, 앱은 그 키의 `Window` 노드를 넣고 원래 창의 탭을 지웁니다. 놓은 자리가 창을 만들지 않았으면(끌기 취소, 같은 창 안에 놓음) `WindowRequested`가 오지 않고 탭은 제자리에 있습니다.
@@ -4225,6 +4225,7 @@ Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 
 - **설정 변경으로 Activity가 다시 만들어져도 창은 같은 창입니다.** 노드 표와 Host가 프로세스에 남으므로(PR-5), 새 Activity는 `savedInstanceState`의 노드 id로 같은 `Window` 노드를 다시 그립니다. `WindowClosed`도 `WindowRequested`도 가지 않습니다.
 - 프로세스가 죽은 뒤 시스템이 최근 작업에서 창 Activity를 되살리면, Host는 처음부터 다시 만들어지고 Renderer는 인텐트의 `RestoreKey`로 `WindowRequested`를 보냅니다. 상태를 되살리는 것은 PR-5대로 앱의 `SaveState` 몫입니다.
 - 첫 창이 아닌 Activity에서 뒤로 가기는 `WindowCloseRequested`이고, 최근 작업에서 밀어 닫으면 `WindowClosed`입니다. 앱이 `Window` 노드를 지우면 Renderer가 그 Activity를 `finishAndRemoveTask`로 닫습니다.
+- 런처에서 시작한 Activity가 그릴 수 있는 `Window` 노드를 찾지 못하면(사용자가 창을 모두 닫았는데 프로세스가 남은 경우) Renderer는 빈 키로 `WindowRequested`를 보냅니다. 그 Activity는 앱이 그 배치에서 넣은 `Window` 노드를 그리고, 앱이 넣지 않으면 그 Activity만 `finish`로 닫힙니다. 다른 살아 있는 Activity가 그리는 창은 그릴 수 있는 창이 아니므로, 첫 창이 닫히고 다른 창이 열려 있을 때의 런처 시작도 그 창을 가져가지 않고 같은 요청을 보내며, 앱이 답하지 않아도 열린 창과 그 작업은 그대로 남습니다(iOS와 같아서 앱은 한곳에서 정합니다) `[leader, 2026-11-23]`.
 
 **iOS와 iPadOS.**
 

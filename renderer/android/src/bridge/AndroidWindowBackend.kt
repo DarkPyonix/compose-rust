@@ -7,11 +7,17 @@ import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Point
 import android.graphics.Rect
 import android.os.Build
+import android.view.DragEvent
 import android.view.View
 import dev.darkpyonix.composerust.protocol.ColorScheme
-import kotlinx.coroutines.awaitCancellation
+import dev.darkpyonix.composerust.runtime.TearOffDrag
+import dev.darkpyonix.composerust.runtime.TearOffRequest
+import dev.darkpyonix.composerust.runtime.TearOffTrigger
 import kotlin.math.roundToInt
 
 /**
@@ -21,15 +27,26 @@ import kotlin.math.roundToInt
  * [rebind] swaps the Activity reference without firing [PlatformWindowListener.onClosedBySystem].
  * Pressing Back on a non-root Activity calls [backPressed] (`WindowCloseRequested`), and
  * swiping the task away from recents calls [closedBySystem] (`WindowClosed`).
+ *
+ * [releaseIfUnanswered] is for the Activity the launcher started while it asks the application
+ * for a window: closed before any node adopted it, the window lets go of the Activity and leaves
+ * finishing it to the caller, which finishes that Activity alone.
  */
 class AndroidActivityWindow(
     var nodeId: Int,
     val restoreKey: String,
     private var activity: Activity?,
     private var listener: PlatformWindowListener,
+    private var releaseIfUnanswered: Boolean = false,
 ) : PlatformWindow {
     private var closed = false
     private var focused = activity?.hasWindowFocus() == true
+
+    /**
+     * This window's frame clock. The Activity's content serves it from its own frames
+     * ([ServeWindowFrames]), so the process's one driver draws when any window draws.
+     */
+    val frames = WindowFrameClock()
 
     override fun setListener(listener: PlatformWindowListener) {
         this.listener = listener
@@ -89,23 +106,43 @@ class AndroidActivityWindow(
 
     override fun adoptedBy(nodeId: Int) {
         this.nodeId = nodeId
+        releaseIfUnanswered = false
+    }
+
+    /**
+     * Whether [other], an Activity the launcher started, may draw this window: it is
+     * [other]'s already, or no live Activity draws it. A closed window may not, and neither
+     * may one that another live Activity shows.
+     */
+    fun mayBeDrawnBy(other: Activity): Boolean {
+        if (closed) return false
+        val current = activity ?: return true
+        return current === other || current.isFinishing || current.isDestroyed
     }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
-        awaitCancellation()
+        frames.awaitFrame(onFrame)
     }
+
+    /** The view a drag out of this window starts from, or null while no Activity is attached. */
+    fun dragView(): View? = activity?.window?.decorView
 
     override fun close() {
         if (closed) return
         closed = true
+        frames.close()
         val current = activity
         activity = null
-        current?.finishAndRemoveTask()
+        if (releaseIfUnanswered || current == null) return
+        // A window of its own is the root of its own document task, and the task goes with
+        // it. An Activity started on top of another window's task (a second launcher start)
+        // is finished alone, so that window's task stays.
+        if (current.isTaskRoot) current.finishAndRemoveTask() else current.finish()
     }
 
     /** Replaces the Activity reference after a configuration change without closing the window. */
     fun rebind(newActivity: Activity) {
-        if (closed) return
+        if (closed || activity === newActivity) return
         activity = newActivity
         bounds()?.let { listener.onMoved(it) }
     }
@@ -127,6 +164,7 @@ class AndroidActivityWindow(
     fun closedBySystem() {
         if (closed) return
         closed = true
+        frames.close()
         activity = null
         listener.onClosedBySystem()
     }
@@ -144,10 +182,21 @@ class AndroidWindowBackend(
     private var rootActivity: Activity? = null,
     private val windowActivityClass: Class<out Activity>? = null,
     private val multiWindowSupported: () -> Boolean = { true },
+    /**
+     * The token of this process, carried with the node id in every window Activity's intent,
+     * so a window revived in a later process is not bound by an id that process never issued.
+     */
+    private val processToken: Long = 0L,
 ) : WindowBackend {
     private var appListener: ApplicationListener? = null
     private var initialClaimed = false
     private val windows = LinkedHashMap<Int, AndroidActivityWindow>()
+
+    /**
+     * Hears a tear-off drag pass over the application's windows ([acceptTearOffDrops]) and
+     * tells their drop targets. Set by the runtime to its window manager.
+     */
+    var tabDrags: WindowManager? = null
 
     override val supportsMultipleWindows: Boolean
         get() = multiWindowSupported()
@@ -155,6 +204,9 @@ class AndroidWindowBackend(
     override fun setApplicationListener(listener: ApplicationListener?) {
         appListener = listener
     }
+
+    /** The Activity that launches the others, while one is attached. */
+    fun rootActivity(): Activity? = rootActivity
 
     /** Updates the root Activity reference when recreated by a configuration change. */
     fun attachRootActivity(activity: Activity) {
@@ -186,6 +238,7 @@ class AndroidWindowBackend(
                 addFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT)
             }
             putExtra(EXTRA_WINDOW_NODE_ID, config.nodeId)
+            putExtra(EXTRA_WINDOW_PROCESS, processToken)
             putExtra(EXTRA_WINDOW_RESTORE_KEY, config.restoreKey)
         }
         return try {
@@ -247,8 +300,20 @@ class AndroidWindowBackend(
      * cannot show more than one window, or when no Activity is attached. Before Android 15
      * the public API has no way for an application's own drag to start an Activity, so the
      * application offers the same thing as a menu action that puts a `Window` node in.
+     *
+     * [shadow] is what the user sees under the finger; by default the whole of [view].
+     * [sourceWindow] is the `Window` node the drag starts in. It travels as the drag's local
+     * state, which only this process' windows see, so the window it came from is not told it
+     * passed over itself.
      */
-    fun startTearOffDrag(view: View, restoreKey: String): Boolean {
+    fun startTearOffDrag(
+        view: View,
+        restoreKey: String,
+        shadow: View.DragShadowBuilder = View.DragShadowBuilder(view),
+        sourceWindow: Int = 0,
+    ): Boolean {
+        // Spelled out rather than through androidTearOffSupported, so the API check below is
+        // one the Android tooling can see.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM || restoreKey.isEmpty()) return false
         if (!supportsMultipleWindows) return false
         val currentRoot = rootActivity ?: return false
@@ -270,8 +335,8 @@ class AndroidWindowBackend(
         )
         return view.startDragAndDrop(
             clip,
-            View.DragShadowBuilder(view),
-            null,
+            shadow,
+            sourceWindow,
             View.DRAG_FLAG_GLOBAL_SAME_APPLICATION or View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG,
         )
     }
@@ -279,12 +344,14 @@ class AndroidWindowBackend(
     /**
      * Binds a newly created or recreated Activity to its [AndroidActivityWindow] by [nodeId],
      * or notifies [ApplicationListener.onWindowRequested] if the system revived a task after
-     * process death.
+     * process death, made a window for a dropped tab, or the launcher started an Activity
+     * that has no window it may draw ([releaseIfUnanswered] for that one).
      */
     fun activityCreated(
         activity: Activity,
         nodeId: Int,
         restoreKey: String,
+        releaseIfUnanswered: Boolean = false,
     ): AndroidActivityWindow? {
         if (nodeId != 0) {
             val existing = windows[nodeId]
@@ -304,6 +371,7 @@ class AndroidWindowBackend(
             restoreKey = restoreKey,
             activity = activity,
             listener = placeholderListener,
+            releaseIfUnanswered = releaseIfUnanswered,
         )
         appListener?.onWindowRequested(restoreKey, window)
         if (window.nodeId != 0) {
@@ -314,13 +382,86 @@ class AndroidWindowBackend(
 
     fun windowFor(nodeId: Int): AndroidActivityWindow? = windows[nodeId]
 
+    /**
+     * Makes [view], the root of one of the application's windows, take a tear-off drag dropped
+     * on it. A drop the application's own window takes is handled, so the system does not open
+     * a window for it: a tab dropped back inside a window stays where it was.
+     *
+     * While the drag is over the window, its place goes to [tabDrags], which tells the node
+     * under it that registered for a drag passing over (`WindowDragOver`). The place is in the
+     * view's pixels, which are the pixels the window's content is laid out in: the content
+     * fills the window from its top left corner.
+     */
+    fun acceptTearOffDrops(view: View) {
+        view.setOnDragListener { target, event ->
+            // Interested in its own drags only; once interested, it hears the rest of them
+            // and takes their drop.
+            if (event.action == DragEvent.ACTION_DRAG_STARTED) {
+                return@setOnDragListener event.clipDescription?.hasMimeType(MIMETYPE_TEAR_OFF) == true
+            }
+            val manager = tabDrags
+            val window = windowOfView(target)
+            val source = event.localState as? Int ?: 0
+            when (event.action) {
+                DragEvent.ACTION_DRAG_LOCATION -> if (manager != null) {
+                    manager.tabDragMoved(window, source, event.x, event.y)
+                    // Moves are sent once per frame, so a frame is asked for.
+                    FrameRequests.request()
+                }
+                DragEvent.ACTION_DRAG_EXITED -> manager?.tabDragExited(window)
+                DragEvent.ACTION_DROP -> manager?.tabDropped(window, source, event.x, event.y)
+                DragEvent.ACTION_DRAG_ENDED -> manager?.tabDragEnded()
+            }
+            true
+        }
+    }
+
+    /** The `Window` node whose Activity [view] is the root of, or 0. */
+    private fun windowOfView(view: View): Int =
+        windows.values.firstOrNull { it.dragView() === view }?.nodeId ?: 0
+
     companion object {
         const val EXTRA_WINDOW_NODE_ID = "dev.darkpyonix.composerust.WINDOW_NODE_ID"
+
+        /** The token of the process that issued [EXTRA_WINDOW_NODE_ID]. */
+        const val EXTRA_WINDOW_PROCESS = "dev.darkpyonix.composerust.WINDOW_PROCESS"
         const val EXTRA_WINDOW_RESTORE_KEY = "dev.darkpyonix.composerust.WINDOW_RESTORE_KEY"
 
         /** The MIME type of a tear-off drag, so a window it passes over can tell it apart. */
         const val MIMETYPE_TEAR_OFF = "application/vnd.dev.darkpyonix.composerust.tear-off"
 
         private const val TEAR_OFF_IDENTIFIER_PREFIX = "dev.darkpyonix.composerust.tear-off:"
+    }
+}
+
+/**
+ * Android's tear-off: a long press and a drag on a keyed node starts the system drag that may
+ * open the node's window as an Activity ([AndroidWindowBackend.startTearOffDrag]).
+ */
+internal class AndroidTearOffDrag(private val backend: AndroidWindowBackend) : TearOffDrag {
+    override val trigger: TearOffTrigger get() = TearOffTrigger.LongPressThenDrag
+
+    override fun start(request: TearOffRequest): Boolean {
+        val view = backend.windowFor(request.windowId)?.dragView() ?: return false
+        return backend.startTearOffDrag(view, request.key, TearOffShadow(request), request.windowId)
+    }
+}
+
+/** The node's own outline under the finger, where it was pressed, rather than the whole window. */
+private class TearOffShadow(request: TearOffRequest) : View.DragShadowBuilder() {
+    private val width = (request.width * request.density).roundToInt().coerceAtLeast(1)
+    private val height = (request.height * request.density).roundToInt().coerceAtLeast(1)
+    private val touchX = (request.x * request.density).roundToInt().coerceIn(0, width - 1)
+    private val touchY = (request.y * request.density).roundToInt().coerceIn(0, height - 1)
+    private val radius = 8f * request.density
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66808080 }
+
+    override fun onProvideShadowMetrics(outShadowSize: Point, outShadowTouchPoint: Point) {
+        outShadowSize.set(width, height)
+        outShadowTouchPoint.set(touchX, touchY)
+    }
+
+    override fun onDrawShadow(canvas: Canvas) {
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, fill)
     }
 }

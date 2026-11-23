@@ -162,11 +162,13 @@ pub struct WindowDragEvent {
     pub over_window: u32,
 }
 
-/// A dragged window passing over a node that listens for it.
+/// A dragged window passing over a node that listens for it, or on Android a torn-off tab
+/// that the system's drag carries over another window of the application.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowDragOver {
     pub kind: WindowDragOverKind,
-    /// The id of the window being dragged.
+    /// The id of the window being dragged. A tab dragged by the system's drag has no window
+    /// of its own, so there it is the id of the window the tab is over.
     pub window: u32,
     /// The position inside the node, in dp.
     pub x: f32,

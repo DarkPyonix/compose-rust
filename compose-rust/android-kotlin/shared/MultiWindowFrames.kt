@@ -4,8 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -54,6 +56,56 @@ internal suspend fun serveWindowFrames(
  */
 fun windowFrameDriverWanted(mode: WindowMode?, openWindows: Int, attachedWindows: Int): Boolean =
     mode == WindowMode.Windows && openWindows > 0 && attachedWindows > 0
+
+/** What the Activity an Android application was started with does, in an application of several windows. */
+sealed interface StartedActivity<out W> {
+    /** It draws [window]: the first window, or the one the application answered with. */
+    class Draw<W>(val window: W) : StartedActivity<W>
+
+    /** It draws the tree's root: a `Window` node exists that has no platform window. */
+    object DrawRoot : StartedActivity<Nothing>
+
+    /**
+     * The application answered with no window. This Activity alone is finished; no other
+     * window is closed and no task is removed, so an Activity stacked on the task of a window
+     * that is still open leaves that task as it was.
+     */
+    object FinishOnlyThis : StartedActivity<Nothing>
+}
+
+/**
+ * What the Activity an Android application was started with draws, in an application of
+ * several windows. An Activity the renderer launched as a window is bound by the node id or the
+ * key it carries; this is the one the launcher started.
+ *
+ * It draws the application's first `Window` node when it may: when [mayDraw] says the platform
+ * window [windowFor] has for it is this Activity's (the one it claimed when the process started)
+ * or has no live Activity left. A window that another live Activity draws is never taken from
+ * it: the user closed the first window, another stayed open, and the launcher started the
+ * application again, or a second instance was started on top of the first.
+ *
+ * Otherwise the start is the user asking for a window, as when the user closed every window and
+ * the process stayed. The application is asked for one through [requestWindow], as for any
+ * window the system made with no node for it (an empty restore key), which gives back the
+ * window it answered with, or null. The Activity draws that window, or, with no answer, is
+ * finished alone ([StartedActivity.FinishOnlyThis]). Drawing the tree's root instead left a
+ * blank window that nothing filled, because the application never heard that the user was
+ * back; drawing the open window took it from the Activity that showed it.
+ */
+fun <W : PlatformWindow> startedActivityWindow(
+    table: NodeTable,
+    windowFor: (nodeId: Int) -> W?,
+    mayDraw: (window: W) -> Boolean,
+    requestWindow: () -> W?,
+): StartedActivity<W> {
+    val first = table.roots.firstOrNull { table.node(it)?.widget == WidgetKind.Window }
+    if (first != null) {
+        val window = windowFor(first) ?: return StartedActivity.DrawRoot
+        if (mayDraw(window)) return StartedActivity.Draw(window)
+    }
+    val answered = requestWindow() ?: return StartedActivity.FinishOnlyThis
+    return StartedActivity.Draw(answered)
+}
 
 /**
  * One window's frame clock, for a platform where each window draws in a composition of its

@@ -1497,6 +1497,13 @@ impl LaunchBuilder {
     ///
     /// The window that closes last ends the application, except on macOS where the
     /// application stays; [`LaunchBuilder::on_last_window_closed`] chooses.
+    ///
+    /// On Android a window torn off the application is started by the system, in split
+    /// screen or a desktop window, and the system starts it only for an application that
+    /// declares it can run several instances. Turn on this crate's
+    /// `android-multi-instance` feature to declare it:
+    /// `compose-rust = { version = "...", features = ["android-multi-instance"] }`.
+    /// The build cannot see this call, so it does not declare it on its own.
     pub fn windows(mut self) -> Self {
         self.window = self.window.with_windows();
         self
