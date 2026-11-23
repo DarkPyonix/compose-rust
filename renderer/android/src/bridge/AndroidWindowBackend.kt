@@ -27,12 +27,17 @@ import kotlin.math.roundToInt
  * [rebind] swaps the Activity reference without firing [PlatformWindowListener.onClosedBySystem].
  * Pressing Back on a non-root Activity calls [backPressed] (`WindowCloseRequested`), and
  * swiping the task away from recents calls [closedBySystem] (`WindowClosed`).
+ *
+ * [releaseIfUnanswered] is for the Activity the launcher started while it asks the application
+ * for a window: closed before any node adopted it, the window lets go of the Activity and leaves
+ * finishing it to the caller, which finishes that Activity alone.
  */
 class AndroidActivityWindow(
     var nodeId: Int,
     val restoreKey: String,
     private var activity: Activity?,
     private var listener: PlatformWindowListener,
+    private var releaseIfUnanswered: Boolean = false,
 ) : PlatformWindow {
     private var closed = false
     private var focused = activity?.hasWindowFocus() == true
@@ -101,6 +106,18 @@ class AndroidActivityWindow(
 
     override fun adoptedBy(nodeId: Int) {
         this.nodeId = nodeId
+        releaseIfUnanswered = false
+    }
+
+    /**
+     * Whether [other], an Activity the launcher started, may draw this window: it is
+     * [other]'s already, or no live Activity draws it. A closed window may not, and neither
+     * may one that another live Activity shows.
+     */
+    fun mayBeDrawnBy(other: Activity): Boolean {
+        if (closed) return false
+        val current = activity ?: return true
+        return current === other || current.isFinishing || current.isDestroyed
     }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
@@ -116,12 +133,16 @@ class AndroidActivityWindow(
         frames.close()
         val current = activity
         activity = null
-        current?.finishAndRemoveTask()
+        if (releaseIfUnanswered || current == null) return
+        // A window of its own is the root of its own document task, and the task goes with
+        // it. An Activity started on top of another window's task (a second launcher start)
+        // is finished alone, so that window's task stays.
+        if (current.isTaskRoot) current.finishAndRemoveTask() else current.finish()
     }
 
     /** Replaces the Activity reference after a configuration change without closing the window. */
     fun rebind(newActivity: Activity) {
-        if (closed) return
+        if (closed || activity === newActivity) return
         activity = newActivity
         bounds()?.let { listener.onMoved(it) }
     }
@@ -183,6 +204,9 @@ class AndroidWindowBackend(
     override fun setApplicationListener(listener: ApplicationListener?) {
         appListener = listener
     }
+
+    /** The Activity that launches the others, while one is attached. */
+    fun rootActivity(): Activity? = rootActivity
 
     /** Updates the root Activity reference when recreated by a configuration change. */
     fun attachRootActivity(activity: Activity) {
@@ -320,13 +344,14 @@ class AndroidWindowBackend(
     /**
      * Binds a newly created or recreated Activity to its [AndroidActivityWindow] by [nodeId],
      * or notifies [ApplicationListener.onWindowRequested] if the system revived a task after
-     * process death, made a window for a dropped tab, or the launcher started the application
-     * again after the user closed every window.
+     * process death, made a window for a dropped tab, or the launcher started an Activity
+     * that has no window it may draw ([releaseIfUnanswered] for that one).
      */
     fun activityCreated(
         activity: Activity,
         nodeId: Int,
         restoreKey: String,
+        releaseIfUnanswered: Boolean = false,
     ): AndroidActivityWindow? {
         if (nodeId != 0) {
             val existing = windows[nodeId]
@@ -346,6 +371,7 @@ class AndroidWindowBackend(
             restoreKey = restoreKey,
             activity = activity,
             listener = placeholderListener,
+            releaseIfUnanswered = releaseIfUnanswered,
         )
         appListener?.onWindowRequested(restoreKey, window)
         if (window.nodeId != 0) {

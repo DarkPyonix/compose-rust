@@ -140,8 +140,10 @@ object ComposeRustRuntime {
      * root (`windowNodeId = 0`). For multi-window applications (`WindowMode.Windows`), the
      * first Activity claims the first `Window` node, recreated Activities rebind by [nodeId],
      * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`. An Activity
-     * started from the launcher after the user closed every window asks the same way, with
-     * an empty key ([startedActivityWindow]).
+     * started from the launcher with no window it may draw (every window closed, or the first
+     * one closed while another is shown by its own Activity) asks the same way, with an empty
+     * key, and is finished alone when the application answers with none
+     * ([startedActivityWindow]).
      *
      * [nodeId] is trusted only when [carriedProcess], the token it was saved or sent with, is
      * this process' [processToken]. After the process died, the saved state and the intent
@@ -184,16 +186,32 @@ object ComposeRustRuntime {
             it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID) ||
                 it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY)
         } == true
+        // The Activity that launched the others until now, kept for a start that ends at once.
+        val previousRoot = backend.rootActivity()
         // The Activity the application was started with launches the others, recreated or not.
         if (!launchedAsWindow) backend.attachRootActivity(activity)
         if (trustedId == 0 && !launchedAsWindow) {
-            // The first window, or, when the user closed every window and started the
-            // application again, the window the application answers that start with.
-            return startedActivityWindow(
+            // The first window when this Activity may draw it; otherwise the window the
+            // application answers the start with, or nothing, and then this Activity alone ends.
+            val started = startedActivityWindow(
                 currentHost.table,
-                windowFor = { id -> backend.windowFor(id)?.also { it.rebind(activity) } },
-                requestWindow = { backend.activityCreated(activity, 0, restoreKey) },
+                windowFor = backend::windowFor,
+                mayDraw = { window -> window.mayBeDrawnBy(activity) },
+                requestWindow = {
+                    backend.activityCreated(activity, 0, restoreKey, releaseIfUnanswered = true)
+                        ?.takeIf { it.nodeId != 0 }
+                },
             )
+            return when (started) {
+                is StartedActivity.Draw -> started.window.also { it.rebind(activity) }
+                StartedActivity.DrawRoot -> null
+                StartedActivity.FinishOnlyThis -> {
+                    // The Activity that launched the open windows stays the one that launches.
+                    previousRoot?.let { root -> if (root !== activity) backend.attachRootActivity(root) }
+                    activity.finish()
+                    null
+                }
+            }
         }
         return backend.activityCreated(activity, trustedId, restoreKey)
     }
