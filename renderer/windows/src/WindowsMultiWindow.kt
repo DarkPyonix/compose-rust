@@ -98,6 +98,8 @@ internal class MultiWindowLoop(
 
     /** Hooks the manager to the Host's batches and opens the windows the tree already has. */
     fun attach() {
+        // A tab carrying a `TearOffKey` pulled out of its window becomes a window that follows the pointer.
+        manager.tearOffDrag = manager.leaveWindowTearOff
         manager.attach()
         frames.launch {
             serveWindowFrames(host, manager, requests, alreadyServed = host.requestsBeforeStart)

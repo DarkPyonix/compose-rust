@@ -110,6 +110,8 @@ private fun runWindows(
     val backend = LinuxWindowBackend(main) { nodeId -> { WindowContent(host, windowNodeId = nodeId) } }
     opened(backend)
     val manager = WindowManager(host, backend, onExit = backend::requestExit, dropTargets = DropTargets.Registered)
+    // A tab carrying a `TearOffKey` pulled out of its window becomes a window that follows the pointer.
+    manager.tearOffDrag = manager.leaveWindowTearOff
     val frames = CoroutineScope(main + Job())
     try {
         manager.attach()
