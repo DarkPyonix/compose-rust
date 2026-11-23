@@ -419,6 +419,7 @@ class WindowManager(
      * dragged window's pointer. Called once per frame, after the Host's batch is applied.
      */
     fun flushFrame() {
+        flushTabDrag()
         for (entry in entries.values.toList()) {
             if (entry.dead) continue
             val bounds = entry.pendingBounds
@@ -537,6 +538,92 @@ class WindowManager(
             }
         }
         return best
+    }
+
+    // ---- a tab dragged over the windows ---------------------------------------------------
+    //
+    // On a phone or a tablet a torn-off tab is dragged by the system's own drag and drop, not
+    // in a window of its own, and the windows of the application hear it pass over them. The
+    // node under it that registered `OnWindowDragOver` hears the same Enter, Move, Leave and
+    // Drop as on a desktop, at the same place in its own dp. Where a desktop names the
+    // dragged window in the event, a tab has no window: the event names the window the tab
+    // is over, and the tab itself travels in the platform's drag.
+
+    private class TabPoint(val window: Int, val source: Int, val x: Float, val y: Float)
+
+    private var tabPending: TabPoint? = null
+    private var tabTarget: DropTarget? = null
+    private var tabTargetWindow = 0
+
+    /**
+     * A tab dragged out of `Window` node [source] is over `Window` node [window], at ([x], [y])
+     * of its content in the units [DropTargets] is asked in. Moves are kept and sent once per
+     * frame, from [flushFrame], like a dragged window's.
+     */
+    fun tabDragMoved(window: Int, source: Int, x: Float, y: Float) {
+        tabPending = TabPoint(window, source, x, y)
+    }
+
+    /** The tab left `Window` node [window]: the node it was over hears Leave. */
+    fun tabDragExited(window: Int) {
+        flushTabDrag()
+        val previous = tabTarget ?: return
+        if (tabTargetWindow != window) return
+        tabTarget = null
+        tabTargetWindow = 0
+        sendTabOver(window, previous, OVER_LEAVE)
+    }
+
+    /** The tab was dropped on `Window` node [window]: the node under it hears Drop. */
+    fun tabDropped(window: Int, source: Int, x: Float, y: Float) {
+        tabPending = null
+        val target = tabTargetAt(window, source, x, y)
+        val previous = tabTarget
+        val previousWindow = tabTargetWindow
+        tabTarget = null
+        tabTargetWindow = 0
+        if (previous != null && (target == null || target.nodeId != previous.nodeId || previousWindow != window)) {
+            sendTabOver(previousWindow, previous, OVER_LEAVE)
+        }
+        if (target != null) sendTabOver(window, target, OVER_DROP)
+    }
+
+    /** The platform's drag ended anywhere; a node still under it hears Leave. */
+    fun tabDragEnded() {
+        tabPending = null
+        val previous = tabTarget ?: return
+        val previousWindow = tabTargetWindow
+        tabTarget = null
+        tabTargetWindow = 0
+        sendTabOver(previousWindow, previous, OVER_LEAVE)
+    }
+
+    private fun flushTabDrag() {
+        val point = tabPending ?: return
+        tabPending = null
+        val target = tabTargetAt(point.window, point.source, point.x, point.y)
+        val previous = tabTarget
+        val previousWindow = tabTargetWindow
+        val same = previous != null && target != null && previous.nodeId == target.nodeId && previousWindow == point.window
+        if (previous != null && !same) sendTabOver(previousWindow, previous, OVER_LEAVE)
+        tabTarget = target
+        tabTargetWindow = if (target != null) point.window else 0
+        if (target != null) sendTabOver(point.window, target, if (same) OVER_MOVE else OVER_ENTER)
+    }
+
+    /**
+     * The registered node of [window] under ([x], [y]), or null. The window the tab came from
+     * is never a target, as a dragged window is never over itself.
+     */
+    private fun tabTargetAt(window: Int, source: Int, x: Float, y: Float): DropTarget? {
+        if (window == 0 || window == source) return null
+        val found = dropTargets.targetAt(window, x, y) ?: return null
+        return if (table.node(found.nodeId)?.handler(PropertyKind.OnWindowDragOver) != null) found else null
+    }
+
+    private fun sendTabOver(window: Int, target: DropTarget, kind: Int) {
+        val handler = table.node(target.nodeId)?.handler(PropertyKind.OnWindowDragOver) ?: return
+        host.dispatch(HostEvent.WindowDragOver(target.nodeId, handler, kind, window, target.x, target.y))
     }
 
     // ---- value types ---------------------------------------------------------------------
