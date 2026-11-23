@@ -4225,6 +4225,7 @@ Electron 앱(VS Code)과 브라우저가 하는 일입니다. 탭을 잡고 창 
 - **설정 변경으로 Activity가 다시 만들어져도 창은 같은 창입니다.** 노드 표와 Host가 프로세스에 남으므로(PR-5), 새 Activity는 `savedInstanceState`의 노드 id로 같은 `Window` 노드를 다시 그립니다. `WindowClosed`도 `WindowRequested`도 가지 않습니다.
 - 프로세스가 죽은 뒤 시스템이 최근 작업에서 창 Activity를 되살리면, Host는 처음부터 다시 만들어지고 Renderer는 인텐트의 `RestoreKey`로 `WindowRequested`를 보냅니다. 상태를 되살리는 것은 PR-5대로 앱의 `SaveState` 몫입니다.
 - 첫 창이 아닌 Activity에서 뒤로 가기는 `WindowCloseRequested`이고, 최근 작업에서 밀어 닫으면 `WindowClosed`입니다. 앱이 `Window` 노드를 지우면 Renderer가 그 Activity를 `finishAndRemoveTask`로 닫습니다.
+- 런처에서 시작한 Activity가 그릴 수 있는 `Window` 노드를 찾지 못하면(사용자가 창을 모두 닫았는데 프로세스가 남은 경우) Renderer는 빈 키로 `WindowRequested`를 보냅니다. 그 Activity는 앱이 그 배치에서 넣은 `Window` 노드를 그리고, 앱이 넣지 않으면 그 Activity만 `finish`로 닫힙니다. 다른 살아 있는 Activity가 그리는 창은 그릴 수 있는 창이 아니므로, 첫 창이 닫히고 다른 창이 열려 있을 때의 런처 시작도 그 창을 가져가지 않고 같은 요청을 보내며, 앱이 답하지 않아도 열린 창과 그 작업은 그대로 남습니다(iOS와 같아서 앱은 한곳에서 정합니다) `[leader, 2026-11-23]`.
 
 **iOS와 iPadOS.**
 
