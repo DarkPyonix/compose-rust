@@ -2,7 +2,6 @@ package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlinx.cinterop.useContents
-import kotlinx.coroutines.awaitCancellation
 import platform.Foundation.NSUserActivity
 import platform.UIKit.UIApplication
 import platform.UIKit.UISceneSession
@@ -28,6 +27,12 @@ internal class IosSceneWindow(
 ) : PlatformWindow {
     private var closed = false
     private var keyWindow = window?.isKeyWindow() == true
+
+    /**
+     * This scene's frame clock. The scene's content serves it from its own frames
+     * ([ServeWindowFrames]), so the process's one driver draws when any scene draws.
+     */
+    val frames = WindowFrameClock()
 
     override fun setListener(listener: PlatformWindowListener) {
         this.listener = listener
@@ -88,12 +93,13 @@ internal class IosSceneWindow(
     }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
-        awaitCancellation()
+        frames.awaitFrame(onFrame)
     }
 
     override fun close() {
         if (closed) return
         closed = true
+        frames.close()
         val currentSession = session
         window = null
         session = null
@@ -130,6 +136,7 @@ internal class IosSceneWindow(
     fun closedBySystem() {
         if (closed) return
         closed = true
+        frames.close()
         window = null
         session = null
         listener.onClosedBySystem()
@@ -149,10 +156,16 @@ internal class IosWindowBackend(
     private val multipleScenesSupported: () -> Boolean = {
         UIApplication.sharedApplication.supportsMultipleScenes
     },
+    /**
+     * The token of this process, carried with the node id, so a scene reconnected in a later
+     * process is not bound by an id that process never issued.
+     */
+    private val processToken: Long = 0L,
     private val activateScene: (UISceneSession?, Int, String) -> Boolean = { session, nodeId, restoreKey ->
         val activity = NSUserActivity(activityType = WINDOW_ACTIVITY_TYPE)
         activity.userInfo = mapOf(
             KEY_NODE_ID to nodeId,
+            KEY_PROCESS to processToken,
             KEY_RESTORE_KEY to restoreKey,
         )
         UIApplication.sharedApplication.requestSceneSessionActivation(
@@ -291,6 +304,9 @@ internal class IosWindowBackend(
     companion object {
         const val WINDOW_ACTIVITY_TYPE = "dev.darkpyonix.composerust.window"
         const val KEY_NODE_ID = "nodeId"
+
+        /** The token of the process that issued [KEY_NODE_ID]. */
+        const val KEY_PROCESS = "process"
         const val KEY_RESTORE_KEY = "restoreKey"
 
         /** Builds the `NSUserActivity` that carries a `TearOffKey` into a new scene session. */
