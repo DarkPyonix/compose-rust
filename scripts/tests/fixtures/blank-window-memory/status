@@ -1,0 +1,11 @@
+Name:	blank-window
+Umask:	0022
+State:	S (sleeping)
+Pid:	4242
+VmPeak:	 1234567 kB
+VmSize:	 1200000 kB
+VmHWM:	  100000 kB
+VmRSS:	   98312 kB
+RssAnon:	   38000 kB
+RssFile:	   60000 kB
+Threads:	12
