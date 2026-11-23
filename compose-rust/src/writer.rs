@@ -1296,7 +1296,7 @@ impl NodeWriter {
     }
 }
 
-fn shrink_map_if_sparse<K, V>(map: &mut HashMap<K, V>, min_capacity: usize) {
+fn shrink_map_if_sparse<K: Eq + std::hash::Hash, V>(map: &mut HashMap<K, V>, min_capacity: usize) {
     // `HashMap` rounds capacity up to 7/8 of a power of two (e.g. `shrink_to(256)` lands
     // at 448). Checking `capacity > min_capacity * 2` keeps tables that are already at
     // their floor from re-entering `shrink_to` on every removal.
@@ -1521,8 +1521,11 @@ mod tests {
         // Shadow layers track ownership across slots and clear only previously written
         // layers when the list shrinks or empties.
         let mut shadow_layer = [0u8; SHADOW_BYTES];
-        shadow_layer[16..24]
-            .copy_from_slice(&crate::Paint::Role(crate::ColorRole::Outline).to_bits().to_le_bytes());
+        shadow_layer[16..24].copy_from_slice(
+            &crate::Paint::Role(crate::ColorRole::Outline)
+                .to_bits()
+                .to_le_bytes(),
+        );
         let mut two_shadows = Vec::with_capacity(SHADOW_BYTES * 2);
         two_shadows.extend_from_slice(&shadow_layer);
         two_shadows.extend_from_slice(&shadow_layer);
