@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Tabs tear off into windows on Android, iPadOS and the desktop, and every mobile window draws
+
+A node with a `tear_off_key` can now be pulled out into a window of its own; before, nothing started the drag on any platform. On a desktop window (macOS, Windows, Linux) the press that leaves the window asks the application for a window under the key, and the window it puts in follows the pointer. On Android 15 (API 35) and later a long press and a drag starts the system drag, and a drop where no window of the application takes it may open the window as an Activity, which the system decides; below Android 15 the public API has no such drag and the tab is an ordinary node, so an application offers "open in new window" itself. On iPadOS the system's drag interaction lifts the tab, and a drop at the screen edge makes a new scene. In every case the application hears a `WindowRequested` with the key, and a drag that makes no window sends nothing. A second Android Activity and a second iOS scene now draw: each window answers the process's one frame driver from its own frames, where before only the event that changed a window redrew it. A window revived after its process died is matched by its restore key and no longer by the old process' node id ([#355](https://github.com/DarkPyonix/compose-rust/issues/355), [#931](https://github.com/DarkPyonix/compose-rust/issues/931), FR-53).
+
 ### Build failures no longer send a crate user to a script only a checkout has
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
