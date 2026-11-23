@@ -40,6 +40,7 @@
 //! same way. Nothing here needs the function's author to say which is which.
 
 mod call_macro;
+mod preview;
 
 use call_macro::{CallParam, implicit_default, normalise_default};
 use proc_macro::TokenStream;
@@ -101,6 +102,26 @@ pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
             let call_macro = call_params.map(|params| call_macro::generate(&function, &params));
             quote!(#function #call_macro).into()
         }
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Declares a screen or component preview for `compose-rust-preview`.
+///
+/// ```ignore
+/// #[Preview(name = "Home", sizes = [Desktop, Phone], schemes = [Light, Dark])]
+/// fn home_preview(ctx: &PreviewContext) {
+///     // ...
+/// }
+/// ```
+///
+/// Outside `compose-rust-preview` builds (normal and release builds), no preview descriptor
+/// or registry entry is emitted.
+#[proc_macro_attribute]
+#[allow(non_snake_case)]
+pub fn Preview(attribute: TokenStream, item: TokenStream) -> TokenStream {
+    match preview::expand(attribute.into(), item.into()) {
+        Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }
 }
@@ -485,8 +506,51 @@ impl VisitMut for Inserter {
         }
     }
 
+    fn visit_expr_macro_mut(&mut self, node: &mut syn::ExprMacro) {
+        self.visit_call_macro(&mut node.mac);
+    }
+
+    fn visit_stmt_macro_mut(&mut self, node: &mut syn::StmtMacro) {
+        self.visit_call_macro(&mut node.mac);
+    }
+
     /// Bodies of nested items are somebody else's composition, or not a composition at all.
     fn visit_item_mut(&mut self, _item: &mut syn::Item) {}
+}
+
+impl Inserter {
+    /// Gives the branches inside a call macro's arguments the groups they get in the
+    /// function form.
+    ///
+    /// A macro's tokens are not parsed as code, so without this a branch written in
+    /// `Column!(m, { .. })` would get no group while the same branch in
+    /// `Column(m, || { .. })` gets one. The arguments are read with the call macro's own
+    /// grammar and visited where the function form has them, so the two forms take the
+    /// same counter values and get the same keys. Tokens that do not read as call
+    /// arguments are left as written for the call macro to report.
+    fn visit_call_macro(&mut self, mac: &mut syn::Macro) {
+        if !is_call_macro(&mac.path) {
+            return;
+        }
+        if let Some(tokens) = call_macro::visit_arguments_mut(mac.tokens.clone(), self) {
+            mac.tokens = tokens;
+        }
+    }
+}
+
+/// Whether a macro is a composable's call macro, as far as its name can tell.
+///
+/// A macro cannot be resolved here, so the name decides: composables are named like
+/// types, as Compose names them, and the macros of the standard library and of Dioxus
+/// (`format!`, `vec!`, `matches!`, `rsx!`) are not. A composable declared with a
+/// lower-case name is not recognised, and its branches get no groups in the macro form.
+fn is_call_macro(path: &syn::Path) -> bool {
+    path.segments.last().is_some_and(|segment| {
+        segment
+            .ident
+            .to_string()
+            .starts_with(|first: char| first.is_ascii_uppercase())
+    })
 }
 
 /// A distinct name per group, so nesting does not shadow an outer guard and drop it early.

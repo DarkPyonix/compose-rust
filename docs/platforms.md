@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | macOS | Kotlin/Native | 없음 | 동작 |
 | Linux | Kotlin/Native | 없음 | 모듈과 창까지, 패키징 전 |
-| Windows | GraalVM 네이티브 이미지 | 있음 | 동작 |
+| Windows | Kotlin/Native 정적 렌더러 | 없음 | 배포 |
 | Web | Kotlin/Wasm | 없음 | 동작 |
 | iOS | Kotlin/Native | 없음 | 동작 |
 
@@ -31,7 +31,7 @@ Kotlin/Native 쪽은 파일이 하나입니다. 옆에 놓이는 것이 없습�
 
 리눅스가 9 MB 더 무거운 것은 정적으로 들어가는 것이 더 많기 때문입니다. macOS는 텍스트
 셰이핑과 폰트 탐색을 시스템 프레임워크에서 가져오고, 리눅스는 fontconfig와 FreeType을
-동적으로 링크하더라도 Skia 쪽 경로가 더 많이 남습니다. 윈도우는 아직 재지 않았습니다.
+동적으로 링크하더라도 Skia 쪽 경로가 더 많이 남습니다. 이 표에는 Windows 배포 크기 측정값이 없습니다.
 
 ## 빈 창 하나가 쓰는 메모리
 
@@ -121,12 +121,21 @@ Kotlin/Native로 갈 수 있는지는 상류가 그 타깃을 발행하느냐에
 것이 아니라 Compose가 그 타깃을 빌드하지 않을 뿐입니다. 그래서 이 저장소가 빌드합니다
 (Compose 포크 `thisisthepy/compose-multiplatform-core-extended`). 아래를 보십시오.
 
-**윈도우**는 두 겹으로 막혀 있습니다. Kotlin/Native의 윈도우 타깃은 MinGW ABI이고 Skia와
-skiko의 윈도우 빌드는 MSVC입니다. C++ ABI가 달라 링크가 성립하지 않고, 애초에
-`skiko-mingwx64`가 발행되지도 않습니다. 네이티브 이미지가 유일한 길은 아닙니다. Windows 렌더러는 Kotlin/Native `mingwX64`로 컴파일해 MSVC 실행 파일에 정적으로 링크하는 길로 가고 있고, 그 타깃은 포크에서 더해 빌드합니다. 지금 동작하는 Windows 렌더러가 네이티브 이미지인 것은 그 길이 아직 끝나지 않았기 때문입니다.
+**Windows** 배포는 Kotlin/Native `mingwX64` 렌더러를 MSVC 실행 파일에 정적으로 링크합니다. 상류에서 제공하지 않는 타깃은 Compose 포크가 빌드합니다. Kotlin/Native의 MinGW 객체와 MSVC 링크가 만나는 과정은 [Windows 렌더러 빌드](../.github/workflows/windows-static.yml)에 있습니다. GraalVM 네이티브 이미지로 잰 수치는 이전 경로의 기록입니다.
 
 다른 플랫폼의 아티팩트를 가져다 쓸 수는 없습니다. klib은 타깃 정보를 품고 있어 컴파일러가
 거부하고, macOS용 `ui`는 AppKit에 묶여 있습니다.
+
+## 웹에서 그리는 경로
+
+브라우저에서 Skia를 쓰는 제품도 웹 페이지에 그 C++ 라이브러리나 렌더링 컨텍스트를 노출하지 않습니다. 페이지가 쓰는 것은 Canvas와 WebGL 같은 웹 API입니다. Compose의 `wasmJs` 렌더러는 Skiko의 웹용 빌드를 함께 배포하고 `ComposeViewport`로 페이지의 캔버스에 그립니다. Skia의 [CanvasKit 문서](https://skia.org/docs/user/modules/canvaskit/)도 같은 구분을 보여 줍니다. Skia를 WebAssembly로 빌드하고 웹 API로 캔버스를 사용합니다.
+
+이 설명은 현재 코드와 공개 문서에 근거합니다. 2026-09-25 소유자 답변 원문은 [#61](https://github.com/DarkPyonix/compose-rust/issues/61)에서 확인을 기다립니다.
+
+## Windows 접근성
+
+Windows 창은 Compose 접근성 트리의 역할과 이름을 UI Automation으로 내보냅니다. [#419의 검토](https://github.com/DarkPyonix/compose-rust/issues/419)는 컨트롤 패턴, 상태와 포커스, 부모·자식 관계, 그리고 접근성 동작을 Host까지 전달하는 경로가 빠져 있음을 기록합니다. 공급자 변경은 [Compose 포크 #261](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/261), 렌더러의 요청 전달은 [#962](https://github.com/DarkPyonix/compose-rust/pull/962)에서 다룹니다. 별도 프로세스에서 이름과 역할을 읽는 CI 확인은 [#935](https://github.com/DarkPyonix/compose-rust/issues/935), 실제 Narrator 확인은 [소유자 체크리스트](https://github.com/DarkPyonix/darkpyonix/issues/141)에서 추적합니다.
+
 
 ## 리눅스 Kotlin/Native의 모양
 
@@ -167,18 +176,18 @@ Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.
 프레임이 나오지 않은 요청도 값을 치러야 합니다. 그러지 않으면 관리자가 포기할 때까지
 창이 멈춥니다. 그 순서는 Compose 포크의 `extended/window/common`에 있는 `ResizeSync`에 있고, 이 저장소에서도 `desktop/test/ResizeSyncTest.kt`로 JVM에서 테스트합니다.
 
-### 아직 없는 것
+### 빌드와 링크
 
-정적 라이브러리를 만드는 빌드 스크립트와 Host 쪽 링크가 없습니다. macOS에는
-`desktop/scripts/build-macos.sh`가 있고 Cargo가 그 아카이브를 링크하는데, 리눅스에는
-대응하는 것이 아직 없습니다. 그래서 리눅스 배포물은 지금도 네이티브 이미지 쪽에서 나옵니다.
-여기 있는 것은 모듈과 창과 그 테스트입니다.
+정적 라이브러리는 `renderer/desktop/scripts/build-linux.sh`가 만들고(`build/linux/`, arm64는
+`--arch arm64`로 `build/linux-arm64/`), Cargo가 macOS와 같은 방식으로 그 아카이브를 링크합니다
+(`compose-rust/build.rs`). PR #113(2026-10-04 병합)부터 리눅스의 기본값이 이 경로이고(NFR-14),
+배포물도 여기서 나옵니다. CI는 `static-renderer.yml`이 릴리스와 같은 모양으로 빌드하고,
+`test-kn-desktop-renderer.yml`이 가상 디스플레이에서 `./kotlin test -m linux`를 돌립니다.
 
-### 검증되지 않은 것
+### 손으로 확인할 것
 
-컴파일도 실행도 확인하지 않았습니다. `linux/test/`의 테스트는 linuxX64로 컴파일되므로
-리눅스에서만 돌고, 드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가
-합성한 결과에 대한 사실이라 손으로 확인해야 합니다. 머지하는 쪽이 할 일:
+드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가 합성한 결과에 대한
+사실이라 CI가 확인하지 못하고 손으로 봐야 합니다. 리눅스에서 직접 돌리는 방법:
 
 ```bash
 cd renderer

@@ -14,16 +14,20 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
+import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.foundation.code.CODE_EDITOR_FIELD_TAG
 import dev.darkpyonix.composerust.foundation.code.CodeEditorPath
 import dev.darkpyonix.composerust.foundation.code.defaultCodeEditorPath
+import dev.darkpyonix.composerust.foundation.code.installDrawnCodeEditor
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.MeasureRecords
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -32,6 +36,7 @@ import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import dev.darkpyonix.composerust.runtime.hostPlatformOverride
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
@@ -55,6 +60,14 @@ private const val ON_SAVE = 14L
 private const val ON_DECORATION = 15L
 private const val ON_SELECTION = 16L
 private const val ON_FOCUS = 18L
+private const val ON_VISIBLE_RANGE = 31L
+
+/** A page the Host later adds a holder to: a split pane or a list, with the editor in it. */
+private const val PAGE = 70
+private const val BESIDE = 71
+private const val HOLDER = 72
+private const val SIDE = 73
+private const val ADD = 74L
 
 /** One decoration record, laid out as the Rust schema lays it out, with its text behind it. */
 private fun decorations(vararg records: DecorationSpec): ByteArray {
@@ -118,6 +131,95 @@ class CodeEditorTest {
     fun clearPlatform() {
         hostPlatformOverride = null
         defaultCodeEditorPath = CodeEditorPath.Windowed
+    }
+
+    /**
+     * A split pane and a lazy list compose what they hold while they are being measured,
+     * so an editor first put on screen inside one is attached in the middle of a measure
+     * pass. What it has to say then (here that it lost the focus it had when it was last
+     * on screen) reaches the Host once that pass is over: this Host answers every editor
+     * event by measuring a node, which cannot be done inside one. The lines on screen are
+     * still reported.
+     */
+    @Test
+    fun fr38_a_code_editor_mounted_inside_a_measure_pass_reports_after_it() {
+        installDrawnCodeEditor()
+        for (path in listOf(CodeEditorPath.Windowed, CodeEditorPath.Drawn)) {
+            for (holder in listOf(WidgetKind.SplitPane, WidgetKind.LazyColumn)) {
+                defaultCodeEditorPath = path
+                // The test scene that queues a coroutine, as every window does. The one the
+                // other tests use runs a launched coroutine inside the call that launched
+                // it, so "after the pass" would be tested as "inside it": the Host would be
+                // called while the holder's composition is still being applied, whatever
+                // the editor did.
+                androidx.compose.ui.test.v2.runComposeUiTest {
+                    val case = "$path in $holder"
+                    val connection = FakeHostConnection(
+                        listOf(
+                            Mutation.Create(PAGE, WidgetKind.Column),
+                            Mutation.SetModifier(PAGE, 0, ProtocolModifier.FillMaxWidth),
+                            Mutation.SetModifier(PAGE, 1, ProtocolModifier.FillMaxHeight),
+                            Mutation.Create(BESIDE, WidgetKind.Text),
+                            Mutation.SetProp(BESIDE, PropertyKind.Text, PropertyValue.Text("beside the editor")),
+                            Mutation.Insert(PAGE, BESIDE, 0),
+                        ),
+                    )
+                    val answers = mutableListOf<MeasuredResult>()
+                    connection.respondWith { event ->
+                        if (event is HostEvent.Clicked && event.handlerId == ADD) {
+                            return@respondWith HostResponse(
+                                listOf(
+                                    Mutation.Create(HOLDER, holder),
+                                    Mutation.SetModifier(HOLDER, 0, ProtocolModifier.FillMaxWidth),
+                                    Mutation.SetModifier(HOLDER, 1, ProtocolModifier.FillMaxHeight),
+                                    Mutation.Create(SIDE, WidgetKind.Text),
+                                    Mutation.SetProp(SIDE, PropertyKind.Text, PropertyValue.Text("the side")),
+                                    Mutation.Create(EDITOR, WidgetKind.CodeEditor),
+                                    Mutation.SetProp(EDITOR, PropertyKind.Text, PropertyValue.Text("one\ntwo\nthree\n")),
+                                    Mutation.SetProp(EDITOR, PropertyKind.OnEditorFocusChange, PropertyValue.Integer(ON_FOCUS)),
+                                    Mutation.SetProp(EDITOR, PropertyKind.OnVisibleRangeChange, PropertyValue.Integer(ON_VISIBLE_RANGE)),
+                                    Mutation.Insert(HOLDER, SIDE, 0),
+                                    Mutation.Insert(HOLDER, EDITOR, 1),
+                                    Mutation.Insert(PAGE, HOLDER, 1),
+                                ),
+                            )
+                        }
+                        if (event.nodeId == EDITOR) {
+                            val requests = MeasureRequests().node(BESIDE, maxWidth = 300f)
+                            val results = resultBuffer(requests.count)
+                            RendererMeasure.measure(requests.encode(), requests.count, results)
+                            answers += results.results(requests.count)
+                        }
+                        HostResponse()
+                    }
+                    val host = startHost(connection, Density(1f))
+                    runOnIdle {
+                        host.dispatch(HostEvent.Clicked(BESIDE, ADD))
+                        // The editor had the focus when it was last on screen, so being
+                        // attached again is news: it has it no longer.
+                        host.table.node(EDITOR)!!.code!!.focusChanged(true)
+                    }
+                    waitForIdle()
+
+                    val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+                    assertTrue(errors.isEmpty(), "$case: the Host's measure call failed: ${errors.map { it.message }}")
+                    assertEquals(
+                        listOf(true, false),
+                        connection.events.filterIsInstance<HostEvent.EditorFocusChanged>().map { it.focused },
+                        "$case: what the editor had to say when it was attached",
+                    )
+                    assertTrue(
+                        connection.events.any { it is HostEvent.VisibleRangeChanged && it.nodeId == EDITOR },
+                        "$case: the lines on screen were not reported: ${connection.events}",
+                    )
+                    assertTrue(answers.isNotEmpty(), "$case: the Host was never asked to answer an editor event")
+                    answers.forEachIndexed { index, measured ->
+                        assertEquals(MeasureRecords.STATUS_OK, measured.status, "$case: answer $index")
+                        assertTrue(measured.width > 0f, "$case: answer $index measured the text as nothing")
+                    }
+                }
+            }
+        }
     }
 
     /** Criterion 8: every one of the seven systems draws the editor, decorations and all. */

@@ -194,7 +194,7 @@ internal fun Node.declaresOwnHeight(table: NodeTable): Boolean = modifiers.any {
     value is ProtocolModifier.Height ||
         value is ProtocolModifier.Size ||
         value is ProtocolModifier.FillMaxHeight ||
-        (value is ProtocolModifier.Weight && table.stacksVertically(parentId))
+        ((value is ProtocolModifier.Weight || value is ProtocolModifier.WeightUnfilled) && table.stacksVertically(parentId))
 }
 
 /** True when the node hosting a child stacks its children top to bottom. */

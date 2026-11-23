@@ -14,8 +14,7 @@
 #                              compiled on x86-64, because Kotlin/Native has no arm64 host.
 #   windows-x64                the Kotlin/Native renderer as the static kit an MSVC link
 #                              needs (windows-static.yml), so a Windows application is one
-#                              executable as well. The GraalVM native image is still built
-#                              and smoke tested below, and is not released.
+#                              executable as well.
 #   ios                        the Kotlin/Native archive as an XCFramework.
 #
 # The crate stays an ordinary crate that builds with no renderer present, and each
@@ -86,6 +85,7 @@ jobs:
       renderer: ${{ steps.check.outputs.renderer }}
       macos: ${{ steps.macos.outputs.macos }}
       executables: ${{ steps.macos.outputs.executables }}
+      promoted: ${{ steps.promote.outputs.promoted }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,105 +141,68 @@ jobs:
           echo "executables=$all" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-  # Runs on every push to develop and main, and nightly. Nobody here owns a Windows
-  # machine, so this job *is* the Windows verification: if it goes red, Windows is
-  # broken. It proves build, startup, render, clean close and exit 0. It cannot prove
-  # mouse input, because a hosted runner has no one to click (see SPEC PR-8).
-  fork-desktop:
-    # The desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: changed
-    if: needs.changed.outputs.renderer == 'true'
-    name: Build the Compose fork's desktop modules
-    uses: ./.github/workflows/fork-desktop-modules.yml
-
-  windows:
-    needs: [changed, fork-desktop]
-    if: needs.changed.outputs.renderer == 'true'
-    name: Build and smoke test the renderer (Windows, x64)
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install upstream GraalVM 25
-        # Upstream GraalVM supports AWT on Windows and Liberica NIK is a macOS requirement.
-        #
-        # NIK would be the better answer and is not ready. It carries the JDK's desktop
-        # libraries as static archives, which is why a macOS distribution is four files and
-        # this one is sixteen, and linking them in here got as far as producing an image
-        # that could not start: AWT's Toolkit still calls System.loadLibrary("awt") at run
-        # time, and an archive inside the image does not answer that call. It has to be
-        # registered as a library the image already contains, which GraalVM does for AWT on
-        # macOS and does not do here.
-        #
-        # That work is on feat/windows-nik-static-awt. It is not on this branch because
-        # every attempt at it costs a CI run to observe and four of them left the Windows
-        # renderer unbuildable in the meantime.
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: 'true'
-
-      - name: Take the Compose fork's desktop modules
-        uses: actions/download-artifact@v4
-        with:
-          name: compose-fork-desktop
-          path: ${{ runner.temp }}/compose-fork-desktop
-
-      - name: Put them where the renderer's build looks
-        shell: bash
+      # A tag whose renderers develop has already built is released with those, not built
+      # again: publish-schema-renderer.yml put them on renderer-dev under the tag's schema
+      # hash. They are taken only when all five are there, each matches its .sha256, and
+      # they were built from the same renderer/ tree as the tag, so what ships is what this
+      # commit would have built. Anything else and every build below runs as it always has.
+      # The single-executable check still runs on the promoted tarballs.
+      - name: Find the tag's renderers on renderer-dev
+        id: promote
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
+          set -euo pipefail
+          ./.github/scripts/schema-renderer.sh promote "$(cat compose-rust/schema-hash.txt)" \
+            "$GITHUB_REF_NAME" "$(git rev-parse HEAD:renderer)" "$RUNNER_TEMP/promoted" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Build the Windows renderer
-        id: renderer-build
-        shell: powershell
-        run: .\renderer\desktop\scripts\build-native-windows.ps1
-
-      - name: Non-interactive Windows smoke test
-        # This proves startup, rendering long enough to open, clean close, and return 0.
-        # It does not prove mouse input because a hosted runner cannot perform the required click.
-        shell: powershell
-        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
-
-      - name: The linked image carries no toolkit
-        # Run whatever the smoke test said, so a run shows every way it fails.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
-
-      - name: The image's ways into the toolkit
-        # The check is Python, and Windows' Python is python.exe only.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/python3"
-          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
-          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
-
-      # A run artifact: it belongs to this run, lasts a fortnight, and is not published
-      # anywhere. The release carries the Kotlin/Native kit for windows-x64, not this.
-      #
-      # It exists because a renderer built from the current schema was otherwise
-      # unobtainable between releases. Anyone working on Windows had the choice of
-      # installing GraalVM and Visual Studio Build Tools, or using the last release's
-      # renderer and watching it fail the schema handshake, which is what an empty window
-      # on Windows turned out to be.
-      - name: Keep the distribution as an artifact
+      # One artifact per target under the name its build job gives it, so the
+      # single-executable check and the release take them exactly as they take a build's.
+      - name: Hand on the promoted macOS renderer
+        if: steps.promote.outputs.promoted == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: renderer-windows-x64
-          path: renderer/build/native-image/dist
-          retention-days: 14
-
-      - name: Upload the renderer
+          name: compose-rust-renderer-${{ github.ref_name }}-macos-aarch64
+          path: |
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-macos-aarch64.tar.gz
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-macos-aarch64.tar.gz.sha256
+          retention-days: 7
+      - name: Hand on the promoted Linux x64 renderer
+        if: steps.promote.outputs.promoted == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: compose-rust-renderer-windows-x64
-          path: renderer/build/native-image/dist/
+          name: compose-rust-renderer-${{ github.ref_name }}-linux-x64
+          path: |
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-linux-x64.tar.gz
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-linux-x64.tar.gz.sha256
+          retention-days: 7
+      - name: Hand on the promoted Linux arm64 renderer
+        if: steps.promote.outputs.promoted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-${{ github.ref_name }}-linux-arm64
+          path: |
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-linux-arm64.tar.gz
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-linux-arm64.tar.gz.sha256
+          retention-days: 7
+      - name: Hand on the promoted Windows renderer
+        if: steps.promote.outputs.promoted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-${{ github.ref_name }}-windows-x64
+          path: |
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-windows-x64.tar.gz
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-windows-x64.tar.gz.sha256
+          retention-days: 7
+      - name: Hand on the promoted iOS renderer
+        if: steps.promote.outputs.promoted == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-rust-renderer-${{ github.ref_name }}-ios
+          path: |
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz
+            ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz.sha256
           retention-days: 7
 
   # The renderers macOS and Linux ship: Kotlin/Native as a static archive, built and packaged
@@ -247,21 +210,21 @@ jobs:
   # x86-64 there, because Kotlin/Native has no arm64 Linux host.
   macos-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false' && needs.changed.outputs.promoted != 'true'
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: macos-aarch64
 
   linux-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: linux-x64
 
   linux-arm64-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: linux-arm64
@@ -350,7 +313,7 @@ jobs:
   # on Linux first and the two halves are two jobs; windows-static.yml says why.
   windows-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true' && !inputs.windows_kit_built
+    if: needs.changed.outputs.renderer == 'true' && !inputs.windows_kit_built && needs.changed.outputs.promoted != 'true'
     uses: ./.github/workflows/windows-static.yml
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
@@ -359,7 +322,7 @@ jobs:
   # it evidence for PR-2: one unmodified host, two renderers, one ABI.
   ios:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false' && needs.changed.outputs.promoted != 'true'
     name: Build and smoke test the renderer (iOS, simulator)
     # macos-26, not macos-latest. Compose Multiplatform's iOS artifacts carry
     # precompiled Objective-C objects built against the iOS 26 SDK, and one of them
@@ -385,7 +348,9 @@ jobs:
 
       - name: Protocol codec tests on Kotlin/Native (PR-4)
         working-directory: renderer
-        run: ./kotlin test -m ios
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh ./kotlin test -m ios
 
       - name: Build the simulator archive
         run: ./renderer/desktop/scripts/build-ios.sh
@@ -415,21 +380,7 @@ jobs:
         run: |
           set -euo pipefail
           name="compose-rust-renderer-${GITHUB_REF_NAME}-ios"
-          build=renderer/build/ios
-          for slice in device simulator; do
-            mkdir -p "$build/$slice/include"
-            cp "$build/$slice"/*.h "$build/$slice/include/"
-          done
-          rm -rf "$name.xcframework"
-          xcodebuild -create-xcframework \
-            -library "$build/device/libcompose_rust_renderer.a" \
-            -headers "$build/device/include" \
-            -library "$build/simulator/libcompose_rust_renderer.a" \
-            -headers "$build/simulator/include" \
-            -output "$name.xcframework"
-          tar -czf "$name.tar.gz" "$name.xcframework"
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-          cat "$name.tar.gz.sha256"
+          ./.github/scripts/package-ios-renderer.sh "$name" renderer/build/ios .
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Upload the release artifact
@@ -472,8 +423,20 @@ jobs:
   # never be made to work.
   release:
     name: Attach the renderer to the GitHub release
-    needs: [changed, windows, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [changed, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
+    # Every job above has to have succeeded, as before. The one exception is a release
+    # whose renderers were promoted from renderer-dev: then the build jobs did not run, and
+    # what has to have succeeded is the promotion and the single-executable check of the
+    # promoted tarballs.
+    if: >-
+      !cancelled() && startsWith(github.ref, 'refs/tags/v') &&
+      (
+        (needs.changed.outputs.promoted == 'true' &&
+          needs.changed.result == 'success' && needs.single-executable.result == 'success') ||
+        (needs.changed.outputs.promoted != 'true' &&
+          !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') &&
+          !contains(needs.*.result, 'skipped'))
+      )
     runs-on: ubuntu-latest
     permissions:
       # The only write permission anywhere in this repository's workflows, and

@@ -20,9 +20,22 @@ use compose_rust::runtime::*;
 use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
-/// How wide the page may grow past a phone, in dp. A phone sheet in a desktop window is
-/// still a phone sheet.
+/// How wide the vertical column may grow on medium windows, in dp. Expanded windows switch
+/// to the multi-column showcase spread instead of holding a single column.
 const PAGE_MEASURE: f32 = 420.0;
+
+/// Width of the segmented control, matching the compact pill on the reference sheet.
+const SEGMENTED_WIDTH: f32 = 216.0;
+
+/// Width of each upright amount stepper card.
+const UPRIGHT_STEPPER_WIDTH: f32 = 140.0;
+
+/// Vertical drop applied to the dark upright stepper on the expanded sheet so it sits
+/// lower-right beside the light one.
+const DARK_STEPPER_DROP: f32 = 32.0;
+
+/// Side of each square "Button / Description" chip tile.
+const CHIP_SIZE: f32 = 98.0;
 
 /// The side of each hero disc, and how far the shaded one sits to the right of the solid
 /// one. About half, which is how much of the solid disc the reference leaves showing.
@@ -107,6 +120,16 @@ fn step_buttons(amount: MutableState<i32>, fill: Paint, ink: Paint) {
     });
 }
 
+/// Soft drop shadow for cards (steppers, panel, slider, tile card).
+const fn card_shadow() -> Shadow {
+    Shadow::new(0.0, 10.0, 30.0, 0.0, palette::SHADOW)
+}
+
+/// Lighter drop shadow for small tiles and chips.
+const fn tile_shadow() -> Shadow {
+    Shadow::new(0.0, 6.0, 18.0, 0.0, palette::SHADOW)
+}
+
 /// The upright stepper: "Amount" in bold, the number large and thin, and the two round
 /// buttons under it. `card` is the fill and `ink` what is read on it; the round buttons
 /// are the other way round, which is how the reference draws both the light and the dark
@@ -115,7 +138,8 @@ fn upright_stepper(amount: MutableState<i32>, card: Paint, ink: Paint) {
     let shown = amount.get();
     Column!(
         modifier = Modifier
-            .weight(1.0)
+            .width(UPRIGHT_STEPPER_WIDTH)
+            .shadow(card_shadow())
             .background(card)
             .corner_radius(CARD_CORNER)
             .padding_role(SpaceRole::Md),
@@ -139,6 +163,30 @@ fn upright_stepper(amount: MutableState<i32>, card: Paint, ink: Paint) {
     );
 }
 
+/// The light and dark upright steppers side by side. On the expanded sheet the dark card
+/// drops lower-right to match the reference composition.
+fn upright_steppers(amount: MutableState<i32>, staggered: bool) {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        arrangement = Arrangement::Center,
+        alignment = Alignment::TopStart,
+        space_role = SpaceRole::Md,
+        {
+            upright_stepper(amount, palette::TILE, palette::INK);
+            if staggered {
+                Box!(
+                    modifier = Modifier.padding_each(0.0, DARK_STEPPER_DROP, 0.0, 0.0),
+                    {
+                        upright_stepper(amount, palette::DARK, palette::PAGE);
+                    }
+                );
+            } else {
+                upright_stepper(amount, palette::DARK, palette::PAGE);
+            }
+        }
+    );
+}
+
 /// The stepper on its side: "Amount" over the number on the left, the round buttons on
 /// the right.
 fn wide_stepper(amount: MutableState<i32>) {
@@ -146,6 +194,7 @@ fn wide_stepper(amount: MutableState<i32>) {
     Row!(
         modifier = Modifier
             .fill_max_width()
+            .shadow(card_shadow())
             .background(palette::TILE)
             .corner_radius(CARD_CORNER)
             .padding_role(SpaceRole::Md),
@@ -178,41 +227,47 @@ fn wide_stepper(amount: MutableState<i32>) {
 /// is black.
 fn segmented(segment: MutableState<usize>) {
     let chosen = segment.get();
-    Row!(
-        modifier = Modifier
-            .fill_max_width()
-            .background(palette::TRACK)
-            .corner_radius(TILE_CORNER / 2.0)
-            .padding(2.0),
+    Box!(
+        modifier = Modifier.fill_max_width(),
+        alignment = Alignment::Center,
         {
-            for (index, label) in SEGMENTS.into_iter().enumerate() {
-                let picked = index == chosen;
-                key(label, || {
-                    Box!(
-                        modifier = Modifier
-                            .weight(1.0)
-                            .background_if(picked.then_some(palette::INK))
-                            .corner_radius(TILE_CORNER / 2.0)
-                            .padding_role(SpaceRole::Xs),
-                        alignment = Alignment::Center,
-                        {
-                            Text!(
-                                label,
-                                type_role = TypeRole::Label,
-                                font_weight = if picked { BOLD } else { 400 },
-                                color = if picked { palette::PAGE } else { palette::INK }
+            Row!(
+                modifier = Modifier
+                    .width(SEGMENTED_WIDTH)
+                    .background(palette::TRACK)
+                    .corner_radius(TILE_CORNER / 2.0)
+                    .padding(2.0),
+                {
+                    for (index, label) in SEGMENTS.into_iter().enumerate() {
+                        let picked = index == chosen;
+                        key(label, || {
+                            Box!(
+                                modifier = Modifier
+                                    .weight(1.0)
+                                    .background_if(picked.then_some(palette::INK))
+                                    .corner_radius(TILE_CORNER / 2.0)
+                                    .padding_role(SpaceRole::Xs),
+                                alignment = Alignment::Center,
+                                {
+                                    Text!(
+                                        label,
+                                        type_role = TypeRole::Caption,
+                                        font_weight = if picked { BOLD } else { 400 },
+                                        color = if picked { palette::PAGE } else { palette::INK }
+                                    );
+                                    Button!(
+                                        "",
+                                        move || segment.set(index),
+                                        accessible_name = label,
+                                        variant = ButtonVariant::Text,
+                                        modifier = Modifier.match_parent_size().selected(picked)
+                                    );
+                                }
                             );
-                            Button!(
-                                "",
-                                move || segment.set(index),
-                                accessible_name = label,
-                                variant = ButtonVariant::Text,
-                                modifier = Modifier.match_parent_size().selected(picked)
-                            );
-                        }
-                    );
-                });
-            }
+                        });
+                    }
+                }
+            );
         }
     );
 }
@@ -228,6 +283,7 @@ fn panel_and_delete() {
             Column!(
                 modifier = Modifier
                     .weight(1.0)
+                    .shadow(card_shadow())
                     .background(palette::TILE)
                     .corner_radius(CARD_CORNER)
                     .padding_role(SpaceRole::Md),
@@ -274,11 +330,7 @@ fn panel_and_delete() {
 /// A small pressable card whose face is laid out by `face`, with the press over all of it.
 fn pressable(name: &str, card: Paint, modifier: Modifier, face: impl FnOnce()) {
     Box!(
-        modifier = modifier
-            .weight(1.0)
-            .height(TILE_HEIGHT)
-            .background(card)
-            .corner_radius(TILE_CORNER),
+        modifier = modifier.background(card).corner_radius(TILE_CORNER),
         {
             Column!(
                 modifier = Modifier.fill_max_size().padding_role(SpaceRole::Sm),
@@ -301,25 +353,31 @@ fn pressable(name: &str, card: Paint, modifier: Modifier, face: impl FnOnce()) {
 fn chips() {
     Row!(
         modifier = Modifier.fill_max_width(),
-        space_role = SpaceRole::Sm,
+        arrangement = Arrangement::Center,
+        space_role = SpaceRole::Md,
         {
             for (chip, card, ink, quiet) in [
                 ("light", palette::TILE, palette::INK, palette::MUTED),
                 ("dark", palette::DARK, palette::PAGE, palette::TRACK),
             ] {
                 key(chip, || {
-                    pressable("Button", card, Modifier, || {
-                        Canvas!(marks::coin(COIN), modifier = Modifier.size(COIN, COIN));
-                        Column!({
-                            Text!(
-                                "Button",
-                                type_role = TypeRole::BodyStrong,
-                                font_weight = BOLD,
-                                color = ink
-                            );
-                            Text!("Description", type_role = TypeRole::Caption, color = quiet);
-                        });
-                    });
+                    pressable(
+                        "Button",
+                        card,
+                        Modifier.size(CHIP_SIZE, CHIP_SIZE).shadow(tile_shadow()),
+                        || {
+                            Canvas!(marks::coin(COIN), modifier = Modifier.size(COIN, COIN));
+                            Column!({
+                                Text!(
+                                    "Button",
+                                    type_role = TypeRole::BodyStrong,
+                                    font_weight = BOLD,
+                                    color = ink
+                                );
+                                Text!("Description", type_role = TypeRole::Caption, color = quiet);
+                            });
+                        },
+                    );
                 });
             }
         }
@@ -366,6 +424,7 @@ fn slider_card(reading: MutableState<f32>) {
     Column!(
         modifier = Modifier
             .fill_max_width()
+            .shadow(card_shadow())
             .background(palette::SLATE)
             .corner_radius(CARD_CORNER)
             .padding_role(SpaceRole::Md),
@@ -406,9 +465,12 @@ fn slider_card(reading: MutableState<f32>) {
 /// so the glyph still reads.
 fn button_tile(card: Paint, ink: Paint, glyph: Paint, cut: Paint, lifted: bool) {
     let modifier = if lifted {
-        Modifier.shadow(Shadow::new(0.0, 6.0, 18.0, 0.0, palette::SHADOW))
-    } else {
         Modifier
+            .weight(1.0)
+            .height(TILE_HEIGHT)
+            .shadow(tile_shadow())
+    } else {
+        Modifier.weight(1.0).height(TILE_HEIGHT)
     };
     pressable("Button", card, modifier, || {
         Canvas!(
@@ -430,7 +492,7 @@ fn tile_card() {
     Column!(
         modifier = Modifier
             .fill_max_width()
-            .shadow(Shadow::new(0.0, 10.0, 30.0, 0.0, palette::SHADOW))
+            .shadow(card_shadow())
             .background(palette::TILE)
             .corner_radius(CARD_CORNER)
             .padding_role(SpaceRole::Md),
@@ -477,7 +539,9 @@ fn inverted_bar() {
     Column!(
         modifier = Modifier
             .fill_max_width()
+            .shadow(card_shadow())
             .background(palette::INK)
+            .corner_radius(CARD_CORNER)
             .padding_role(SpaceRole::Md),
         space_role = SpaceRole::Md,
         {
@@ -607,14 +671,14 @@ fn hero() {
                 }
             );
             Text!(
-                "Every component",
+                "80 UI Components",
                 type_role = TypeRole::Display,
                 font_weight = BOLD,
                 color = palette::INK,
                 text_align = TextAlign::Center
             );
             Text!(
-                "Including dark theme",
+                "Including Dark Theme",
                 type_role = TypeRole::Body,
                 color = palette::MUTED,
                 text_align = TextAlign::Center
@@ -623,15 +687,97 @@ fn hero() {
     );
 }
 
+/// The compact and medium vertical column layout.
+fn narrow_sheet(sheet: Sheet, compact: bool) {
+    let measure = if compact { None } else { Some(PAGE_MEASURE) };
+    Box!(
+        modifier = Modifier.fill_max_width().weight(1.0),
+        alignment = Alignment::TopCenter,
+        {
+            ScrollColumn!(
+                modifier = Modifier
+                    .width_if(measure)
+                    .fill_max_width_if(measure.is_none())
+                    .fill_max_height(),
+                {
+                    Column!(
+                        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                        space_role = SpaceRole::Lg,
+                        {
+                            hero();
+                            segmented(sheet.segment);
+                            upright_steppers(sheet.amount, false);
+                            wide_stepper(sheet.amount);
+                            panel_and_delete();
+                            chips();
+                            slider_card(sheet.reading);
+                            tile_card();
+                            inverted_bar();
+                            switches_and_tiles(sheet);
+                        }
+                    );
+                }
+            );
+        }
+    );
+}
+
+/// The expanded multi-column showcase spread (such as 1200x900), keeping the hero centered
+/// and every component group visible above the fold across three balanced columns.
+fn expanded_sheet(sheet: Sheet) {
+    Box!(
+        modifier = Modifier.fill_max_width().weight(1.0),
+        alignment = Alignment::TopCenter,
+        {
+            ScrollColumn!(modifier = Modifier.fill_max_size(), {
+                Row!(
+                    modifier = Modifier.fill_max_width().padding_role(SpaceRole::Lg),
+                    space_role = SpaceRole::Lg,
+                    alignment = Alignment::TopStart,
+                    {
+                        // Left column: staggered upright steppers, panel+delete, slider card.
+                        Column!(
+                            modifier = Modifier.weight(1.0),
+                            space_role = SpaceRole::Lg,
+                            {
+                                upright_steppers(sheet.amount, true);
+                                panel_and_delete();
+                                slider_card(sheet.reading);
+                            }
+                        );
+                        // Center column: segmented control, hero, wide stepper, chips.
+                        Column!(
+                            modifier = Modifier.weight(1.0),
+                            space_role = SpaceRole::Lg,
+                            alignment = Alignment::Center,
+                            {
+                                segmented(sheet.segment);
+                                hero();
+                                wide_stepper(sheet.amount);
+                                chips();
+                            }
+                        );
+                        // Right column: inverted bar, tile card, switches and three tiles.
+                        Column!(
+                            modifier = Modifier.weight(1.0),
+                            space_role = SpaceRole::Lg,
+                            {
+                                inverted_bar();
+                                tile_card();
+                                switches_and_tiles(sheet);
+                            }
+                        );
+                    }
+                );
+            });
+        }
+    );
+}
+
 /// The component sheet.
 #[Composable]
 pub fn app() {
     let window = current_window_size();
-    let measure = if window.is_compact() {
-        None
-    } else {
-        Some(PAGE_MEASURE)
-    };
 
     let sheet = remember(|| Sheet {
         amount: mutable_state_of(2),
@@ -642,43 +788,11 @@ pub fn app() {
     });
 
     Scaffold!(modifier = Modifier.background(palette::PAGE), {
-        Box!(
-            modifier = Modifier.fill_max_width().weight(1.0),
-            alignment = Alignment::TopCenter,
-            {
-                ScrollColumn!(
-                    modifier = Modifier
-                        .width_if(measure)
-                        .fill_max_width_if(measure.is_none())
-                        .fill_max_height(),
-                    {
-                        Column!(
-                            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
-                            space_role = SpaceRole::Lg,
-                            {
-                                hero();
-                                segmented(sheet.segment);
-                                Row!(
-                                    modifier = Modifier.fill_max_width(),
-                                    space_role = SpaceRole::Sm,
-                                    {
-                                        upright_stepper(sheet.amount, palette::TILE, palette::INK);
-                                        upright_stepper(sheet.amount, palette::DARK, palette::PAGE);
-                                    }
-                                );
-                                wide_stepper(sheet.amount);
-                                panel_and_delete();
-                                chips();
-                                slider_card(sheet.reading);
-                                tile_card();
-                                inverted_bar();
-                                switches_and_tiles(sheet);
-                            }
-                        );
-                    }
-                );
-            }
-        );
+        if window.is_expanded() {
+            expanded_sheet(sheet);
+        } else {
+            narrow_sheet(sheet, window.is_compact());
+        }
     });
 }
 
@@ -714,6 +828,12 @@ compose_rust::android_application!({ launch_builder() }, app);
 compose_rust::web_application!({ launch_builder() }, app);
 compose_rust::ios_main!(launch);
 
+/// Preview entry point for `compose-rust-preview` (save-to-frame benchmark and PNG export).
+#[compose_rust::Preview(name = "Minimal", sizes = [Phone, Desktop], schemes = [Light, Dark])]
+pub fn minimal_preview(_ctx: &compose_rust::PreviewContext) {
+    app();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,6 +860,37 @@ mod tests {
                 host,
                 frames: vec![first],
             }
+        }
+
+        fn at_size(width_dp: f32, height_dp: f32) -> Self {
+            let mut screen = Self::new();
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
+                        width_dp,
+                        height_dp,
+                        class: WindowSizeClass::from_width_dp(width_dp),
+                        height_class: WindowHeightClass::from_height_dp(height_dp),
+                        safe_area_top: 0.0,
+                        safe_area_leading: 0.0,
+                        safe_area_trailing: 0.0,
+                        safe_area_bottom: 0.0,
+                    },
+                ),
+                &mut bytes,
+            )
+            .expect("the resize did not encode");
+            let (batch, _) = screen
+                .host
+                .dispatch_event(&bytes)
+                .expect("the resize failed");
+            if !batch.is_empty() {
+                screen.frames.push(batch.to_vec());
+            }
+            screen
         }
 
         fn mutations(&self) -> Vec<Mutation<'_>> {
@@ -844,12 +995,8 @@ mod tests {
             self.placement(node).map(|(parent, _)| parent)
         }
 
-        /// The fill a live node carries now, if it has one.
-        ///
-        /// A node's modifiers sit in numbered slots, and a fill that goes away is its slot
-        /// set to nothing rather than a record of its own, so only the last value of each
-        /// slot counts.
-        fn fill_of(&self, node: u32) -> Option<Paint> {
+        /// The modifiers a live node carries now, deduplicated by slot.
+        fn modifiers_of(&self, node: u32) -> Vec<Wire> {
             let mut slots: Vec<(u16, Wire)> = Vec::new();
             for mutation in self.live() {
                 if let Mutation::SetModifier {
@@ -864,10 +1011,21 @@ mod tests {
                     }
                 }
             }
-            slots.into_iter().find_map(|(_, modifier)| match modifier {
-                Wire::Background(paint) => Some(paint),
-                _ => None,
-            })
+            slots.into_iter().map(|(_, modifier)| modifier).collect()
+        }
+
+        /// The fill a live node carries now, if it has one.
+        ///
+        /// A node's modifiers sit in numbered slots, and a fill that goes away is its slot
+        /// set to nothing rather than a record of its own, so only the last value of each
+        /// slot counts.
+        fn fill_of(&self, node: u32) -> Option<Paint> {
+            self.modifiers_of(node)
+                .into_iter()
+                .find_map(|modifier| match modifier {
+                    Wire::Background(paint) => Some(paint),
+                    _ => None,
+                })
         }
 
         /// The fill behind the control named `name`: the card it was placed on.
@@ -1230,40 +1388,14 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
-    /// A phone design does not become a desktop design by being put in a wider window.
-    ///
-    /// Narrow, the page fills whatever it is given. Wide, it takes a width of its own and
-    /// the window shows the page on either side. Without this the reference's phone
-    /// layout would quietly become a 1200dp column of stretched cards on a desktop, which
-    /// is a different design rather than the same one.
+    /// Compact fills the phone width, medium holds the vertical column to `PAGE_MEASURE`,
+    /// and expanded switches to the multi-column showcase spread rather than a single column.
     #[test]
     fn fr20_the_page_stops_widening_past_a_phone() {
         fn widths_at(width_dp: f32) -> Vec<f32> {
-            compose_rust::window::reset_window_size();
-            let mut host = ComposeHost::new(app);
-            host.rebuild().expect("the first frame failed");
-            let mut bytes = Vec::new();
-            encode_event(
-                &HostEvent::new(
-                    0,
-                    0,
-                    EventPayload::WindowSizeChanged {
-                        width_dp,
-                        height_dp: 780.0,
-                        class: WindowSizeClass::from_width_dp(width_dp),
-                        height_class: WindowHeightClass::from_height_dp(780.0),
-                        safe_area_top: 0.0,
-                        safe_area_leading: 0.0,
-                        safe_area_trailing: 0.0,
-                        safe_area_bottom: 0.0,
-                    },
-                ),
-                &mut bytes,
-            )
-            .expect("the resize did not encode");
-            let (batch, _) = host.dispatch_event(&bytes).expect("the resize failed");
-            let found = decode_batch(batch)
-                .expect("the batch did not decode")
+            let screen = Screen::at_size(width_dp, 780.0);
+            let found = screen
+                .live()
                 .iter()
                 .filter_map(|mutation| match mutation {
                     Mutation::SetModifier {
@@ -1278,13 +1410,284 @@ mod tests {
         }
 
         assert!(
-            widths_at(1180.0).contains(&PAGE_MEASURE),
-            "a desktop window does not hold the page to a phone's measure"
+            widths_at(700.0).contains(&PAGE_MEASURE),
+            "a medium window does not hold the vertical column to the phone measure"
         );
         assert!(
             !widths_at(420.0).contains(&PAGE_MEASURE),
             "a phone window pins the page to a measure instead of filling"
         );
+        assert!(
+            !widths_at(1200.0).contains(&PAGE_MEASURE),
+            "an expanded window still pins the sheet to a single vertical measure"
+        );
+    }
+
+    /// The hero displays the reference title and subtitle copy.
+    #[test]
+    fn fr22_hero_copy_matches_reference() {
+        for screen in [Screen::new(), Screen::at_size(1200.0, 900.0)] {
+            let texts = screen.texts();
+            assert!(
+                texts.iter().any(|text| text == "80 UI Components"),
+                "hero title is missing: {texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text == "Including Dark Theme"),
+                "hero subtitle is missing: {texts:?}"
+            );
+            assert!(
+                !texts.iter().any(|text| text == "Every component"),
+                "old hero title is still present"
+            );
+            assert!(
+                !texts.iter().any(|text| text == "Including dark theme"),
+                "old hero subtitle is still present"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The segmented control is constrained to its compact width and uses Caption labels.
+    #[test]
+    fn fr22_segmented_control_is_constrained_with_caption_labels() {
+        let screen = Screen::new();
+        let first_button = screen
+            .named("First")
+            .expect("the segmented control has no First button");
+        let segment_box = screen
+            .parent_of(first_button)
+            .expect("First button has no parent box");
+        let track_row = screen
+            .parent_of(segment_box)
+            .expect("segment box has no track row");
+        assert!(
+            screen
+                .modifiers_of(track_row)
+                .iter()
+                .any(|modifier| matches!(modifier, Wire::Width(dp) if *dp == SEGMENTED_WIDTH)),
+            "segmented control track is not constrained to {SEGMENTED_WIDTH} dp"
+        );
+
+        let live = screen.live();
+        let expected_role = PropertyValue::Integer(i64::from(TypeRole::Caption as u16));
+        for label in SEGMENTS {
+            let text_node = live
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                    } if *text == label => Some(*node_id),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("segmented label {label} is missing"));
+            let role = live.iter().rev().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::TypeRole,
+                    value,
+                } if *node_id == text_node => Some(value.clone()),
+                _ => None,
+            });
+            assert_eq!(
+                role,
+                Some(expected_role.clone()),
+                "segmented label {label} does not use TypeRole::Caption"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// At 1200x900 (expanded), the showcase uses a three-column spread containing every
+    /// component group (hero, steppers with dark drop, segmented, panel+delete, chips,
+    /// slider card, tile card, inverted bar, switches+tiles) and drop shadows.
+    #[test]
+    fn fr22_expanded_showcase_lays_out_all_sections_in_multi_column_spread() {
+        let screen = Screen::at_size(1200.0, 900.0);
+        let live = screen.live();
+        let texts = screen.texts();
+
+        // Multi-column spread: a Row whose live children include 3 weighted Columns.
+        let rows: Vec<u32> = live
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Row,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        let has_three_column_row = rows.iter().any(|&row_id| {
+            let weighted_columns: Vec<u32> = live
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::Create {
+                        node_id,
+                        widget: WidgetKind::Column,
+                    } => Some(*node_id),
+                    _ => None,
+                })
+                .filter(|&col_id| {
+                    screen.parent_of(col_id) == Some(row_id)
+                        && screen
+                            .modifiers_of(col_id)
+                            .iter()
+                            .any(|modifier| matches!(modifier, Wire::Weight(w) if *w == 1.0))
+                })
+                .collect();
+            weighted_columns.len() == 3
+        });
+        assert!(
+            has_three_column_row,
+            "expanded showcase does not lay out three weighted columns in a row"
+        );
+
+        // Hero, segmented control, steppers, panel+delete, chips, slider card, tile card,
+        // inverted bar, switches+tiles are all present.
+        assert!(texts.iter().any(|text| text == "80 UI Components"));
+        assert!(texts.iter().any(|text| text == "Including Dark Theme"));
+        for label in SEGMENTS {
+            assert!(
+                texts.iter().any(|text| text == label),
+                "missing segment {label}"
+            );
+        }
+        assert_eq!(
+            texts.iter().filter(|text| *text == "Amount").count(),
+            3,
+            "expected three Amount steppers"
+        );
+        assert!(texts.iter().any(|text| text == "Subtitle"));
+        assert!(screen.named("Delete").is_some(), "missing Delete action");
+        assert_eq!(
+            texts.iter().filter(|text| *text == "Description").count(),
+            2,
+            "expected two coin chip descriptions"
+        );
+        assert!(
+            screen.named("Reading size").is_some(),
+            "missing slider card"
+        );
+        assert!(
+            live.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Slider,
+                    ..
+                }
+            )),
+            "missing Slider widget"
+        );
+        assert!(
+            texts.iter().any(|text| {
+                text == "Brief description or small text about the action of the buttons"
+            }),
+            "missing tile card caption"
+        );
+        assert!(screen.named("Back").is_some(), "missing inverted bar Back");
+        assert!(
+            live.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::TextField,
+                    ..
+                }
+            )),
+            "missing inverted bar search TextField"
+        );
+        assert_eq!(
+            screen.switch_tracks(),
+            vec![palette::SWITCH, palette::TRACK],
+            "missing switch pair"
+        );
+        let live_canvases = live
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::Create {
+                        widget: WidgetKind::Canvas,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(
+            live_canvases, 7,
+            "expected 7 live canvases (2 coins + 5 tiles)"
+        );
+
+        // Narrow upright steppers, staggered dark stepper drop, square chip tiles, and shadows.
+        assert!(
+            live.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::SetModifier {
+                    modifier: Wire::Width(dp),
+                    ..
+                } if *dp == UPRIGHT_STEPPER_WIDTH
+            )),
+            "upright steppers are not constrained to {UPRIGHT_STEPPER_WIDTH} dp"
+        );
+        assert!(
+            live.iter().any(|mutation| matches!(
+                mutation,
+                Mutation::SetModifier {
+                    modifier: Wire::PaddingEach { top, .. },
+                    ..
+                } if *top == DARK_STEPPER_DROP
+            )),
+            "dark upright stepper is not offset lower-right by {DARK_STEPPER_DROP} dp"
+        );
+        let chip_width_count = live
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetModifier {
+                        modifier: Wire::Width(dp),
+                        ..
+                    } if *dp == CHIP_SIZE
+                )
+            })
+            .count();
+        let chip_height_count = live
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetModifier {
+                        modifier: Wire::Height(dp),
+                        ..
+                    } if *dp == CHIP_SIZE
+                )
+            })
+            .count();
+        assert_eq!(chip_width_count, 2, "expected two square chip widths");
+        assert_eq!(chip_height_count, 2, "expected two square chip heights");
+
+        let shadow_count = live
+            .iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetModifier {
+                        modifier: Wire::Shadow { .. },
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert!(
+            shadow_count >= 9,
+            "expected drop shadows on hero, steppers, panel, chips, slider, tile card, and \
+             lifted tile; got {shadow_count}"
+        );
+
+        compose_rust::window::reset_window_size();
     }
 
     /// The sheet, in the one design system it ships and the other Apple one, in its own

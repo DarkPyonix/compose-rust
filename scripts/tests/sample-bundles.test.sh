@@ -6,7 +6,8 @@
 # else; the executable loads only the system's libraries and nothing by a build machine
 # path; the name, identifier, description and version are the sample's; the MSIX is
 # unsigned; every file is in the checksum list with its right digest. A format that is
-# missing is a warning and a line in skipped-<target>.txt, not a failure.
+# missing fails the check by default; passing --allow-missing downgrades it to a warning
+# and records it in skipped-<target>.txt.
 #
 # The executables are a few hundred bytes made here (ELF, Mach-O and PE headers with the
 # load commands that matter), so this needs no compiler and runs the same on every system.
@@ -31,7 +32,7 @@ fail() { echo "FAIL - $1"; failures=$((failures + 1)); }
 # right except for the one fault named.
 make_case() {
     python3 -I - "$@" <<'PY'
-import hashlib, io, plistlib, struct, sys, tarfile, zipfile
+import base64, hashlib, io, os, plistlib, shutil, struct, subprocess, sys, tarfile, tempfile, zipfile
 from pathlib import Path
 
 case, target = Path(sys.argv[1]), sys.argv[2]
@@ -124,6 +125,67 @@ def zipped(path, entries):
             archive.writestr(name, payload)
 
 
+def targz(members):
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, payload in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o755
+            archive.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def deb(path, control, files):
+    """A .deb as dpkg-deb --build writes it: an ar archive of debian-binary,
+    control.tar.gz and data.tar.gz."""
+    members = [
+        ("debian-binary", b"2.0\n"),
+        ("control.tar.gz", targz([("./control", control.encode())])),
+        ("data.tar.gz", targz(files)),
+    ]
+    out = b"!<arch>\n"
+    for name, data in members:
+        out += f"{name:<16}{0:<12}{0:<6}{0:<6}{'100644':<8}{len(data):<10}`\n".encode() + data
+        if len(data) % 2:
+            out += b"\n"
+    path.write_bytes(out)
+
+
+def rpm_header(entries):
+    """An RPM header structure: magic, index entries, then the data store."""
+    index, store = b"", b""
+    for tag, kind, value in entries:
+        if kind == 4:
+            store += bytes(-len(store) % 4)
+            offset, count = len(store), len(value)
+            store += b"".join(struct.pack(">i", v) for v in value)
+        elif kind in (8, 9):
+            offset, count = len(store), len(value)
+            store += b"".join(v.encode() + b"\0" for v in value)
+        else:
+            offset, count = len(store), 1
+            store += value.encode() + b"\0"
+        index += struct.pack(">IIiI", tag, kind, offset, count)
+    return b"\x8e\xad\xe8\x01" + bytes(4) + struct.pack(">II", len(entries), len(store)) + index + store
+
+
+def rpm(path, name, version, summary, files):
+    """An .rpm as rpmbuild writes it, as far as `rpm -qp --info` and `-qpl` read it."""
+    lead = b"\xed\xab\xee\xdb" + bytes([3, 0]) + struct.pack(">hh", 0, 1) + name.encode().ljust(66, b"\0")
+    lead += struct.pack(">hh", 1, 5) + bytes(16)
+    signature = rpm_header([(1000, 4, [0])])
+    signature += bytes(-len(signature) % 8)
+    dirs = sorted({f.rsplit("/", 1)[0] + "/" for f in files})
+    header = rpm_header([
+        (1000, 6, name), (1001, 6, version), (1004, 9, [summary]),
+        (1116, 4, [dirs.index(f.rsplit("/", 1)[0] + "/") for f in files]),
+        (1117, 8, [f.rsplit("/", 1)[1] for f in files]),
+        (1118, 8, dirs),
+    ])
+    path.write_bytes(lead + signature + header)
+
+
 platform = target.split("-")[0]
 if platform == "windows":
     imports = ["KERNEL32.dll", "USER32.dll"] + (["compose_rust_renderer.dll"] if fault == "renderer-dll" else [])
@@ -145,7 +207,8 @@ if platform == "windows":
             ("[Content_Types].xml", "<x/>"), ("Assets/StoreLogo.png", b"\x89PNG")]
     if fault == "signed":
         msix.append(("AppxSignature.p7x", b"PKCX"))
-    zipped(artifacts / f"demo-{target}.msix", msix)
+    if fault != "missing-format":
+        zipped(artifacts / f"demo-{target}.msix", msix)
 elif platform == "linux":
     needed = ["libc.so.6", "libX11.so.6"]
     if fault == "absolute-renderer":
@@ -153,7 +216,48 @@ elif platform == "linux":
     exe = elf(needed, "/home/runner/work/renderer/lib" if fault == "runpath" else None)
     tarball(artifacts / f"demo-{target}.tar.gz", "demo/sample-demo", exe,
             ("demo/lib/libskiko.so", b"\x7fELF") if fault == "extra-file" else None)
-    # No AppImage: assembling one needs Linux tools, and a missing format is a case too.
+    if fault != "missing-format":
+        encoded_exe = base64.b64encode(exe).decode("ascii")
+        appimage = (
+            "#!/bin/sh\n"
+            "set -eu\n"
+            'if [ "${1:-}" = "--appimage-extract" ]; then\n'
+            "  mkdir -p squashfs-root/usr/lib/sample-demo squashfs-root/usr/share/icons/hicolor/64x64/apps\n"
+            "  : > squashfs-root/AppRun\n"
+            "  : > squashfs-root/.DirIcon\n"
+            "  cat > squashfs-root/dev.example.samples.demo.desktop <<'DESKTOP'\n"
+            "[Desktop Entry]\n"
+            "Name=Demo\n"
+            "Comment=A demonstration.\n"
+            "Icon=dev.example.samples.demo\n"
+            "DESKTOP\n"
+            "  printf '\\211PNG\\r\\n\\032\\n' > squashfs-root/usr/share/icons/hicolor/64x64/apps/dev.example.samples.demo.png\n"
+            f"  printf '%s' '{encoded_exe}' | base64 -d > squashfs-root/usr/lib/sample-demo/sample-demo\n"
+            "  chmod 755 squashfs-root/usr/lib/sample-demo/sample-demo\n"
+            "fi\n"
+        )
+        appimage_path = artifacts / f"demo-{target}.AppImage"
+        appimage_path.write_text(appimage)
+        appimage_path.chmod(0o755)
+    ident = "dev.example.samples.demo"
+    payload = [
+        ("./usr/bin/sample-demo", exe),
+        (f"./usr/share/applications/{ident}.desktop", b"[Desktop Entry]\nName=Demo\n"),
+        (f"./usr/share/metainfo/{ident}.metainfo.xml", b"<component/>"),
+        (f"./usr/share/icons/hicolor/64x64/apps/{ident}.png", b"\x89PNG\r\n\x1a\n"),
+    ]
+    if fault == "extra-file":
+        payload.append(("./usr/lib/sample-demo/libskiko.so", b"\x7fELF"))
+    deb_version = "9.9.9" if fault == "wrong-package-version" else VERSION
+    if fault != "missing-deb":
+        deb(artifacts / f"demo-{target}.deb",
+            f"Package: sample-demo\nVersion: {deb_version}\nArchitecture: amd64\n"
+            "Description: A demonstration.\n A demonstration.\n", payload)
+    rpm_name = "not-the-sample" if fault == "wrong-package-name" else "sample-demo"
+    rpm(artifacts / f"demo-{target}.rpm", rpm_name, VERSION, "A demonstration.",
+        [path[1:] for path, _ in payload])
+    if target == "linux-x64" and fault != "missing-flatpak":
+        (artifacts / f"demo-{target}.flatpak").write_bytes(b"flatpak-bundle-fixture")
 else:
     libraries = ["/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"]
     if fault == "absolute-renderer":
@@ -177,7 +281,44 @@ else:
     if fault == "extra-file":
         entries.append(("Demo.app/Contents/Frameworks/lib/libskiko.dylib", b"\xcf\xfa\xed\xfe"))
     zipped(artifacts / f"demo-{target}.app.zip", entries)
-    # No .dmg: only macOS makes one, and a missing format is a case too.
+    if fault != "missing-format":
+        dmg_path = artifacts / f"demo-{target}.dmg"
+        if sys.platform != "darwin":
+            dmg_path.write_bytes(b"dmg-fixture")
+        elif os.environ.get("SAMPLE_BUNDLES_CAN_MOUNT_DMG") == "1":
+            with tempfile.TemporaryDirectory(dir=case) as stage_dir:
+                stage = Path(stage_dir)
+                for rel, payload in entries:
+                    dest = stage / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(payload)
+                os.symlink("/Applications", stage / "Applications")
+                (stage / "If macOS will not open the app.txt").write_text("Right-click and choose Open.\n")
+                subprocess.run(
+                    ["hdiutil", "create", "-quiet", "-volname", "Demo",
+                     "-srcfolder", str(stage), "-ov", "-format", "UDZO", str(dmg_path)],
+                    check=True,
+                )
+
+if platform == "macos" and fault != "missing-pkg":
+    pkg_path = artifacts / f"demo-{target}.pkg"
+    if sys.platform != "darwin":
+        pkg_path.write_bytes(b"xar!pkg-fixture")
+    else:
+        with tempfile.TemporaryDirectory(dir=case) as root_dir:
+            root = Path(root_dir)
+            for rel, payload in entries:
+                dest = root / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(payload)
+            if fault == "pkg-extra-file":
+                (root / "Demo.app/Contents/Frameworks").mkdir(parents=True)
+                (root / "Demo.app/Contents/Frameworks/libskiko.dylib").write_bytes(b"\xcf\xfa\xed\xfe")
+            subprocess.run(
+                ["pkgbuild", "--quiet", "--root", str(root), "--identifier", "dev.example.samples.demo",
+                 "--version", VERSION, "--install-location", "/Applications", str(pkg_path)],
+                check=True,
+            )
 
 sums = []
 for path in sorted(artifacts.iterdir()):
@@ -191,13 +332,14 @@ for path in sorted(artifacts.iterdir()):
 PY
 }
 
-# run_case <name> <target> <fault> <expect: ok|fail> [text the output must hold]
+# run_case <name> <target> <fault> <expect: ok|fail> [text the output must hold] [extra check flags...]
 run_case() {
     local name="$1" target="$2" fault="$3" expect="$4" text="${5:-}"
+    shift 5 2>/dev/null || shift $#
     local case="$scratch/$name" out status=0
     make_case "$case" "$target" "$fault" || { fail "$name: could not make the fixture"; return; }
     out="$(cd "$case" && python3 -I "$script" --target "$target" --artifacts artifacts \
-        --samples samples --built built.txt --version 1.2.3 2>&1)" || status=$?
+        --samples samples --built built.txt --version 1.2.3 "$@" 2>&1)" || status=$?
     if [[ "$expect" == ok && "$status" -ne 0 ]]; then
         fail "$name: refused a right bundle"; echo "$out" | sed 's/^/       /'; return
     fi
@@ -210,15 +352,63 @@ run_case() {
     pass "$name"
 }
 
+# Probe once whether this macOS environment permits mounting disk images with hdiutil.
+# Sandboxed environments deny hdiutil attach; in that case we skip creating a .dmg for the
+# happy-path macOS fixture while still testing that a missing .dmg fails by default.
+SAMPLE_BUNDLES_CAN_MOUNT_DMG=0
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    probe_dir="$scratch/dmg-probe"
+    mkdir -p "$probe_dir/src" "$probe_dir/mnt"
+    : > "$probe_dir/src/probe"
+    if hdiutil create -quiet -volname Probe -srcfolder "$probe_dir/src" -ov -format UDZO "$probe_dir/probe.dmg" >/dev/null 2>&1 \
+        && hdiutil attach -nobrowse -readonly -mountpoint "$probe_dir/mnt" "$probe_dir/probe.dmg" >/dev/null 2>&1; then
+        hdiutil detach "$probe_dir/mnt" >/dev/null 2>&1 || true
+        SAMPLE_BUNDLES_CAN_MOUNT_DMG=1
+    fi
+    rm -rf "$probe_dir"
+fi
+export SAMPLE_BUNDLES_CAN_MOUNT_DMG
+
 run_case fr22_6_1_windows_bundles_that_are_right_pass windows-x64 "" ok "ok    demo-windows-x64.msix"
-run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip"
-run_case fr22_6_1_linux_bundles_that_are_right_pass linux-x64 "" ok "ok    demo-linux-x64.tar.gz"
-run_case fr22_6_1_a_missing_format_is_a_warning_not_a_failure linux-x64 "" ok \
-    "::warning title=Format missing::sample-demo has no .AppImage for linux-x64"
-if grep -qx "demo linux-x64 AppImage" "$scratch/fr22_6_1_a_missing_format_is_a_warning_not_a_failure/artifacts/skipped-linux-x64.txt" 2>/dev/null; then
-    pass "fr22_6_1_a_missing_format_is_listed_for_the_release_notes"
+if [[ "$(uname -s)" == "Darwin" && "$SAMPLE_BUNDLES_CAN_MOUNT_DMG" -eq 0 ]]; then
+    run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip" --allow-missing
 else
-    fail "fr22_6_1_a_missing_format_is_listed_for_the_release_notes: skipped-linux-x64.txt does not name it"
+    run_case fr22_6_1_macos_bundles_that_are_right_pass macos-aarch64 "" ok "ok    demo-macos-aarch64.app.zip"
+fi
+run_case fr22_6_1_linux_bundles_that_are_right_pass linux-x64 "" ok "ok    demo-linux-x64.tar.gz"
+run_case fr22_6_5_a_missing_format_fails_by_default linux-x64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .AppImage for linux-x64"
+if [[ ! -e "$scratch/fr22_6_5_a_missing_format_fails_by_default/artifacts/skipped-linux-x64.txt" ]]; then
+    pass "fr22_6_5_a_missing_format_does_not_write_skipped_by_default"
+else
+    fail "fr22_6_5_a_missing_format_does_not_write_skipped_by_default: skipped-linux-x64.txt was created without --allow-missing"
+fi
+run_case fr22_6_5_a_missing_macos_format_fails_by_default macos-aarch64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .dmg for macos-aarch64"
+run_case fr22_6_5_a_missing_windows_format_fails_by_default windows-x64 missing-format fail \
+    "::error title=Format missing::sample-demo has no .msix for windows-x64"
+run_case fr22_6_5_allow_missing_opt_in_warns_and_passes linux-x64 missing-format ok \
+    "::warning title=Format missing::sample-demo has no .AppImage for linux-x64" --allow-missing
+if grep -qx "demo linux-x64 AppImage" "$scratch/fr22_6_5_allow_missing_opt_in_warns_and_passes/artifacts/skipped-linux-x64.txt" 2>/dev/null; then
+    pass "fr22_6_5_allow_missing_opt_in_records_skipped_format"
+else
+    fail "fr22_6_5_allow_missing_opt_in_records_skipped_format: skipped-linux-x64.txt does not name it"
+fi
+run_case fr22_6_5_linux_arm64_bundles_that_are_right_pass linux-arm64 "" ok "ok    demo-linux-arm64.rpm"
+run_case fr22_6_5_a_missing_deb_fails linux-x64 missing-deb fail \
+    "::error title=Format missing::sample-demo has no .deb for linux-x64"
+run_case fr22_6_5_a_missing_flatpak_fails linux-x64 missing-flatpak fail \
+    "::error title=Format missing::sample-demo has no .flatpak for linux-x64"
+run_case fr22_6_5_a_missing_pkg_fails macos-aarch64 missing-pkg fail \
+    "::error title=Format missing::sample-demo has no .pkg for macos-aarch64"
+run_case fr22_6_5_a_renderer_library_in_the_deb_fails linux-x64 extra-file fail "holds usr/lib/sample-demo/libskiko.so"
+run_case fr22_6_6_a_deb_version_other_than_the_release_fails linux-x64 wrong-package-version fail \
+    "Version is '9.9.9'"
+run_case fr22_6_6_an_rpm_name_other_than_the_samples_fails linux-x64 wrong-package-name fail \
+    "Name is 'not-the-sample'"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    run_case fr22_6_8_a_renderer_library_in_the_pkg_fails macos-aarch64 pkg-extra-file fail \
+        "Frameworks/libskiko.dylib" $([[ "$SAMPLE_BUNDLES_CAN_MOUNT_DMG" -eq 0 ]] && echo --allow-missing)
 fi
 run_case fr22_6_1_a_wrong_digest_fails windows-x64 bad-digest fail "records 0000"
 run_case fr22_6_1_a_file_missing_from_the_checksums_fails macos-aarch64 unlisted fail "does not list demo-macos-aarch64.tar.gz"
@@ -247,6 +437,19 @@ if grep -q 'check-sample-bundles.py' "$workflow"; then
     pass "fr22_6_1_the_samples_workflow_runs_the_check"
 else
     fail "fr22_6_1_the_samples_workflow_runs_the_check: test-samples.yml does not call it"
+fi
+for step in '"$packager" deb' 'dpkg-deb --root-owner-group -Zxz --build' '"$packager" rpm' 'rpmbuild ' \
+            'flatpak build-bundle' 'package-macos pkg'; do
+    if grep -qF -- "$step" "$workflow"; then
+        pass "fr22_6_5_the_samples_workflow_makes ($step)"
+    else
+        fail "fr22_6_5_the_samples_workflow_makes ($step): test-samples.yml has no '$step'"
+    fi
+done
+if grep -q -- '--allow-missing' "$workflow"; then
+    fail "fr22_6_5_the_samples_workflow_fails_on_missing_formats: test-samples.yml passes --allow-missing"
+else
+    pass "fr22_6_5_the_samples_workflow_fails_on_missing_formats"
 fi
 
 [[ "$failures" -eq 0 ]] || { echo "$failures case(s) failed"; exit 1; }

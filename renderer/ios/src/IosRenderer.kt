@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ComposeUIViewController
 import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter
 import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.foundation.SystemChrome
 import dev.darkpyonix.composerust.foundation.systemChrome
@@ -195,6 +196,7 @@ private object IosRendererSession {
 
     fun buildRootViewController(window: UIWindow, host: ComposeRustHost, windowNodeId: Int): UIViewController {
         val nativeViews = IosNativeViewWindow(window)
+        val osMenus = IosOsMenuPresenter(window)
         val content = ComposeUIViewController(
             configure = {
                 // The renderer stops the page above the keyboard itself and lifts a sheet's
@@ -203,7 +205,10 @@ private object IosRendererSession {
                 onFocusBehavior = androidx.compose.ui.uikit.OnFocusBehavior.DoNothing
             },
         ) {
-            CompositionLocalProvider(LocalNativeViewWindow provides nativeViews) {
+            CompositionLocalProvider(
+                LocalNativeViewWindow provides nativeViews,
+                LocalOsMenuPresenter provides osMenus,
+            ) {
                 ComposeRustContent(
                     host,
                     // The whole screen. Where the safe area is is the renderer's to decide:

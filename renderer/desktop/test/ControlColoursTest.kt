@@ -158,6 +158,119 @@ class ControlColoursTest {
         }
     }
 
+    /**
+     * A Checkbox's corners follow the node's corner modifier in every design system: a box
+     * rounded by 5 dp leaves its corner pixel to the page and fills inside it, and a corner
+     * radius alone, with no colour and no size, rounds the design system's own box too,
+     * Material 3's included.
+     */
+    @Test
+    fun fr67_checkbox_corner_radius_follows_the_corner_modifier() {
+        val rounded = Mutation.SetModifier(control, 0, ProtocolModifier.Shape(5f, 5f, 5f, 5f))
+        val square = Mutation.SetModifier(control, 0, ProtocolModifier.ShapeRole(ShapeRole.None))
+        val checked = PropertyKind.Checked to PropertyValue.Bool(true)
+        DesignSystem.entries.forEach { system ->
+            render(
+                system,
+                WidgetKind.Checkbox,
+                listOf(
+                    checked,
+                    PropertyKind.ControlSize to size(18f, 18f),
+                    PropertyKind.ContainerColor to literal(ink),
+                ),
+                extra = listOf(rounded),
+            ) { image ->
+                assertEquals(white, image.getRGB(0, 0), "$system: the rounded corner is the page")
+                assertEquals(white, image.getRGB(17, 17), "$system: the rounded corner is the page")
+                assertEquals(ink, image.getRGB(9, 1), "$system: inside the box along its top edge")
+                assertEquals(ink, image.getRGB(1, 9), "$system: inside the box along its left edge")
+            }
+            // With nothing but the corner, the design system's checked box is drawn with it.
+            render(system, WidgetKind.Checkbox, listOf(checked), extra = listOf(square)) { image ->
+                assertNotEquals(white, image.getRGB(0, 0), "$system: a square checked box fills its corner")
+            }
+            render(system, WidgetKind.Checkbox, listOf(checked), extra = listOf(rounded)) { image ->
+                assertEquals(white, image.getRGB(0, 0), "$system: the corner radius alone rounds the box")
+                assertNotEquals(white, image.getRGB(9, 1), "$system: the box is still filled inside")
+            }
+        }
+    }
+
+    /**
+     * A mixed Checkbox is a filled box with a dash across its middle in the check colour,
+     * and no check, in every design system, whether or not the Host also says it is checked.
+     */
+    @Test
+    fun fr67_mixed_checkbox_draws_a_dash() {
+        DesignSystem.entries.forEach { system ->
+            listOf(false, true).forEach { checked ->
+                render(
+                    system,
+                    WidgetKind.Checkbox,
+                    listOf(
+                        PropertyKind.Checked to PropertyValue.Bool(checked),
+                        PropertyKind.Indeterminate to PropertyValue.Bool(true),
+                        PropertyKind.ControlSize to size(18f, 18f),
+                        PropertyKind.ContainerColor to literal(ink),
+                        PropertyKind.CheckColor to literal(white),
+                    ),
+                    extra = listOf(Mutation.SetModifier(control, 0, ProtocolModifier.ShapeRole(ShapeRole.None))),
+                ) { image ->
+                    val state = "$system (checked: $checked)"
+                    // The box is filled.
+                    assertEquals(ink, image.getRGB(1, 1), "$state: the box")
+                    assertEquals(ink, image.getRGB(9, 3), "$state: above the dash")
+                    // The dash runs across the middle row in the check colour.
+                    for (x in 6..12) assertEquals(white, image.getRGB(x, 9), "$state: the dash at x=$x")
+                    // Where the check's short stroke would end, low in the box, there is none.
+                    assertEquals(ink, image.getRGB(7, 13), "$state: no check")
+                    assertEquals(ink, image.getRGB(13, 6), "$state: no check")
+                }
+            }
+        }
+    }
+
+    /**
+     * A Checkbox's outline colour is its border in every design system, unchecked, checked
+     * and mixed alike, and a box that names none has no pixel of it.
+     */
+    @Test
+    fun fr67_checkbox_outline_color_draws_the_border() {
+        val square = Mutation.SetModifier(control, 0, ProtocolModifier.ShapeRole(ShapeRole.None))
+        val side = PropertyKind.ControlSize to size(30f, 30f)
+        DesignSystem.entries.forEach { system ->
+            val states = listOf(
+                "unchecked" to listOf(PropertyKind.Checked to PropertyValue.Bool(false)),
+                "checked" to listOf(
+                    PropertyKind.Checked to PropertyValue.Bool(true),
+                    PropertyKind.ContainerColor to literal(ink),
+                ),
+                "mixed" to listOf(
+                    PropertyKind.Indeterminate to PropertyValue.Bool(true),
+                    PropertyKind.ContainerColor to literal(ink),
+                ),
+            )
+            states.forEach { (state, properties) ->
+                render(
+                    system,
+                    WidgetKind.Checkbox,
+                    properties + side + (PropertyKind.OutlineColor to literal(red)),
+                    extra = listOf(square),
+                ) { image ->
+                    // Down the left edge of the box, away from the corners.
+                    for (y in 6..24) {
+                        val pixel = image.getRGB(0, y)
+                        val reddish = ((pixel shr 16) and 0xff) > 0xa0 && ((pixel shr 8) and 0xff) < 0x60
+                        check(reddish) { "$system ($state): the border at (0, $y) is ${Integer.toHexString(pixel)}, not red" }
+                    }
+                }
+            }
+            render(system, WidgetKind.Checkbox, listOf(side), extra = listOf(square)) { image ->
+                assertEquals(0, near(image, red), "$system: no red in a box that names no outline")
+            }
+        }
+    }
+
     /** How many pixels of the 30 by 30 corner of `image` are within a small distance of `argb`. */
     private fun near(image: java.awt.image.BufferedImage, argb: Int): Int {
         var count = 0

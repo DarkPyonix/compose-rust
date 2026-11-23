@@ -17,6 +17,10 @@
 #   the Windows kit, with `samples=owner-checks` and `samples_desktop_only=true`, which ci.yml
 #   hands to test-samples.yml. Asked for with all or test_samples it narrows nothing: every
 #   sample on every platform is still built.
+# - `memory_report` runs test_memory_report (the blank window's memory, report only) and the
+#   Windows kit it links, and nothing else. It is in no default: all, an empty input, fast
+#   and measure leave it out, so a dispatch that does not name it never spends a run on it.
+#   all,memory_report is every job.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 suites="$root/scripts/ci-suites.sh"
@@ -98,7 +102,15 @@ on() { "$suites" "$1" | grep -vE "$not_jobs" | sed -n 's/=true$//p' | sort | tr 
 measures() { "$suites" "$1" | sed -n 's/^measure=//p'; }
 samples_of() { "$suites" "$1" | sed -n 's/^samples=//p'; }
 desktop_only() { "$suites" "$1" | sed -n 's/^samples_desktop_only=//p'; }
-every_job="$("$suites" all | grep -vE "$not_jobs" | sed 's/=.*//' | sort | tr '\n' ' ')"
+# The jobs that only report and are never part of a default suite.
+report_only=" test_memory_report "
+every_name="$("$suites" all | grep -vE "$not_jobs" | sed 's/=.*//' | sort | tr '\n' ' ')"
+every_job=""
+for job in $every_name; do
+    [[ "$report_only" == *" $job "* ]] || every_job="$every_job$job "
+done
+[[ "$every_name" == *" test_memory_report "* || "$every_name" == "test_memory_report "* ]] &&
+    ok "the script names test_memory_report" || fail "the script has no test_memory_report line: $every_name"
 [[ "$(on all)" == "$every_job" ]] && ok "all runs every job" || fail "all ran $(on all), not $every_job"
 [[ "$(on all)" == *" test_windows_resize "* ]] && ok "all runs the window-pin probe" || fail "all did not run test_windows_resize"
 [[ "$(measures all)" == false ]] && ok "all leaves the resize timings off" || fail "all measured: $(measures all)"
@@ -117,6 +129,19 @@ every_job="$("$suites" all | grep -vE "$not_jobs" | sed 's/=.*//' | sort | tr '\
 [[ "$(on test_windows_resize)" == "test_windows_resize windows_static_kit " && "$(measures test_windows_resize)" == false ]] &&
     ok "test_windows_resize alone brings the kit it resizes, with the timings off" ||
     fail "test_windows_resize ran $(on test_windows_resize), measure=$(measures test_windows_resize)"
+for default in all '' fast measure all,measure owner_checks; do
+    [[ "$(on "$default")" != *"test_memory_report"* ]] &&
+        ok "'$default' leaves the memory report out" || fail "'$default' ran the memory report: $(on "$default")"
+done
+[[ "$(on memory_report)" == "test_memory_report windows_static_kit " && "$(measures memory_report)" == false ]] &&
+    ok "memory_report runs test_memory_report and the Windows kit it links, with the timings off" ||
+    fail "memory_report ran $(on memory_report), measure=$(measures memory_report)"
+[[ "$(on test_memory_report)" == "test_memory_report windows_static_kit " ]] &&
+    ok "test_memory_report by name runs the same" || fail "test_memory_report ran $(on test_memory_report)"
+[[ "$(on all,memory_report)" == "$every_name" ]] &&
+    ok "all,memory_report is every job" || fail "all,memory_report ran $(on all,memory_report), not $every_name"
+grep -qE '^    uses: \./\.github/workflows/test-memory-report\.yml$' "$root/.github/workflows/ci.yml" &&
+    ok "ci.yml calls test-memory-report.yml" || fail "ci.yml does not call test-memory-report.yml"
 [[ "$(on owner_checks)" == "test_samples windows_static_kit " && "$(measures owner_checks)" == false ]] &&
     ok "owner_checks runs test_samples and the Windows kit it links" || fail "owner_checks ran $(on owner_checks)"
 [[ "$(samples_of owner_checks)" == owner-checks && "$(desktop_only owner_checks)" == true ]] &&
@@ -127,7 +152,7 @@ for wide in all test_samples all,owner_checks owner_checks,test_samples ''; do
         ok "'$wide' builds every sample on every platform" ||
         fail "'$wide' gave samples=$(samples_of "$wide") desktop_only=$(desktop_only "$wide")"
 done
-for name in not_a_job test_windows_resize_metrics test_windows_resize_probe; do
+for name in not_a_job test_windows_resize_metrics test_windows_resize_probe memory-report; do
     if "$suites" "$name" >/dev/null 2>&1; then
         fail "the unknown name $name was accepted"
     else

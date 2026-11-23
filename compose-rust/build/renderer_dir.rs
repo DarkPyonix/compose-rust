@@ -31,8 +31,23 @@ pub const RENDERER_DIR_ENV: &str = "COMPOSE_RUST_RENDERER_DIR";
 /// default lands outside `target/` either way.
 pub const CACHE_DIR_ENV: &str = "COMPOSE_RUST_CACHE_DIR";
 
-/// Where the release artifacts live. One release per crate version, tagged `v{version}`.
+/// Where the release artifacts live. One release per crate version, tagged `v{version}`,
+/// and the one release that carries renderers by schema hash, [`SCHEMA_RELEASE_TAG`].
 pub const RELEASE_BASE_URL: &str = "https://github.com/DarkPyonix/compose-rust/releases";
+
+/// Replaces [`RELEASE_BASE_URL`] for a mirror, or for a CI machine that serves the same
+/// files from somewhere it can reach. Optional: not setting it is the supported case, and
+/// the same two addresses are then looked up under the default.
+pub const RENDERER_URL_ENV: &str = "COMPOSE_RUST_RENDERER_URL";
+
+/// The release `develop` publishes a renderer to for every schema it reaches, named by the
+/// schema hash rather than by a crate version.
+///
+/// A crate version stays the same between two releases while its schema moves, so a git
+/// dependency on a revision after a release gets a crate whose version names a renderer of
+/// another schema. That renderer would be refused, rightly, and before this release there
+/// was nothing else to download.
+pub const SCHEMA_RELEASE_TAG: &str = "renderer-dev";
 
 /// The targets the release publishes a renderer for. Anything else has to say so in
 /// those words: a bare 404 cannot tell "this platform is not built" from "the release is
@@ -138,7 +153,134 @@ pub fn artifact_file_name(crate_version: &str, target: &str) -> String {
 
 /// Where that artifact and its checksum are downloaded from.
 pub fn artifact_url(crate_version: &str, file_name: &str) -> String {
-    format!("{RELEASE_BASE_URL}/download/v{crate_version}/{file_name}")
+    version_artifact_url(RELEASE_BASE_URL, crate_version, file_name)
+}
+
+/// The same address under another base, which is what [`RENDERER_URL_ENV`] changes.
+pub fn version_artifact_url(base: &str, crate_version: &str, file_name: &str) -> String {
+    format!("{base}/download/v{crate_version}/{file_name}")
+}
+
+/// The base every download address is built on: the configured one, without a trailing
+/// slash, or [`RELEASE_BASE_URL`] when none is configured or it is empty.
+pub fn release_base_url(configured: Option<&str>) -> String {
+    match configured.map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => url.trim_end_matches('/').to_owned(),
+        None => RELEASE_BASE_URL.to_owned(),
+    }
+}
+
+/// A schema hash as file names spell it: sixteen lowercase hex digits and no `0x`.
+///
+/// `schema-hash.txt` writes `0x` and lowercase, and file names leave the prefix out because
+/// a name without it is safe everywhere. Any spelling of the same number gives the same
+/// name. `None` for something that is not a 64-bit hex number at all.
+pub fn schema_hash_in_file_names(hash: &str) -> Option<String> {
+    let trimmed = hash.trim();
+    let digits = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if digits.is_empty() || digits.len() > 16 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let value = u64::from_str_radix(digits, 16).ok()?;
+    Some(format!("{value:016x}"))
+}
+
+/// A schema hash as logs and messages spell it: `0x` and sixteen lowercase hex digits, the
+/// same shape `schema-hash.txt` has, so a hash in a message can be searched for in a file.
+pub fn schema_hash_in_messages(hash: &str) -> String {
+    match schema_hash_in_file_names(hash) {
+        Some(digits) => format!("0x{digits}"),
+        None => hash.trim().to_owned(),
+    }
+}
+
+fn file_name_digits(hash: &str) -> String {
+    schema_hash_in_file_names(hash).unwrap_or_else(|| hash.trim().to_ascii_lowercase())
+}
+
+/// The renderer published for a schema rather than for a crate version. Its contents and
+/// its `.sha256` are laid out exactly like the version artifact's.
+pub fn schema_artifact_file_name(hash: &str, target: &str) -> String {
+    format!(
+        "compose-rust-renderer-schema-{}-{target}.tar.gz",
+        file_name_digits(hash)
+    )
+}
+
+/// Where a renderer published for a schema is downloaded from.
+pub fn schema_artifact_url(base: &str, file_name: &str) -> String {
+    format!("{base}/download/{SCHEMA_RELEASE_TAG}/{file_name}")
+}
+
+/// The page that lists what the release for a crate version carries.
+pub fn version_release_page(base: &str, crate_version: &str) -> String {
+    format!("{base}/tag/v{crate_version}")
+}
+
+/// The page that lists the renderers published by schema.
+pub fn schema_release_page(base: &str) -> String {
+    format!("{base}/tag/{SCHEMA_RELEASE_TAG}")
+}
+
+/// Every name and address one lookup by schema uses, worked out before anything is read or
+/// fetched, so which file comes from where is a rule that can be checked on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LookupPlan {
+    /// Where a renderer of this schema and target is unpacked.
+    pub cache_dir: PathBuf,
+    pub version_artifact: String,
+    pub version_url: String,
+    pub schema_artifact: String,
+    pub schema_url: String,
+}
+
+pub fn lookup_plan(
+    base: &str,
+    cache_root: &Path,
+    crate_version: &str,
+    crate_hash: &str,
+    target: &str,
+) -> LookupPlan {
+    let version_artifact = artifact_file_name(crate_version, target);
+    let schema_artifact = schema_artifact_file_name(crate_hash, target);
+    LookupPlan {
+        cache_dir: schema_cached_renderer_dir(cache_root, crate_hash, target),
+        version_url: version_artifact_url(base, crate_version, &version_artifact),
+        schema_url: schema_artifact_url(base, &schema_artifact),
+        version_artifact,
+        schema_artifact,
+    }
+}
+
+/// What to do once the release for the crate version has been unpacked and its schema read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterVersionRenderer {
+    /// It was built from this crate's schema, or it is from before renderers said which
+    /// schema they were built from and is used as it always was. The schema release is not
+    /// asked for anything.
+    Use,
+    /// It was built from another schema. The renderer published for this crate's schema is
+    /// the one to fetch.
+    TrySchemaRenderer,
+}
+
+pub fn after_version_renderer(version_renderer_hash: Option<&str>, crate_hash: &str) -> AfterVersionRenderer {
+    match schema_agreement(version_renderer_hash, Some(crate_hash)) {
+        SchemaAgreement::Different { .. } => AfterVersionRenderer::TrySchemaRenderer,
+        SchemaAgreement::Same | SchemaAgreement::Unknown => AfterVersionRenderer::Use,
+    }
+}
+
+/// What one of the two releases turned out to hold, for the failure that names both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tried {
+    /// The server answered that there is no such file.
+    NotPublished,
+    /// It was there, and it was built from this schema (`None`: it does not say).
+    Carries(Option<String>),
 }
 
 /// The platform target used in artifact names, built from Cargo's target triple parts.
@@ -180,10 +322,27 @@ pub fn default_cache_root(
 }
 
 /// One unpacked renderer, keyed so that two crate versions and two targets never collide.
+///
+/// The key builds used before renderers were found by schema, and the one a crate that
+/// does not know its own schema hash still uses. A crate that knows it keys by schema
+/// ([`schema_cached_renderer_dir`]) and reads an entry here only when the renderer in it
+/// says it was built from the same schema.
 pub fn cached_renderer_dir(cache_root: &Path, crate_version: &str, target: &str) -> PathBuf {
     cache_root
         .join("renderer")
         .join(format!("v{crate_version}"))
+        .join(target)
+}
+
+/// One unpacked renderer, keyed by the schema it was built from and its target.
+///
+/// Not by crate version: two revisions of one version can carry different schemas, and the
+/// renderer that works for one of them is refused by the other. Keyed by schema, one entry
+/// also serves every crate version that shares it.
+pub fn schema_cached_renderer_dir(cache_root: &Path, hash: &str, target: &str) -> PathBuf {
+    cache_root
+        .join("renderer")
+        .join(format!("schema-{}", file_name_digits(hash)))
         .join(target)
 }
 
@@ -206,6 +365,9 @@ pub struct Renderer {
     /// What answered: used for the one line the build prints about where its renderer
     /// came from, so a surprising build is diagnosable from the log alone.
     pub source: RendererSource,
+    /// Whether it was unpacked from the renderer published for this crate's schema
+    /// ([`SCHEMA_RELEASE_TAG`]) rather than from the release for its version.
+    pub schema_release: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,6 +417,14 @@ pub struct Request<'a> {
     pub crate_version: &'a str,
     pub target: &'a str,
     pub target_os: &'a str,
+    /// This crate's schema hash, as the `schema-hash.txt` beside its manifest says it.
+    /// With it the cache is keyed by schema, and a release whose renderer was built from
+    /// another schema is followed by the renderer published for this one. Without it (a
+    /// checkout that has not run codegen) everything is keyed by crate version, as it was
+    /// before renderers were published by schema.
+    pub crate_schema_hash: Option<&'a str>,
+    /// The value of [`RENDERER_URL_ENV`], if it is set.
+    pub release_base_url: Option<&'a str>,
     /// `None` means this build may not use the network, which is how the tests run the
     /// whole search order offline.
     pub fetch: Option<Fetch<'a>>,
@@ -269,9 +439,13 @@ pub struct Request<'a> {
 ///    rather than falling through, because a build that was pointed at a renderer on
 ///    purpose must not quietly turn into a download of a different one.
 /// 2. The workspace build outputs, which only a checkout of this repository has.
-/// 3. The version-and-target cache, which costs no network.
-/// 4. The tarball in the download directory, verified and unpacked.
-/// 5. The release for this crate version.
+/// 3. The cache, keyed by schema hash and target, which costs no network. A crate that does
+///    not know its schema hash keys by crate version instead.
+/// 4. The release for this crate version: the tarball in the download directory if it is
+///    there, downloaded if not, verified and unpacked. When the renderer in it was built
+///    from another schema than this crate's, the renderer published for this crate's schema
+///    ([`SCHEMA_RELEASE_TAG`]) is fetched the same way. When neither matches, the build
+///    stops and says what each one was built from.
 ///
 /// Each place may hold either kind of renderer (see [`RendererKind`]); what is found there
 /// is what is linked.
@@ -293,6 +467,15 @@ pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
         return Err(no_cache_root_message(request.crate_version, request.target));
     };
 
+    match request.crate_schema_hash.and_then(schema_hash_in_file_names) {
+        Some(crate_hash) => acquire_by_schema(request, cache_root, &crate_hash),
+        None => acquire_by_version(request, cache_root),
+    }
+}
+
+/// Steps 3 and 4 for a crate that does not know its schema hash: the cache and the release
+/// for its version, and nothing else, because there is no hash to look anything else up by.
+fn acquire_by_version(request: &Request, cache_root: &Path) -> Result<Renderer, String> {
     let cached = cached_renderer_dir(cache_root, request.crate_version, request.target);
     if let Some((lib_dir, kind)) = find_renderer_in(&cached, request.target_os) {
         return finish(lib_dir, kind, request, RendererSource::Cache);
@@ -305,8 +488,22 @@ pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
         ));
     }
 
-    let source = fetch_artifact(request, cache_root)?;
+    let base = release_base_url(request.release_base_url);
     let artifact = artifact_file_name(request.crate_version, request.target);
+    let page = version_release_page(&base, request.crate_version);
+    let url_of = |name: &str| version_artifact_url(&base, request.crate_version, name);
+    let source = match obtain(request, cache_root, &artifact, &url_of, &page) {
+        Ok(source) => source,
+        Err(Unobtained::NotFound { file, .. }) => {
+            return Err(not_in_release_message(
+                request.crate_version,
+                request.target,
+                &file,
+                &page,
+            ));
+        }
+        Err(Unobtained::Failed(message)) => return Err(message),
+    };
     let tarball = download_dir(cache_root).join(&artifact);
     verify_checksum(&tarball, cache_root)?;
     unpack(
@@ -327,13 +524,202 @@ pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
     finish(lib_dir, kind, request, source)
 }
 
-/// Make sure the tarball and its checksum are both in the download directory, by
-/// downloading them if they are not. Returns which of those two it was.
-fn fetch_artifact(request: &Request, cache_root: &Path) -> Result<RendererSource, String> {
-    let artifact = artifact_file_name(request.crate_version, request.target);
+/// Steps 3 and 4 for a crate that knows its schema hash, which is every published crate.
+fn acquire_by_schema(request: &Request, cache_root: &Path, crate_hash: &str) -> Result<Renderer, String> {
+    let base = release_base_url(request.release_base_url);
+    let plan = lookup_plan(
+        &base,
+        cache_root,
+        request.crate_version,
+        crate_hash,
+        request.target,
+    );
+
+    // An entry counts only when the renderer in it says it was built from this schema. The
+    // key already says so, and the file says it again because a directory can be left there
+    // by anything: an interrupted run of an older build, or a hand.
+    if let Some((lib_dir, kind)) = cached_for_schema(&plan.cache_dir, request.target_os, crate_hash, false) {
+        return finish(lib_dir, kind, request, RendererSource::Cache);
+    }
+    // What builds left before the cache was keyed by schema. Used when the renderer in it
+    // was built from this schema, or predates renderers saying so (which is how the entry
+    // was used before). One built from another schema is passed over, not trusted and not
+    // left to fail the build.
+    let by_version = cached_renderer_dir(cache_root, request.crate_version, request.target);
+    if let Some((lib_dir, kind)) = cached_for_schema(&by_version, request.target_os, crate_hash, true) {
+        return finish(lib_dir, kind, request, RendererSource::Cache);
+    }
+
+    if !PUBLISHED_TARGETS.contains(&request.target) {
+        return Err(unpublished_target_message(
+            request.crate_version,
+            request.target,
+        ));
+    }
+
+    // The release for the crate version first, because it is the right renderer for every
+    // build of a released version, and then nothing else is asked for.
+    let version_page = version_release_page(&base, request.crate_version);
+    let version_url_of = |name: &str| version_artifact_url(&base, request.crate_version, name);
+    let version_tried = match obtain(
+        request,
+        cache_root,
+        &plan.version_artifact,
+        &version_url_of,
+        &version_page,
+    ) {
+        Ok(source) => {
+            let tarball = download_dir(cache_root).join(&plan.version_artifact);
+            verify_checksum(&tarball, cache_root)?;
+            let scratch = extract(&tarball, &cache_root.join("renderer"), &plan.version_artifact)?;
+            let hash = read_schema_hash_in(&scratch);
+            match after_version_renderer(hash.as_deref(), crate_hash) {
+                AfterVersionRenderer::Use => {
+                    // A renderer that does not say which schema it is from cannot be filed
+                    // under one, so it goes where the version key put it before.
+                    let destination = if hash.is_some() { &plan.cache_dir } else { &by_version };
+                    return install_and_finish(&tarball, &scratch, destination, request, source, false);
+                }
+                AfterVersionRenderer::TrySchemaRenderer => {
+                    // Still the right renderer for the schema it was built from, so it is
+                    // kept under that one. Failing to keep it costs a later build an unpack,
+                    // and this build nothing.
+                    let other = schema_cached_renderer_dir(
+                        cache_root,
+                        hash.as_deref().unwrap_or_default(),
+                        request.target,
+                    );
+                    if install(&scratch, &other, request.target_os, request.crate_version, request.target).is_err() {
+                        let _ = std::fs::remove_dir_all(&scratch);
+                    }
+                    Tried::Carries(hash)
+                }
+            }
+        }
+        // A version that has not been released yet, which a git dependency on a revision
+        // after a version bump is. The renderer published for its schema can still be there.
+        Err(Unobtained::NotFound { .. }) => Tried::NotPublished,
+        Err(Unobtained::Failed(message)) => return Err(message),
+    };
+
+    let schema_page = schema_release_page(&base);
+    let schema_url_of = |name: &str| schema_artifact_url(&base, name);
+    let source = match obtain(
+        request,
+        cache_root,
+        &plan.schema_artifact,
+        &schema_url_of,
+        &schema_page,
+    ) {
+        Ok(source) => source,
+        Err(Unobtained::NotFound { .. }) => {
+            return Err(no_matching_renderer_message(
+                crate_hash,
+                &plan,
+                &version_tried,
+                &Tried::NotPublished,
+                request.crate_version,
+                request.target,
+            ));
+        }
+        Err(Unobtained::Failed(message)) => return Err(message),
+    };
+    let tarball = download_dir(cache_root).join(&plan.schema_artifact);
+    verify_checksum(&tarball, cache_root)?;
+    let scratch = extract(&tarball, &cache_root.join("renderer"), &plan.schema_artifact)?;
+    let hash = read_schema_hash_in(&scratch);
+    if schema_agreement(hash.as_deref(), Some(crate_hash)) != SchemaAgreement::Same {
+        let _ = std::fs::remove_dir_all(&scratch);
+        return Err(no_matching_renderer_message(
+            crate_hash,
+            &plan,
+            &version_tried,
+            &Tried::Carries(hash),
+            request.crate_version,
+            request.target,
+        ));
+    }
+    install_and_finish(&tarball, &scratch, &plan.cache_dir, request, source, true)
+}
+
+/// The renderer in a cache entry, when the entry is one this crate's schema may use.
+fn cached_for_schema(
+    dir: &Path,
+    target_os: &str,
+    crate_hash: &str,
+    accept_unknown: bool,
+) -> Option<(PathBuf, RendererKind)> {
+    let found = find_renderer_in(dir, target_os)?;
+    match schema_agreement(read_schema_hash_in(dir).as_deref(), Some(crate_hash)) {
+        SchemaAgreement::Same => Some(found),
+        SchemaAgreement::Unknown if accept_unknown => Some(found),
+        _ => None,
+    }
+}
+
+/// The schema hash in an artifact's root, where every renderer artifact carries it.
+pub fn read_schema_hash_in(dir: &Path) -> Option<String> {
+    let contents = std::fs::read_to_string(dir.join("schema-hash.txt")).ok()?;
+    let trimmed = contents.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The schema hash of the renderer whose library sits in `lib_dir`: in the artifact root
+/// above it, or beside it for a directory that holds the renderer itself. The same two
+/// places the build script reads it from.
+fn read_schema_hash_near(lib_dir: &Path) -> Option<String> {
+    read_schema_hash_in(&lib_dir.join("..")).or_else(|| read_schema_hash_in(lib_dir))
+}
+
+/// Move an unpacked artifact into its cache entry and answer with the renderer in it.
+fn install_and_finish(
+    tarball: &Path,
+    scratch: &Path,
+    destination: &Path,
+    request: &Request,
+    source: RendererSource,
+    schema_release: bool,
+) -> Result<Renderer, String> {
+    install(
+        scratch,
+        destination,
+        request.target_os,
+        request.crate_version,
+        request.target,
+    )?;
+    let Some((lib_dir, kind)) = find_renderer_in(destination, request.target_os) else {
+        return Err(unexpected_layout_message(
+            tarball,
+            destination,
+            request.target_os,
+        ));
+    };
+    let mut renderer = finish(lib_dir, kind, request, source)?;
+    renderer.schema_release = schema_release;
+    Ok(renderer)
+}
+
+/// Why an artifact could not be had.
+enum Unobtained {
+    /// The server answered that there is no such file. Whether that is the end depends on
+    /// which file it was, so the caller words it.
+    NotFound { file: String, url: String },
+    /// Anything else, already worded for the person reading the build.
+    Failed(String),
+}
+
+/// Make sure a tarball and its checksum are both in the download directory, by downloading
+/// them if they are not. Returns which of those two it was.
+fn obtain(
+    request: &Request,
+    cache_root: &Path,
+    artifact: &str,
+    url_of: &dyn Fn(&str) -> String,
+    release_page: &str,
+) -> Result<RendererSource, Unobtained> {
     let checksum_name = format!("{artifact}.sha256");
     let downloads = download_dir(cache_root);
-    let tarball = downloads.join(&artifact);
+    let tarball = downloads.join(artifact);
     let checksum = downloads.join(&checksum_name);
 
     if tarball.is_file() && checksum.is_file() {
@@ -341,44 +727,53 @@ fn fetch_artifact(request: &Request, cache_root: &Path) -> Result<RendererSource
     }
 
     let Some(fetch) = request.fetch else {
-        return Err(offline_message(
+        return Err(Unobtained::Failed(offline_message(
+            artifact,
+            release_page,
             request.crate_version,
             request.target,
             &downloads,
             "this build was told not to use the network",
-        ));
+        )));
     };
 
-    std::fs::create_dir_all(&downloads)
-        .map_err(|error| cannot_write_message(&downloads, &error.to_string()))?;
+    std::fs::create_dir_all(&downloads).map_err(|error| {
+        Unobtained::Failed(cannot_write_message(&downloads, &error.to_string()))
+    })?;
 
-    for (name, destination) in [(&artifact, &tarball), (&checksum_name, &checksum)] {
+    for (name, destination) in [(artifact, &tarball), (checksum_name.as_str(), &checksum)] {
         if destination.is_file() {
             continue;
         }
-        let url = artifact_url(request.crate_version, name);
+        let url = url_of(name);
         // Downloaded beside the final name and moved into place, so an interrupted
         // download is never mistaken for a complete one by the next build.
         let partial = destination.with_extension("partial");
         let _ = std::fs::remove_file(&partial);
         match fetch(&url, &partial) {
-            Ok(()) => std::fs::rename(&partial, destination)
-                .map_err(|error| cannot_write_message(destination, &error.to_string()))?,
+            Ok(()) => std::fs::rename(&partial, destination).map_err(|error| {
+                Unobtained::Failed(cannot_write_message(destination, &error.to_string()))
+            })?,
             Err(error) => {
                 let _ = std::fs::remove_file(&partial);
                 // Whatever is already downloaded is left alone: half an artifact with no
                 // checksum beside it is simply not a cache hit next time.
                 return Err(match error {
-                    FetchError::Unreachable(detail) => offline_message(
+                    FetchError::Unreachable(detail) => Unobtained::Failed(offline_message(
+                        artifact,
+                        release_page,
                         request.crate_version,
                         request.target,
                         &downloads,
                         &detail,
-                    ),
-                    FetchError::NotFound => {
-                        not_in_release_message(request.crate_version, request.target, name)
+                    )),
+                    FetchError::NotFound => Unobtained::NotFound {
+                        file: name.to_owned(),
+                        url,
+                    },
+                    FetchError::Failed(detail) => {
+                        Unobtained::Failed(download_failed_message(&url, &detail))
                     }
-                    FetchError::Failed(detail) => download_failed_message(&url, &detail),
                 });
             }
         }
@@ -436,14 +831,23 @@ fn unpack(
     let parent = destination
         .parent()
         .ok_or_else(|| format!("the renderer cache path {} has no parent", destination.display()))?;
+    let label = destination
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let scratch = extract(tarball, parent, &label)?;
+    install(&scratch, destination, target_os, crate_version, target)
+}
+
+/// Extract a tarball into a scratch directory under `parent`, where no build looks for a
+/// renderer, and return it. The schema it was built from can be read there before it is
+/// decided where it goes.
+fn extract(tarball: &Path, parent: &Path, label: &str) -> Result<PathBuf, String> {
     std::fs::create_dir_all(parent)
         .map_err(|error| cannot_write_message(parent, &error.to_string()))?;
 
-    let scratch = parent.join(format!(
-        ".unpacking-{}-{}",
-        destination.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
+    let scratch = parent.join(format!(".unpacking-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch)
         .map_err(|error| cannot_write_message(&scratch, &error.to_string()))?;
@@ -470,16 +874,27 @@ fn unpack(
         let _ = std::fs::remove_dir_all(&scratch);
         return Err(message);
     }
+    Ok(scratch)
+}
 
+/// Name the renderer in a scratch directory after where it is going, and move it there.
+/// The scratch directory is gone afterwards either way.
+fn install(
+    scratch: &Path,
+    destination: &Path,
+    target_os: &str,
+    crate_version: &str,
+    target: &str,
+) -> Result<(), String> {
     // While it is still invisible to any other build, and using the name it is about to
     // have. Doing it after the rename would mean a second build could link the library in
     // the moment between the two. A static archive has no name to give: it is copied into
     // whatever links it. A missing renderer is reported properly by the layout check
     // downstream.
-    if let Some((unpacked_dir, RendererKind::Shared)) = find_renderer_in(&scratch, target_os) {
+    if let Some((unpacked_dir, RendererKind::Shared)) = find_renderer_in(scratch, target_os) {
         let lib_file = renderer_lib_file(target_os);
         let relative = unpacked_dir
-            .strip_prefix(&scratch)
+            .strip_prefix(scratch)
             .unwrap_or(Path::new(""))
             .to_path_buf();
         if let Err(message) = name_after_its_location(
@@ -489,14 +904,25 @@ fn unpack(
             crate_version,
             target,
         ) {
-            let _ = std::fs::remove_dir_all(&scratch);
+            let _ = std::fs::remove_dir_all(scratch);
             return Err(message);
         }
     }
 
+    let Some(parent) = destination.parent() else {
+        let _ = std::fs::remove_dir_all(scratch);
+        return Err(format!(
+            "the renderer cache path {} has no parent",
+            destination.display()
+        ));
+    };
+    if let Err(error) = std::fs::create_dir_all(parent) {
+        let _ = std::fs::remove_dir_all(scratch);
+        return Err(cannot_write_message(parent, &error.to_string()));
+    }
     let _ = std::fs::remove_dir_all(destination);
-    std::fs::rename(&scratch, destination).map_err(|error| {
-        let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::rename(scratch, destination).map_err(|error| {
+        let _ = std::fs::remove_dir_all(scratch);
         cannot_write_message(destination, &error.to_string())
     })
 }
@@ -639,7 +1065,16 @@ fn finish(
     // the build, which is how this would otherwise happen.
     let lib_dir = absolute(&lib_dir);
     let artifact_version = read_artifact_version(&lib_dir);
-    if let Some(found) = artifact_version.as_deref() {
+    // The schema is what has to match, and the version file stood in for it before
+    // renderers said which schema they were built from. A renderer that says it was built
+    // from this crate's schema is the right one whatever version it was packaged for: the
+    // release for one version and the renderer published for a schema are the same build
+    // when the schema has not moved, and the cache is shared by every version of a schema.
+    let vouched_for_by_schema = request.crate_schema_hash.is_some_and(|ours| {
+        schema_agreement(read_schema_hash_near(&lib_dir).as_deref(), Some(ours))
+            == SchemaAgreement::Same
+    });
+    if let Some(found) = artifact_version.as_deref().filter(|_| !vouched_for_by_schema) {
         if found != request.crate_version {
             return Err(version_mismatch_message(
                 &lib_dir,
@@ -668,6 +1103,7 @@ fn finish(
         kind,
         artifact_version,
         source,
+        schema_release: false,
     })
 }
 
@@ -713,18 +1149,79 @@ fn read_artifact_version(lib_dir: &Path) -> Option<String> {
     None
 }
 
-/// The escape hatch every failure here ends with. It is the same two lines every time on
+/// Where the build scripts these messages name live. The published crate carries none of
+/// them, so a message that names one says it is in a checkout of this repository.
+pub const REPOSITORY_URL: &str = "https://github.com/DarkPyonix/compose-rust";
+
+/// The escape hatch every failure here ends with. It is the same lines every time on
 /// purpose: whatever went wrong, pointing the variable at a renderer is the way past it.
 fn build_it_yourself(crate_version: &str, target: &str) -> String {
     let artifact = artifact_file_name(crate_version, target);
     format!(
-        "Any renderer you already have works too. Unpack {artifact}, or build one from a\n\
-         checkout of the repository: the static archive with\n\
-         renderer/desktop/scripts/build-macos.sh or\n\
+        "Any renderer you already have works too. Unpack {artifact}, or build one in a\n\
+         checkout of the compose-rust repository ({REPOSITORY_URL}): the static archive\n\
+         with renderer/desktop/scripts/build-macos.sh or\n\
          renderer/desktop/scripts/build-linux.sh, the shared library with\n\
          renderer/desktop/scripts/build-native.sh. Then set\n\
          {RENDERER_DIR_ENV} to the directory it wrote. The variable is checked first and\n\
          nothing is downloaded when it is set."
+    )
+}
+
+/// A static-renderer variable (`COMPOSE_RUST_MACOS_STATIC_DIR` and its Linux twin) names a
+/// directory without the archive in it.
+pub fn static_override_missing_message(dir: &Path, archive: &str) -> String {
+    format!(
+        "compose-rust: {dir} does not hold {archive}.\n\
+         \n\
+         The variable names the directory a static renderer build wrote. In a checkout of\n\
+         the compose-rust repository ({REPOSITORY_URL}),\n\
+         renderer/desktop/scripts/build-macos.sh writes renderer/build/macos and\n\
+         renderer/desktop/scripts/build-linux.sh writes renderer/build/linux. Unset the\n\
+         variable and this build finds or downloads a renderer by itself.",
+        dir = dir.display()
+    )
+}
+
+/// What to do about a Windows renderer kit that is incomplete or unreadable. The kit is
+/// either a download in the cache, which can simply be fetched again, or a directory
+/// someone built and named with a variable.
+fn windows_kit_way_out(dir: &Path) -> String {
+    format!(
+        "If {dir} is in the renderer cache, delete it and build again: the next build\n\
+         downloads the kit again. If you built the kit yourself in a checkout of the\n\
+         compose-rust repository ({REPOSITORY_URL}), run\n\
+         renderer/desktop/scripts/build-windows.sh again, or set DXC_WINDOWS_NATIVE_LIB\n\
+         (or {RENDERER_DIR_ENV}) to the directory it wrote.",
+        dir = dir.display()
+    )
+}
+
+/// A Windows renderer kit without one of the pieces an MSVC link needs.
+pub fn windows_kit_incomplete_message(dir: &Path, piece: &str, what: &str) -> String {
+    format!(
+        "compose-rust: the Windows renderer kit at {} has no {piece} ({what}).\n\
+         \n\
+         {}",
+        dir.display(),
+        windows_kit_way_out(dir)
+    )
+}
+
+/// A library the Windows link rewrites that could not be read: one of the kit at `kit`, or,
+/// with no kit, one of the MSVC tools themselves.
+pub fn windows_library_unreadable_message(library: &Path, error: &str, kit: Option<&Path>) -> String {
+    let way_out = match kit {
+        Some(kit) => windows_kit_way_out(kit),
+        None => "It comes with the MSVC C++ build tools. Install or repair them (the Visual\n\
+                 Studio Installer's \"Desktop development with C++\") and build again."
+            .to_owned(),
+    };
+    format!(
+        "compose-rust: could not read {}: {error}\n\
+         \n\
+         {way_out}",
+        library.display()
     )
 }
 
@@ -762,12 +1259,13 @@ fn unpublished_target_message(crate_version: &str, target: &str) -> String {
 }
 
 fn offline_message(
+    artifact: &str,
+    release_page: &str,
     crate_version: &str,
     target: &str,
     downloads: &Path,
     detail: &str,
 ) -> String {
-    let artifact = artifact_file_name(crate_version, target);
     format!(
         "compose-rust: could not download the renderer ({detail}).\n\
          \n\
@@ -777,17 +1275,21 @@ fn offline_message(
          \x20   {artifact}\n\
          \x20   {artifact}.sha256\n\
          \n\
-         Both are attached to the release for this crate version:\n\
-         \x20   {tag_url}\n\
+         Both are attached to this release:\n\
+         \x20   {release_page}\n\
          \n\
          {build_it_yourself}",
         downloads = downloads.display(),
-        tag_url = format_args!("{RELEASE_BASE_URL}/tag/v{crate_version}"),
         build_it_yourself = build_it_yourself(crate_version, target),
     )
 }
 
-fn not_in_release_message(crate_version: &str, target: &str, file_name: &str) -> String {
+fn not_in_release_message(
+    crate_version: &str,
+    target: &str,
+    file_name: &str,
+    release_page: &str,
+) -> String {
     format!(
         "compose-rust: the release for v{crate_version} does not carry {file_name}.\n\
          \n\
@@ -795,10 +1297,51 @@ fn not_in_release_message(crate_version: &str, target: &str, file_name: &str) ->
          network problem. Either that release was published without the {target} renderer,\n\
          or it predates this crate version being tagged at all. What it does carry is\n\
          listed at:\n\
-         \x20   {tag_url}\n\
+         \x20   {release_page}\n\
          \n\
          {build_it_yourself}",
-        tag_url = format_args!("{RELEASE_BASE_URL}/tag/v{crate_version}"),
+        build_it_yourself = build_it_yourself(crate_version, target),
+    )
+}
+
+/// Neither the release for the crate version nor the renderer published for the crate's
+/// schema was built from that schema. Every hash and both addresses are in the message,
+/// because which of them is wrong decides what to do about it.
+fn no_matching_renderer_message(
+    crate_hash: &str,
+    plan: &LookupPlan,
+    version: &Tried,
+    schema: &Tried,
+    crate_version: &str,
+    target: &str,
+) -> String {
+    let describe = |tried: &Tried| match tried {
+        Tried::NotPublished => "not published".to_owned(),
+        Tried::Carries(Some(hash)) => format!("built from {}", schema_hash_in_messages(hash)),
+        Tried::Carries(None) => "does not say which schema it was built from".to_owned(),
+    };
+    format!(
+        "compose-rust: no published renderer was built from this crate's schema.\n\
+         \n\
+         \x20   crate              {crate_hash}\n\
+         \x20   version release    {version}\n\
+         \x20                      {version_url}\n\
+         \x20   schema renderer    {schema}\n\
+         \x20                      {schema_url}\n\
+         \n\
+         The release for v{crate_version} is the renderer for every build of that version,\n\
+         and `develop` publishes a renderer under each schema hash it reaches. This crate is a\n\
+         revision whose schema has neither: most likely one that has not been through\n\
+         `develop`, or one published so recently that its renderer is still being built.\n\
+         Linking a renderer of another schema would build a program that opens a window and\n\
+         draws nothing, so the build stops here.\n\
+         \n\
+         {build_it_yourself}",
+        crate_hash = schema_hash_in_messages(crate_hash),
+        version = describe(version),
+        version_url = plan.version_url,
+        schema = describe(schema),
+        schema_url = plan.schema_url,
         build_it_yourself = build_it_yourself(crate_version, target),
     )
 }
@@ -1004,11 +1547,46 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
     let version = "9.9.9";
     let target = "macos-aarch64";
     let tarball = sample_dir.join(artifact_file_name(version, target));
+    let plan = lookup_plan(
+        RELEASE_BASE_URL,
+        sample_dir,
+        version,
+        "0x62b9a55ed371acad",
+        target,
+    );
     vec![
         missing_from_env_message(sample_dir, "macos"),
         unpublished_target_message(version, "freebsd-x86_64"),
-        offline_message(version, target, sample_dir, "curl could not resolve the host"),
-        not_in_release_message(version, target, &artifact_file_name(version, target)),
+        offline_message(
+            &artifact_file_name(version, target),
+            &version_release_page(RELEASE_BASE_URL, version),
+            version,
+            target,
+            sample_dir,
+            "curl could not resolve the host",
+        ),
+        not_in_release_message(
+            version,
+            target,
+            &artifact_file_name(version, target),
+            &version_release_page(RELEASE_BASE_URL, version),
+        ),
+        no_matching_renderer_message(
+            "0x62b9a55ed371acad",
+            &plan,
+            &Tried::Carries(Some("0x284215b3caced78f".to_owned())),
+            &Tried::Carries(None),
+            version,
+            target,
+        ),
+        no_matching_renderer_message(
+            "0x62b9a55ed371acad",
+            &plan,
+            &Tried::NotPublished,
+            &Tried::NotPublished,
+            version,
+            target,
+        ),
         download_failed_message(&artifact_url(version, &artifact_file_name(version, target)), "HTTP 503"),
         checksum_mismatch_message(&tarball, &sibling_checksum(&tarball), "aa", "bb", sample_dir),
         unreadable_checksum_message(&sibling_checksum(&tarball), "no such file"),
@@ -1032,6 +1610,14 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
         no_static_link_message("freebsd-x64", sample_dir),
         version_mismatch_message(sample_dir, "0.1.0", version, target),
         build_it_yourself(version, target),
+        static_override_missing_message(sample_dir, renderer_static_file("macos")),
+        windows_kit_incomplete_message(sample_dir, "skiko/skia.lib", "Skia"),
+        windows_library_unreadable_message(
+            &sample_dir.join("skiko").join("skia.lib"),
+            "permission denied",
+            Some(sample_dir),
+        ),
+        windows_library_unreadable_message(&sample_dir.join("libcpmt.lib"), "no such file", None),
     ]
 }
 
@@ -1323,7 +1909,8 @@ pub fn schema_agreement(renderer_hash: Option<&str>, crate_hash: Option<&str>) -
     if renderer.is_empty() || crate_hash.is_empty() {
         return SchemaAgreement::Unknown;
     }
-    if renderer.eq_ignore_ascii_case(crate_hash) {
+    // The same number however it is spelled: `0x` or not, either case.
+    if file_name_digits(renderer) == file_name_digits(crate_hash) {
         SchemaAgreement::Same
     } else {
         SchemaAgreement::Different {
