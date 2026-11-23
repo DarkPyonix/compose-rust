@@ -244,7 +244,8 @@ fn wide_card(found: &'static Course, night: bool, opened: MutableState<Option<u3
         modifier = Modifier
             .fill_max_width()
             .height(WIDE)
-            .shape_role(ShapeRole::Large),
+            .shape_role(ShapeRole::Large)
+            .clip(true),
         alignment = Alignment::BottomStart,
         {
             Image!(scene(found), modifier = Modifier.fill_max_size());
@@ -277,7 +278,8 @@ fn picture_with_badge(found: &'static Course, height: f32, opened: MutableState<
         modifier = Modifier
             .fill_max_width()
             .height(height)
-            .shape_role(ShapeRole::Medium),
+            .shape_role(ShapeRole::Medium)
+            .clip(true),
         alignment = Alignment::BottomStart,
         {
             Image!(scene(found), modifier = Modifier.fill_max_size());
@@ -446,6 +448,16 @@ fn page_header(
     );
 }
 
+/// A section heading on a shelf, in light ink on the night page and deep ink on cream.
+#[Composable]
+fn section_heading(text: &'static str, night: bool) {
+    Text!(
+        text,
+        type_role = TypeRole::Subtitle,
+        color = if night { palette::ON_ART } else { palette::INK }
+    );
+}
+
 /// The page a destination shows, in the order the reference draws it.
 #[Composable]
 fn shelf_page(
@@ -480,9 +492,7 @@ fn shelf_page(
                 for (index, block) in blocks.iter().enumerate() {
                     key(index, || match block {
                         Block::Hero(_) => {}
-                        Block::Heading(text) => {
-                            Text!(*text, type_role = TypeRole::Subtitle, color = palette::INK);
-                        }
+                        Block::Heading(text) => section_heading(text, night),
                         Block::Tiles(row) => tile_row(row.clone(), night, opened),
                         Block::Wide(found) => wide_card(found, night, opened),
                     });
@@ -523,39 +533,40 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                     type_role = TypeRole::Body,
                     color = palette::MUTED
                 );
-                Column!(
-                    modifier = Modifier.fill_max_width(),
-                    space_role = SpaceRole::Sm,
-                    {
-                        for number in 1..=found.sessions {
-                            key(number, || {
-                                Row!(
-                                    modifier = Modifier
-                                        .fill_max_width()
-                                        .background(palette::CARD)
-                                        .shape_role(ShapeRole::Medium)
-                                        .padding_role(SpaceRole::Md),
-                                    space_role = SpaceRole::Sm,
-                                    alignment = Alignment::CenterStart,
-                                    {
-                                        Text!(
-                                            format!("Session {number}"),
-                                            type_role = TypeRole::Body,
-                                            color = ink,
-                                            modifier = Modifier.weight(1.0)
-                                        );
-                                        Text!(
-                                            format!("{} min", found.minutes),
-                                            type_role = TypeRole::Caption,
-                                            color = palette::MUTED
-                                        );
-                                    }
-                                );
-                            });
+                ScrollColumn!(modifier = Modifier.fill_max_width().weight(1.0), {
+                    Column!(
+                        modifier = Modifier.fill_max_width(),
+                        space_role = SpaceRole::Sm,
+                        {
+                            for number in 1..=found.sessions {
+                                key(number, || {
+                                    Row!(
+                                        modifier = Modifier
+                                            .fill_max_width()
+                                            .background(palette::CARD)
+                                            .shape_role(ShapeRole::Medium)
+                                            .padding_role(SpaceRole::Md),
+                                        space_role = SpaceRole::Sm,
+                                        alignment = Alignment::CenterStart,
+                                        {
+                                            Text!(
+                                                format!("Session {number}"),
+                                                type_role = TypeRole::Body,
+                                                color = ink,
+                                                modifier = Modifier.weight(1.0)
+                                            );
+                                            Text!(
+                                                format!("{} min", found.minutes),
+                                                type_role = TypeRole::Caption,
+                                                color = palette::MUTED
+                                            );
+                                        }
+                                    );
+                                });
+                            }
                         }
-                    }
-                );
-                Spacer!(modifier = Modifier.weight(1.0));
+                    );
+                });
                 // A text button on a literal fill, for the same reason the badges are:
                 // a filled button would be the theme's blue.
                 Button!(
@@ -579,7 +590,7 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
 ///
 /// The button carries no text and sits over the icon, so the press lands on it whatever
 /// was drawn underneath.
-fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
+fn icon_button(picture: &'static [u8], name: &'static str, tint: Paint, on_click: Rc<dyn Fn()>) {
     Box!(
         modifier = Modifier.size(ICON_TAP, ICON_TAP),
         alignment = Alignment::Center,
@@ -592,6 +603,7 @@ fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
             Button!(
                 "",
                 move || press(),
+                accessible_name = name,
                 variant = ButtonVariant::Text,
                 modifier = Modifier.fill_max_size()
             );
@@ -628,7 +640,12 @@ fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
                 key(choice.label(), || {
                     Box!({
                         let go = Rc::clone(&on_go);
-                        icon_button(choice.icon(), tint, Rc::new(move || go(choice)));
+                        icon_button(
+                            choice.icon(),
+                            choice.label(),
+                            tint,
+                            Rc::new(move || go(choice)),
+                        );
                     });
                 });
             }
@@ -1309,6 +1326,147 @@ mod tests {
             let listed = (1..=found.sessions).count() as u32;
             assert_eq!(listed, found.sessions, "{} miscounts", found.title);
         }
+    }
+
+    /// An opened course scrolls its session list inside a `ScrollColumn`, so long
+    /// courses do not push "Begin" off the bottom of the screen.
+    #[test]
+    fn course_sessions_scroll_in_a_scroll_column() {
+        let mut screen = Screen::new();
+        assert!(screen.press(PLAY), "no card on the shelf opens");
+        let live = sample_frames::live(screen.mutations());
+        let session = live
+            .iter()
+            .rev()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String(text),
+                } if *text == "Session 1" => Some(*node_id),
+                _ => None,
+            })
+            .expect("the opened course does not list Session 1");
+
+        let mut cursor = session;
+        let mut inside_scroll = false;
+        while let Some(parent) = live.iter().rev().find_map(|mutation| match mutation {
+            Mutation::Insert {
+                parent_id, node_id, ..
+            } if *node_id == cursor => Some(*parent_id),
+            _ => None,
+        }) {
+            if live.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::Create {
+                        node_id,
+                        widget: WidgetKind::ScrollColumn,
+                    } if *node_id == parent
+                )
+            }) {
+                inside_scroll = true;
+                break;
+            }
+            cursor = parent;
+        }
+        assert!(
+            inside_scroll,
+            "the course page's session rows are not inside a ScrollColumn"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Every illustrated card clips its child image so rounded corners are respected.
+    #[test]
+    fn rounded_cards_clip_their_images() {
+        let screen = Screen::new();
+        let live = sample_frames::live(screen.mutations());
+        let images: Vec<u32> = live
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Image,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            images.len() >= 4,
+            "expected hero, tile and wide cards on the Today shelf, found {}",
+            images.len()
+        );
+        for image in images {
+            let parent = live
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::Insert {
+                        parent_id, node_id, ..
+                    } if *node_id == image => Some(*parent_id),
+                    _ => None,
+                })
+                .expect("an image has no parent card");
+            let clipped = live.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier: WireModifier::Clip(true),
+                        ..
+                    } if *node_id == parent
+                )
+            });
+            assert!(
+                clipped,
+                "card {parent} holding image {image} does not set clip(true)"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Section headings use light ink on the night page and deep ink on cream.
+    #[test]
+    fn night_mode_section_heading_uses_on_art() {
+        fn night_heading() {
+            section_heading("Night section", true);
+        }
+        fn day_heading() {
+            section_heading("Day section", false);
+        }
+        fn heading_colour(content: fn(), label: &str) -> Option<Paint> {
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::new(content);
+            let batch = host.rebuild().expect("the heading frame failed").to_vec();
+            let mutations = decode_batch(&batch).expect("the batch did not decode");
+            let node = mutations.iter().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String(text),
+                } if *text == label => Some(*node_id),
+                _ => None,
+            })?;
+            mutations.iter().rev().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                } if *node_id == node => Paint::from_bits(*bits as u64),
+                _ => None,
+            })
+        }
+
+        assert_eq!(
+            heading_colour(night_heading, "Night section"),
+            Some(palette::ON_ART)
+        );
+        assert_eq!(
+            heading_colour(day_heading, "Day section"),
+            Some(palette::INK)
+        );
+        compose_rust::window::reset_window_size();
     }
 
     /// The shelf, in the design system it ships, in both schemes, at all three widths.

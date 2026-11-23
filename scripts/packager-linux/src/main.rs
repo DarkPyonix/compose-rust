@@ -8,12 +8,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use packager_linux::appimage::{AppDirInputs, appimage_arch, appimage_file_name, assemble_appdir};
 use packager_linux::appstream::{metainfo, metainfo_file_name};
+use packager_linux::deb::{DebInputs, assemble_deb, deb_arch};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
 use packager_linux::flatpak::{FlatpakOptions, Payload, SourceRef, icon_source_path, manifest};
 use packager_linux::icons::{Icon, check_for_flathub};
 use packager_linux::metadata::{
     AppMetadata, BuildFacts, Screenshot, check_screenshot_url, release_date,
 };
+use packager_linux::rpm::{RpmInputs, assemble_rpm};
 
 const USAGE: &str = "\
 usage: packager-linux <command> --dioxus-toml <file> [common options] [command options]
@@ -23,6 +25,8 @@ commands:
   appdir              lay out an AppDir for appimagetool at --out
   file-name           print the AppImage file name, <Name>-<version>-<arch>.AppImage
   flatpak             write a flatpak-builder manifest and its packaging files into --out
+  deb                 lay out a .deb staging tree (DEBIAN/control and /usr) at --out
+  rpm                 lay out an rpmbuild topdir (SPECS and SOURCES) at --out
 
 common options:
   --dioxus-toml <file>   the application's Dioxus.toml
@@ -38,7 +42,7 @@ common options:
                          must be pinned to a tag or a commit
   --screenshot-caption <text>  a caption for each --screenshot, in the same order
 
-appdir:
+appdir / deb / rpm:
   --payload <dir|file>   the executable, or a directory holding it and its renderer
   --out <dir>
 
@@ -147,7 +151,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let options = Options::parse(rest)?;
     let extra: &[&str] = match command.as_str() {
         "metadata" => &["out"],
-        "appdir" => &["payload", "out"],
+        "appdir" | "deb" | "rpm" => &["payload", "out"],
         "file-name" => &[],
         "flatpak" => &[
             "out",
@@ -242,6 +246,49 @@ fn run(args: &[String]) -> Result<(), String> {
                 copy(&icon.source, &out.join(icon_source_path(&meta, icon)))?;
             }
             println!("{}", out.join(format!("{}.json", meta.id)).display());
+        }
+        "deb" => {
+            let out = PathBuf::from(options.required("out")?);
+            let payload = PathBuf::from(options.required("payload")?);
+            let debian_arch =
+                deb_arch(&arch).ok_or_else(|| format!("no Debian architecture for {arch}"))?;
+            let source_date_epoch = std::env::var("SOURCE_DATE_EPOCH")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok());
+            let written = assemble_deb(
+                &DebInputs {
+                    meta: &meta,
+                    payload: &payload,
+                    icons: &icons,
+                    arch: debian_arch,
+                    source_date_epoch,
+                },
+                &out,
+            )
+            .map_err(|e| e.to_string())?;
+            for path in written {
+                println!("{}", path.display());
+            }
+        }
+        "rpm" => {
+            let out = PathBuf::from(options.required("out")?);
+            let payload = PathBuf::from(options.required("payload")?);
+            let source_date_epoch = std::env::var("SOURCE_DATE_EPOCH")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok());
+            let written = assemble_rpm(
+                &RpmInputs {
+                    meta: &meta,
+                    payload: &payload,
+                    icons: &icons,
+                    source_date_epoch,
+                },
+                &out,
+            )
+            .map_err(|e| e.to_string())?;
+            for path in written {
+                println!("{}", path.display());
+            }
         }
         _ => unreachable!("every command was matched above"),
     }
