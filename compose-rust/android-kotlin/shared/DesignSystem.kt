@@ -200,8 +200,10 @@ class ResolvedTheme(
     val sizeClass: WindowSizeClass get() = sizeClassOf()
 
     /**
-     * The stack [family] is the first family of, or null where it is not one. The family
-     * the platform carries for itself answers with [platformDefaultChain].
+     * The stack [family] is the first family of, or null where it is not one. Where the
+     * renderer carries its own default family ([platformDefaultChain]), platform and generic
+     * families answer with [platformChainFor] so missing symbols still reach the bundled
+     * fallback faces.
      *
      * Asked by identity, not by equality, because the first family of a stack and the
      * face it was made from can be equal and must not be confused: only the stack carries
@@ -212,7 +214,7 @@ class ResolvedTheme(
             null
         } else {
             fontChains.firstOrNull { it.primary === family }
-                ?: platformDefaultChain?.takeIf { it.primary === family }
+                ?: platformChainFor(family)
         }
 
     /** The stack this role is set in, or null where the role is set in one face. */
@@ -366,6 +368,20 @@ var platformSansSerifFamily: FontFamily = FontFamily.SansSerif
  * for would be empty boxes.
  */
 var platformDefaultChain: FontChain? = null
+
+/**
+ * The chain for a platform or generic [family] when the renderer carries its own default
+ * family and fallback faces, or null where the machine's own fonts handle fallback.
+ *
+ * On a target with no system fonts, generic families such as `Monospace` and `Serif` and
+ * any named family resolve to the same embedded face, so symbols that face lacks must still
+ * pass through to `platformFallbackFamilies` instead of stopping at the primary.
+ */
+internal fun platformChainFor(family: FontFamily): FontChain? {
+    val default = platformDefaultChain ?: return null
+    if (default.primary === family) return default
+    return FontChain(listOf(FontChain.Member(family, default.members.first()::has)))
+}
 
 /**
  * The hand-written half of a design system: elevation rendering, `ButtonVariant` styling
@@ -1214,6 +1230,12 @@ data class SheetStyle(
     val padding: Dp,
     val borderWidth: Dp,
     val borderColor: Color,
+    /**
+     * The space kept above and below the handle, where the system's own sheet specifies one.
+     * Null means the sheet's [padding]: a handle sits in the padding the content would have
+     * had, and the content starts that far below it.
+     */
+    val handleGap: Dp? = null,
 )
 
 /**

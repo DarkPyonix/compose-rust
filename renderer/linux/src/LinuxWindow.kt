@@ -11,15 +11,25 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.foundation.DrawnOsMenuHost
+import dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
@@ -339,18 +349,38 @@ internal class LinuxWindow private constructor(
     override fun onAccessibilityAction(id: Int, action: Int, argument: String?): Boolean =
         semantics.perform(id, action, argument)
 
+    @Suppress("DEPRECATION")
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent {
-            CompositionLocalProvider(
-                LocalZoom provides zoom,
-                LocalDisplayScale provides displayScale,
-                LocalSystemDarkObserver provides { resolvedDark() },
-                // A node the application made a drag region (`WindowDrag(true)`) moves the
-                // window from the press it is holding: the window manager takes the pointer
-                // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { x11.startMove() },
-            ) {
-                content()
+            val defaultClipboard = LocalClipboard.current
+            val clipboard = remember(x11, defaultClipboard) {
+                LinuxWindowClipboard(
+                    readText = x11::readClipboardText,
+                    writeText = x11::writeClipboardText,
+                    native = { defaultClipboard.nativeClipboard },
+                )
+            }
+            val clipboardManager = remember(x11) {
+                LinuxWindowClipboardManager(
+                    readText = x11::readClipboardText,
+                    writeText = x11::writeClipboardText,
+                )
+            }
+            val drawnMenu = remember { DrawnOsMenuPresenter() }
+            DrawnOsMenuHost(drawnMenu) {
+                CompositionLocalProvider(
+                    LocalZoom provides zoom,
+                    LocalDisplayScale provides displayScale,
+                    LocalSystemDarkObserver provides { resolvedDark() },
+                    LocalClipboard provides clipboard,
+                    LocalClipboardManager provides clipboardManager,
+                    // A node the application made a drag region (`WindowDrag(true)`) moves the
+                    // window from the press it is holding: the window manager takes the pointer
+                    // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
+                    dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { x11.startMove() },
+                ) {
+                    content()
+                }
             }
         }
     }
@@ -557,5 +587,54 @@ internal class LinuxWindow private constructor(
         private const val SYNTHETIC_RESIZE_PAUSE_MILLISECONDS = 8L
 
         private const val DENSITY = 1.0f
+    }
+}
+
+/**
+ * Compose [Clipboard] backed by the X11 window's CLIPBOARD selection so drawn text menus
+ * enable Paste only when clipboard text is present and execute Cut/Copy/Paste through X11.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+internal class LinuxWindowClipboard(
+    private val readText: () -> String?,
+    private val writeText: (String) -> Unit,
+    private val native: () -> NativeClipboard,
+) : Clipboard {
+    override suspend fun getClipEntry(): ClipEntry? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { ClipEntry.withPlainText(it) }
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        writeText(clipEntry?.getPlainText().orEmpty())
+    }
+
+    override val nativeClipboard: NativeClipboard
+        get() = native()
+}
+
+/**
+ * Legacy [ClipboardManager] backed by the same X11 CLIPBOARD selection for callers that still
+ * read [LocalClipboardManager].
+ */
+@Suppress("DEPRECATION")
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+internal class LinuxWindowClipboardManager(
+    private val readText: () -> String?,
+    private val writeText: (String) -> Unit,
+) : ClipboardManager {
+    override fun getText(): AnnotatedString? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { AnnotatedString(it) }
+
+    override fun setText(annotatedString: AnnotatedString) {
+        writeText(annotatedString.text)
+    }
+
+    override fun hasText(): Boolean = !readText().isNullOrEmpty()
+
+    override fun getClip(): ClipEntry? =
+        readText()?.takeIf { it.isNotEmpty() }?.let { ClipEntry.withPlainText(it) }
+
+    @Suppress("GetterSetterNames")
+    override fun setClip(clipEntry: ClipEntry?) {
+        writeText(clipEntry?.getPlainText().orEmpty())
     }
 }

@@ -163,18 +163,26 @@ toggle! {
     ///
     /// `on_change` is called with the state the user asked for; the box changes only when
     /// `checked` does. `accessible_name` is the name assistive technology reads.
-    /// `container_color` is the box when it is checked, `check_color` the check mark, and
-    /// `size` the length of the box's side in dp. `on_motion_finished` runs once when the
-    /// node's size motion comes to rest.
+    /// `container_color` is the box when it is checked or mixed, `check_color` the check
+    /// mark or the dash, and `size` the length of the box's side in dp. The box's corners
+    /// follow the modifier's `corner_radius`, `corner_radii` or `shape_role`.
+    /// `indeterminate` makes the box mixed, whatever `checked` says: it is filled like a
+    /// checked box with a dash instead of the check, assistive technology hears it as
+    /// mixed, and a press asks for `true`. `outline_color` is the box's border in every
+    /// state. `on_motion_finished` runs once when the node's size motion comes to rest.
     Checkbox(checked),
     params: {
         #[default(None::<::compose_rust::ui::Paint>)]
         container_color: impl Into<Option<Paint>>,
         #[default(None::<::compose_rust::ui::Paint>)] check_color: impl Into<Option<Paint>>,
         #[default(None::<f32>)] size: impl Into<Option<f32>>,
+        #[default(false)] indeterminate: bool,
+        #[default(None::<::compose_rust::ui::Paint>)]
+        outline_color: impl Into<Option<Paint>>,
     },
     apply: |scope| {
-        set!(scope; container_color, check_color, size);
+        scope = scope.indeterminate(indeterminate);
+        set!(scope; container_color, check_color, size, outline_color);
     }
 }
 

@@ -6,6 +6,7 @@ disk image carries the notes that say how).
 
     package-macos app --manifest-dir . --executable target/release/app --out dist
     package-macos dmg --app dist/App.app --out dist/App-1.2.0.dmg
+    package-macos pkg --app dist/App.app --out dist/App-1.2.0.pkg --verify
 
 The bundle carries no update settings: direct distribution is packaged and updated with
 Velopack.
@@ -89,6 +90,13 @@ def command_dmg(args):
     print(bundle.dmg(args.app, args.out, args.volume_name or args.app.stem))
 
 
+def command_pkg(args):
+    pkg_path = bundle.pkg(args.app, args.out, sign_identity=args.sign_identity)
+    if args.verify:
+        bundle.verify_pkg(pkg_path, expect_signed=bool(args.sign_identity))
+    print(pkg_path)
+
+
 def parser():
     root = argparse.ArgumentParser(
         prog="package-macos", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -108,6 +116,13 @@ def parser():
     dmg.add_argument("--out", required=True, type=Path)
     dmg.add_argument("--volume-name")
     dmg.set_defaults(run=command_dmg)
+
+    pkg = commands.add_parser("pkg", help="a Mac App Store component installer package (.pkg)")
+    pkg.add_argument("--app", required=True, type=Path)
+    pkg.add_argument("--out", required=True, type=Path)
+    pkg.add_argument("--sign-identity", help="installer signing identity passed to productbuild --sign")
+    pkg.add_argument("--verify", action="store_true", help="check payload and signature with pkgutil")
+    pkg.set_defaults(run=command_pkg)
     return root
 
 
