@@ -40,8 +40,12 @@
 # What a release carries, per sample and target, named `<sample>-<target>.<ext>`:
 #   - every desktop target: `.tar.gz` of the executable;
 #   - macos-aarch64: a `.app` signed ad hoc (packager-macos, verified with
-#     `codesign --verify --deep --strict`) inside a `.dmg`;
-#   - linux-x64, linux-arm64: an `.AppImage` (packager-linux);
+#     `codesign --verify --deep --strict`) inside a `.dmg`, and a Mac App Store `.pkg`
+#     (`package-macos pkg --verify`, which reads it with pkgutil);
+#   - linux-x64, linux-arm64: an `.AppImage`, a `.deb` and an `.rpm` (packager-linux;
+#     `dpkg-deb --info` and `rpm -qp --info` are printed), and on linux-x64 a Flatpak
+#     bundle built by flatpak-builder from the Flathub manifest (Flathub builds the other
+#     architectures from the same manifest);
 #   - windows-x64: a `.zip` and an unsigned `.msix` (packager-windows, sideload channel).
 # Android ships an APK, iOS a simulator bundle, the web one archive of pages. Velopack
 # installers and updates are not part of this release yet (issues #3 and #4).
@@ -474,6 +478,11 @@ jobs:
                && uv run scripts/packager-macos/package-macos dmg --app "$bundle" \
                   --out "artifacts/$app-${{ matrix.target }}.dmg"; then
               ditto -c -k --keepParent "$bundle" "artifacts/$app-${{ matrix.target }}.app.zip"
+              # The Mac App Store installer package, unsigned here (no installer
+              # identity on the runner); pkgutil reads its payload and signature state.
+              uv run scripts/packager-macos/package-macos pkg --app "$bundle" \
+                  --out "artifacts/$app-${{ matrix.target }}.pkg" --verify \
+                || echo "::warning title=No store package::sample-$app was not packaged as a .pkg for ${{ matrix.target }}"
             else
               echo "::warning title=No application bundle::sample-$app was not packaged as a signed .app and .dmg for ${{ matrix.target }}"
             fi
@@ -556,6 +565,90 @@ jobs:
             fi
           done < built.txt
 
+      - name: Package each Linux sample as a .deb and an .rpm
+        # The distributions' own formats, laid out by packager-linux from the sample's
+        # Dioxus.toml and built by dpkg-deb and rpmbuild. xz, not zstd, so the bundle check
+        # reads the .deb with Python's own tarfile. Name, version and description are
+        # printed with dpkg-deb --info and rpm -qp --info; the bundle check compares them
+        # with the sample's.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          sudo apt-get install -y --no-install-recommends rpm
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          cargo build --release -p packager-linux
+          packager="$PWD/target/release/packager-linux"
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            icons=(--icon "samples/$app/assets/icon.png")
+            [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
+            common=(--dioxus-toml "samples/$app/Dioxus.toml" --overlay scripts/packager-linux/samples.toml
+                    --exec "sample-$app" "${icons[@]}" --version "$version"
+                    --payload "staging/$app/sample-$app")
+            stage="debs/$app"; rm -rf "$stage"
+            if "$packager" deb "${common[@]}" --out "$stage" >/dev/null \
+               && dpkg-deb --root-owner-group -Zxz --build "$stage" "artifacts/$app-${{ matrix.target }}.deb" >/dev/null; then
+              dpkg-deb --info "artifacts/$app-${{ matrix.target }}.deb"
+            else
+              echo "::warning title=No .deb::sample-$app was not packaged as a .deb for ${{ matrix.target }}"
+            fi
+            topdir="$PWD/rpms/$app"; rm -rf "$topdir"
+            if "$packager" rpm "${common[@]}" --out "$topdir" >/dev/null \
+               && spec="$(find "$topdir/SPECS" -name '*.spec' | head -n 1)" && [[ -n "$spec" ]] \
+               && rpmbuild --define "_topdir $topdir" -bb "$spec" >/dev/null \
+               && made="$(find "$topdir/RPMS" -name '*.rpm' | head -n 1)" && [[ -n "$made" ]]; then
+              mv "$made" "artifacts/$app-${{ matrix.target }}.rpm"
+              rpm -qp --info "artifacts/$app-${{ matrix.target }}.rpm"
+            else
+              echo "::warning title=No .rpm::sample-$app was not packaged as an .rpm for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
+      - name: Build each Linux sample as a Flatpak bundle
+        # The Flathub manifest (packager-linux flatpak.sh), built with Flathub's own builder
+        # from the sample's prebuilt archive, then exported as one .flatpak bundle. x64
+        # only: Flathub builds the other architectures from the same manifest.
+        if: runner.os == 'Linux' && matrix.target == 'linux-x64'
+        shell: bash
+        env:
+          FLATPAK_RUNTIME: "25.08"
+        run: |
+          set -uo pipefail
+          # Ubuntu 24.04 stops unprivileged user namespaces through AppArmor, and
+          # bubblewrap, which builds every sandbox, needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get install -y --no-install-recommends flatpak elfutils dbus-daemon patchelf
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install --noninteractive flathub org.flatpak.Builder \
+            "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME"
+          export FLATPAK_BUILDER="flatpak run --filesystem=$HOME/.local/share/flatpak --env=FLATPAK_USER_DIR=$HOME/.local/share/flatpak --command=flatpak-builder org.flatpak.Builder"
+          export PACKAGER_LINUX="$PWD/target/release/packager-linux"
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            [[ -f "artifacts/$app-${{ matrix.target }}.tar.gz" ]] || continue
+            id="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["bundle"]["identifier"])' "samples/$app/Dioxus.toml")"
+            icons=(--icon "samples/$app/assets/icon.png")
+            [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
+            out="$PWD/flatpaks/$app"; repo="$PWD/flatpaks/repo-$app"
+            rm -rf "$out" "$repo"; mkdir -p "$out"
+            cp "artifacts/$app-${{ matrix.target }}.tar.gz" "$out/"
+            # flatpak talks to its system helper over the session bus, which a runner has
+            # none of until one is started.
+            if dbus-run-session -- scripts/packager-linux/flatpak.sh \
+                 --dioxus-toml "samples/$app/Dioxus.toml" --overlay scripts/packager-linux/samples.toml \
+                 --exec "sample-$app" "${icons[@]}" --version "$version" \
+                 --prebuilt-path "$app-${{ matrix.target }}.tar.gz" \
+                 --out "$out" --build "$repo" \
+               && flatpak build-bundle "$repo" "artifacts/$app-${{ matrix.target }}.flatpak" "$id"; then
+              echo "built $id"
+            else
+              echo "::warning title=No Flatpak::sample-$app was not built as a Flatpak for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
       - name: Record checksums
         shell: bash
         run: |
@@ -563,7 +656,7 @@ jobs:
           cd artifacts
           # find, not a glob list: no platform makes every file type, and a pattern that
           # matches nothing must not end the step under pipefail.
-          files="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.msix' -o -name '*.dmg' \) | sed 's#^\./##' | sort -u)"
+          files="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.msix' -o -name '*.dmg' -o -name '*.pkg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \) | sed 's#^\./##' | sort -u)"
           if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
           # shellcheck disable=SC2086
           "${sum[@]}" $files > "SHA256SUMS-${{ matrix.target }}"
@@ -574,8 +667,7 @@ jobs:
         # metadata and nothing else, the executable loads only the system's libraries and
         # nothing by a path on this machine, the name, identifier, description and
         # version are the sample's, the MSIX is unsigned, and the checksum list covers
-        # every file. A format a sample lost in packaging is a warning and goes in the
-        # release notes; a bundle that is wrong inside fails the run.
+        # every file. A missing format or a bundle that is wrong inside fails the run.
         shell: bash
         run: |
           set -euo pipefail
@@ -934,12 +1026,15 @@ jobs:
             echo
             echo 'Verify with `shasum -a 256 -c SHA256SUMS-<platform>`.'
             echo
-            echo "Linux also ships each sample as an AppImage. Make it executable and run it."
+            echo "Linux also ships each sample as an AppImage (make it executable and run it),"
+            echo "a .deb and an .rpm (install with apt or dnf), and on x64 a Flatpak bundle"
+            echo "(flatpak install --user <file>.flatpak)."
             echo
             echo "macOS also ships each sample as a .app inside a .dmg (and the .app as a"
             echo ".app.zip). The app is signed ad hoc, not by an Apple developer identity, so"
             echo "Gatekeeper blocks the first launch of a downloaded copy: right-click the app"
-            echo "and choose Open, or run xattr -dr com.apple.quarantine <App>.app."
+            echo "and choose Open, or run xattr -dr com.apple.quarantine <App>.app. The .pkg"
+            echo "is the Mac App Store installer package, unsigned; it is for store submission."
             echo
             echo "Windows also ships a .zip and an unsigned .msix. Installing the MSIX needs"
             echo "Windows developer mode, or signing it again with a certificate the machine"
@@ -954,7 +1049,7 @@ jobs:
             echo
             echo "Built in this release:"
             echo
-            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.dmg artifacts/*.zip artifacts/*.msix artifacts/*.apk; do
+            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm artifacts/*.flatpak artifacts/*.dmg artifacts/*.pkg artifacts/*.zip artifacts/*.msix artifacts/*.apk; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
             done
