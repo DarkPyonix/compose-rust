@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.runtime.TearOffTargets
 import dev.darkpyonix.composerust.runtime.TearOffTrigger
 import dev.darkpyonix.composerust.runtime.reduceTransparency
 import kotlinx.cinterop.ObjCObjectBase.OverrideInit
+import kotlinx.cinterop.ObjCSignatureOverride
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -29,6 +30,7 @@ import platform.Foundation.NSItemProvider
 import platform.Foundation.NSItemProviderRepresentationVisibilityAll
 import platform.Foundation.NSItemProviderWritingProtocol
 import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSNumber
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSStringFromClass
 import platform.Foundation.NSUserActivity
@@ -42,6 +44,13 @@ import platform.UIKit.UIDragInteraction
 import platform.UIKit.UIDragInteractionDelegateProtocol
 import platform.UIKit.UIDragItem
 import platform.UIKit.UIDragSessionProtocol
+import platform.UIKit.UIDropInteraction
+import platform.UIKit.UIDropInteractionDelegateProtocol
+import platform.UIKit.UIDropOperationCancel
+import platform.UIKit.UIDropOperationMove
+import platform.UIKit.UIDropProposal
+import platform.UIKit.UIDropSessionProtocol
+import platform.UIKit.UIView
 import platform.UIKit.UIResponder
 import platform.UIKit.UIResponderMeta
 import platform.UIKit.UIScene
@@ -136,12 +145,87 @@ internal class IosTearOffDragDelegate(
         val key = itemsForBeginningSession.locationInView(view).useContents {
             TearOffTargets.keyAt(windowId, (x * scale).toFloat(), (y * scale).toFloat())
         } ?: return emptyList<Any>()
+        // Which window the tab comes from, for the other scenes it passes over. A session's
+        // local context is seen only inside this application, as Android's local state is.
+        itemsForBeginningSession.localContext = windowId
         val activity = IosWindowBackend.tearOffUserActivity(key)
         val provider = NSItemProvider()
         provider.registerObject(activity as NSItemProviderWritingProtocol, NSItemProviderRepresentationVisibilityAll)
         val item = UIDragItem(itemProvider = provider)
         item.localObject = activity
         return listOf(item)
+    }
+}
+
+/**
+ * The `UIDropInteraction` delegate of one scene's window, which tells the scene's drop targets
+ * about a tab dragged out of another scene (`WindowDragOver`).
+ *
+ * Only a drag this application started as a tear-off is taken: its session is local and its
+ * local context is the `Window` node the tab came from. Every place the tab passes goes to the
+ * window manager, which decides as it does for Android: the registered node under the tab in
+ * this window hears Enter, a Move once per frame, Leave and Drop, and the window the tab came
+ * from is never a target. The window proposes to take the drop only over such a node; anywhere
+ * else the drop stays the system's, so a tab let go at the edge of the screen still becomes a
+ * scene of its own. A place is the touch in points, which are this window's dp; the drop
+ * targets scale it by the screen's pixels per point, the pixels the content was laid out in.
+ */
+internal class IosTabDropDelegate(
+    private val windowNodeId: () -> Int,
+    private val manager: () -> WindowManager?,
+) : NSObject(), UIDropInteractionDelegateProtocol {
+    /** The `Window` node the tab of [session] came from, or null for a drag that is not a tear-off. */
+    private fun sourceOf(session: UIDropSessionProtocol): Int? =
+        when (val context = session.localDragSession?.localContext) {
+            is Number -> context.toInt()
+            is NSNumber -> context.intValue
+            else -> null
+        }
+
+    private fun place(interaction: UIDropInteraction, session: UIDropSessionProtocol): Pair<Float, Float>? {
+        val view: UIView = interaction.view ?: return null
+        return session.locationInView(view).useContents { x.toFloat() to y.toFloat() }
+    }
+
+    override fun dropInteraction(interaction: UIDropInteraction, canHandleSession: UIDropSessionProtocol): Boolean =
+        sourceOf(canHandleSession) != null
+
+    @ObjCSignatureOverride
+    override fun dropInteraction(interaction: UIDropInteraction, sessionDidEnter: UIDropSessionProtocol) {
+        // The first place arrives with the first update.
+    }
+
+    @ObjCSignatureOverride
+    override fun dropInteraction(interaction: UIDropInteraction, sessionDidUpdate: UIDropSessionProtocol): UIDropProposal {
+        val source = sourceOf(sessionDidUpdate)
+        val windows = manager()
+        val window = windowNodeId()
+        val at = place(interaction, sessionDidUpdate)
+        if (source == null || windows == null || window == 0 || at == null) {
+            return UIDropProposal(dropOperation = UIDropOperationCancel)
+        }
+        windows.tabDragMoved(window, source, at.first, at.second)
+        // Moves are sent once per frame, so a frame is asked for.
+        FrameRequests.request()
+        val lands = windows.tabDragLands(window, source, at.first, at.second)
+        return UIDropProposal(dropOperation = if (lands) UIDropOperationMove else UIDropOperationCancel)
+    }
+
+    @ObjCSignatureOverride
+    override fun dropInteraction(interaction: UIDropInteraction, sessionDidExit: UIDropSessionProtocol) {
+        manager()?.tabDragExited(windowNodeId())
+    }
+
+    @ObjCSignatureOverride
+    override fun dropInteraction(interaction: UIDropInteraction, performDrop: UIDropSessionProtocol) {
+        val source = sourceOf(performDrop) ?: return
+        val at = place(interaction, performDrop) ?: return
+        manager()?.tabDropped(windowNodeId(), source, at.first, at.second)
+    }
+
+    @ObjCSignatureOverride
+    override fun dropInteraction(interaction: UIDropInteraction, sessionDidEnd: UIDropSessionProtocol) {
+        manager()?.tabDragEnded()
     }
 }
 
@@ -170,6 +254,9 @@ private object IosRendererSession {
 
     /** The drag interactions' delegates, which UIKit holds weakly, one per scene window. */
     private val tearOffDelegates = HashMap<UIWindow, IosTearOffDragDelegate>()
+
+    /** The drop interactions' delegates, which UIKit also holds weakly, one per scene window. */
+    private val tabDropDelegates = HashMap<UIWindow, IosTabDropDelegate>()
 
     /**
      * This process' token. A scene session keeps its `userInfo` after the process dies, and a
@@ -239,7 +326,15 @@ private object IosRendererSession {
             initialSession = initialSession,
             processToken = processToken,
         )
-        val manager = WindowManager(currentHost, backend, onExit = {})
+        // A tab dragged over a scene finds the node under it from where the scene's content
+        // laid its registered nodes out, in pixels: a point of the touch is the screen's
+        // scale in pixels.
+        val manager = WindowManager(
+            currentHost,
+            backend,
+            onExit = {},
+            dropTargets = DropTargets.registered { _ -> UIScreen.mainScreen.scale.toFloat() },
+        )
         if (backend.supportsMultipleWindows) manager.tearOffDrag = IosTearOffGesture
         windowBackend = backend
         windowManager = manager
@@ -276,6 +371,9 @@ private object IosRendererSession {
         if (windowNodeId != 0 && windowBackend?.supportsMultipleWindows == true) {
             val delegate = IosTearOffDragDelegate { windowNodeId }
             tearOffDelegates[window] = delegate
+            val drops = IosTabDropDelegate({ windowNodeId }, { windowManager })
+            tabDropDelegates[window] = drops
+            window.addInteraction(UIDropInteraction(delegate = drops))
             window.addInteraction(UIDragInteraction(delegate = delegate))
         }
         val content = ComposeUIViewController(
@@ -312,6 +410,7 @@ private object IosRendererSession {
     /** A scene's window went away with its scene: its drag delegate goes too. */
     fun forgetWindow(window: UIWindow) {
         tearOffDelegates.remove(window)
+        tabDropDelegates.remove(window)
     }
 
     fun discardSessions(sessions: Set<*>) {
