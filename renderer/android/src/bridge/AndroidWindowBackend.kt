@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui.platform
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Intent
@@ -221,25 +222,58 @@ class AndroidWindowBackend(
     }
 
     /**
-     * Starts an Android 12L+ drag-to-split gesture for a `TearOffKey` node.
+     * Starts the platform drag that tears a `TearOffKey` node out into a window of its own.
      *
-     * Drops onto a split-screen edge launch a new document Activity carrying [restoreKey],
-     * which reports `WindowRequested` back to the Host. Returns false on older API levels or
-     * when no root Activity is attached.
+     * Works on Android 15 (API 35) and later. The drag carries an immutable [PendingIntent]
+     * for the window Activity (`FLAG_ACTIVITY_NEW_DOCUMENT | FLAG_ACTIVITY_MULTIPLE_TASK`,
+     * [restoreKey] in [EXTRA_WINDOW_RESTORE_KEY]) as the clip item's `IntentSender`, and is
+     * started with `DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG`. When the user drops it
+     * where no window takes it, the system may start that Activity, for example into split
+     * screen or a free-form window. The system decides from the screen size and the windowing
+     * mode; when it does not start it, the drag ends as cancelled and nothing is reported.
+     * The started Activity reaches [activityCreated] with no node id and the key, which asks
+     * the Host for a window under that key (`WindowRequested`).
+     *
+     * `DRAG_FLAG_GLOBAL_SAME_APPLICATION` keeps the clip, and with it the `IntentSender`,
+     * away from other applications while still letting the application's other windows see
+     * the drag pass over them.
+     *
+     * Each key gets its own PendingIntent: the intent's identifier is part of the identity the
+     * system matches PendingIntents by, and extras are not, so two keys never share one and
+     * a drag never starts a window under an older key. The request code is derived from the
+     * key as well.
+     *
+     * Returns false, and starts nothing, below Android 15, for an empty key, when the device
+     * cannot show more than one window, or when no Activity is attached. Before Android 15
+     * the public API has no way for an application's own drag to start an Activity, so the
+     * application offers the same thing as a menu action that puts a `Window` node in.
      */
     fun startTearOffDrag(view: View, restoreKey: String): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S_V2 || restoreKey.isEmpty()) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM || restoreKey.isEmpty()) return false
+        if (!supportsMultipleWindows) return false
         val currentRoot = rootActivity ?: return false
         val targetClass = windowActivityClass ?: currentRoot::class.java
         val intent = Intent(currentRoot, targetClass).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             putExtra(EXTRA_WINDOW_RESTORE_KEY, restoreKey)
+            setIdentifier(TEAR_OFF_IDENTIFIER_PREFIX + restoreKey)
         }
-        val clip = ClipData(
-            ClipDescription(restoreKey, arrayOf(ClipDescription.MIMETYPE_APPLICATION_ACTIVITY)),
-            ClipData.Item(intent),
+        val pendingIntent = PendingIntent.getActivity(
+            currentRoot,
+            restoreKey.hashCode(),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return view.startDragAndDrop(clip, View.DragShadowBuilder(view), null, View.DRAG_FLAG_GLOBAL)
+        val clip = ClipData(
+            ClipDescription(restoreKey, arrayOf(MIMETYPE_TEAR_OFF)),
+            ClipData.Item.Builder().setIntentSender(pendingIntent.intentSender).build(),
+        )
+        return view.startDragAndDrop(
+            clip,
+            View.DragShadowBuilder(view),
+            null,
+            View.DRAG_FLAG_GLOBAL_SAME_APPLICATION or View.DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG,
+        )
     }
 
     /**
@@ -283,5 +317,10 @@ class AndroidWindowBackend(
     companion object {
         const val EXTRA_WINDOW_NODE_ID = "dev.darkpyonix.composerust.WINDOW_NODE_ID"
         const val EXTRA_WINDOW_RESTORE_KEY = "dev.darkpyonix.composerust.WINDOW_RESTORE_KEY"
+
+        /** The MIME type of a tear-off drag, so a window it passes over can tell it apart. */
+        const val MIMETYPE_TEAR_OFF = "application/vnd.dev.darkpyonix.composerust.tear-off"
+
+        private const val TEAR_OFF_IDENTIFIER_PREFIX = "dev.darkpyonix.composerust.tear-off:"
     }
 }

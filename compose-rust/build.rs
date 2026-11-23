@@ -1100,7 +1100,14 @@ class MainActivity : ComponentActivity() {{
         val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey)
         activityWindow = boundWindow
         windowNodeId = boundWindow?.nodeId ?: requestedNodeId
-        if (windowNodeId != 0 && !isTaskRoot) {{
+        // Back closes a window of its own (one the renderer opened, a torn-off one, or one
+        // revived from recents) by asking the application. Such a window is the root of its
+        // own document task, so the task root cannot tell it apart from the first window;
+        // the intent can, because only the renderer's own launches carry these extras, and
+        // the intent survives recreation and process death.
+        val launchedAsWindow = intent.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID) ||
+            intent.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY)
+        if (windowNodeId != 0 && launchedAsWindow) {{
             onBackPressedDispatcher.addCallback(
                 this,
                 object : OnBackPressedCallback(true) {{
