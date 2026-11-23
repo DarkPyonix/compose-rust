@@ -1149,18 +1149,79 @@ fn read_artifact_version(lib_dir: &Path) -> Option<String> {
     None
 }
 
-/// The escape hatch every failure here ends with. It is the same two lines every time on
+/// Where the build scripts these messages name live. The published crate carries none of
+/// them, so a message that names one says it is in a checkout of this repository.
+pub const REPOSITORY_URL: &str = "https://github.com/DarkPyonix/compose-rust";
+
+/// The escape hatch every failure here ends with. It is the same lines every time on
 /// purpose: whatever went wrong, pointing the variable at a renderer is the way past it.
 fn build_it_yourself(crate_version: &str, target: &str) -> String {
     let artifact = artifact_file_name(crate_version, target);
     format!(
-        "Any renderer you already have works too. Unpack {artifact}, or build one from a\n\
-         checkout of the repository: the static archive with\n\
-         renderer/desktop/scripts/build-macos.sh or\n\
+        "Any renderer you already have works too. Unpack {artifact}, or build one in a\n\
+         checkout of the compose-rust repository ({REPOSITORY_URL}): the static archive\n\
+         with renderer/desktop/scripts/build-macos.sh or\n\
          renderer/desktop/scripts/build-linux.sh, the shared library with\n\
          renderer/desktop/scripts/build-native.sh. Then set\n\
          {RENDERER_DIR_ENV} to the directory it wrote. The variable is checked first and\n\
          nothing is downloaded when it is set."
+    )
+}
+
+/// A static-renderer variable (`COMPOSE_RUST_MACOS_STATIC_DIR` and its Linux twin) names a
+/// directory without the archive in it.
+pub fn static_override_missing_message(dir: &Path, archive: &str) -> String {
+    format!(
+        "compose-rust: {dir} does not hold {archive}.\n\
+         \n\
+         The variable names the directory a static renderer build wrote. In a checkout of\n\
+         the compose-rust repository ({REPOSITORY_URL}),\n\
+         renderer/desktop/scripts/build-macos.sh writes renderer/build/macos and\n\
+         renderer/desktop/scripts/build-linux.sh writes renderer/build/linux. Unset the\n\
+         variable and this build finds or downloads a renderer by itself.",
+        dir = dir.display()
+    )
+}
+
+/// What to do about a Windows renderer kit that is incomplete or unreadable. The kit is
+/// either a download in the cache, which can simply be fetched again, or a directory
+/// someone built and named with a variable.
+fn windows_kit_way_out(dir: &Path) -> String {
+    format!(
+        "If {dir} is in the renderer cache, delete it and build again: the next build\n\
+         downloads the kit again. If you built the kit yourself in a checkout of the\n\
+         compose-rust repository ({REPOSITORY_URL}), run\n\
+         renderer/desktop/scripts/build-windows.sh again, or set DXC_WINDOWS_NATIVE_LIB\n\
+         (or {RENDERER_DIR_ENV}) to the directory it wrote.",
+        dir = dir.display()
+    )
+}
+
+/// A Windows renderer kit without one of the pieces an MSVC link needs.
+pub fn windows_kit_incomplete_message(dir: &Path, piece: &str, what: &str) -> String {
+    format!(
+        "compose-rust: the Windows renderer kit at {} has no {piece} ({what}).\n\
+         \n\
+         {}",
+        dir.display(),
+        windows_kit_way_out(dir)
+    )
+}
+
+/// A library the Windows link rewrites that could not be read: one of the kit at `kit`, or,
+/// with no kit, one of the MSVC tools themselves.
+pub fn windows_library_unreadable_message(library: &Path, error: &str, kit: Option<&Path>) -> String {
+    let way_out = match kit {
+        Some(kit) => windows_kit_way_out(kit),
+        None => "It comes with the MSVC C++ build tools. Install or repair them (the Visual\n\
+                 Studio Installer's \"Desktop development with C++\") and build again."
+            .to_owned(),
+    };
+    format!(
+        "compose-rust: could not read {}: {error}\n\
+         \n\
+         {way_out}",
+        library.display()
     )
 }
 
@@ -1549,6 +1610,14 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
         no_static_link_message("freebsd-x64", sample_dir),
         version_mismatch_message(sample_dir, "0.1.0", version, target),
         build_it_yourself(version, target),
+        static_override_missing_message(sample_dir, renderer_static_file("macos")),
+        windows_kit_incomplete_message(sample_dir, "skiko/skia.lib", "Skia"),
+        windows_library_unreadable_message(
+            &sample_dir.join("skiko").join("skia.lib"),
+            "permission denied",
+            Some(sample_dir),
+        ),
+        windows_library_unreadable_message(&sample_dir.join("libcpmt.lib"), "no such file", None),
     ]
 }
 
