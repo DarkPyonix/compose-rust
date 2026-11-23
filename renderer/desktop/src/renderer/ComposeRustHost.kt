@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -613,17 +614,27 @@ private fun ComposeRustTree(
     // the layout callback below, which runs after that composition's effects.
     val reportInputs = remember(host, windowNodeId) { WindowReportInputs() }
     val measured = Modifier.onSizeChanged { size ->
+        with(density) { sizeClass = windowSizeClassOf(size.width.toDp().value) }
+        measuredSize = size
+    }.onGloballyPositioned { coordinates ->
+        // The Host is told in the frame that measured the window, as it is told an
+        // observed node's size. Waiting for the recomposition the write above schedules
+        // means waiting for a second frame, and a window that draws only when asked
+        // (macOS) can go a long time without one while the Host lays its page out for
+        // a 0x0, compact window. The reporter drops a repeat, so the effect below,
+        // which still reports a change of the safe area, sends nothing twice, and a
+        // window that only moved says nothing.
+        //
+        // From here and not from onSizeChanged, which runs inside the measure pass. The
+        // Host answers a size by laying its page out again before the call returns, and
+        // asks this side to measure the nodes on that page. Measuring a node is a layout
+        // of its own, and Compose refuses to start one while another is running
+        // ("performMeasureAndLayout called during measure layout"), so every such node
+        // came back unmeasured on every resize. This callback runs once the pass that
+        // measured the window is over, before the frame is drawn.
+        val size = coordinates.size
         with(density) {
-            val widthDp = size.width.toDp().value
-            sizeClass = windowSizeClassOf(widthDp)
-            measuredSize = size
-            // The Host is told from the layout that measured the window, as it is told an
-            // observed node's size. Waiting for the recomposition the write above schedules
-            // means waiting for a second frame, and a window that draws only when asked
-            // (macOS) can go a long time without one while the Host lays its page out for
-            // a 0x0, compact window. The reporter drops a repeat, so the effect below,
-            // which still reports a change of the safe area, sends nothing twice.
-            reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
+            reporter.report(size.width.toDp().value, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
     // Whether anything in the tree asked to be made of a material when the window opened.
