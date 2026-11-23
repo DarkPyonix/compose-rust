@@ -55,6 +55,13 @@ native-renderer = []
 # resources fail the link: `default-features = false, features = ["native-renderer"]`.
 # Does nothing on other platforms.
 windows-manifest = []
+# For an application that runs several windows (`LaunchBuilder::windows()`) on Android.
+# Declares in the generated manifest that the system UI may start the application's
+# Activity as another instance, which is how a window torn off the application opens in
+# split screen or a desktop window; without it Android 16 refuses that launch. Off by
+# default because the build cannot see whether the application asks for windows, and a
+# one-window application should not be started twice. Does nothing on other platforms.
+android-multi-instance = []
 
 # Nothing from Dioxus, on purpose. This crate is the boundary, the protocol and the records,
 # and its dependency graph has no Dioxus crate in it. The Dioxus authoring layer lives in

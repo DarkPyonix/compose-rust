@@ -1813,6 +1813,54 @@ pub fn with_keyboard_resize(manifest: &str) -> Option<String> {
     Some(text)
 }
 
+/// The manifest property that tells the system UI an Activity may run as several
+/// instances (`WindowManager.PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI`, API 35).
+pub const ANDROID_MULTI_INSTANCE_PROPERTY: &str =
+    "android.window.PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI";
+
+/// The application's manifest with its first Activity declaring that the system UI may
+/// start it as another instance, or `None` when it already declares the property (either
+/// way) or has no `<activity>` to declare it on.
+///
+/// A window torn off a multi-window application is started by the system: the drag
+/// carries an intent for the same Activity, and split screen or desktop windowing launches
+/// it when the drop lands at a screen edge or on the desktop. Android 16 refuses that
+/// launch for an Activity that does not declare the property, and logs that the app does
+/// not support multi-instance. The Activity is the one the build generates, and it is the
+/// one the tear-off starts, so the property goes on that.
+pub fn with_multi_instance(manifest: &str) -> Option<String> {
+    if manifest.contains(ANDROID_MULTI_INSTANCE_PROPERTY) {
+        return None;
+    }
+    let open = manifest
+        .match_indices("<activity")
+        .map(|(at, _)| at)
+        .find(|&at| {
+            manifest[at + "<activity".len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+        })?;
+    let close = open + manifest[open..].find('>')?;
+    let property = format!(
+        "<property android:name=\"{ANDROID_MULTI_INSTANCE_PROPERTY}\" android:value=\"true\" />"
+    );
+    let mut text = String::with_capacity(manifest.len() + property.len() + 32);
+    if manifest[..close].ends_with('/') {
+        // `<activity ... />` has no body to put the property in, so it gets one.
+        text.push_str(manifest[..close - 1].trim_end());
+        text.push_str(">\n            ");
+        text.push_str(&property);
+        text.push_str("\n        </activity>");
+    } else {
+        text.push_str(&manifest[..=close]);
+        text.push_str("\n            ");
+        text.push_str(&property);
+    }
+    text.push_str(&manifest[close + 1..]);
+    Some(text)
+}
+
 /// Puts Compose into an application module's generated `build.gradle.kts`.
 ///
 /// The Dioxus CLI generates this file and offers `gradle_plugins` for adding to it, but
