@@ -125,6 +125,67 @@ def zipped(path, entries):
             archive.writestr(name, payload)
 
 
+def targz(members):
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, payload in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o755
+            archive.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def deb(path, control, files):
+    """A .deb as dpkg-deb --build writes it: an ar archive of debian-binary,
+    control.tar.gz and data.tar.gz."""
+    members = [
+        ("debian-binary", b"2.0\n"),
+        ("control.tar.gz", targz([("./control", control.encode())])),
+        ("data.tar.gz", targz(files)),
+    ]
+    out = b"!<arch>\n"
+    for name, data in members:
+        out += f"{name:<16}{0:<12}{0:<6}{0:<6}{'100644':<8}{len(data):<10}`\n".encode() + data
+        if len(data) % 2:
+            out += b"\n"
+    path.write_bytes(out)
+
+
+def rpm_header(entries):
+    """An RPM header structure: magic, index entries, then the data store."""
+    index, store = b"", b""
+    for tag, kind, value in entries:
+        if kind == 4:
+            store += bytes(-len(store) % 4)
+            offset, count = len(store), len(value)
+            store += b"".join(struct.pack(">i", v) for v in value)
+        elif kind in (8, 9):
+            offset, count = len(store), len(value)
+            store += b"".join(v.encode() + b"\0" for v in value)
+        else:
+            offset, count = len(store), 1
+            store += value.encode() + b"\0"
+        index += struct.pack(">IIiI", tag, kind, offset, count)
+    return b"\x8e\xad\xe8\x01" + bytes(4) + struct.pack(">II", len(entries), len(store)) + index + store
+
+
+def rpm(path, name, version, summary, files):
+    """An .rpm as rpmbuild writes it, as far as `rpm -qp --info` and `-qpl` read it."""
+    lead = b"\xed\xab\xee\xdb" + bytes([3, 0]) + struct.pack(">hh", 0, 1) + name.encode().ljust(66, b"\0")
+    lead += struct.pack(">hh", 1, 5) + bytes(16)
+    signature = rpm_header([(1000, 4, [0])])
+    signature += bytes(-len(signature) % 8)
+    dirs = sorted({f.rsplit("/", 1)[0] + "/" for f in files})
+    header = rpm_header([
+        (1000, 6, name), (1001, 6, version), (1004, 9, [summary]),
+        (1116, 4, [dirs.index(f.rsplit("/", 1)[0] + "/") for f in files]),
+        (1117, 8, [f.rsplit("/", 1)[1] for f in files]),
+        (1118, 8, dirs),
+    ])
+    path.write_bytes(lead + signature + header)
+
+
 platform = target.split("-")[0]
 if platform == "windows":
     imports = ["KERNEL32.dll", "USER32.dll"] + (["compose_rust_renderer.dll"] if fault == "renderer-dll" else [])
@@ -178,6 +239,25 @@ elif platform == "linux":
         appimage_path = artifacts / f"demo-{target}.AppImage"
         appimage_path.write_text(appimage)
         appimage_path.chmod(0o755)
+    ident = "dev.example.samples.demo"
+    payload = [
+        ("./usr/bin/sample-demo", exe),
+        (f"./usr/share/applications/{ident}.desktop", b"[Desktop Entry]\nName=Demo\n"),
+        (f"./usr/share/metainfo/{ident}.metainfo.xml", b"<component/>"),
+        (f"./usr/share/icons/hicolor/64x64/apps/{ident}.png", b"\x89PNG\r\n\x1a\n"),
+    ]
+    if fault == "extra-file":
+        payload.append(("./usr/lib/sample-demo/libskiko.so", b"\x7fELF"))
+    deb_version = "9.9.9" if fault == "wrong-package-version" else VERSION
+    if fault != "missing-deb":
+        deb(artifacts / f"demo-{target}.deb",
+            f"Package: sample-demo\nVersion: {deb_version}\nArchitecture: amd64\n"
+            "Description: A demonstration.\n A demonstration.\n", payload)
+    rpm_name = "not-the-sample" if fault == "wrong-package-name" else "sample-demo"
+    rpm(artifacts / f"demo-{target}.rpm", rpm_name, VERSION, "A demonstration.",
+        [path[1:] for path, _ in payload])
+    if target == "linux-x64" and fault != "missing-flatpak":
+        (artifacts / f"demo-{target}.flatpak").write_bytes(b"flatpak-bundle-fixture")
 else:
     libraries = ["/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"]
     if fault == "absolute-renderer":
@@ -219,6 +299,26 @@ else:
                      "-srcfolder", str(stage), "-ov", "-format", "UDZO", str(dmg_path)],
                     check=True,
                 )
+
+if platform == "macos" and fault != "missing-pkg":
+    pkg_path = artifacts / f"demo-{target}.pkg"
+    if sys.platform != "darwin":
+        pkg_path.write_bytes(b"xar!pkg-fixture")
+    else:
+        with tempfile.TemporaryDirectory(dir=case) as root_dir:
+            root = Path(root_dir)
+            for rel, payload in entries:
+                dest = root / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(payload)
+            if fault == "pkg-extra-file":
+                (root / "Demo.app/Contents/Frameworks").mkdir(parents=True)
+                (root / "Demo.app/Contents/Frameworks/libskiko.dylib").write_bytes(b"\xcf\xfa\xed\xfe")
+            subprocess.run(
+                ["pkgbuild", "--quiet", "--root", str(root), "--identifier", "dev.example.samples.demo",
+                 "--version", VERSION, "--install-location", "/Applications", str(pkg_path)],
+                check=True,
+            )
 
 sums = []
 for path in sorted(artifacts.iterdir()):
@@ -294,6 +394,22 @@ if grep -qx "demo linux-x64 AppImage" "$scratch/fr22_6_5_allow_missing_opt_in_wa
 else
     fail "fr22_6_5_allow_missing_opt_in_records_skipped_format: skipped-linux-x64.txt does not name it"
 fi
+run_case fr22_6_5_linux_arm64_bundles_that_are_right_pass linux-arm64 "" ok "ok    demo-linux-arm64.rpm"
+run_case fr22_6_5_a_missing_deb_fails linux-x64 missing-deb fail \
+    "::error title=Format missing::sample-demo has no .deb for linux-x64"
+run_case fr22_6_5_a_missing_flatpak_fails linux-x64 missing-flatpak fail \
+    "::error title=Format missing::sample-demo has no .flatpak for linux-x64"
+run_case fr22_6_5_a_missing_pkg_fails macos-aarch64 missing-pkg fail \
+    "::error title=Format missing::sample-demo has no .pkg for macos-aarch64"
+run_case fr22_6_5_a_renderer_library_in_the_deb_fails linux-x64 extra-file fail "holds usr/lib/sample-demo/libskiko.so"
+run_case fr22_6_6_a_deb_version_other_than_the_release_fails linux-x64 wrong-package-version fail \
+    "Version is '9.9.9'"
+run_case fr22_6_6_an_rpm_name_other_than_the_samples_fails linux-x64 wrong-package-name fail \
+    "Name is 'not-the-sample'"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    run_case fr22_6_8_a_renderer_library_in_the_pkg_fails macos-aarch64 pkg-extra-file fail \
+        "Frameworks/libskiko.dylib" $([[ "$SAMPLE_BUNDLES_CAN_MOUNT_DMG" -eq 0 ]] && echo --allow-missing)
+fi
 run_case fr22_6_1_a_wrong_digest_fails windows-x64 bad-digest fail "records 0000"
 run_case fr22_6_1_a_file_missing_from_the_checksums_fails macos-aarch64 unlisted fail "does not list demo-macos-aarch64.tar.gz"
 run_case fr22_6_2_a_renderer_library_beside_the_executable_fails_on_windows windows-x64 extra-file fail \
@@ -322,6 +438,14 @@ if grep -q 'check-sample-bundles.py' "$workflow"; then
 else
     fail "fr22_6_1_the_samples_workflow_runs_the_check: test-samples.yml does not call it"
 fi
+for step in '"$packager" deb' 'dpkg-deb --root-owner-group -Zxz --build' '"$packager" rpm' 'rpmbuild ' \
+            'flatpak build-bundle' 'package-macos pkg'; do
+    if grep -qF -- "$step" "$workflow"; then
+        pass "fr22_6_5_the_samples_workflow_makes ($step)"
+    else
+        fail "fr22_6_5_the_samples_workflow_makes ($step): test-samples.yml has no '$step'"
+    fi
+done
 if grep -q -- '--allow-missing' "$workflow"; then
     fail "fr22_6_5_the_samples_workflow_fails_on_missing_formats: test-samples.yml passes --allow-missing"
 else
