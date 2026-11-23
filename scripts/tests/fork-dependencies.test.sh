@@ -39,6 +39,8 @@ material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
 tree="$work/tree"
 mkdir -p "$tree/renderer/scripts" "$tree/bin"
 cp "$repo"/renderer/scripts/*.sh "$tree/renderer/scripts/"
+# build-compose.sh installs this file as a Gradle init script when a mirror is configured.
+cp "$repo/renderer/scripts/maven-central-mirror.gradle" "$tree/renderer/scripts/"
 for module in macos desktop linux; do
     mkdir -p "$tree/renderer/$module"
     cp "$repo/renderer/$module/module.yaml" "$tree/renderer/$module/"

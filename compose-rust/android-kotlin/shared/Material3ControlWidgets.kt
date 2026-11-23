@@ -13,6 +13,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.state.ToggleableState
 import dev.darkpyonix.composerust.protocol.ColorRole
 
 /**
@@ -55,19 +57,34 @@ internal object Material3ControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         look: ControlLook,
+        indeterminate: Boolean,
     ) {
-        // The library's Switch and Checkbox have fixed metrics, so a size or a colour the
-        // application named for them is drawn by the shared control drawing instead, which
-        // also owns the transition and the toggle semantics.
+        // The library's Switch and Checkbox have fixed metrics, so a size, a colour or a
+        // corner shape the application named for them is drawn by the shared control drawing
+        // instead, which also owns the transition and the toggle semantics.
         if (look.appliesTo(role)) {
-            DrawnControlWidgets.Toggle(role, checked, enabled, onChange, modifier, theme, look)
+            DrawnControlWidgets.Toggle(role, checked, enabled, onChange, modifier, theme, look, indeterminate)
             return
         }
         val primary = theme.color(ColorRole.Primary)
         val onPrimary = theme.color(ColorRole.OnPrimary)
         val outline = theme.color(ColorRole.Outline)
         when (role) {
-            ToggleRole.Checkbox -> Checkbox(
+            // The library's own mixed box: filled with the checked colour and a dash. A press
+            // on it asks for checked.
+            ToggleRole.Checkbox -> if (indeterminate) {
+                TriStateCheckbox(
+                    state = ToggleableState.Indeterminate,
+                    onClick = onChange?.let { report -> { report(true) } },
+                    modifier = modifier,
+                    enabled = enabled,
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = primary,
+                        uncheckedColor = outline,
+                        checkmarkColor = onPrimary,
+                    ),
+                )
+            } else Checkbox(
                 checked = checked,
                 // A control with no handler is read-only, which material3 spells as a null
                 // callback rather than as a disabled control: disabled would also grey it.

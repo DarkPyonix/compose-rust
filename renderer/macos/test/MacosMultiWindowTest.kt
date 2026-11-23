@@ -33,6 +33,17 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
 import dev.darkpyonix.composerust.runtime.Zoom
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
+import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import org.thisisthepy.compose.window.SystemDarkMonitor
 import dev.darkpyonix.composerust.ui.platform.PlatformWindow
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
@@ -996,6 +1007,112 @@ class MacosMultiWindowTest {
                 "a Move of the cancelled press reached the tab",
             )
             assertTrue(connection.events.none { it is HostEvent.ProtocolError })
+        } finally {
+            manager.shutdown()
+            spin()
+            host.shutdown()
+        }
+    }
+
+    @Test
+    fun fr19_macos_dynamic_min_size_updates_content_min_size_and_clamps_negatives() {
+        NSApplication.sharedApplication()
+        val h = Harness(
+            listOf(setWindow()) +
+                windowNode(
+                    1,
+                    PropertyKind.WindowSize to PropertyValue.Bytes(floats(360f, 240f)),
+                ),
+        )
+        try {
+            val window = h.backend.windows.single()
+            h.batch(Mutation.SetProp(1, PropertyKind.WindowMinSize, PropertyValue.Bytes(floats(280f, 190f))))
+            window.native().contentMinSize.useContents {
+                assertEquals(280.0, width)
+                assertEquals(190.0, height)
+            }
+            h.batch(Mutation.SetProp(1, PropertyKind.WindowMinSize, PropertyValue.Bytes(floats(-50f, -20f))))
+            window.native().contentMinSize.useContents {
+                assertEquals(0.0, width)
+                assertEquals(0.0, height)
+            }
+        } finally {
+            h.close()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun fr5_macos_window_provides_clipboard_locals() {
+        NSApplication.sharedApplication()
+        var clipboard: Clipboard? = null
+        var clipboardManager: ClipboardManager? = null
+        val backend = MacosWindowBackend(
+            scene = { _, _, _, _ ->
+                {
+                    clipboard = LocalClipboard.current
+                    clipboardManager = LocalClipboardManager.current
+                }
+            },
+        )
+        val window = assertNotNull(backend.open(config(1, "fr5 clipboard"), Recorder()))
+        try {
+            spinUntil(turns = 100) { clipboard != null && clipboardManager != null }
+            assertNotNull(clipboard, "LocalClipboard.current is provided in a macOS window")
+            assertNotNull(clipboardManager, "LocalClipboardManager.current is provided in a macOS window")
+        } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr44_macos_system_dark_monitor_drives_color_scheme_changed() {
+        NSApplication.sharedApplication()
+        var systemDark = false
+        val dark = mutableStateOf(systemDark)
+        val connection = ScriptedHost(
+            listOf(
+                setWindow(LastWindowClosed.KeepRunning),
+                Mutation.SetTheme(Theme(DesignSystem.LiquidGlass, DesignSystem.Material3, ColorScheme.FollowSystem, false)),
+            ) + windowNode(1, PropertyKind.WindowSize to PropertyValue.Bytes(floats(320f, 200f))),
+        )
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        lateinit var backend: MacosWindowBackend
+        val monitor = SystemDarkMonitor(
+            read = { systemDark },
+            requestFrame = { backend.requestFrameAll() },
+            onChange = { dark.value = it },
+        )
+        backend = MacosWindowBackend(
+            scene = { config, _, _, _ ->
+                {
+                    CompositionLocalProvider(LocalSystemDarkObserver provides { dark.value }) {
+                        ComposeRustContent(host, windowNodeId = config.nodeId)
+                    }
+                }
+            },
+        )
+        val manager = WindowManager(host, backend, onExit = {})
+        fun schemes() = connection.events.filterIsInstance<HostEvent.ColorSchemeChanged>().map { it.scheme }
+        try {
+            manager.attach()
+            spinUntil(turns = 100) { schemes().isNotEmpty() }
+            assertEquals(listOf(SystemColorScheme.Light), schemes())
+
+            systemDark = true
+            monitor.refresh()
+            spinUntil(turns = 100) { schemes().size >= 2 }
+            assertEquals(listOf(SystemColorScheme.Light, SystemColorScheme.Dark), schemes())
+
+            systemDark = false
+            monitor.refresh()
+            spinUntil(turns = 100) { schemes().size >= 3 }
+            assertEquals(
+                listOf(SystemColorScheme.Light, SystemColorScheme.Dark, SystemColorScheme.Light),
+                schemes(),
+            )
         } finally {
             manager.shutdown()
             spin()
