@@ -176,18 +176,18 @@ Kotlin 툴체인이 그 디렉터리의 `.def`를 알아서 찾으므로 module.
 프레임이 나오지 않은 요청도 값을 치러야 합니다. 그러지 않으면 관리자가 포기할 때까지
 창이 멈춥니다. 그 순서는 Compose 포크의 `extended/window/common`에 있는 `ResizeSync`에 있고, 이 저장소에서도 `desktop/test/ResizeSyncTest.kt`로 JVM에서 테스트합니다.
 
-### 아직 없는 것
+### 빌드와 링크
 
-정적 라이브러리를 만드는 빌드 스크립트와 Host 쪽 링크가 없습니다. macOS에는
-`desktop/scripts/build-macos.sh`가 있고 Cargo가 그 아카이브를 링크하는데, 리눅스에는
-대응하는 것이 아직 없습니다. 그래서 리눅스 배포물은 지금도 네이티브 이미지 쪽에서 나옵니다.
-여기 있는 것은 모듈과 창과 그 테스트입니다.
+정적 라이브러리는 `renderer/desktop/scripts/build-linux.sh`가 만들고(`build/linux/`, arm64는
+`--arch arm64`로 `build/linux-arm64/`), Cargo가 macOS와 같은 방식으로 그 아카이브를 링크합니다
+(`compose-rust/build.rs`). PR #113(2026-10-04 병합)부터 리눅스의 기본값이 이 경로이고(NFR-14),
+배포물도 여기서 나옵니다. CI는 `static-renderer.yml`이 릴리스와 같은 모양으로 빌드하고,
+`test-kn-desktop-renderer.yml`이 가상 디스플레이에서 `./kotlin test -m linux`를 돌립니다.
 
-### 검증되지 않은 것
+### 손으로 확인할 것
 
-컴파일도 실행도 확인하지 않았습니다. `linux/test/`의 테스트는 linuxX64로 컴파일되므로
-리눅스에서만 돌고, 드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가
-합성한 결과에 대한 사실이라 손으로 확인해야 합니다. 머지하는 쪽이 할 일:
+드래그되는 창의 테두리와 그 안의 그림이 함께 도착하는지는 컴포지터가 합성한 결과에 대한
+사실이라 CI가 확인하지 못하고 손으로 봐야 합니다. 리눅스에서 직접 돌리는 방법:
 
 ```bash
 cd renderer
