@@ -588,6 +588,15 @@ class WindowManager(
         if (target != null) sendTabOver(window, target, OVER_DROP)
     }
 
+    /**
+     * Whether a tab dropped on `Window` node [window] at ([x], [y]) would land on a node that
+     * registered for it. A platform that has to say before the drop whether its window takes
+     * it (iPadOS' drop proposal) asks this, so a drop anywhere else stays the system's: a tab
+     * let go at the edge of the screen still becomes a window of its own.
+     */
+    fun tabDragLands(window: Int, source: Int, x: Float, y: Float): Boolean =
+        tabTargetAt(window, source, x, y) != null
+
     /** The platform's drag ended anywhere; a node still under it hears Leave. */
     fun tabDragEnded() {
         tabPending = null
