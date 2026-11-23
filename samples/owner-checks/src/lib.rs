@@ -14,10 +14,15 @@
 //!
 //! The sample is adaptive: it takes the design system the platform picks, because these
 //! checks are about the platform, not about a design.
+//!
+//! The windows check is a launch of its own, because it runs several windows and the
+//! screens above are checked in one: build with the `windows-check` feature, or start a
+//! desktop build with `--windows-check` (`windows_check`).
 
 #[cfg(target_os = "macos")]
 mod appkit;
 mod native_page;
+mod windows_check;
 
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
@@ -652,23 +657,62 @@ fn about_page() {
     reading(format!("Design system {:?}", current_design_system()));
 }
 
+/// What starts the windows check on a desktop instead of the sample's screens.
+pub const WINDOWS_CHECK_ARGUMENT: &str = "--windows-check";
+
+/// Whether this run is the windows check: built with the `windows-check` feature, or a
+/// desktop build started with [`WINDOWS_CHECK_ARGUMENT`]. A phone has no command line, so
+/// there the feature is the only way.
+fn runs_windows_check() -> bool {
+    static ASKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ASKED.get_or_init(|| cfg!(feature = "windows-check") || asked_on_the_command_line())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm")))]
+fn asked_on_the_command_line() -> bool {
+    std::env::args()
+        .skip(1)
+        .any(|argument| argument == WINDOWS_CHECK_ARGUMENT)
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", target_family = "wasm"))]
+fn asked_on_the_command_line() -> bool {
+    false
+}
+
+/// What the launch composes: the sample's screens, or the windows check.
+#[Composable]
+fn root() {
+    if runs_windows_check() {
+        windows_check::app();
+    } else {
+        app();
+    }
+}
+
 /// Runs the sample as a program of its own.
 pub fn launch() {
-    launch_builder().application(app);
+    launch_builder().application(root);
 }
 
 /// How this sample is configured, in one place because three entry points need it.
 fn launch_builder() -> LaunchBuilder {
-    LaunchBuilder::new()
+    let builder = LaunchBuilder::new()
         // The same as [bundle] identifier in Dioxus.toml. It names the storage, and on
         // macOS it is what the notification centre knows the application by.
         .identifier("dev.darkpyonix.composerust.samples.ownerchecks")
         .with_theme(compose_rust::demo_theme())
-        .with_window(window())
+        .with_window(window());
+    // The windows check runs several windows; the screens run in one.
+    if runs_windows_check() {
+        builder.windows()
+    } else {
+        builder
+    }
 }
 
-compose_rust::android_application!({ launch_builder() }, app);
-compose_rust::web_application!({ launch_builder() }, app);
+compose_rust::android_application!({ launch_builder() }, root);
+compose_rust::web_application!({ launch_builder() }, root);
 compose_rust::ios_main!(launch);
 
 #[cfg(test)]
@@ -711,6 +755,89 @@ mod tests {
                 frames: vec![first],
                 _alone: alone,
             }
+        }
+
+        /// The windows check, as its launch runs it: an application of several windows.
+        fn windows_check() -> Self {
+            let alone = one_host_at_a_time();
+            compose_rust::window::reset_window_size();
+            let mut host =
+                ComposeHost::new(windows_check::app).with_window(window().with_windows());
+            let first = host.rebuild().expect("the first frame failed").to_vec();
+            Self {
+                host,
+                frames: vec![first],
+                _alone: alone,
+            }
+        }
+
+        /// How many `Window` nodes are live.
+        fn window_nodes(&self) -> usize {
+            self.live()
+                .iter()
+                .filter(|mutation| {
+                    matches!(
+                        mutation,
+                        Mutation::Create {
+                            widget: WidgetKind::Window,
+                            ..
+                        }
+                    )
+                })
+                .count()
+        }
+
+        /// Every string a live node was given under `property`, sorted.
+        fn strings_of(&self, property: PropertyKind) -> Vec<String> {
+            let mut found: Vec<String> = self
+                .live()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: given,
+                        value: PropertyValue::String(text),
+                        ..
+                    } if *given == property => Some((*text).to_owned()),
+                    _ => None,
+                })
+                .collect();
+            found.sort();
+            found
+        }
+
+        /// The live node that was given `text` under `property`.
+        fn node_with(&self, property: PropertyKind, text: &str) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: given,
+                        value: PropertyValue::String(found),
+                    } if *given == property && *found == text => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        /// The live node that carries a handler under `property`.
+        fn node_handling(&self, property: PropertyKind) -> Option<(u32, u64)> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: given,
+                        value: PropertyValue::Integer(handler),
+                    } if *given == property => Some((*node_id, *handler as u64)),
+                    _ => None,
+                })
+        }
+
+        /// The system made a window under `key`, which the application has no node for.
+        fn request_window(&mut self, key: &str) {
+            self.dispatch(0, 0, EventPayload::WindowRequested { key, request: 1 });
         }
 
         /// The sample with `page` chosen from the list.
@@ -856,6 +983,114 @@ mod tests {
                 )
             })
         }
+    }
+
+    /// The windows check opens one window holding the two tabs, each under its key.
+    #[test]
+    fn fr53_the_windows_check_opens_one_window_with_two_tear_off_tabs() {
+        let screen = Screen::windows_check();
+        assert_eq!(screen.window_nodes(), 1);
+        assert_eq!(
+            screen.strings_of(PropertyKind::TearOffKey),
+            vec!["tab:a".to_owned(), "tab:b".to_owned()]
+        );
+        assert_eq!(
+            screen.strings_of(PropertyKind::WindowRestoreKey),
+            vec![windows_check::MAIN_KEY.to_owned()]
+        );
+        assert!(screen.shows(windows_check::NO_EVENT));
+        assert!(
+            screen
+                .node_handling(PropertyKind::OnWindowDragOver)
+                .is_some()
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A window the system made for a dragged tab gets a `Window` node under the tab's key in
+    /// the same batch, the tab leaves the first window, and the line says what came.
+    #[test]
+    fn fr53_a_window_request_for_a_tab_tears_it_off() {
+        let mut screen = Screen::windows_check();
+        screen.request_window("tab:a");
+        assert_eq!(screen.window_nodes(), 2);
+        assert_eq!(
+            screen.strings_of(PropertyKind::TearOffKey),
+            vec!["tab:b".to_owned()]
+        );
+        assert!(
+            screen
+                .strings_of(PropertyKind::WindowRestoreKey)
+                .contains(&"tab:a".to_owned())
+        );
+        assert!(screen.shows("Last window event: WindowRequested \"tab:a\""));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A key the check does not know opens nothing, so the platform closes that window.
+    #[test]
+    fn fr53_an_unknown_window_request_opens_nothing() {
+        let mut screen = Screen::windows_check();
+        screen.request_window("");
+        assert_eq!(screen.window_nodes(), 1);
+        assert!(screen.shows("Last window event: WindowRequested \"\""));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The button opens the second window, whose count of seconds proves it is drawn.
+    #[test]
+    fn fr53_the_button_opens_a_second_window() {
+        let mut screen = Screen::windows_check();
+        assert!(screen.press(windows_check::OPEN_SECOND));
+        assert_eq!(screen.window_nodes(), 2);
+        assert!(
+            screen
+                .strings_of(PropertyKind::WindowRestoreKey)
+                .contains(&windows_check::SECOND_KEY.to_owned())
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A torn-off window the system closed puts its tab back in the first window.
+    #[test]
+    fn fr53_a_closed_tab_window_puts_the_tab_back() {
+        let mut screen = Screen::windows_check();
+        screen.request_window("tab:a");
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, "tab:a")
+            .expect("the tab has a window");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowClosed)
+            .expect("the tab's window hears that the system closed it");
+        screen.dispatch(window, handler, EventPayload::WindowClosed);
+        assert_eq!(screen.window_nodes(), 1);
+        assert_eq!(
+            screen.strings_of(PropertyKind::TearOffKey),
+            vec!["tab:a".to_owned(), "tab:b".to_owned()]
+        );
+        assert!(screen.shows("Last window event: WindowClosed tab:a"));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A tab or a window dragged over a window's strip is shown on the line.
+    #[test]
+    fn fr53_a_drag_over_the_strip_is_shown() {
+        let mut screen = Screen::windows_check();
+        let (strip, handler) = screen
+            .node_handling(PropertyKind::OnWindowDragOver)
+            .expect("the window has a strip that hears a drag");
+        screen.dispatch(
+            strip,
+            handler,
+            EventPayload::WindowDragOver {
+                kind: compose_rust::protocol::WINDOW_DRAG_OVER_MOVE,
+                window: 7,
+                x: 12.0,
+                y: 3.0,
+            },
+        );
+        assert!(screen.shows("Last window event: WindowDragOver Move, window 7, at 12, 3"));
+        compose_rust::window::reset_window_size();
     }
 
     /// A property the schema does not have fails the whole batch rather than just itself,

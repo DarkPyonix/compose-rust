@@ -27,6 +27,12 @@ compose-rust = { path = "../../compose-rust" }
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm")))'.dependencies]
 velopack.workspace = true
 
+# The windows check instead of the sample's screens: several windows, tabs that tear off
+# into windows of their own, and a second window that keeps drawing. A phone has no command
+# line to ask with, so it is a feature; a desktop build also takes `--windows-check`.
+[features]
+windows-check = []
+
 [dev-dependencies]
 sample-frames = { path = "../frames" }
 

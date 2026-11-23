@@ -72,6 +72,14 @@ draws its own caption strip (`Chrome::FullSize`).
 | Input method | A one-line and a multiline field, what each reported, and whether a composition is in progress |
 | About this build | The compose-rust version, the schema hash, and the commit when CI built it |
 
+The windows check is a launch of its own, because it runs several windows and the screens
+above are checked in one. A first window holds two tabs that tear off into windows of their
+own and a button that opens a second window; every window counts seconds, which climb only
+while the window is drawn, and shows the last window event it heard. Start a desktop build
+with `--windows-check` (`cargo run -p sample-owner-checks -- --windows-check`), and build
+for Android or iOS with the `windows-check` feature
+(`dx serve --platform android --features windows-check`, the same with `--platform ios`).
+
 Nobody has to build it to make the checks. A `ci.yml` dispatch with
 `suites=owner_checks` builds it alone and uploads `owner-checks-macos-arm64`,
 `owner-checks-windows-x64` and `owner-checks-linux-x64` (and `linux-arm64`), each with a
