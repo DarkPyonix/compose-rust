@@ -33,8 +33,10 @@ import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
+import dev.darkpyonix.composerust.ui.platform.describe
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private const val TREE_ROOT = 1
@@ -784,5 +786,103 @@ class AccessibilityModifierTest {
             assertEquals(Role.Checkbox, config.getOrNull(SemanticsProperties.Role))
             assertEquals(ToggleableState.Indeterminate, config.getOrNull(SemanticsProperties.ToggleableState))
         }
+    }
+
+    @Test
+    fun fr71_combobox_listbox_and_option_reach_the_accessibility_node() {
+        val box = 1
+        for ((role, word) in listOf(
+            SemanticsRole.ComboBox to "combobox",
+            SemanticsRole.ListBox to "listbox",
+            SemanticsRole.Option to "option",
+        )) {
+            runComposeUiTest {
+                show(
+                    listOf(
+                        Mutation.Create(box, WidgetKind.Box),
+                        Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(role, 0)),
+                    ),
+                )
+                val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+                assertEquals(word, config.getOrNull(SemanticsProperties.StateDescription), "$role")
+            }
+        }
+        // A list box is a list of its options: a group to walk into that says how many.
+        runComposeUiTest {
+            val list = 10
+            show(
+                buildList {
+                    add(Mutation.Create(list, WidgetKind.Column))
+                    add(Mutation.SetModifier(list, 0, ProtocolModifier.Semantics(SemanticsRole.ListBox, 0)))
+                    for ((index, label) in listOf("Opus", "Sonnet", "Haiku").withIndex()) {
+                        val option = 20 + index
+                        add(Mutation.Create(option, WidgetKind.Text))
+                        add(Mutation.SetProp(option, PropertyKind.Text, name(label)))
+                        add(Mutation.SetModifier(option, 0, ProtocolModifier.Semantics(SemanticsRole.Option, 0)))
+                        add(Mutation.Insert(list, option, index))
+                    }
+                },
+            )
+            val config = onNodeWithTag(nodeTestTag(list)).fetchSemanticsNode().config
+            assertEquals(true, config.getOrNull(SemanticsProperties.IsTraversalGroup))
+            assertEquals(3, config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount)
+        }
+    }
+
+    @Test
+    fun fr71_active_descendant_names_the_active_option() = runComposeUiTest {
+        val combobox = 1
+        val list = 2
+        val frames = FrameRequestSource()
+        val connection = FakeHostConnection(
+            buildList {
+                add(Mutation.Create(9, WidgetKind.Column))
+                add(Mutation.Create(combobox, WidgetKind.Box))
+                add(Mutation.SetProp(combobox, PropertyKind.AccessibleName, name("Model")))
+                add(Mutation.SetModifier(combobox, 0, ProtocolModifier.Semantics(SemanticsRole.ComboBox, 2 shl 4)))
+                add(Mutation.SetProp(combobox, PropertyKind.ActiveDescendant, PropertyValue.Integer(21L)))
+                add(Mutation.Insert(9, combobox, 0))
+                add(Mutation.Create(list, WidgetKind.Column))
+                add(Mutation.SetModifier(list, 0, ProtocolModifier.Semantics(SemanticsRole.ListBox, 0)))
+                add(Mutation.Insert(9, list, 1))
+                // The first option is named by its text, the second by an accessible name.
+                add(Mutation.Create(21, WidgetKind.Text))
+                add(Mutation.SetProp(21, PropertyKind.Text, name("Opus")))
+                add(Mutation.SetModifier(21, 0, ProtocolModifier.Semantics(SemanticsRole.Option, 0)))
+                add(Mutation.Insert(list, 21, 0))
+                add(Mutation.Create(22, WidgetKind.Box))
+                add(Mutation.SetProp(22, PropertyKind.AccessibleName, name("Sonnet")))
+                add(Mutation.SetModifier(22, 0, ProtocolModifier.Semantics(SemanticsRole.Option, 0)))
+                add(Mutation.Insert(list, 22, 1))
+            },
+        )
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames) {
+                ComposeRustContent(rememberComposeRustHost(connection))
+            }
+        }
+        waitForIdle()
+        fun stateDescription() = onNodeWithTag(nodeTestTag(combobox)).fetchSemanticsNode()
+            .config.getOrNull(SemanticsProperties.StateDescription)
+        fun windowValue() = assertNotNull(onNodeWithTag(nodeTestTag(combobox)).fetchSemanticsNode().describe(-1, 1f)).value
+        fun point(at: Long) {
+            connection.scheduleFrame(listOf(Mutation.SetProp(combobox, PropertyKind.ActiveDescendant, PropertyValue.Integer(at))))
+            frames.request()
+            waitForIdle()
+        }
+
+        assertEquals("combobox, expanded, Opus", stateDescription())
+        // A window that says the role and the open state itself gives only the option.
+        assertEquals("Opus", windowValue())
+
+        point(22)
+        assertEquals("combobox, expanded, Sonnet", stateDescription())
+        assertEquals("Sonnet", windowValue())
+
+        // An id no node has points at nothing, and is not an error.
+        point(99)
+        assertEquals("combobox, expanded", stateDescription())
+        assertEquals(null, windowValue())
+        assertTrue(connection.events.none { it is HostEvent.ProtocolError }, "${connection.events}")
     }
 }

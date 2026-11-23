@@ -97,6 +97,11 @@ impl FocusHandle {
         self.target.node.get() != 0
     }
 
+    /// The node the handle is bound to now, 0 for none.
+    pub(crate) fn bound_node(&self) -> u32 {
+        self.target.node.get()
+    }
+
     pub(crate) fn target(&self) -> Rc<FocusTarget> {
         Rc::clone(&self.target)
     }

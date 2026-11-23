@@ -645,6 +645,7 @@ pub struct Modifier {
     unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
+    active_descendant: Option<u32>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -703,6 +704,7 @@ impl Modifier {
             unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
+            active_descendant: None,
         }
     }
 
@@ -1253,6 +1255,19 @@ impl Modifier {
         self
     }
 
+    /// The option a combobox's keys point at while focus stays on the combobox, as
+    /// WAI-ARIA's `aria-activedescendant` does: give the option widget `focus_handle =
+    /// &handle` and the combobox `Modifier.role(Role::ComboBox).active_descendant(&handle)`.
+    ///
+    /// The node the handle is bound to when this is called is the one sent. A handle bound to
+    /// no node yet sends nothing; the composition after its option first appears sends it,
+    /// which is the composition that changes the active option in the first place.
+    pub fn active_descendant(mut self, option: &crate::ui::FocusHandle) -> Self {
+        let node = option.bound_node();
+        self.active_descendant = (node != 0).then_some(node);
+        self
+    }
+
     /// The role, the name and the state in one call.
     pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
         let mut named = self.role(role).label(label);
@@ -1564,6 +1579,13 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         false,
         "semantics",
         semantics_bits(modifier).map_or(OwnedAttr::None, OwnedAttr::Int),
+    );
+    push(
+        false,
+        "active_descendant",
+        modifier
+            .active_descendant
+            .map_or(OwnedAttr::None, |node| OwnedAttr::Int(i64::from(node))),
     );
     push(
         false,

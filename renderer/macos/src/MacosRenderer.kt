@@ -274,6 +274,9 @@ internal fun installMacosDeclaredElementRoles() {
             SemanticsRole.List -> ElementRole.LIST
             SemanticsRole.ListItem -> ElementRole.LIST_ITEM
             SemanticsRole.Group -> ElementRole.GROUP
+            SemanticsRole.ComboBox -> ElementRole.COMBO_BOX
+            SemanticsRole.ListBox -> ElementRole.LIST
+            SemanticsRole.Option -> ElementRole.LIST_ITEM
             else -> null
         }
     }

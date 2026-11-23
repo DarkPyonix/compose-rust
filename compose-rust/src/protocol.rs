@@ -4418,9 +4418,43 @@ mod tests {
         assert!(
             ROLE_ENUM_SCHEMA
                 .iter()
-                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
-            "the schema must list all 19 roles"
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 22),
+            "the schema must list all 22 roles"
         );
+    }
+
+    #[test]
+    fn fr71_combobox_listbox_option_roles_round_trip() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::ComboBox, 20),
+            (SemanticsRole::ListBox, 21),
+            (SemanticsRole::Option, 22),
+        ];
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics {
+                    role,
+                    state: 2 << SEMANTICS_EXPANDED_SHIFT,
+                },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        // The option a combobox points at is a node id carried as an integer property.
+        assert_eq!(PropertyKind::ActiveDescendant as u16, 219);
+        let mutation = Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::ActiveDescendant,
+            value: PropertyValue::Integer(7),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
     }
 
     #[test]

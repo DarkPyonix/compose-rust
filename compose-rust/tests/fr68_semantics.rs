@@ -582,3 +582,89 @@ fn fr71_modal_modifier_sends_bit_14() {
     assert_eq!(unset.with_modal(true), SemanticsState::modal(true));
     assert_eq!(unset.with_modal(true).with_modal(false), unset);
 }
+
+#[Composable]
+fn Picker() {
+    // Starts pointing at the first option, before any option has a node.
+    let active = remember(|| mutable_state_of(1_u32));
+    let first = use_focus_handle();
+    let second = use_focus_handle();
+    let combobox = Modifier.role(Role::ComboBox).label("Model");
+    let combobox = match active.get() {
+        1 => combobox.active_descendant(&first),
+        2 => combobox.active_descendant(&second),
+        _ => combobox,
+    };
+    Column!({
+        Box!(modifier = combobox.clone(), {});
+        Column!(modifier = Modifier.role(Role::ListBox), {
+            Button!(
+                "First",
+                || {},
+                modifier = Modifier.role(Role::Option),
+                focus_handle = &first
+            );
+            Button!(
+                "Second",
+                || {},
+                modifier = Modifier.role(Role::Option),
+                focus_handle = &second
+            );
+        });
+        Button!("Down", move || active.set(active.get() % 2 + 1));
+    });
+}
+
+/// The line of the dump for the combobox, the one node that declared the role.
+fn combobox_line(tree: &Tree) -> String {
+    let dump = tree.dump();
+    dump.lines()
+        .find(|line| line.contains("role: ComboBox"))
+        .unwrap_or_else(|| panic!("no combobox in\n{dump}"))
+        .to_owned()
+}
+
+#[test]
+fn fr71_active_descendant_sends_the_option_node_id() {
+    use compose_rust::protocol::HostEvent;
+    use compose_rust::schema::{EventPayload, PropertyKind};
+
+    let mut host = ComposeHost::with_content(Picker);
+    let mut tree = Tree::default();
+    tree.apply(host.rebuild().expect("the first batch encodes"));
+    let dump = tree.dump();
+    assert!(dump.contains("role: ListBox"), "{dump}");
+    assert_eq!(dump.matches("role: Option").count(), 2, "{dump}");
+    // The combobox is built before its options exist, so the handle is bound to nothing yet
+    // and nothing is sent.
+    assert!(
+        !combobox_line(&tree).contains("ActiveDescendant"),
+        "{}",
+        combobox_line(&tree)
+    );
+
+    let (first, _) = tree.find("Button", Some("First"), 0, PropertyKind::OnClick);
+    let (second, _) = tree.find("Button", Some("Second"), 0, PropertyKind::OnClick);
+    let mut press_down = |tree: &mut Tree| {
+        let (down, handler) = tree.find("Button", Some("Down"), 0, PropertyKind::OnClick);
+        let (batch, _) = host
+            .dispatch(HostEvent::new(down, handler, EventPayload::Clicked))
+            .expect("the click is accepted");
+        let batch = batch.to_vec();
+        tree.apply(&batch);
+    };
+
+    press_down(&mut tree);
+    let line = combobox_line(&tree);
+    assert!(
+        line.contains(&format!("ActiveDescendant=Integer({second})")),
+        "{line}"
+    );
+
+    press_down(&mut tree);
+    let line = combobox_line(&tree);
+    assert!(
+        line.contains(&format!("ActiveDescendant=Integer({first})")),
+        "{line}"
+    );
+}

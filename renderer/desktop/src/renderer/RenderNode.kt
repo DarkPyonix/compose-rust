@@ -99,7 +99,10 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.ui.accessibility
+import dev.darkpyonix.composerust.ui.activeOptionName
+import dev.darkpyonix.composerust.ui.declaredSemanticsRole
 import dev.darkpyonix.composerust.foundation.behindModal
 import dev.darkpyonix.composerust.ui.offersFocusAction
 import dev.darkpyonix.composerust.ui.pressable
@@ -386,6 +389,11 @@ fun RenderNode(
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
             onFocusAction = { table.requestNodeFocus(nodeId) },
+            activeOption = if (node.declaredSemanticsRole() == SemanticsRole.ComboBox) {
+                table.activeOptionName(node)
+            } else {
+                null
+            },
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
