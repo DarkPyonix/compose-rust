@@ -29,6 +29,7 @@ import platform.AppKit.NSWindowDidResizeNotification
 import platform.AppKit.NSWindowStyleMaskResizable
 import platform.AppKit.postEvent
 import platform.CoreGraphics.CGPointMake
+import platform.Foundation.NSMakeRect
 import platform.Foundation.NSMakeSize
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
@@ -372,10 +373,13 @@ internal class MacosPlatformWindow(
 
     override fun setContentSize(width: Float, height: Float) {
         if (closed) return
-        val left = native.frame.useContents { origin.x }
-        val top = native.frame.useContents { origin.y + size.height }
-        native.setContentSize(NSMakeSize(width.toDouble(), height.toDouble()))
-        native.setFrameTopLeftPoint(CGPointMake(left, top))
+        val safeWidth = width.coerceAtLeast(0f).toDouble()
+        val safeHeight = height.coerceAtLeast(0f).toDouble()
+        val (left, top) = native.frame.useContents { origin.x to (origin.y + size.height) }
+        val (newWidth, newHeight) = native
+            .frameRectForContentRect(NSMakeRect(0.0, 0.0, safeWidth, safeHeight))
+            .useContents { size.width to size.height }
+        native.setFrame(NSMakeRect(left, top - newHeight, newWidth, newHeight), display = true)
     }
 
     override fun bounds(): ScreenBounds? {

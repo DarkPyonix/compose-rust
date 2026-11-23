@@ -69,8 +69,11 @@ import org.jetbrains.skia.ImageInfo
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.macos.MacosWindow
 import platform.AppKit.NSApplication
+import platform.AppKit.NSWindowDidMoveNotification
+import platform.AppKit.NSWindowDidResizeNotification
 import platform.Foundation.NSDate
 import platform.Foundation.NSDefaultRunLoopMode
+import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSRunLoop
 import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.runMode
@@ -367,6 +370,95 @@ class MacosMultiWindowTest {
             assertEquals(90f, origin.x)
             assertTrue(origin.y >= 110f)
         } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr53_macos_set_content_size_preserves_top_edge_atomically() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend()
+        val window = assertNotNull(backend.open(config(1, x = 90f, y = 300f, width = 320f, height = 200f), Recorder()))
+        val native = window.native()
+        val center = NSNotificationCenter.defaultCenter
+        val observedEvents = mutableListOf<String>()
+        val observedTopLefts = mutableListOf<Pair<Double, Double>>()
+        var resizeCount = 0
+        val observers = listOf(NSWindowDidResizeNotification, NSWindowDidMoveNotification).map { name ->
+            center.addObserverForName(
+                name = name,
+                `object` = native,
+                queue = null,
+            ) { _ ->
+                if (name == NSWindowDidResizeNotification) resizeCount++
+                val snap = native.frame.useContents {
+                    val top = origin.y + size.height
+                    observedTopLefts += origin.x to top
+                    "$name:(x=${origin.x},y=${origin.y},w=${size.width},h=${size.height},top=$top)"
+                }
+                observedEvents += snap
+            }
+        }
+        try {
+            val (initialLeft, initialTop) = native.frame.useContents { origin.x to (origin.y + size.height) }
+            observedTopLefts.clear()
+            observedEvents.clear()
+            resizeCount = 0
+
+            window.setContentSize(380f, 340f)
+            spin()
+
+            val contentAfterGrow = native.contentRectForFrameRect(native.frame).useContents { size.width to size.height }
+            assertEquals(380.0, contentAfterGrow.first, 0.5, "content width after grow")
+            assertEquals(340.0, contentAfterGrow.second, 0.5, "content height after grow")
+
+            val (grownLeft, grownTop) = native.frame.useContents { origin.x to (origin.y + size.height) }
+            assertEquals(initialLeft, grownLeft, 0.5, "left edge stays fixed after grow")
+            assertEquals(initialTop, grownTop, 0.5, "top edge stays fixed after grow")
+
+            assertTrue(observedTopLefts.isNotEmpty(), "resize notification should fire during setContentSize")
+            for ((obsLeft, obsTop) in observedTopLefts) {
+                assertTrue(
+                    abs(obsLeft - initialLeft) <= 0.5 && abs(obsTop - initialTop) <= 0.5,
+                    "top-left shifted during grow: expected ($initialLeft, $initialTop), observed ($obsLeft, $obsTop) across $observedEvents",
+                )
+            }
+            assertEquals(
+                1,
+                resizeCount,
+                "expected single resize notification on grow, observed: $observedEvents",
+            )
+
+            observedTopLefts.clear()
+            observedEvents.clear()
+            resizeCount = 0
+
+            window.setContentSize(300f, 160f)
+            spin()
+
+            val contentAfterShrink = native.contentRectForFrameRect(native.frame).useContents { size.width to size.height }
+            assertEquals(300.0, contentAfterShrink.first, 0.5, "content width after shrink")
+            assertEquals(160.0, contentAfterShrink.second, 0.5, "content height after shrink")
+
+            val (shrunkLeft, shrunkTop) = native.frame.useContents { origin.x to (origin.y + size.height) }
+            assertEquals(initialLeft, shrunkLeft, 0.5, "left edge stays fixed after shrink")
+            assertEquals(initialTop, shrunkTop, 0.5, "top edge stays fixed after shrink")
+
+            assertTrue(observedTopLefts.isNotEmpty(), "resize notification should fire during shrink")
+            for ((obsLeft, obsTop) in observedTopLefts) {
+                assertTrue(
+                    abs(obsLeft - initialLeft) <= 0.5 && abs(obsTop - initialTop) <= 0.5,
+                    "top-left shifted during shrink: expected ($initialLeft, $initialTop), observed ($obsLeft, $obsTop) across $observedEvents",
+                )
+            }
+            assertEquals(
+                1,
+                resizeCount,
+                "expected single resize notification on shrink, observed: $observedEvents",
+            )
+        } finally {
+            observers.forEach(center::removeObserver)
             window.close()
             spin()
         }
