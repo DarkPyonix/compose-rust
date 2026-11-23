@@ -180,6 +180,16 @@ class TabDragOverTest {
     }
 
     @Test
+    fun fr53_a_tab_lands_only_on_a_registered_node_of_another_window() {
+        val (connection, manager) = start()
+        assertEquals(true, manager.tabDragLands(RECEIVER, SOURCE, 10f, 10f))
+        assertEquals(false, manager.tabDragLands(RECEIVER, SOURCE, 150f, 10f), "a node that registered nothing")
+        assertEquals(false, manager.tabDragLands(RECEIVER, SOURCE, 10f, 80f), "no node at all")
+        assertEquals(false, manager.tabDragLands(SOURCE, SOURCE, 10f, 10f), "the window the tab came from")
+        assertEquals(emptyList<String>(), connection.overs.map { it.line() }, "asking sends nothing")
+    }
+
+    @Test
     fun fr53_a_tab_over_its_own_window_is_not_a_drop_target() {
         val (connection, manager) = start()
         manager.tabDragMoved(SOURCE, SOURCE, 10f, 10f)
