@@ -28,6 +28,7 @@ product:
 # published linuxX64 target and is resolved normally, as a dependency of Compose UI.
 repositories:
   - mavenLocal
+  - https://maven-central.storage-download.googleapis.com/maven2/
 
 # Named by the coordinate of the target rather than by the shorthand. The shorthand asks
 # for a module's root, whose metadata lists which targets it has, and the root is published

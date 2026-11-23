@@ -16,7 +16,7 @@ static REGISTERED: AtomicU32 = AtomicU32::new(0);
 
 #[Composable]
 fn Screen() {
-    Row().content(|| {
+    Row!({
         REGISTERED.store(asset(AssetKind::Font, FONT), Ordering::SeqCst);
     });
 }
