@@ -1,5 +1,8 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
@@ -55,6 +58,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
         modifier.nativeFileDrop(node, dispatcher)
     }
+    NativeViewPlatform.available = true
     val host = ComposeRustHost(connection())
     host.start()
 
@@ -84,7 +88,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }
-    window.setContent { WindowContent(host) }
+    window.setContent {
+        CompositionLocalProvider(LocalNativeViewWindow provides window.nativeViewWindow) {
+            WindowContent(host)
+        }
+    }
     try {
         window.run()
     } finally {

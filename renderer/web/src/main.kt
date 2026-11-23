@@ -1,10 +1,13 @@
 package dev.darkpyonix.composerust
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ComposeViewport
+import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.clampZoomLevel
@@ -69,6 +72,8 @@ fun main() {
     // Where the application's zoom level is kept between visits: the page's local storage,
     // which is the origin's own.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
+    NativeViewPlatform.available = true
+    val nativeViews = dev.darkpyonix.composerust.ui.platform.WebNativeViewWindow()
     MainScope().launch {
         // The default family's real faces, fetched while the Host is instantiated, so the
         // first frame is already set in them: a canvas has none of the machine's fonts.
@@ -76,7 +81,9 @@ fun main() {
         val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
         fonts.await()
         ComposeViewport {
-            ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+            CompositionLocalProvider(LocalNativeViewWindow provides nativeViews) {
+                ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+            }
         }
     }
 }
