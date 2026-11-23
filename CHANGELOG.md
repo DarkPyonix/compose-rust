@@ -5,6 +5,9 @@
 ### `release_asset(id)` lets go of a registered font or picture
 
 `compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
+### Build failures no longer send a crate user to a script only a checkout has
+
+When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
 
 ### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
 
