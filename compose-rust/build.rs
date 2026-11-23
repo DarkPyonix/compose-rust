@@ -1058,6 +1058,7 @@ import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.AndroidOsMenuPresenter
 import dev.darkpyonix.composerust.ui.platform.AndroidWindowBackend
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
+import dev.darkpyonix.composerust.ui.platform.ServeWindowFrames
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
 import dev.darkpyonix.composerust.ui.platform.installZoomLevelStore
@@ -1096,8 +1097,11 @@ class MainActivity : ComponentActivity() {{
         val host = ComposeRustRuntime.host()
         val requestedNodeId = savedInstanceState?.getInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
             ?: intent.getIntExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
+        // The process that issued that id. One that died left ids this process never issued.
+        val carriedProcess = savedInstanceState?.getLong(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, 0L)
+            ?: intent.getLongExtra(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, 0L)
         val restoreKey = intent.getStringExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY) ?: ""
-        val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey)
+        val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey, carriedProcess)
         activityWindow = boundWindow
         windowNodeId = boundWindow?.nodeId ?: requestedNodeId
         // Back closes a window of its own (one the renderer opened, a torn-off one, or one
@@ -1125,6 +1129,7 @@ class MainActivity : ComponentActivity() {{
         nativeViews = slotWindow
         osMenus = menuPresenter
         val renderedNodeId = windowNodeId
+        val windowFrames = boundWindow?.frames
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
@@ -1134,6 +1139,9 @@ class MainActivity : ComponentActivity() {{
                 LocalNativeViewWindow provides slotWindow,
                 LocalOsMenuPresenter provides menuPresenter,
             ) {{
+                // One window of several serves no frames itself: its clock answers the
+                // process's one driver from this content's frames.
+                ServeWindowFrames(windowFrames)
                 ComposeRustContent(host, Modifier.fillMaxSize(), windowNodeId = renderedNodeId)
             }}
         }}
@@ -1151,6 +1159,7 @@ class MainActivity : ComponentActivity() {{
         super.onSaveInstanceState(outState)
         if (windowNodeId != 0) {{
             outState.putInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, windowNodeId)
+            outState.putLong(AndroidWindowBackend.EXTRA_WINDOW_PROCESS, ComposeRustRuntime.processToken)
         }}
     }}
 
