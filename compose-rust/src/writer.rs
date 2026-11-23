@@ -38,6 +38,27 @@ const BUTTON_KIND_BIT: u32 = 62;
 /// and this is one past the last of them.
 const MODIFIER_SLOTS: usize = 42;
 
+/// Owner tag for an unwritten or cleared Modifier slot. Any attribute that writes a slot
+/// stores a non-zero tag scoped to that slot, so clearing one attribute never clears a
+/// partner that shares the same slot.
+const OWNER_NONE: u8 = 0;
+
+/// Single-owner tag for shadow and background-brush slots, which have no partner
+/// attributes sharing their slots.
+const OWNER_LAYER: u8 = 1;
+
+/// Compact per-node table of which attribute last wrote each Modifier slot.
+///
+/// Storing a 1-byte per-slot owner tag keeps each entry at 42 bytes inline with zero
+/// heap indirection, instead of `[&'static str; 42]` (672 bytes).
+type ModifierSlotOwners = [u8; MODIFIER_SLOTS];
+
+/// Floor capacity retained when per-node tables shrink after a large subtree is removed.
+///
+/// `HashMap` rounds capacity up to 7/8 of a power of two (so `shrink_to(256)` lands at
+/// 448), which releases multi-MiB transient spikes without thrashing small screens.
+const MIN_RETAINED_TABLE_CAPACITY: usize = 256;
+
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
 const SHADOW_LAYERS: usize = 4;
@@ -94,8 +115,8 @@ pub struct NodeWriter {
     /// A border arrives as a width and a colour in separate attributes; this holds
     /// whichever came first until the pair can be written as one modifier.
     pending_borders: HashMap<u32, (Option<f32>, Option<crate::Paint>)>,
-    /// Which attribute last wrote each of a node's Modifier slots, or `""` for a slot
-    /// nothing has written.
+    /// Which attribute last wrote each of a node's Modifier slots, or `OWNER_NONE` for a
+    /// slot nothing has written.
     ///
     /// Two things need the owner rather than a "written" bit. Clearing a slot that was
     /// never written would cost a mutation on the first frame of every widget, for a
@@ -104,7 +125,7 @@ pub struct NodeWriter {
     /// the padding: the one left unset arrives as an empty attribute, and without the
     /// owner it would clear the modifier its partner had just written, which is how a
     /// rounded container came out square.
-    modifier_slots: HashMap<u32, [&'static str; MODIFIER_SLOTS]>,
+    modifier_slots: HashMap<u32, ModifierSlotOwners>,
     /// Which application token each observed node was given, for reading a report back.
     size_tokens: HashMap<u32, u32>,
     /// Which animated values each node has been given, one bit for each of
@@ -282,18 +303,30 @@ impl NodeWriter {
             }
         }
         let mut writes = Vec::new();
-        let owners = self
-            .modifier_slots
-            .entry(node_id)
-            .or_insert([""; MODIFIER_SLOTS]);
-        for layer in 0..SHADOW_LAYERS {
-            let slot = SHADOW_BASE as usize + layer;
-            if let Some(modifier) = layers.get(layer) {
-                owners[slot] = "shadows";
-                writes.push((slot as u16, modifier.clone()));
-            } else if owners[slot] == "shadows" {
-                owners[slot] = "";
-                writes.push((slot as u16, crate::Modifier::Empty));
+        if layers.is_empty() {
+            if let Some(owners) = self.modifier_slots.get_mut(&node_id) {
+                for layer in 0..SHADOW_LAYERS {
+                    let slot = SHADOW_BASE as usize + layer;
+                    if owners[slot] == OWNER_LAYER {
+                        owners[slot] = OWNER_NONE;
+                        writes.push((slot as u16, crate::Modifier::Empty));
+                    }
+                }
+            }
+        } else {
+            let owners = self
+                .modifier_slots
+                .entry(node_id)
+                .or_insert([OWNER_NONE; MODIFIER_SLOTS]);
+            for layer in 0..SHADOW_LAYERS {
+                let slot = SHADOW_BASE as usize + layer;
+                if let Some(modifier) = layers.get(layer) {
+                    owners[slot] = OWNER_LAYER;
+                    writes.push((slot as u16, modifier.clone()));
+                } else if owners[slot] == OWNER_LAYER {
+                    owners[slot] = OWNER_NONE;
+                    writes.push((slot as u16, crate::Modifier::Empty));
+                }
             }
         }
         for (index, modifier) in writes {
@@ -354,18 +387,30 @@ impl NodeWriter {
             }
         }
         let mut writes = Vec::new();
-        let owners = self
-            .modifier_slots
-            .entry(node_id)
-            .or_insert([""; MODIFIER_SLOTS]);
-        for layer in 0..BACKGROUND_BRUSH_LAYERS {
-            let slot = BACKGROUND_BRUSH_BASE as usize + layer;
-            if let Some(modifier) = layers.get(layer) {
-                owners[slot] = "background_brushes";
-                writes.push((slot as u16, modifier.clone()));
-            } else if owners[slot] == "background_brushes" {
-                owners[slot] = "";
-                writes.push((slot as u16, crate::Modifier::Empty));
+        if layers.is_empty() {
+            if let Some(owners) = self.modifier_slots.get_mut(&node_id) {
+                for layer in 0..BACKGROUND_BRUSH_LAYERS {
+                    let slot = BACKGROUND_BRUSH_BASE as usize + layer;
+                    if owners[slot] == OWNER_LAYER {
+                        owners[slot] = OWNER_NONE;
+                        writes.push((slot as u16, crate::Modifier::Empty));
+                    }
+                }
+            }
+        } else {
+            let owners = self
+                .modifier_slots
+                .entry(node_id)
+                .or_insert([OWNER_NONE; MODIFIER_SLOTS]);
+            for layer in 0..BACKGROUND_BRUSH_LAYERS {
+                let slot = BACKGROUND_BRUSH_BASE as usize + layer;
+                if let Some(modifier) = layers.get(layer) {
+                    owners[slot] = OWNER_LAYER;
+                    writes.push((slot as u16, modifier.clone()));
+                } else if owners[slot] == OWNER_LAYER {
+                    owners[slot] = OWNER_NONE;
+                    writes.push((slot as u16, crate::Modifier::Empty));
+                }
             }
         }
         for (index, modifier) in writes {
@@ -483,60 +528,71 @@ impl NodeWriter {
             _ => None,
         };
 
-        let slot_of = |name: &str| match name {
-            "weight" => Some(WEIGHT),
-            "fill_max_width" => Some(FILL_MAX_WIDTH),
-            "match_parent_size" => Some(MATCH_PARENT_SIZE),
-            "fill_max_height" => Some(FILL_MAX_HEIGHT),
-            "width" => Some(WIDTH),
-            "height" => Some(HEIGHT),
-            "shape_role" | "corner_radius" | "corner_radii" => Some(SHAPE),
-            "clip" => Some(CLIP),
-            "window_drag" => Some(WINDOW_DRAG),
-            "background" | "animated_background" => Some(BACKGROUND),
-            "transform" | "animated_offset" => Some(TRANSFORM),
-            "alpha" | "animated_alpha" => Some(ALPHA),
-            "offset" => Some(OFFSET),
-            "border_width" | "border_color" | "border_each" => Some(BORDER),
-            "border_dash" => Some(BORDER_DASH),
-            "hover_style" => Some(HOVER_STYLE),
-            "focus_ring" => Some(FOCUS_RING),
-            "press_style" => Some(PRESS_STYLE),
-            "elevation" => Some(ELEVATION),
-            "onclickable" => Some(CLICKABLE),
-            "padding" | "padding_role" | "padding_each" => Some(PADDING),
-            "content_padding" => Some(CONTENT_PADDING),
-            "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
-            "motion" => Some(MOTION),
-            "material" => Some(MATERIAL),
-            "press_feedback" => Some(PRESS_FEEDBACK),
-            "semantics" => Some(SEMANTICS),
-            "corner_curve" => Some(CORNER_CURVE),
-            "size_in" => Some(SIZE_IN),
-            "aspect_ratio" => Some(ASPECT_RATIO),
-            "min_touch_target" => Some(MIN_TOUCH_TARGET),
-            "overlay" => Some(OVERLAY),
-            "sticky" => Some(STICKY),
-            "unbounded_width" => Some(UNBOUNDED_WIDTH),
-            _ => None,
+        let slot_and_owner = |name: &str| -> Option<(u16, u8)> {
+            match name {
+                "weight" => Some((WEIGHT, 1)),
+                "fill_max_width" => Some((FILL_MAX_WIDTH, 1)),
+                "match_parent_size" => Some((MATCH_PARENT_SIZE, 1)),
+                "fill_max_height" => Some((FILL_MAX_HEIGHT, 1)),
+                "width" => Some((WIDTH, 1)),
+                "height" => Some((HEIGHT, 1)),
+                "shape_role" => Some((SHAPE, 1)),
+                "corner_radius" => Some((SHAPE, 2)),
+                "corner_radii" => Some((SHAPE, 3)),
+                "clip" => Some((CLIP, 1)),
+                "window_drag" => Some((WINDOW_DRAG, 1)),
+                "background" => Some((BACKGROUND, 1)),
+                "animated_background" => Some((BACKGROUND, 2)),
+                "transform" => Some((TRANSFORM, 1)),
+                "animated_offset" => Some((TRANSFORM, 2)),
+                "alpha" => Some((ALPHA, 1)),
+                "animated_alpha" => Some((ALPHA, 2)),
+                "offset" => Some((OFFSET, 1)),
+                "border_width" => Some((BORDER, 1)),
+                "border_color" => Some((BORDER, 2)),
+                "border_each" => Some((BORDER, 3)),
+                "border_dash" => Some((BORDER_DASH, 1)),
+                "hover_style" => Some((HOVER_STYLE, 1)),
+                "focus_ring" => Some((FOCUS_RING, 1)),
+                "press_style" => Some((PRESS_STYLE, 1)),
+                "elevation" => Some((ELEVATION, 1)),
+                "onclickable" => Some((CLICKABLE, 1)),
+                "padding" => Some((PADDING, 1)),
+                "padding_role" => Some((PADDING, 2)),
+                "padding_each" => Some((PADDING, 3)),
+                "content_padding" => Some((CONTENT_PADDING, 1)),
+                "observe_size" => Some((OBSERVE_SIZE, 1)),
+                "observe_size_every_dp" => Some((OBSERVE_SIZE, 2)),
+                "motion" => Some((MOTION, 1)),
+                "material" => Some((MATERIAL, 1)),
+                "press_feedback" => Some((PRESS_FEEDBACK, 1)),
+                "semantics" => Some((SEMANTICS, 1)),
+                "corner_curve" => Some((CORNER_CURVE, 1)),
+                "size_in" => Some((SIZE_IN, 1)),
+                "aspect_ratio" => Some((ASPECT_RATIO, 1)),
+                "min_touch_target" => Some((MIN_TOUCH_TARGET, 1)),
+                "overlay" => Some((OVERLAY, 1)),
+                "sticky" => Some((STICKY, 1)),
+                "unbounded_width" => Some((UNBOUNDED_WIDTH, 1)),
+                _ => None,
+            }
         };
-        let slot = slot_of(name)?;
+        let (slot, owner) = slot_and_owner(name)?;
 
         // An unset Modifier attribute is not a property, so it must not fall through to
         // set_property and be rejected as an unknown one. It only produces a mutation if
         // this slot already holds something, because clearing a slot that was never
         // written would cost a mutation on the first frame of every widget.
         if matches!(value, AttrValue::None) {
-            let owners = self
-                .modifier_slots
-                .entry(node_id)
-                .or_insert([""; MODIFIER_SLOTS]);
+            let Some(owners) = self.modifier_slots.get_mut(&node_id) else {
+                return Some(None);
+            };
             // Only the attribute that wrote the slot may clear it. `corner_radius` being
             // unset says nothing about the `shape_role` sitting in the same slot.
-            if owners[slot as usize] != name {
+            if owners[slot as usize] != owner {
                 return Some(None);
             }
-            owners[slot as usize] = "";
+            owners[slot as usize] = OWNER_NONE;
             // An animated value taken away starts again from wherever it is next set.
             let bit = match name {
                 "animated_alpha" => 1,
@@ -551,7 +607,7 @@ impl NodeWriter {
         }
         self.modifier_slots
             .entry(node_id)
-            .or_insert([""; MODIFIER_SLOTS])[slot as usize] = name;
+            .or_insert([OWNER_NONE; MODIFIER_SLOTS])[slot as usize] = owner;
 
         match name {
             // The token is the application's name for this node, and it stays here: what
@@ -1131,17 +1187,36 @@ impl NodeWriter {
         }
     }
 
+    /// Releases excess capacity in the per-node tables when a large subtree leaves the
+    /// tree. `HashMap::remove` keeps its bucket array forever, so a transient large screen
+    /// would otherwise pin multi-MiB tables for the rest of the process lifetime.
+    fn shrink_tables_if_sparse(&mut self) {
+        shrink_map_if_sparse(&mut self.parents, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.children, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.optional_props, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.pending_borders, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.modifier_slots, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.size_tokens, MIN_RETAINED_TABLE_CAPACITY);
+        shrink_map_if_sparse(&mut self.animated, MIN_RETAINED_TABLE_CAPACITY);
+    }
+
     /// Takes a drawn node and everything under it out of the tree, and tells the Renderer.
     pub(crate) fn remove_node(&mut self, node_id: u32) {
         if let Some(parent) = self.parents.get(&node_id).copied() {
             if let Some(position) = self.position_of(parent, node_id) {
                 if let Some(list) = self.children.get_mut(&parent) {
                     list.remove(position);
+                    if list.capacity() > MIN_RETAINED_TABLE_CAPACITY * 2
+                        && list.len().saturating_mul(4) < list.capacity()
+                    {
+                        list.shrink_to(list.len().max(MIN_RETAINED_TABLE_CAPACITY));
+                    }
                 }
             }
         }
         self.write(Mutation::Remove { node_id });
         self.forget(node_id);
+        self.shrink_tables_if_sparse();
     }
 
     /// Places a node immediately after `after` under `parent`, or first when `after` is
@@ -1218,6 +1293,16 @@ impl NodeWriter {
                 index,
             }
         });
+    }
+}
+
+fn shrink_map_if_sparse<K, V>(map: &mut HashMap<K, V>, min_capacity: usize) {
+    // `HashMap` rounds capacity up to 7/8 of a power of two (e.g. `shrink_to(256)` lands
+    // at 448). Checking `capacity > min_capacity * 2` keeps tables that are already at
+    // their floor from re-entering `shrink_to` on every removal.
+    let cap = map.capacity();
+    if cap > min_capacity.saturating_mul(2) && map.len().saturating_mul(4) < cap {
+        map.shrink_to(map.len().max(min_capacity));
     }
 }
 
@@ -1320,5 +1405,152 @@ mod tests {
         assert!(matches!(accepted, Some(Some(_))));
         let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 14))));
         assert!(matches!(refused, Some(None)));
+    }
+
+    #[test]
+    fn nfr_17_node_writer_modifier_slots_compacts_and_shrinks_after_removal() {
+        assert!(
+            std::mem::size_of::<ModifierSlotOwners>() <= 64,
+            "ModifierSlotOwners grew to {} bytes",
+            std::mem::size_of::<ModifierSlotOwners>()
+        );
+        assert!(
+            std::mem::size_of::<(u32, ModifierSlotOwners)>() <= 64,
+            "(u32, ModifierSlotOwners) grew to {} bytes",
+            std::mem::size_of::<(u32, ModifierSlotOwners)>()
+        );
+
+        let mut writer = NodeWriter::new();
+        let root = writer.allocate_node(WidgetKind::Column);
+        writer.place_after(PLACEHOLDER_NODE, root, None);
+
+        let mut previous = None;
+        for _ in 0..5_000 {
+            let child = writer.allocate_node(WidgetKind::Box);
+            writer.place_after(root, child, previous);
+            writer.set_attribute(child, "width", &AttrValue::Float(120.0));
+            writer.set_attribute(child, "padding", &AttrValue::Float(8.0));
+            writer.set_attribute(child, "corner_radius", &AttrValue::Float(4.0));
+            writer.set_attribute(child, "type_role", &AttrValue::Int(1));
+            previous = Some(child);
+        }
+
+        assert_eq!(writer.modifier_slots.len(), 5_000);
+        assert!(writer.modifier_slots.capacity() >= 5_000);
+        assert!(writer.parents.capacity() >= 5_000);
+
+        writer.remove_node(root);
+
+        assert!(writer.modifier_slots.is_empty());
+        assert!(
+            writer.modifier_slots.capacity() <= 512,
+            "modifier_slots retained capacity {} after subtree removal",
+            writer.modifier_slots.capacity()
+        );
+        assert!(writer.parents.is_empty());
+        assert!(
+            writer.parents.capacity() <= 512,
+            "parents retained capacity {} after subtree removal",
+            writer.parents.capacity()
+        );
+        assert!(
+            writer.children.capacity() <= 512,
+            "children retained capacity {} after subtree removal",
+            writer.children.capacity()
+        );
+        assert!(
+            writer.optional_props.capacity() <= 512,
+            "optional_props retained capacity {} after subtree removal",
+            writer.optional_props.capacity()
+        );
+    }
+
+    #[test]
+    fn nfr_17_modifier_slot_ownership_semantics_preserved() {
+        let mut writer = NodeWriter::new();
+        let node = writer.allocate_node(WidgetKind::Box);
+
+        // Unsetting a modifier on a node that never had one does nothing and does not
+        // allocate a `modifier_slots` entry.
+        assert_eq!(
+            writer.modifier_for(node, "corner_radius", &AttrValue::None),
+            Some(None)
+        );
+        assert!(!writer.modifier_slots.contains_key(&node));
+
+        // `shape_role` and `corner_radius` share the SHAPE slot: unsetting the partner
+        // must not clear what `shape_role` wrote.
+        let shape_role = i64::from(u16::from(crate::ShapeRole::Large));
+        assert!(matches!(
+            writer.modifier_for(node, "shape_role", &AttrValue::Int(shape_role)),
+            Some(Some((_, crate::Modifier::ShapeRole(_))))
+        ));
+        assert_eq!(
+            writer.modifier_for(node, "corner_radius", &AttrValue::None),
+            Some(None)
+        );
+        assert!(matches!(
+            writer.modifier_for(node, "shape_role", &AttrValue::None),
+            Some(Some((_, crate::Modifier::Empty)))
+        ));
+        // Clearing an already-empty slot emits nothing.
+        assert_eq!(
+            writer.modifier_for(node, "shape_role", &AttrValue::None),
+            Some(None)
+        );
+
+        // Overriding `padding` with `padding_role` transfers slot ownership.
+        assert!(matches!(
+            writer.modifier_for(node, "padding", &AttrValue::Float(12.0)),
+            Some(Some((_, crate::Modifier::Padding(_))))
+        ));
+        let space_role = i64::from(u16::from(crate::SpaceRole::Md));
+        assert!(matches!(
+            writer.modifier_for(node, "padding_role", &AttrValue::Int(space_role)),
+            Some(Some((_, crate::Modifier::PaddingRole(_))))
+        ));
+        assert_eq!(
+            writer.modifier_for(node, "padding", &AttrValue::None),
+            Some(None)
+        );
+        assert!(matches!(
+            writer.modifier_for(node, "padding_role", &AttrValue::None),
+            Some(Some((_, crate::Modifier::Empty)))
+        ));
+
+        // Shadow layers track ownership across slots and clear only previously written
+        // layers when the list shrinks or empties.
+        let mut shadow_layer = [0u8; SHADOW_BYTES];
+        shadow_layer[16..24]
+            .copy_from_slice(&crate::Paint::Role(crate::ColorRole::Outline).to_bits().to_le_bytes());
+        let mut two_shadows = Vec::with_capacity(SHADOW_BYTES * 2);
+        two_shadows.extend_from_slice(&shadow_layer);
+        two_shadows.extend_from_slice(&shadow_layer);
+
+        writer.set_attribute(node, "shadows", &AttrValue::Bytes(&two_shadows));
+        assert_eq!(
+            writer.modifier_slots[&node][SHADOW_BASE as usize],
+            OWNER_LAYER
+        );
+        assert_eq!(
+            writer.modifier_slots[&node][SHADOW_BASE as usize + 1],
+            OWNER_LAYER
+        );
+
+        writer.set_attribute(node, "shadows", &AttrValue::Bytes(&shadow_layer));
+        assert_eq!(
+            writer.modifier_slots[&node][SHADOW_BASE as usize],
+            OWNER_LAYER
+        );
+        assert_eq!(
+            writer.modifier_slots[&node][SHADOW_BASE as usize + 1],
+            OWNER_NONE
+        );
+
+        writer.set_attribute(node, "shadows", &AttrValue::None);
+        assert_eq!(
+            writer.modifier_slots[&node][SHADOW_BASE as usize],
+            OWNER_NONE
+        );
     }
 }
