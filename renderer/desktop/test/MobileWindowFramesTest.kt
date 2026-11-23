@@ -28,6 +28,7 @@ import dev.darkpyonix.composerust.ui.platform.WindowsOnScreen
 import dev.darkpyonix.composerust.ui.platform.androidTearOffSupported
 import dev.darkpyonix.composerust.ui.platform.carriedWindowNodeId
 import dev.darkpyonix.composerust.ui.platform.serveWindowFrames
+import dev.darkpyonix.composerust.ui.platform.startedActivityWindow
 import dev.darkpyonix.composerust.ui.platform.windowFrameDriverWanted
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -344,6 +345,58 @@ class MobileWindowFramesTest {
 
         content.cancel()
         driver.cancel()
+    }
+
+    // The Flip 4 run: Back on the first window finished its Activity, the application heard
+    // WindowClosed and removed the node, and the process stayed. Started again from the
+    // launcher, the new Activity found no `Window` node, drew the tree's root and stayed
+    // blank, because the application never heard that the user was back.
+    @Test
+    fun fr53_a_start_after_the_last_window_closed_asks_the_application_for_a_window() {
+        val connection = SecondWindowConnection(
+            listOf(windows(), Mutation.Create(1, WidgetKind.Window), Mutation.Insert(0, 1, -1)),
+        )
+        val requested = mutableListOf<String>()
+        connection.answer = { event ->
+            if (event is HostEvent.WindowRequested) {
+                requested += event.key
+                listOf(
+                    Mutation.Create(7, WidgetKind.Window),
+                    Mutation.SetProp(7, PropertyKind.WindowRestoreKey, PropertyValue.Text(event.key)),
+                    Mutation.Insert(0, 7, -1),
+                )
+            } else {
+                emptyList()
+            }
+        }
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val backend = ClockBackend()
+        val manager = WindowManager(host, backend, onExit = {})
+        manager.attach()
+        val windowFor = { id: Int -> backend.opened.lastOrNull { it.config.nodeId == id } }
+
+        // While the first window is there, the started Activity draws it and nothing is asked.
+        val first = startedActivityWindow(host.table, windowFor) { error("a window was asked for while the first one is open") }
+        assertEquals(1, first?.config?.nodeId)
+        assertEquals(emptyList<String>(), requested)
+
+        // The user closed it, and the application removed its node.
+        connection.frameBatches.addLast(listOf(Mutation.Remove(1)))
+        host.renderFrame(16_000_000L)
+        assertEquals(emptyList<Int>(), manager.openWindows)
+
+        // Started from the launcher again: the application is asked, with an empty key, and the
+        // window it answers with is the started Activity's.
+        val made = ClockWindow(PlatformWindowConfig(nodeId = 0, title = "", width = 0f, height = 0f))
+        val started = startedActivityWindow(host.table, windowFor) {
+            backend.application?.onWindowRequested("", made)
+            made
+        }
+        assertEquals(listOf(""), requested, "the application hears that the user started it again")
+        assertTrue(started === made)
+        assertEquals(listOf(7), manager.openWindows, "the started Activity draws the node the application put in")
+        assertEquals(1, backend.opened.size, "no second Activity is launched for that node")
     }
 
     @Test

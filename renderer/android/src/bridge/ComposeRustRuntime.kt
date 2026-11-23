@@ -4,7 +4,6 @@ import android.app.Activity
 import android.os.Build
 import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.protocol.HostEvent
-import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import kotlinx.coroutines.Job
@@ -140,7 +139,9 @@ object ComposeRustRuntime {
      * For single-window applications this returns null and the Activity renders the implicit
      * root (`windowNodeId = 0`). For multi-window applications (`WindowMode.Windows`), the
      * first Activity claims the first `Window` node, recreated Activities rebind by [nodeId],
-     * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`.
+     * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`. An Activity
+     * started from the launcher after the user closed every window asks the same way, with
+     * an empty key ([startedActivityWindow]).
      *
      * [nodeId] is trusted only when [carriedProcess], the token it was saved or sent with, is
      * this process' [processToken]. After the process died, the saved state and the intent
@@ -186,17 +187,13 @@ object ComposeRustRuntime {
         // The Activity the application was started with launches the others, recreated or not.
         if (!launchedAsWindow) backend.attachRootActivity(activity)
         if (trustedId == 0 && !launchedAsWindow) {
-            val firstWindowId = currentHost.table.roots.firstOrNull {
-                currentHost.table.node(it)?.widget == WidgetKind.Window
-            }
-            if (firstWindowId != null) {
-                val existing = backend.windowFor(firstWindowId)
-                if (existing != null) {
-                    existing.rebind(activity)
-                    return existing
-                }
-            }
-            return null
+            // The first window, or, when the user closed every window and started the
+            // application again, the window the application answers that start with.
+            return startedActivityWindow(
+                currentHost.table,
+                windowFor = { id -> backend.windowFor(id)?.also { it.rebind(activity) } },
+                requestWindow = { backend.activityCreated(activity, 0, restoreKey) },
+            )
         }
         return backend.activityCreated(activity, trustedId, restoreKey)
     }

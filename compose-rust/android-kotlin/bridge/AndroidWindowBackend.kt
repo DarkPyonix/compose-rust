@@ -320,7 +320,8 @@ class AndroidWindowBackend(
     /**
      * Binds a newly created or recreated Activity to its [AndroidActivityWindow] by [nodeId],
      * or notifies [ApplicationListener.onWindowRequested] if the system revived a task after
-     * process death.
+     * process death, made a window for a dropped tab, or the launcher started the application
+     * again after the user closed every window.
      */
     fun activityCreated(
         activity: Activity,
