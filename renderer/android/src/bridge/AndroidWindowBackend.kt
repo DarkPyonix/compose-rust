@@ -278,7 +278,9 @@ class AndroidWindowBackend(
         restoreKey: String,
         shadow: View.DragShadowBuilder = View.DragShadowBuilder(view),
     ): Boolean {
-        if (!androidTearOffSupported(Build.VERSION.SDK_INT) || restoreKey.isEmpty()) return false
+        // Spelled out rather than through androidTearOffSupported, so the API check below is
+        // one the Android tooling can see.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM || restoreKey.isEmpty()) return false
         if (!supportsMultipleWindows) return false
         val currentRoot = rootActivity ?: return false
         val targetClass = windowActivityClass ?: currentRoot::class.java

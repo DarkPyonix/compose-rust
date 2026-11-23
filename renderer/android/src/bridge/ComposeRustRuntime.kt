@@ -171,8 +171,9 @@ object ComposeRustRuntime {
             it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID) ||
                 it.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY)
         } == true
+        // The Activity the application was started with launches the others, recreated or not.
+        if (!launchedAsWindow) backend.attachRootActivity(activity)
         if (trustedId == 0 && !launchedAsWindow) {
-            backend.attachRootActivity(activity)
             val firstWindowId = currentHost.table.roots.firstOrNull {
                 currentHost.table.node(it)?.widget == WidgetKind.Window
             }
