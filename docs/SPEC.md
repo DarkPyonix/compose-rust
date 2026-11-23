@@ -2166,6 +2166,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 
 ### FR-23 브러시, 폰트, 재질 (`Draft`)
 
+> **검증 기록(#58).** 선형 브러시 해석과 미등록 ID 보고는 `fr23_a_gradient_is_read_into_a_brush`, `fr23_an_unregistered_brush_is_reported_rather_than_guessed`로 확인했습니다. 여섯 시스템의 `Surface` 픽셀과 브러시 사용 중 Host의 무할당은 확인하지 않았습니다. 글꼴 해석, 다른 역할 유지, 폴백은 `fr23_a_role_resolved_to_a_registered_font_is_written_in_it`, `fr23_naming_a_font_for_one_role_leaves_the_others_alone`, `fr23_an_id_that_names_nothing_leaves_the_role_on_the_system_face`로 확인했습니다. 재질의 시스템별 채움 및 불투명 대체는 `fr23_the_same_material_gives_a_different_fill_in_each_system`, `fr23_a_surface_that_cannot_blur_falls_back_to_an_opaque_fill`로 확인했습니다.
+
 13.7이 셋을 뺐고, 셋 다 같은 이유였습니다. 값이 `(u64, u64)` 모디파이어 슬롯에 들어가지 않는다는 것입니다. 그것은 맞지만 기능을 빼는 근거는 아닙니다. FR-16이 이미 리소스를 등록하고 id로 참조하는 길을 냈고, 셋 다 그 길을 씁니다. 레코드는 고정 길이로 남고 PR-4는 그대로입니다.
 
 #### 23.1 그라데이션과 이미지 브러시
@@ -2188,6 +2190,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
 
 ### FR-24 모션 (`Draft`)
+
+> **검증 기록(#58).** `fr24_each_design_system_answers_standard_with_its_own_length`, `fr24_a_system_asked_to_hold_still_answers_every_role_with_no_run`은 모션 역할의 해석을 확인합니다. 24.1의 종료, 중단, 모션 감소, 첫 배치, 핸들러 없음, 삭제 및 왕복 시험은 아래 기준에 적었습니다. 일곱 시스템의 실제 전환 시간과 시스템별 단일 종료 이벤트, 정상 상태 무할당은 확인하지 않았습니다.
 
 13.7은 "애니메이션 스펙"을 뺐고 그 이유는 옳았습니다. Host가 duration과 easing을 보내면 디자인 시스템이 모션을 결정한다는 FR-14가 무너집니다. 빠져 있던 것은 값이 아니라 **말할 방법**이었습니다. 색과 간격이 역할로 말해지듯 모션도 역할로 말합니다.
 
@@ -2233,13 +2237,17 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 
 ### FR-25 Grid (`Draft`)
 
+> **검증 기록(#58).** `fr25_a_window_grows_to_the_rows_it_touches`, `fr25_the_last_row_may_be_short`, `fr25_an_empty_window_stays_empty`는 행 범위를 확인합니다. 1,000개 그리드의 실제 스크롤, 창 크기 변경 뒤의 열과 순서, 그리고 크기 0 아이템의 경계 호출 수는 확인하지 않았습니다.
+
 지연 그리드입니다. FR-8이 한 축을 창으로 보는 규약을 정했고, 그리드는 그 규약을 행 단위로 씁니다. 두 번째 윈도잉 프로토콜을 만들지 않습니다.
 
 - `LazyGrid`: 열 수를 고정으로 받거나(`columns`), 최소 폭으로 받습니다(`min_column_width`). 후자는 Renderer가 자기 폭으로 열 수를 정하므로 크기 클래스와 같은 종류의 판단이고, Host는 관여하지 않습니다.
 - 창 프로토콜은 FR-8 그대로입니다. 요청 단위가 아이템이 아니라 **행**이라는 것만 다릅니다. 행 하나는 열 수만큼의 아이템이고, 마지막 행은 덜 찰 수 있습니다.
 - 수용 기준: 아이템 1000개짜리 그리드가 보이는 행만 만들고, 스크롤이 창을 옮기며, 창 밖 아이템의 노드는 존재하지 않습니다. 창 크기가 바뀌어 열 수가 달라지면 행 경계가 다시 계산되고 아이템 순서는 유지됩니다. 크기 0 아이템으로 채운 그리드가 경계 호출을 되풀이하지 않습니다(FR-8과 같은 회귀).
 
-### FR-26 서식 있는 텍스트 (`Draft`)
+### FR-26 서식 있는 텍스트 (`Agreed`)
+
+> **미완료(#638).** 편집 가능한 리치 텍스트(FR-26.1)의 검증은 [#965](https://github.com/DarkPyonix/compose-rust/pull/965), [#973](https://github.com/DarkPyonix/compose-rust/pull/973), [#974](https://github.com/DarkPyonix/compose-rust/pull/974)에 남아 있습니다. 아래 시험은 `Text`의 스팬을 검증합니다.
 
 `Text`의 스팬 모델입니다. 위젯을 더하는 것이 아니라 `Text`가 구간마다 다른 역할을 가질 수 있게 하는 것입니다.
 
@@ -2250,10 +2258,12 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
   - 스팬 레코드는 28바이트에서 **36바이트**가 됩니다. 글자색 `Paint` 뒤에 `background: Paint`(u64) 하나를 더하고, 0은 "배경 없음"입니다. 글자색과 배경을 한 `Paint` 자리에 플래그로 번갈아 싣는 방법은 쓰지 않습니다. 한 구간이 둘을 같이 가질 수 없게 되고, 바뀐 단어는 대개 글자색(문법 역할)과 배경(diff 강조)을 같이 가집니다.
   - 받는 값은 다른 `Paint` 자리와 같습니다. 역할이 먼저이고 리터럴은 탈출구입니다(13.1). 속성 태그는 그대로 `Spans`(64)이고, 레코드 길이가 바뀌므로 스키마 해시가 움직입니다. 레코드는 Rust 쪽(`spans.rs`)에 정의하고 Kotlin 디코더는 codegen이 생성합니다(FR-7).
   - 배경은 구간의 글자 상자를 칠하며, 줄이 바뀌는 구간은 줄마다 따로 칠합니다. 모양과 안쪽 여백은 두지 않습니다. 그것은 디자인 시스템이 정할 것이 생기면 그때 역할로 말할 일입니다.
-- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**일부 증명**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간이 다르게 그려지고 링크만 클릭을 보고하는 것, 스팬 없는 `Text`의 레코드가 그대로인 것은 시험이 없습니다]
+- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**증명됨**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간의 그리기 및 링크 클릭은 `fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click`, 스팬이 없는 `Text`는 `fr26_a_text_with_no_spans_keeps_its_record_size_and_path`가 확인합니다]
 - 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다. [**증명됨**: `fr26_a_background_paints_behind_its_own_run_and_nowhere_else`, `fr26_a_run_with_a_colour_and_a_background_draws_both`, `fr26_a_run_carries_its_colour_and_its_background_apart`, `fr26_the_runs_in_the_vector_decode_to_the_same_values`, `fr26_a_run_without_a_background_paints_nothing_behind_it`]
 
 ### FR-27 파일 드래그 앤 드롭 (`Draft`)
+
+> **검증 기록(#58).** `fr27_two_paths_arrive_as_one_event`, `fr27_files_let_go_where_no_target_is_reach_nothing`, `fr27_an_unreadable_path_is_dropped_and_the_rest_arrive`로 각 동작을 확인했습니다. Windows 이벤트 경로는 `fr27_windows_window_file_events_reach_the_target_under_them`이 확인합니다. 세 데스크톱에서 실제 파일을 떨어뜨리는 확인은 남았습니다.
 
 창에 파일을 떨어뜨리는 것입니다. 포인터 드래그 자체는 FR-18이고 이것과 별개입니다.
 
@@ -2263,6 +2273,8 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 - 수용 기준: 데스크톱에서 파일 두 개를 떨어뜨리면 경로 두 개가 한 이벤트로 도착합니다. 받을 준비가 없는 노드 위에서는 이벤트가 발생하지 않습니다. 경로에 UTF-8이 아닌 바이트가 있으면 그 파일을 버리고 나머지를 전달하며, 프로세스를 중단하지 않습니다.
 
 ### FR-28 노드 크기 관찰 (`Draft`)
+
+> **검증 기록(#58).** `fr28_an_observed_node_reports_both_classes_in_one_event`, `fr28_first_measurement_always_reports`, `fr28_every_dp_node_reports_a_resize_inside_one_class`, `fr28_every_dp_coalesces_measurements_within_a_frame` 및 `fr28_every_dp_off_by_default_keeps_the_record_bytes`를 확인했습니다. 미구독 트리의 경계 호출 수, 기본 모드에서 같은 클래스 안의 변화 억제, 노드 삭제 뒤 구독 해제는 별도 확인이 남았습니다.
 
 FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답합니다. 컨테이너 질의(container query)에 해당하는 것으로, 창이 아니라 자기가 놓인 자리에 맞춰 모습을 바꾸는 컴포넌트가 이것을 씁니다.
 
@@ -2295,6 +2307,8 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 4. 분할 배치의 두 패널이 각자 `remember_node_size()`와 `current_node_breakpoint`를 쓸 때, 한 패널의 크기 변화는 다른 패널을 다시 실행하지 않습니다(`fr28_node_breakpoint_works_independently_for_two_panes`).
 
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
+
+> **검증 기록(#58).** `fr29_a_window_made_of_chrome_lets_its_backdrop_through`, `fr29_a_window_that_did_not_ask_is_painted_as_before`는 그리기 경로를 확인합니다. `fr29_light_theme_asks_the_window_for_aqua`, `fr29_dark_theme_asks_the_window_for_dark_aqua`, `fr29_follow_system_leaves_the_window_on_the_system`은 창에 요청할 모양을 확인합니다. 실제 창 뒤 배경을 바꾼 두 장의 캡처, 재질이 없는 창에 `NSVisualEffectView`가 없는지, Windows와 Linux의 대체 그리기는 확인이 남았습니다.
 
 14.1-2가 "우리가 그릴 수 없는 것"으로 분류했던 것입니다. macOS에서 창 뒤의 시스템 배경을 비추는 재질이고, `NSVisualEffectView`가 그립니다.
 
@@ -5869,7 +5883,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 |---|---|---|---|
 | NFR-1 | JVM 불필요 | 배포물에 JRE가 없고, `java`가 없는 머신에서 실행됨 | Agreed |
 | NFR-2 | 코어 웹뷰 불필요 | 코어 크레이트는 WKWebView, WebView2, WebKitGTK에 링크하지 않음(웹뷰는 opt-in 별도 크레이트로만 제공) | Agreed |
-| NFR-3 | 데스크톱 무게 | 빈 창 physical footprint < 56MB, 배포 용량 < 100MB. 측정 기준과 근거는 §5.2 | Agreed |
+| NFR-3 | 데스크톱 무게 | 빈 창 < 56MB(OS별 지표는 아래), 배포 용량 < 100MB. 측정 기준과 근거는 §5.2. 한도는 56MB 그대로이고, 지표와 상태는 OS별이다 ([leader, 2026-11-22]). **macOS**: 지표 physical footprint. 충족. Kotlin/Native 렌더러의 값은 35.1~39MB이고 `docs/platforms.md`의 "빈 창 하나가 쓰는 메모리"가 적고 있다. **Windows**: 지표 private working set. 충족. +60초 18.8MiB, +10초 19.9MiB. CI 러너의 WARP(소프트웨어 D3D12) 어댑터에서 잰 값이고 실행 45010220308이 근거다. **Linux**: 지표 PSS. CI에서는 판정하지 않음. Xvfb 위의 Mesa 소프트웨어 GL(llvmpipe)에서 +60초 81.1MiB, +10초 82.3MiB이고 실행 45010220308이 근거다. 소프트웨어 GL이 약 40MiB이고 나머지는 중앙값에서 약 41MiB다. 하드웨어 GPU를 쓰는 Linux의 판독은 소유자 항목이다(DarkPyonix/darkpyonix#141) | Agreed |
 | NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족으로 적었던 기록**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 이 기록이 스스로 적듯 Linux와 Windows는 빌드와 스모크 테스트까지이고, 같은 화면을 확인한 기록이 없습니다. 또 macOS의 확인은 데스크톱 렌더러가 Kotlin/Native 정적 렌더러로 바뀌기(NFR-14, 2026-10-04) 전의 렌더러로 한 것입니다 | Agreed |
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족으로 적었던 기록**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 지금 `renderer/desktop/src`에서만 Compose의 실험 또는 내부 API 표시(`@ExperimentalComposeUiApi`, `@ExperimentalTextApi`, `@InternalComposeUiApi`)를 쓰는 파일이 15개이고(2026-11-21에 그 세 이름으로 grep), 어댑터 한 파일에 모여 있지 않습니다. 그래서 2026-09-22의 근거는 더 이상 맞지 않습니다 | Agreed |
@@ -5909,7 +5923,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 
 **측정 기준은 macOS의 physical footprint입니다.** RSS는 이미지에서 매핑된 깨끗한 페이지까지 세기 때문에 실제 점유량을 과장합니다. 같은 프로세스가 RSS 127MB, footprint 54MB로 두 배 넘게 차이납니다. Activity Monitor의 "메모리" 열이 footprint입니다. 측정은 `desktop/scripts/measure-memory.sh`로 재현합니다.
 
-**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창)**
+**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창, 예전 GraalVM 이미지)**
 
 | 영역 | dirty | 정체 |
 |---|---|---|
@@ -5932,7 +5946,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 3. **로케일과 도달 가능 코드는 footprint에 영향이 없습니다.** 이미지 코드와 읽기 전용 힙은 `__TEXT`(18MB)와 깨끗한 `__DATA`(8.7MB)에 들어가고, footprint는 dirty 페이지만 셉니다. 이 레버들은 디스크 용량(65MB)을 줄이지 resident를 줄이지 않습니다.
 4. **`skiko.buffering=DOUBLE`은 JVM에서는 1.9MB를 줄이지만 네이티브 이미지에서는 동작하지 않습니다.** Skiko의 속성 보관 객체가 이미지 빌드 시점에 초기화돼서, 시작 시점에 설정한 값이 너무 늦게 도착합니다. IOSurface가 9408KB로 동일한 것을 측정으로 확인했습니다.
 
-**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`)**
+**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`, 예전 GraalVM 이미지)**
 
 지표가 다릅니다. macOS는 physical footprint, Windows는 작업 관리자가 "메모리" 열에 보여 주는
 private working set입니다. 직접 빼서 비교할 수 있는 값이 아니지만, **비교가 유리한 쪽이
@@ -5969,6 +5983,72 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 **남은 여지**: 그래픽이 약 22.5MB로 전체의 40%를 넘고 창 크기에 비례합니다. Skia와 그래픽을 합친 약 36.5MB가 Compose/Skia 프로세스의 바닥이며, 시스템 텍스트 스택을 공유하는 AppKit 앱은 지지 않는 비용입니다.
 
 **더 줄이려면 IME 등록 메타데이터를 건드려야 합니다.** `ImeReachabilityFeature`가 패키지 단위로 등록하면서 약 7.8MB의 이미지 힙을 만듭니다. 이것을 좁히는 것이 남은 유일한 큰 레버지만, 실패하면 입력기가 텍스트 필드를 건드리는 순간 프로세스가 죽습니다(§6). **사람이 네이티브 빌드에서 한글을 직접 입력해 확인할 수 있을 때만 시도합니다.**
+
+**Kotlin/Native 빈 창 측정 방법 (Linux, Windows; #59)**
+
+위 표와 Windows 숫자는 GraalVM 네이티브 이미지로 잰 것이다. 지금 데스크톱이 싣는 Kotlin/Native 렌더러의 빈 창은 아래 방법으로 잰다. 이 방법은 보고만 하고 판정하지 않는다. 56MB 목표와 위 표는 그대로 둔다. Kotlin/Native 숫자는 이 방법의 첫 실행 결과로 아래에 OS별로 기록한다(#59).
+
+- **앱**: `compose-rust/tests/fixtures/blank-window`. 800x600dp 창 하나에 창을 채우는 빈 `Box` 하나뿐이다. 내용과 입력이 없으므로 프로세스가 쥔 메모리는 렌더러, 그래픽 서피스, 창의 몫이다.
+- **빌드**: 같은 커밋의 릴리스 렌더러에 링크한다. Linux는 `build-linux.sh --release`로 그 자리에서 만들고, Windows는 같은 실행의 `windows-static-renderer-kit`을 받는다.
+- **지표**:
+
+| OS | 지표 | 읽는 곳 | 참고값 |
+|---|---|---|---|
+| Linux (ubuntu-latest, Xvfb) | PSS | `/proc/<pid>/smaps_rollup` | RSS (`/proc/<pid>/status`) |
+| Windows (windows-latest) | private working set | `\Process(<name>)\Working Set - Private` 카운터. 읽지 못하면 `PrivateMemorySize64`(private bytes)로 대신하고, 요약에 어느 쪽인지 적는다 | working set |
+
+- **시점과 대표값**: 앱을 3번 띄운다. 매번 시작 후 10초와 60초에 한 번씩 읽고, 띄운 pid로 닫는다. 각 시점마다 3개의 중앙값을 보고하고 최소, 최대를 함께 적는다. 한 번의 실행은 아무 데나 떨어지고, 3개는 가운데가 있는 가장 작은 수이기 때문이다.
+- **실행**: 리더가 `ci.yml`을 `suites: memory_report`로 dispatch한다. `all`, `fast`, `measure`에는 들어가지 않는다. 결과는 잡 요약의 표와, 모든 샘플을 담은 `memory-report-linux-x64`, `memory-report-windows-x64` 아티팩트(JSON)다.
+- **실패 조건**: 첫 판독 전에 앱이 사라지거나 판독이 하나도 없을 때만 실패한다. 숫자로는 실패하지 않는다. 아무것도 재지 못한 보고가 통과로 읽히면 안 되기 때문이다.
+- **한계**: CI 러너에는 그래픽 카드가 없다. Linux는 Xvfb 위의 Mesa 소프트웨어 래스터라이저로, Windows는 Basic Render Driver의 WARP로 100% 배율에서 그린다. 실제 그래픽 드라이버 메모리는 잡히지 않는다. 실제 하드웨어의 200% 분해(#171)는 소유자 확인 항목으로 남는다.
+
+**Kotlin/Native 빈 창 결과 (2026-11-22, #59)**
+
+- **실행**: CI 실행 45010220308 (`ci/targeted-1`, 스위트 `test_compose_from_fork,memory_report`). 잰 커밋은 82236d3e이다. 이 커밋은 PR #989의 머리 2ed7e7a9를 `ci/targeted-1`에 합친 것이다.
+- **조건**: `blank-window`, 창 800x600, 3번 띄워 중앙값. 두 잡 "Blank window memory (Linux, x64)"와 "(Windows, x64)"가 모두 성공했다.
+- 단위: 이 절의 MiB는 kB를 1024로 나눈 값이다. CI 요약이 계산한 그대로다.
+
+Linux (PSS, Xvfb 위의 Mesa 소프트웨어 GL)
+
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
+|---|---|---|---|---|
+| +10초 | **PSS** | **82.3** | 82.1 | 92.1 |
+| +10초 | RSS (참고) | 108.7 | 108.6 | 118.5 |
+| +10초 | PSS anonymous | 28.8 | 28.8 | 32.8 |
+| +10초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +10초 | Private dirty | 28.8 | 28.8 | 50.6 |
+| +60초 | **PSS** | **81.1** | 80.9 | 91.0 |
+| +60초 | RSS (참고) | 107.4 | 107.3 | 117.4 |
+| +60초 | PSS anonymous | 27.6 | 27.5 | 31.6 |
+| +60초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +60초 | Private dirty | 27.6 | 27.5 | 31.6 |
+
+Linux PSS 내역. 첫 번째 실행(launch 1)의 +60초 판독이고, `smaps-launch-1.txt`가 그 시점의 가장 큰 매핑 25개를 담는다. 이 실행의 PSS는 93191kB(91.0MiB)로 3번 중 가장 크다. kB는 파일의 값이고 MiB는 kB를 1024로 나눈 값이다.
+
+| 매핑 | PSS (kB) | PSS (MiB) |
+|---|---|---|
+| libLLVM.so.21.1 | 32310 | 31.6 |
+| blank-window 실행 파일 | 21120 | 20.6 |
+| `[heap]` | 15636 | 15.3 |
+| `[anonymous]` | 9904 | 9.7 |
+| libgallium | 8832 | 8.6 |
+| 나머지 합계 | 5389 | 5.3 |
+| **합계** | **93191** | **91.0** |
+
+libLLVM + libgallium = 41142kB (40.2MiB), launch 1. 둘은 Mesa 소프트웨어 래스터라이저(llvmpipe)의 몫이다. 하드웨어 GPU에서는 없을 수 있으므로 이 값을 Linux 일반의 값으로 읽지 않는다. 중앙값 81.1MiB에서 40.2MiB를 빼면 나머지는 약 41MiB다.
+
+Windows (private working set, WARP)
+
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
+|---|---|---|---|---|
+| +10초 | **Private working set** | **19.9** | 19.9 | 19.9 |
+| +10초 | Working set (참고) | 61.2 | 61.2 | 62.7 |
+| +10초 | Private bytes (참고) | 117.4 | 116.6 | 117.4 |
+| +60초 | **Private working set** | **18.8** | 18.8 | 18.9 |
+| +60초 | Working set (참고) | 60.1 | 60.1 | 61.7 |
+| +60초 | Private bytes (참고) | 116.3 | 115.6 | 116.3 |
+
+Windows의 지표는 카운터 `Working Set - Private`에서 읽었다. 같은 지표의 예전 GraalVM 값(138.7MB)은 다른 이미지의 값이므로 이 값과 이어 읽지 않는다. Linux와 Windows의 값은 서로 비교하지 않는다.
 
 ### 5.3 렌더러 획득 (NFR-10, NFR-11)
 
@@ -6223,7 +6303,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 그 실행 파일의 `dumpbin /dependents` 결과에 Windows 시스템 DLL만 나오고 `vcruntime140.dll`, `msvcp140.dll`이 없습니다.
    - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
-   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
+   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다. [Windows x64 CI 실행 42116487399](https://github.com/DarkPyonix/compose-rust/actions/runs/42116487399/job/127563694530)의 디버그 `consumer.exe`: 기본값(정적 vcruntime·C++ 런타임, 시스템 UCRT) 80,384,000바이트, `DXC_WINDOWS_CRT=dynamic` 80,345,088바이트, `+crt-static`(UCRT 포함) 80,731,136바이트입니다. 기본값은 동적 링크보다 38,912바이트 큽니다.
 6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ### 5.8 메모리 안정성 (NFR-17)
