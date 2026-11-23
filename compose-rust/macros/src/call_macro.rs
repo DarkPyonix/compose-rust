@@ -23,6 +23,7 @@ use proc_macro2::{Group, Punct, Spacing, TokenStream, TokenTree};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
+use syn::visit_mut::VisitMut;
 use syn::{Attribute, Expr, Ident, ItemFn, Token, Type, Visibility};
 
 /// One parameter, as the call macro sees it.
@@ -256,6 +257,55 @@ fn parse_arguments(input: ParseStream) -> syn::Result<Vec<Argument>> {
         let _: Token![,] = input.parse()?;
     }
     Ok(arguments)
+}
+
+/// Runs `visitor` over a call macro's arguments, read with [`check`]'s grammar, in the
+/// order they are written, and gives them back as tokens. The trailing block is visited as
+/// the body of the closure [`check`] makes of it, so `Name!(a, { .. })` is visited exactly
+/// as `Name(a, || { .. })` is. Arguments that do not parse give `None` before the visitor
+/// has seen anything, and are left for the call macro to report.
+pub(crate) fn visit_arguments_mut<V: VisitMut>(
+    tokens: TokenStream,
+    visitor: &mut V,
+) -> Option<TokenStream> {
+    enum Read {
+        Expr(Option<Ident>, Expr),
+        Block(syn::Block),
+    }
+    // Kept with its own span: a missing argument is reported on the last token written.
+    let trailing_comma = match tokens.clone().into_iter().last() {
+        Some(TokenTree::Punct(punct)) if punct.as_char() == ',' => Some(punct),
+        _ => None,
+    };
+    let arguments = syn::parse::Parser::parse2(parse_arguments, tokens).ok()?;
+    let mut read = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        read.push(match argument {
+            Argument::Positional(expr) => Read::Expr(None, expr),
+            Argument::Named(ident, expr) => Read::Expr(Some(ident), expr),
+            Argument::Block(group) => {
+                Read::Block(syn::parse2(TokenTree::Group(group).into()).ok()?)
+            }
+        });
+    }
+    let mut written = Vec::with_capacity(read.len());
+    for argument in read {
+        written.push(match argument {
+            Read::Expr(None, mut expr) => {
+                visitor.visit_expr_mut(&mut expr);
+                expr.into_token_stream()
+            }
+            Read::Expr(Some(ident), mut expr) => {
+                visitor.visit_expr_mut(&mut expr);
+                quote!(#ident = #expr)
+            }
+            Read::Block(mut block) => {
+                visitor.visit_block_mut(&mut block);
+                block.into_token_stream()
+            }
+        });
+    }
+    Some(quote!(#(#written),* #trailing_comma))
 }
 
 /// Reads the caller's arguments against the parameter list and emits the call, or the
