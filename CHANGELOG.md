@@ -66,6 +66,9 @@ A sheet's first line no longer sits level with its drag handle. Material 3 keeps
 ### Window breakpoints the application chooses
 
 `current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
+### A page that measures nodes is answered when the window is resized
+
+A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28). A `CodeEditor` first put on screen inside a split pane or a lazy list is attached during a measure pass too, so what it has to say at that moment is sent just after the pass; everything it says later, a key's echo included, is sent at once as before (FR-38).
 
 ## v0.0.12
 
