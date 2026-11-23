@@ -1112,6 +1112,32 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// The Flip 4 run: Back closed the first window and the process stayed, and the launcher
+    /// started the application again. That start asks with no key; the first window comes back
+    /// under that key, so the window that asked draws it rather than staying blank.
+    #[test]
+    fn fr53_a_request_with_no_key_reopens_a_closed_first_window() {
+        let mut screen = Screen::windows_check();
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, windows_check::MAIN_KEY)
+            .expect("the first window is open");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowClosed)
+            .expect("the first window hears that the system closed it");
+        screen.dispatch(window, handler, EventPayload::WindowClosed);
+        assert_eq!(screen.window_nodes(), 0);
+        screen.request_window("");
+        assert_eq!(screen.window_nodes(), 1, "the first window comes back");
+        assert_eq!(
+            screen.strings_of(PropertyKind::WindowRestoreKey),
+            vec![String::new()],
+            "under the key it was asked for, so the window that asked draws it"
+        );
+        assert!(screen.named(windows_check::OPEN_SECOND).is_some());
+        assert!(screen.shows("Last window event: WindowRequested \"\""));
+        compose_rust::window::reset_window_size();
+    }
+
     /// A tab or a window dragged over a window's strip is shown on the line.
     #[test]
     fn fr53_a_drag_over_the_strip_is_shown() {

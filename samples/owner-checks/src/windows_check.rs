@@ -41,6 +41,9 @@ const DROP_HEIGHT: f32 = 72.0;
 #[derive(Clone, Copy)]
 struct Windows {
     main_open: MutableState<bool>,
+    /// The restore key of the first window: [`MAIN_KEY`], or empty once the first window was
+    /// opened again in answer to a request with no key.
+    main_key: MutableState<&'static str>,
     second_open: MutableState<bool>,
     /// Which tabs are in a window of their own rather than in the first window.
     torn: MutableState<[bool; 2]>,
@@ -59,6 +62,7 @@ impl Windows {
 pub fn windows_check_app() {
     let windows = remember(|| Windows {
         main_open: mutable_state_of(true),
+        main_key: mutable_state_of(MAIN_KEY),
         second_open: mutable_state_of(false),
         torn: mutable_state_of([false; 2]),
         last_event: mutable_state_of(String::from(NO_EVENT)),
@@ -66,6 +70,9 @@ pub fn windows_check_app() {
     // A tab dragged out of its window, a window revived after the process was killed, or a
     // new window from the system's own menu. The answer is a `Window` node under the same
     // key; a key this check does not know gets none, and the platform closes that window.
+    // A request with no key while the first window is closed is the application started
+    // again after the user closed every window (Android's launcher, for one): it gets the
+    // first window back, under that empty key, so the window that asked draws it.
     on_window_requested(move |request: WindowRequest| {
         windows.heard(format!("WindowRequested {:?}", request.key));
         if let Some(index) = TAB_KEYS.iter().position(|key| *key == request.key) {
@@ -73,6 +80,10 @@ pub fn windows_check_app() {
         } else if request.key == SECOND_KEY {
             windows.second_open.set(true);
         } else if request.key == MAIN_KEY {
+            windows.main_key.set(MAIN_KEY);
+            windows.main_open.set(true);
+        } else if request.key.is_empty() && !windows.main_open.get_untracked() {
+            windows.main_key.set("");
             windows.main_open.set(true);
         }
     });
@@ -99,7 +110,7 @@ fn main_window(windows: Windows) {
         },
         title = "Owner checks: windows",
         size = (720.0, 640.0),
-        restore_key = MAIN_KEY,
+        restore_key = windows.main_key.get(),
         on_closed = Some(move || {
             windows.heard(String::from("WindowClosed main"));
             windows.main_open.set(false);
@@ -141,6 +152,9 @@ fn main_window(windows: Windows) {
                                      the tab's key, the window closes and the tab comes back.",
                                     "Close a torn-off window from Recents or the app switcher. \
                                      The line says WindowClosed and the tab comes back.",
+                                    "Android: with no other window open, press Back in this \
+                                     window, then start the app again from the launcher. This \
+                                     window comes back and the line says WindowRequested \"\".",
                                 ],
                             );
                         }
