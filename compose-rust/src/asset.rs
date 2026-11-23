@@ -178,6 +178,32 @@ pub(crate) fn release(asset_id: u32, kind: AssetKind) -> bool {
     true
 }
 
+/// Lets go of a registered font or picture, so the Renderer drops its copy.
+///
+/// ```ignore
+/// let codicon = asset(AssetKind::Font, CODICON);
+/// // ... the editor closes and nothing draws with it any more:
+/// release_asset(codicon);
+/// ```
+///
+/// The release rides out on the next batch as `ReleaseAsset`. Returns false for an id that
+/// was never registered or was already released. A registration still waiting for its batch
+/// is dropped instead, because the Renderer never heard of it. The id is not handed out
+/// again: text that still names it falls back to the next font in its list, and the
+/// Renderer reports a protocol error once. Registering the same bytes again gives a new id.
+pub fn release_asset(asset_id: AssetId) -> bool {
+    let kind = REGISTERED.with_borrow(|registered| {
+        registered
+            .iter()
+            .find(|(_, id, _)| *id == asset_id)
+            .map(|(_, _, kind)| *kind)
+    });
+    match kind {
+        Some(kind) => release(asset_id, kind),
+        None => false,
+    }
+}
+
 /// Hands every queued release to `emit` and empties the queue.
 pub(crate) fn drain_releases(mut emit: impl FnMut(u32)) {
     let mut taken = RELEASES.with_borrow_mut(std::mem::take);
