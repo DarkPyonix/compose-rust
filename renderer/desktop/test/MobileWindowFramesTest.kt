@@ -92,7 +92,7 @@ private class ClockBackend : WindowBackend {
     fun window(nodeId: Int): ClockWindow = opened.last { it.config.nodeId == nodeId }
 }
 
-private class CountingConnection(private val initial: List<Mutation>) : HostConnection {
+private class SecondWindowConnection(private val initial: List<Mutation>) : HostConnection {
     var renderFrames = 0
     val frameBatches = ArrayDeque<List<Mutation>>()
 
@@ -128,7 +128,7 @@ class MobileWindowFramesTest {
 
     @Test
     fun fr53_a_second_mobile_window_draws_from_its_own_frames() = runBlocking {
-        val connection = CountingConnection(
+        val connection = SecondWindowConnection(
             listOf(
                 windows(),
                 Mutation.Create(1, WidgetKind.Window),
