@@ -100,14 +100,23 @@ object ComposeRustRuntime {
         return created
     }
 
-    /** The UI came back on screen. Timers and animations resume. */
+    /**
+     * Which of the process' Activities are on screen. The Host has one lifecycle for all of
+     * them, so it hears a stop when the last one leaves the screen, not when any one does.
+     */
+    private val onScreen = WindowsOnScreen { event -> host?.dispatch(event) }
+
+    /** An Activity came on screen. Timers and animations resume if it is the first. */
     fun start() {
-        host?.dispatch(HostEvent.LifecycleStart(NO_NODE, NO_HANDLER))
+        onScreen.started()
     }
 
-    /** The UI left the screen. The Host suppresses timers and animations. */
+    /**
+     * An Activity left the screen. The Host suppresses timers and animations once none is
+     * left: another Activity of the process may still be on screen, in a split or in front.
+     */
     fun stop() {
-        host?.dispatch(HostEvent.LifecycleStop(NO_NODE, NO_HANDLER))
+        onScreen.stopped()
     }
 
     /**
