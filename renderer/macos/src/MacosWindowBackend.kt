@@ -192,6 +192,7 @@ class MacosWindowBackend(
         } else {
             created.initWindow()
         }
+        configureMetalDrawables(created.window)
         // After setContent: it hands the window's close, focus and event hooks to the scene's
         // own host, which closes the window when asked. Here the application is the one to ask.
         val window = MacosPlatformWindow(created, frames, slot, listener, { pointer() }) { gone ->

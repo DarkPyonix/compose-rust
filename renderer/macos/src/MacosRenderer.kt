@@ -230,6 +230,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             )
         }
     }
+    configureMetalDrawables(window.window)
 
     // How far the start got, in the words the native image's window uses. The scene was
     // made with the window, but its size and density are the screen's, which are known only
