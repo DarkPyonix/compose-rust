@@ -71,8 +71,11 @@ pub fn windows_check_app() {
     // new window from the system's own menu. The answer is a `Window` node under the same
     // key; a key this check does not know gets none, and the platform closes that window.
     // A request with no key while the first window is closed is the application started
-    // again after the user closed every window (Android's launcher, for one): it gets the
-    // first window back, under that empty key, so the window that asked draws it.
+    // again from Android's launcher (or a new window from the system's menu): after the user
+    // closed every window, or closed the first one while another stayed open. Either way the
+    // answer is the first window, under that empty key, so the window that asked draws it and
+    // the windows still open stay as they are. With the first window open, such a request
+    // gets nothing, and the platform finishes only the Activity that asked.
     on_window_requested(move |request: WindowRequest| {
         windows.heard(format!("WindowRequested {:?}", request.key));
         if let Some(index) = TAB_KEYS.iter().position(|key| *key == request.key) {
@@ -155,6 +158,10 @@ fn main_window(windows: Windows) {
                                     "Android: with no other window open, press Back in this \
                                      window, then start the app again from the launcher. This \
                                      window comes back and the line says WindowRequested \"\".",
+                                    "Android: open the second window, press Back in this window, \
+                                     then start the app again from the launcher. This window \
+                                     comes back beside the second one, which keeps its count of \
+                                     seconds, and the line says WindowRequested \"\".",
                                 ],
                             );
                         }

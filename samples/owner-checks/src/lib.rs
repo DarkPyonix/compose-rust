@@ -1138,6 +1138,42 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
+    /// The first window closed while the second stayed open, then a start from the launcher:
+    /// the request with no key gets the first window back and leaves the second as it was.
+    #[test]
+    fn fr53_a_request_with_no_key_reopens_the_first_window_beside_an_open_one() {
+        let mut screen = Screen::windows_check();
+        assert!(screen.press(windows_check::OPEN_SECOND));
+        let window = screen
+            .node_with(PropertyKind::WindowRestoreKey, windows_check::MAIN_KEY)
+            .expect("the first window is open");
+        let handler = screen
+            .handler_of(window, PropertyKind::OnWindowClosed)
+            .expect("the first window hears that the system closed it");
+        screen.dispatch(window, handler, EventPayload::WindowClosed);
+        assert_eq!(screen.window_nodes(), 1);
+        let second = screen
+            .node_with(PropertyKind::WindowRestoreKey, windows_check::SECOND_KEY)
+            .expect("the second window stays open");
+        screen.request_window("");
+        assert_eq!(
+            screen.window_nodes(),
+            2,
+            "the first window comes back beside the second"
+        );
+        assert_eq!(
+            screen.node_with(PropertyKind::WindowRestoreKey, windows_check::SECOND_KEY),
+            Some(second),
+            "the second window is the same node"
+        );
+        assert!(
+            screen
+                .strings_of(PropertyKind::WindowRestoreKey)
+                .contains(&String::new())
+        );
+        compose_rust::window::reset_window_size();
+    }
+
     /// A second window the platform refused is shown on the line, and the button opens it
     /// again. Left open, the flag made every later press a change to nothing.
     #[test]
