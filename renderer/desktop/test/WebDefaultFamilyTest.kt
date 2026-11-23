@@ -34,6 +34,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
 import org.jetbrains.skia.Typeface
 
@@ -213,6 +214,57 @@ class WebDefaultFamilyTest {
     }
 
     /**
+     * Monospace, serif, CSS `ui-monospace` / `ui-serif`, a monospace type role, and named
+     * installed families all reach the bundled fallback face for symbols the default family
+     * lacks, while keeping Latin and digits in their own primary family.
+     */
+    @Test
+    fun fr13_web_monospace_serif_and_named_families_reach_the_fallback_face() {
+        val family = bundledFamily(faces())
+        val chain = assertNotNull(bundledChain(family, faces()))
+        val symbols = fallbackMembers()
+        withPlatformFonts(family, chain, symbols) {
+            val theme = resolveTheme(theme = null, platform = HostPlatform.Unknown, systemDark = false)
+            val codeFamily = theme.family(TypeRole.Mono)
+            assertSame(FontFamily.Monospace, codeFamily, "a monospace role uses the monospace family")
+            val codeChain = assertNotNull(theme.chainFor(codeFamily), "a monospace role has a fallback chain")
+            assertSame(FontFamily.Monospace, codeChain.primary)
+            assertTrue(codeChain.spans("Play 123").isEmpty(), "Latin and digits stay in monospace")
+            for (sign in SIGNS) {
+                val spans = codeChain.spans("M" + Char(sign) + "M")
+                assertEquals(listOf(1 to 2), spans.map { it.start to it.end }, "Code role, U+${sign.toString(16)}")
+                assertSame(symbols.single().family, spans.single().item.fontFamily)
+            }
+
+            val lists = mutableListOf<Pair<String, List<FontRef>>>(
+                "monospace" to listOf(FontRef.Generic(GenericFamily.Monospace)),
+                "serif" to listOf(FontRef.Generic(GenericFamily.Serif)),
+                "ui-monospace" to listOf(FontRef.System("ui-monospace")),
+                "ui-serif" to listOf(FontRef.System("ui-serif")),
+            )
+            val installedName = (0 until FontMgr.default.familiesCount)
+                .asSequence()
+                .map { FontMgr.default.getFamilyName(it) }
+                .firstOrNull { it.isNotBlank() && dev.darkpyonix.composerust.ui.node.systemFontFamily(it) != null }
+            if (installedName != null) {
+                lists += "named($installedName)" to listOf(FontRef.System(installedName))
+            }
+
+            for ((label, list) in lists) {
+                val resolved = resolveFontChain(list, AssetCache(), mutableListOf())
+                assertTrue(resolved.spans("Play 123").isEmpty(), "$label keeps Latin and digits in primary")
+                for (sign in SIGNS) {
+                    val spans = resolved.spans("M" + Char(sign) + "M")
+                    assertEquals(listOf(1 to 2), spans.map { it.start to it.end }, "$label, U+${sign.toString(16)}")
+                    val drawnIn = assertNotNull(spans.single().item.fontFamily)
+                    assertSame(symbols.single().family, drawnIn, "$label routes U+${sign.toString(16)} to fallback")
+                    assertTrue(typeface(drawnIn, 400).getUTF32Glyph(sign) != 0.toShort())
+                }
+            }
+        }
+    }
+
+    /**
      * Where the renderer carries no fallback faces, which is every target with fonts of its
      * own, nothing is taken from the first family: the machine finds the letter.
      */
@@ -225,6 +277,12 @@ class WebDefaultFamilyTest {
         assertTrue(chain.spans("M\u25BE").isEmpty())
         val theme = resolveTheme(theme = null, platform = HostPlatform.Unknown, systemDark = false)
         assertNull(theme.chainFor(theme.family(TypeRole.Body)))
+        assertNull(theme.chainFor(theme.family(TypeRole.Mono)))
+        assertTrue(
+            resolveFontChain(listOf(FontRef.Generic(GenericFamily.Monospace)), AssetCache(), mutableListOf())
+                .spans("M\u25BE")
+                .isEmpty(),
+        )
     }
 
     private data class Face(val weight: Int, val italic: Boolean)

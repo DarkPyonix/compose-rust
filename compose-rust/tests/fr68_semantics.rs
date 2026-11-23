@@ -424,3 +424,128 @@ fn fr68_repeated_labels_do_not_allocate_in_steady_state() {
         "repeated labels allocated {with_labels} where without took {without_labels}"
     );
 }
+
+#[Composable]
+fn Mixed() {
+    Column!({
+        Box!(
+            modifier = Modifier.semantics(Role::Checkbox, "Staged", SemanticsState::mixed()),
+            {}
+        );
+        // Mixed wins over a checked value given beside it.
+        Box!(
+            modifier = Modifier.semantics(
+                Role::Checkbox,
+                "Partly staged",
+                SemanticsState::mixed().with_checked(true),
+            ),
+            {}
+        );
+    });
+}
+
+/// The checked field's fourth value, 3, is mixed: `SemanticsState::mixed()` writes it,
+/// and it comes back from the encoded batch as written, inside the mask.
+#[test]
+fn fr68_semantics_checked_mixed_round_trips() {
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::{
+        Modifier as Wire, SEMANTICS_CHECKED_MIXED, SEMANTICS_CHECKED_SHIFT, SEMANTICS_STATE_MASK,
+        SemanticsRole,
+    };
+
+    assert_eq!(SEMANTICS_CHECKED_MIXED, 3);
+    let mut host = ComposeHost::with_content(Mixed);
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    let states: Vec<u32> = decode_batch(&batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetModifier {
+                modifier:
+                    Wire::Semantics {
+                        role: SemanticsRole::Checkbox,
+                        state,
+                    },
+                ..
+            } => Some(state),
+            _ => None,
+        })
+        .collect();
+    let mixed = SEMANTICS_CHECKED_MIXED << SEMANTICS_CHECKED_SHIFT;
+    assert_eq!(states, [mixed, mixed]);
+    assert_eq!(mixed & !SEMANTICS_STATE_MASK, 0);
+}
+
+/// Code outside the crate cannot write a `SemanticsState` literal, so every public field
+/// has a `with_` method, and a chain of them from the default sets exactly those fields.
+#[test]
+fn fr68_semantics_state_chains_set_every_field() {
+    let unset = SemanticsState::default();
+    assert_eq!(unset.with_checked(true).checked, Some(true));
+    assert_eq!(unset.with_checked(false).checked, Some(false));
+    assert!(unset.with_mixed(true).mixed);
+    assert_eq!(unset.with_selected(true).selected, Some(true));
+    assert_eq!(unset.with_expanded(false).expanded, Some(false));
+    assert_eq!(unset.with_disabled(true).disabled, Some(true));
+    assert_eq!(unset.with_focused(true).focused, Some(true));
+    assert!(unset.with_hidden(true).hidden);
+    assert!(unset.with_click_action(true).click_action);
+    assert!(unset.with_focus_action(true).focus_action);
+    assert!(unset.with_has_popup(true).has_popup);
+
+    // Each one starts where the constructor of the same name does.
+    assert_eq!(unset.with_checked(true), SemanticsState::checked(true));
+    assert_eq!(unset.with_mixed(true), SemanticsState::mixed());
+    assert_eq!(unset.with_selected(true), SemanticsState::selected(true));
+    assert_eq!(unset.with_expanded(true), SemanticsState::expanded(true));
+    assert_eq!(unset.with_disabled(true), SemanticsState::disabled(true));
+    assert_eq!(unset.with_focused(true), SemanticsState::focused(true));
+    assert_eq!(unset.with_hidden(true), SemanticsState::hidden(true));
+    assert_eq!(
+        unset.with_click_action(true),
+        SemanticsState::click_action(true)
+    );
+    assert_eq!(
+        unset.with_focus_action(true),
+        SemanticsState::focus_action(true)
+    );
+    assert_eq!(unset.with_has_popup(true), SemanticsState::has_popup(true));
+
+    // A link keeps what the links before it set, and a flag can be taken away again.
+    let chained = SemanticsState::mixed()
+        .with_checked(true)
+        .with_selected(false)
+        .with_has_popup(true)
+        .with_hidden(true)
+        .with_hidden(false);
+    assert!(chained.mixed);
+    assert_eq!(chained.checked, Some(true));
+    assert_eq!(chained.selected, Some(false));
+    assert!(chained.has_popup);
+    assert!(!chained.hidden);
+    assert_eq!(chained.expanded, None);
+    assert_eq!(unset.with_mixed(true).with_mixed(false), unset);
+}
+
+/// An attribute cannot be seen at run time, so this reads the declaration as text: without
+/// `#[non_exhaustive]` on it, a field added later breaks every literal outside the crate.
+#[test]
+fn fr68_semantics_state_is_non_exhaustive() {
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ui/mod.rs"));
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with("pub struct SemanticsState "))
+        .expect("src/ui/mod.rs declares `pub struct SemanticsState`");
+    let marked = lines[..at]
+        .iter()
+        .rev()
+        .map(|line| line.trim())
+        .take_while(|line| line.starts_with("#[") || line.starts_with("///"))
+        .any(|line| line == "#[non_exhaustive]");
+    assert!(
+        marked,
+        "`pub struct SemanticsState` has no `#[non_exhaustive]` among the attributes above it"
+    );
+}

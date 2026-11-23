@@ -1,6 +1,6 @@
-//! Packages a built compose-rust application for Linux: an AppImage and a Flatpak
-//! manifest for Flathub, both described from the application's
-//! `Dioxus.toml`.
+//! Packages a built compose-rust application for Linux: an AppImage, a Flatpak
+//! manifest for Flathub, and `.deb` / `.rpm` staging layouts, all described from the
+//! application's `Dioxus.toml`.
 //!
 //! The pieces are plain functions from metadata to file contents, so they are tested
 //! without building anything. `main.rs` reads files and writes the results; the shell
@@ -8,9 +8,11 @@
 
 pub mod appimage;
 pub mod appstream;
+pub mod deb;
 pub mod desktop;
 pub mod flatpak;
 pub mod icons;
 pub mod metadata;
+pub mod rpm;
 
 pub use metadata::{AppMetadata, BuildFacts, MetadataError};

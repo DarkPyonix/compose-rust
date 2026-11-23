@@ -674,6 +674,7 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                                                 Button!(
                                                     "",
                                                     move || open(found.id),
+                                                    accessible_name = found.title,
                                                     variant = ButtonVariant::Text,
                                                     modifier = Modifier.fill_max_size()
                                                 );
@@ -1147,7 +1148,12 @@ pub fn app() {
     let position = remember(|| mutable_state_of(START_SECONDS));
     let followed = remember(|| mutable_state_of(vec![0_usize]));
 
-    let on_play: Handler<u32> = { Rc::new(move |id: u32| playing.set(Some(id))) };
+    let on_play: Handler<u32> = Rc::new(move |id: u32| {
+        if let Some(ep) = episode(id) {
+            position.set(START_SECONDS.min(ep.seconds));
+        }
+        playing.set(Some(id));
+    });
 
     // The welcome screen comes first and covers everything, as the reference's first
     // screen does: there is no bar under it, only the way in.
@@ -1195,11 +1201,14 @@ pub fn app() {
         }),
         {
             Box!(
-                modifier = Modifier.weight(1.0),
+                modifier = Modifier.fill_max_size(),
                 alignment = Alignment::TopCenter,
                 {
                     ScrollColumn!(
-                        modifier = Modifier.width_if(measure),
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none())
+                            .fill_max_height(),
                         content = || match current {
                             Destination::New => {
                                 new_page(followed, Rc::clone(&on_play), Rc::clone(&on_play))
@@ -1332,6 +1341,44 @@ mod tests {
                 .iter()
                 .flat_map(|frame| decode_batch(frame).expect("a batch did not decode"))
                 .collect()
+        }
+
+        /// What is on screen now.
+        fn live(&self) -> Vec<Mutation<'_>> {
+            sample_frames::live(self.mutations())
+        }
+
+        /// Populates any live lazy list with `count` items starting at 0.
+        fn fill_lists(&mut self, count: u32) {
+            let lists: Vec<(u32, u64)> = {
+                let live = self.live();
+                live.iter()
+                    .filter_map(|mutation| match mutation {
+                        Mutation::Create {
+                            node_id,
+                            widget: WidgetKind::LazyColumn | WidgetKind::LazyRow,
+                        } => Some(*node_id),
+                        _ => None,
+                    })
+                    .filter_map(|node| {
+                        live.iter().rev().find_map(|mutation| match mutation {
+                            Mutation::SetProp {
+                                node_id,
+                                property: PropertyKind::OnRangeRequested,
+                                value: PropertyValue::Integer(handler),
+                            } if *node_id == node => Some((node, *handler as u64)),
+                            _ => None,
+                        })
+                    })
+                    .collect()
+            };
+            for (node_id, handler_id) in lists {
+                self.send(HostEvent::new(
+                    node_id,
+                    handler_id,
+                    EventPayload::RangeRequested { start: 0, count },
+                ));
+            }
         }
 
         /// The node that last carried this text.
@@ -1859,6 +1906,72 @@ mod tests {
         assert!(
             screen.latest_texts().contains(&before),
             "skipping ahead did not bring the readout back"
+        );
+    }
+
+    /// Switching from a long episode to a shorter one resets the playback position so it
+    /// never exceeds the new episode's length.
+    #[test]
+    fn switching_episodes_resets_stale_playback_position() {
+        let long = &EPISODES[2];
+        let short = &EPISODES[0];
+        assert!(
+            long.seconds > short.seconds,
+            "test expects a longer episode than the target"
+        );
+
+        let mut screen = Screen::hub();
+        screen.fill_lists(EPISODES.len() as u32);
+        assert!(
+            screen.press_named(long.title),
+            "the shelf cover for the long episode cannot be pressed"
+        );
+        assert!(
+            screen.latest_texts().iter().any(|text| text == long.title),
+            "pressing the shelf cover did not open the long episode"
+        );
+
+        let steps = (short.seconds.saturating_sub(START_SECONDS) / SKIP_SECONDS) + 2;
+        for _ in 0..steps {
+            assert!(
+                screen.press_named(name::SKIP_AHEAD),
+                "the player cannot skip ahead"
+            );
+        }
+        let advanced = (START_SECONDS + steps * SKIP_SECONDS).min(long.seconds);
+        assert!(
+            advanced > short.seconds,
+            "the long episode did not advance past the shorter episode's length"
+        );
+        assert!(
+            screen.latest_texts().contains(&clock(advanced)),
+            "the player did not advance to {advanced}s"
+        );
+
+        assert!(screen.press_named(name::BACK), "the player has no way back");
+        screen.fill_lists(EPISODES.len() as u32);
+        assert!(
+            screen.press_named(short.title),
+            "the shelf cover for the shorter episode cannot be pressed"
+        );
+
+        let texts = screen.latest_texts();
+        assert!(
+            texts.iter().any(|text| text == short.title),
+            "pressing the shelf cover did not open the shorter episode"
+        );
+        let expected = START_SECONDS.min(short.seconds);
+        assert!(
+            expected <= short.seconds,
+            "reset position exceeds episode length"
+        );
+        assert!(
+            texts.contains(&clock(expected)),
+            "switching episodes left a stale playback position: {texts:?}"
+        );
+        assert!(
+            !texts.contains(&clock(advanced)),
+            "the stale position from the previous episode is still shown"
         );
     }
 
