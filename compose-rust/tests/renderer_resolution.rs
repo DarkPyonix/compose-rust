@@ -1178,6 +1178,46 @@ fn nfr11_no_message_names_a_file_that_is_not_in_the_repository() {
     );
 }
 
+/// A message may name one of this repository's build scripts only as something to run in a
+/// checkout of the repository. The published crate carries none of
+/// them, so "run renderer/desktop/scripts/build-windows.sh" alone is a dead end for an
+/// application that depends on compose-rust; the message has to say where the script is
+/// and what to do without one.
+#[test]
+fn nfr10_a_message_names_a_build_script_only_with_the_repository_it_is_in() {
+    let temp = TempDir::new("script-messages");
+    let mut messages = every_failure_message(temp.path());
+    messages.push(compose_rust::boundary::no_renderer_message());
+
+    let mut named = 0;
+    for message in &messages {
+        let names_script = message
+            .split_whitespace()
+            .filter_map(repository_path)
+            .any(|path| {
+                ["sh", "ps1", "py"]
+                    .iter()
+                    .any(|ext| Path::new(path).extension().is_some_and(|e| e == *ext))
+            });
+        if !names_script {
+            continue;
+        }
+        named += 1;
+        // Messages are wrapped at about 90 columns, so compare the words, not the lines.
+        let words = message.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            words.contains("checkout of the compose-rust repository")
+                && words.contains(renderer_dir::REPOSITORY_URL),
+            "this message sends someone to a build script without saying it is only in a \
+             checkout of the repository:\n\n{message}"
+        );
+    }
+    assert!(
+        named > 0,
+        "no message named a build script, so this test proved nothing"
+    );
+}
+
 /// A token out of a message that is meant to be a path in this repository.
 ///
 /// Absolute paths are someone's cache or home directory, `http` is a link, and a
