@@ -48,8 +48,8 @@ fn root(app: App) -> fn() {
             sweep
         }
         App::Calculator => fr39_screen_calculator::app,
-        App::Todo => sample_todo::app,
-        App::Chat => sample_chat::app,
+        App::Todo => fr39_screen_todo::app,
+        App::Chat => fr39_screen_chat::app,
         App::Minimal => fr39_screen_minimal::app,
     }
 }
@@ -192,9 +192,8 @@ fn convert(bytes: &[u8]) -> Batch {
 }
 
 fn main() {
-    // The todo sample keeps its list in the application's storage only once its launch
-    // turns that on, which nothing here does, so every run starts from an empty list and
-    // writes nothing.
+    // The todo screen keeps its list in memory and starts it empty, so every run starts
+    // from an empty list and writes nothing, as the Dioxus path does here.
     let _ = install_renderer_api(RendererApi {
         run,
         request_frame,
@@ -285,5 +284,53 @@ mod tests {
                 recorded.final_tree
             );
         }
+    }
+
+    #[test]
+    fn fr39_screen_todo_answers_every_step_of_todo_add_delete() {
+        let recorded = run_scenario("todo_add_delete");
+        // Call the bank and Buy milk were deleted through their row menus; Water the plants
+        // was added before the list window opened and stays in it.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Water the plants\")"),
+            "the task that was never deleted is not on screen:\n{}",
+            recorded.final_tree
+        );
+        for gone in ["Buy milk", "Call the bank"] {
+            assert!(
+                !recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{gone}\")")),
+                "{gone} is still on screen after its row menu deleted it:\n{}",
+                recorded.final_tree
+            );
+        }
+    }
+
+    #[test]
+    fn fr39_screen_todo_answers_every_step_of_long_list_scroll() {
+        let recorded = run_scenario("long_list_scroll");
+        // The window ends back at the top of the five thousand generated rows.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Generated task 1\")"),
+            "the list window is not back at the top:\n{}",
+            recorded.final_tree
+        );
+    }
+
+    #[test]
+    fn fr39_screen_chat_answers_every_step_of_chat_streaming() {
+        let recorded = run_scenario("chat_streaming");
+        // While a reply streams its text ends in a block caret; once the frames stop, the
+        // reply is whole and the caret is gone.
+        assert!(
+            !recorded.final_tree.contains('\u{2589}'),
+            "a reply was still streaming when the frames stopped:\n{}",
+            recorded.final_tree
+        );
     }
 }

@@ -1049,9 +1049,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.ui.platform.AndroidNativeViewWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
+import dev.darkpyonix.composerust.ui.platform.AndroidOsMenuPresenter
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
@@ -1066,6 +1068,7 @@ class MainActivity : ComponentActivity() {{
         }}
 
     private var nativeViews: AndroidNativeViewWindow? = null
+    private var osMenus: AndroidOsMenuPresenter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
@@ -1090,13 +1093,18 @@ class MainActivity : ComponentActivity() {{
         val root = FrameLayout(this)
         val view = ComposeView(this)
         val slotWindow = AndroidNativeViewWindow(root)
+        val menuPresenter = AndroidOsMenuPresenter(root)
         nativeViews = slotWindow
+        osMenus = menuPresenter
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
             // grows down into the gesture bar, and whatever is left over is kept off the
             // page there.
-            CompositionLocalProvider(LocalNativeViewWindow provides slotWindow) {{
+            CompositionLocalProvider(
+                LocalNativeViewWindow provides slotWindow,
+                LocalOsMenuPresenter provides menuPresenter,
+            ) {{
                 ComposeRustContent(host, Modifier.fillMaxSize())
             }}
         }}
@@ -1127,6 +1135,8 @@ class MainActivity : ComponentActivity() {{
     }}
 
     override fun onDestroy() {{
+        osMenus?.close()
+        osMenus = null
         nativeViews?.close()
         nativeViews = null
         // The process may stay without an Activity, and a worker's notification still has
