@@ -24,6 +24,7 @@ import dev.darkpyonix.composerust.ui.platform.ScreenPointer
 import dev.darkpyonix.composerust.ui.platform.WindowBackend
 import dev.darkpyonix.composerust.ui.platform.WindowFrameClock
 import dev.darkpyonix.composerust.ui.platform.WindowManager
+import dev.darkpyonix.composerust.ui.platform.WindowsOnScreen
 import dev.darkpyonix.composerust.ui.platform.androidTearOffSupported
 import dev.darkpyonix.composerust.ui.platform.carriedWindowNodeId
 import dev.darkpyonix.composerust.ui.platform.serveWindowFrames
@@ -82,12 +83,15 @@ private class ClockWindow(val config: PlatformWindowConfig) : PlatformWindow {
 
 private class ClockBackend : WindowBackend {
     val opened = mutableListOf<ClockWindow>()
+    var application: ApplicationListener? = null
     override val supportsMultipleWindows: Boolean get() = true
 
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow =
         ClockWindow(config).also { opened += it }
 
-    override fun setApplicationListener(listener: ApplicationListener?) {}
+    override fun setApplicationListener(listener: ApplicationListener?) {
+        application = listener
+    }
 
     fun window(nodeId: Int): ClockWindow = opened.last { it.config.nodeId == nodeId }
 }
@@ -96,9 +100,22 @@ private class SecondWindowConnection(private val initial: List<Mutation>) : Host
     var renderFrames = 0
     val frameBatches = ArrayDeque<List<Mutation>>()
 
+    /** What the application answers an event with, in the same batch. */
+    var answer: (HostEvent) -> List<Mutation> = { emptyList() }
+
+    /** The lifecycle events the Host heard, in order. */
+    val lifecycle = mutableListOf<String>()
+
     override fun init(onMutation: (Mutation) -> Unit) = initial.forEach(onMutation)
 
-    override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long = 0
+    override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
+        when (event) {
+            is HostEvent.LifecycleStart -> lifecycle += "start"
+            is HostEvent.LifecycleStop -> lifecycle += "stop"
+            else -> answer(event).forEach(onMutation)
+        }
+        return 0
+    }
 
     override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
         renderFrames++
@@ -165,6 +182,165 @@ class MobileWindowFramesTest {
         assertEquals(1, connection.renderFrames, "the Host is asked once, inside the second window's frame")
         assertEquals("after", host.table.node(20)?.text(PropertyKind.Text))
         assertEquals(0, backend.window(1).frames.waiting, "nothing is left waiting on the first window")
+
+        content.cancel()
+        driver.cancel()
+    }
+
+    private fun lifecycleHost(): Pair<ComposeRustHost, SecondWindowConnection> {
+        val connection = SecondWindowConnection(listOf(windows()))
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        return host to connection
+    }
+
+    // The Flip 4 run: the system opened a torn-off tab full screen, the first window went
+    // behind it and stopped after the new one had started. Each Activity's stop used to go
+    // to the Host as it came, so the Host heard start, start, stop and stayed stopped under
+    // the window in front, whose count of seconds stood at 0.
+    @Test
+    fun fr53_a_window_going_behind_another_keeps_the_host_started() {
+        val (host, connection) = lifecycleHost()
+        val onScreen = WindowsOnScreen { event -> host.dispatch(event) }
+        onScreen.started() // the first window
+        onScreen.started() // the torn-off window, in front
+        onScreen.stopped() // the first window, now behind it
+        assertEquals(listOf("start"), connection.lifecycle, "a window is still on screen, so the Host is not stopped")
+        assertTrue(onScreen.onScreen)
+        onScreen.stopped() // the torn-off window goes home too
+        assertEquals(listOf("start", "stop"), connection.lifecycle)
+        assertFalse(onScreen.onScreen)
+    }
+
+    // The emulator run: two windows side by side, and the torn-off one closed with Back. Its
+    // stop used to stop the Host under the first window, which stayed on screen and so was
+    // never started again: its count of seconds stood still and a tap did not move it.
+    @Test
+    fun fr53_closing_a_window_leaves_the_host_started_for_the_one_on_screen() {
+        val (host, connection) = lifecycleHost()
+        val onScreen = WindowsOnScreen { event -> host.dispatch(event) }
+        onScreen.started() // the first window
+        onScreen.started() // the torn-off window, beside it
+        onScreen.stopped() // the torn-off window closes
+        assertEquals(listOf("start"), connection.lifecycle, "the first window is still on screen")
+        onScreen.stopped() // the first window goes home
+        onScreen.started() // and comes back
+        assertEquals(listOf("start", "stop", "start"), connection.lifecycle)
+    }
+
+    // One window keeps what it always had: a configuration change stops the old Activity and
+    // starts the new one, and a stop with no start before it is not a second stop.
+    @Test
+    fun fr53_one_window_starts_and_stops_the_host_as_before() {
+        val (host, connection) = lifecycleHost()
+        val onScreen = WindowsOnScreen { event -> host.dispatch(event) }
+        onScreen.stopped()
+        assertEquals(emptyList<String>(), connection.lifecycle)
+        onScreen.started()
+        onScreen.stopped() // the old Activity of a configuration change
+        onScreen.started() // the new one
+        assertEquals(listOf("start", "stop", "start"), connection.lifecycle)
+    }
+
+    // A window whose content stopped drawing (an Activity behind another) and a window that
+    // closed hold up none of the frames the other window draws.
+    @Test
+    fun fr53_closing_a_window_leaves_the_remaining_window_served() = runBlocking {
+        val connection = SecondWindowConnection(
+            listOf(
+                windows(),
+                Mutation.Create(1, WidgetKind.Window),
+                Mutation.Insert(0, 1, -1),
+                Mutation.Create(2, WidgetKind.Window),
+                Mutation.Insert(0, 2, -1),
+                Mutation.Create(10, WidgetKind.Text),
+                Mutation.SetProp(10, PropertyKind.Text, PropertyValue.Text("0")),
+                Mutation.Insert(1, 10, -1),
+            ),
+        )
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val backend = ClockBackend()
+        val manager = WindowManager(host, backend, onExit = {})
+        manager.attach()
+        val requests = FrameRequestSource()
+        val driver = launch { serveWindowFrames(host, manager, requests, stoppedAfterMillis = 60_000, alreadyServed = 0) }
+        val first = ManualFrameClock()
+        val second = ManualFrameClock()
+        val firstContent = launch(first) { backend.window(1).frames.serve() }
+        val secondContent = launch(second) { backend.window(2).frames.serve() }
+
+        // The second window's frame carries the batch that removes it.
+        connection.frameBatches.addLast(listOf(Mutation.Remove(2)))
+        requests.request()
+        settle()
+        second.tick(16_000_000L)
+        settle()
+        assertEquals(1, connection.renderFrames)
+        assertEquals(listOf(1), manager.openWindows)
+        secondContent.cancel()
+        // The first window's frame came after; it answers nobody and is dropped.
+        first.tick(16_000_001L)
+        settle()
+
+        connection.frameBatches.addLast(listOf(Mutation.SetProp(10, PropertyKind.Text, PropertyValue.Text("1"))))
+        requests.request()
+        settle()
+        assertEquals(1, first.asked, "the remaining window is asked to draw")
+        first.tick(32_000_000L)
+        settle()
+        assertEquals(2, connection.renderFrames, "the remaining window's frame serves the Host")
+        assertEquals("1", host.table.node(10)?.text(PropertyKind.Text))
+
+        firstContent.cancel()
+        driver.cancel()
+    }
+
+    // The system made a window for a dropped tab before the application had a node for it.
+    // The window is adopted by the node the application puts in, and its frames serve the
+    // Host like those of any other window.
+    @Test
+    fun fr53_a_window_adopted_after_it_was_made_is_served() = runBlocking {
+        val connection = SecondWindowConnection(
+            listOf(windows(), Mutation.Create(1, WidgetKind.Window), Mutation.Insert(0, 1, -1)),
+        )
+        connection.answer = { event ->
+            if (event is HostEvent.WindowRequested) {
+                listOf(
+                    Mutation.Create(5, WidgetKind.Window),
+                    Mutation.SetProp(5, PropertyKind.WindowRestoreKey, PropertyValue.Text(event.key)),
+                    Mutation.Insert(0, 5, -1),
+                    Mutation.Create(50, WidgetKind.Text),
+                    Mutation.SetProp(50, PropertyKind.Text, PropertyValue.Text("0")),
+                    Mutation.Insert(5, 50, -1),
+                )
+            } else {
+                emptyList()
+            }
+        }
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val backend = ClockBackend()
+        val manager = WindowManager(host, backend, onExit = {})
+        manager.attach()
+        val requests = FrameRequestSource()
+        val driver = launch { serveWindowFrames(host, manager, requests, stoppedAfterMillis = 60_000, alreadyServed = 0) }
+
+        val made = ClockWindow(PlatformWindowConfig(nodeId = 0, title = "", width = 0f, height = 0f))
+        backend.application?.onWindowRequested("tab:a", made)
+        assertEquals(listOf(1, 5), manager.openWindows, "the made window is the node the application put in")
+
+        // Only the adopted window is on screen; the first one is behind it.
+        val display = ManualFrameClock()
+        val content = launch(display) { made.frames.serve() }
+        connection.frameBatches.addLast(listOf(Mutation.SetProp(50, PropertyKind.Text, PropertyValue.Text("1"))))
+        requests.request()
+        settle()
+        assertEquals(1, display.asked, "the adopted window is asked to draw")
+        display.tick(16_000_000L)
+        settle()
+        assertEquals(1, connection.renderFrames)
+        assertEquals("1", host.table.node(50)?.text(PropertyKind.Text))
 
         content.cancel()
         driver.cancel()
