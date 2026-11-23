@@ -2149,6 +2149,82 @@ fn fr19_the_android_activity_resizes_for_the_keyboard() {
     assert_eq!(renderer_dir::with_keyboard_resize(&resized), None);
 }
 
+/// A window torn off a multi-window application is launched by the system, and Android 16
+/// launches it only for an Activity that declares it may run as several instances. The
+/// declaration goes on the generated Activity, inside its tag, once.
+#[test]
+fn fr53_the_android_activity_declares_multi_instance_when_opted_in() {
+    let property = "<property android:name=\"android.window.PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI\" android:value=\"true\" />";
+    let declared = renderer_dir::with_multi_instance(DX_MANIFEST).unwrap();
+    let activity_at = declared.find("<activity").unwrap();
+    let open_end = activity_at + declared[activity_at..].find('>').unwrap();
+    let property_at = declared
+        .find(property)
+        .expect("the system refuses to start a torn-off window without the property");
+    let close_at = declared.find("</activity>").unwrap();
+    assert!(
+        open_end < property_at && property_at < close_at,
+        "the property is a child of the Activity, which is where the system UI reads it"
+    );
+    assert_eq!(declared.matches("MULTI_INSTANCE").count(), 1, "said once");
+    // The rest of the manifest is untouched.
+    assert_eq!(
+        declared.replace(&format!("\n            {property}"), ""),
+        DX_MANIFEST
+    );
+    // A second build changes nothing, and neither does a value the application wrote.
+    assert_eq!(renderer_dir::with_multi_instance(&declared), None);
+    assert_eq!(
+        renderer_dir::with_multi_instance(&declared.replace("\"true\"", "\"false\"")),
+        None
+    );
+    assert_eq!(
+        renderer_dir::with_multi_instance("<manifest><application /></manifest>"),
+        None,
+        "a manifest with no Activity has nothing to declare it on"
+    );
+    // An Activity with no body gets one.
+    let bare = "<manifest><application><activity android:name=\"b\" /></application></manifest>";
+    let declared = renderer_dir::with_multi_instance(bare).unwrap();
+    assert!(declared.contains(&format!(
+        "<activity android:name=\"b\">\n            {property}\n        </activity></application>"
+    )));
+}
+
+/// The declaration is an opt-in. A one-window application that declared it could be
+/// started a second time by the system, as a second copy of the whole application, so the
+/// build adds it only under the `android-multi-instance` feature.
+#[test]
+fn fr53_the_android_multi_instance_property_is_opt_in() {
+    let build = include_str!("../build.rs");
+    let feature = build
+        .find("CARGO_FEATURE_ANDROID_MULTI_INSTANCE")
+        .expect("the build reads the feature");
+    let guarded = build[feature..]
+        .find("if multi_instance {")
+        .map(|at| feature + at)
+        .unwrap();
+    let call = build.find("renderer_dir::with_multi_instance(").unwrap();
+    assert!(
+        guarded < call,
+        "the property is written only when the feature is on"
+    );
+    assert_eq!(
+        build.matches("renderer_dir::with_multi_instance(").count(),
+        1
+    );
+    let manifest = include_str!("../Cargo.toml");
+    assert!(manifest.contains("\nandroid-multi-instance = []"));
+    let default = manifest
+        .lines()
+        .find(|line| line.starts_with("default = "))
+        .unwrap();
+    assert!(
+        !default.contains("android-multi-instance"),
+        "a one-window application does not declare it"
+    );
+}
+
 /// A pan that was asked for is replaced, because it is what moves the bars off the screen;
 /// whether the keyboard opens on start is a separate part of the same value and is kept.
 #[test]

@@ -904,8 +904,14 @@ fn unpack_android_kotlin() {
 /// (`windowSoftInputMode="adjustResize"`), for the same reason: there is no manifest of the
 /// renderer's own to carry it.
 ///
-/// A manifest that already says both, or that is not where the CLI puts one, is left as
-/// it is.
+/// With the `android-multi-instance` feature the same pass declares that the system UI may
+/// start the Activity as another instance, which is what lets a window torn off a
+/// multi-window application open in split screen or a desktop window. It is a feature
+/// because the build cannot see whether the application calls `LaunchBuilder::windows()`,
+/// and a one-window application should not be started twice by the system.
+///
+/// A manifest that already says all of it, or that is not where the CLI puts one, is left
+/// as it is.
 fn add_notification_permission(destination: &Path) {
     let Some(main_dir) = destination.parent() else {
         return;
@@ -915,17 +921,24 @@ fn add_notification_permission(destination: &Path) {
     let Ok(manifest) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let permitted = renderer_dir::with_notification_permission(&manifest);
-    let current = permitted.as_deref().unwrap_or(&manifest);
+    let multi_instance = std::env::var_os("CARGO_FEATURE_ANDROID_MULTI_INSTANCE").is_some();
+    let mut text = manifest.clone();
+    if let Some(permitted) = renderer_dir::with_notification_permission(&text) {
+        text = permitted;
+    }
     // The window resizes for the keyboard rather than sliding up under it, so the page
     // can stop above the keyboard and the bars keep their place.
-    let text = match renderer_dir::with_keyboard_resize(current) {
-        Some(resized) => resized,
-        None => match permitted {
-            Some(text) => text,
-            None => return,
-        },
-    };
+    if let Some(resized) = renderer_dir::with_keyboard_resize(&text) {
+        text = resized;
+    }
+    if multi_instance {
+        if let Some(declared) = renderer_dir::with_multi_instance(&text) {
+            text = declared;
+        }
+    }
+    if text == manifest {
+        return;
+    }
     if let Err(error) = std::fs::write(&manifest_path, text) {
         panic!(
             "\n\ncompose-rust: could not update the application's manifest at {}: \
