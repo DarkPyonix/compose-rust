@@ -21,6 +21,7 @@ import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
 import dev.darkpyonix.composerust.ui.platform.ScreenBounds
 import dev.darkpyonix.composerust.ui.platform.ScreenPointer
+import dev.darkpyonix.composerust.ui.platform.StartedActivity
 import dev.darkpyonix.composerust.ui.platform.WindowBackend
 import dev.darkpyonix.composerust.ui.platform.WindowFrameClock
 import dev.darkpyonix.composerust.ui.platform.WindowManager
@@ -69,6 +70,12 @@ private suspend fun settle() = repeat(20) { yield() }
 private class ClockWindow(val config: PlatformWindowConfig) : PlatformWindow {
     val frames = WindowFrameClock()
 
+    /** Whether the manager closed it. */
+    var closed = false
+
+    /** The `Window` node that adopted it, or 0. */
+    var adoptedAs = 0
+
     override fun setListener(listener: PlatformWindowListener) {}
     override fun setTitle(title: String) {}
     override fun setPosition(x: Float, y: Float) {}
@@ -79,7 +86,13 @@ private class ClockWindow(val config: PlatformWindowConfig) : PlatformWindow {
     override fun pointerOnScreen(): ScreenPointer? = null
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean = false
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) = frames.awaitFrame(onFrame)
-    override fun close() = frames.close()
+    override fun adoptedBy(nodeId: Int) {
+        adoptedAs = nodeId
+    }
+    override fun close() {
+        closed = true
+        frames.close()
+    }
 }
 
 private class ClockBackend : WindowBackend {
@@ -347,56 +360,145 @@ class MobileWindowFramesTest {
         driver.cancel()
     }
 
+    /**
+     * An Activity the launcher started, in a process whose tree has the `Window` nodes
+     * [windowIds]. The application answers `WindowRequested` with `Window` node 7 under the
+     * key it was asked with when [answers], and with nothing otherwise.
+     */
+    private class LauncherStart(windowIds: List<Int>, answers: Boolean, initial: Mutation.SetWindow) {
+        val connection = SecondWindowConnection(
+            buildList<Mutation> {
+                add(initial)
+                for (id in windowIds) {
+                    add(Mutation.Create(id, WidgetKind.Window))
+                    add(Mutation.Insert(0, id, -1))
+                }
+            },
+        )
+        val requested = mutableListOf<String>()
+        val host = ComposeRustHost(connection)
+        val backend = ClockBackend()
+        val manager = WindowManager(host, backend, onExit = {})
+
+        /** The platform windows that another live Activity shows. */
+        val shownElsewhere = HashSet<ClockWindow>()
+
+        /** The window the started Activity offers the application. */
+        val made = ClockWindow(PlatformWindowConfig(nodeId = 0, title = "", width = 0f, height = 0f))
+
+        init {
+            connection.answer = { event ->
+                if (event is HostEvent.WindowRequested) {
+                    requested += event.key
+                    if (answers) {
+                        listOf(
+                            Mutation.Create(7, WidgetKind.Window),
+                            Mutation.SetProp(7, PropertyKind.WindowRestoreKey, PropertyValue.Text(event.key)),
+                            Mutation.Insert(0, 7, -1),
+                        )
+                    } else {
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+            host.start(FrameRequestSource())
+            manager.attach()
+        }
+
+        fun window(nodeId: Int): ClockWindow = backend.window(nodeId)
+
+        fun start(): StartedActivity<ClockWindow> = startedActivityWindow(
+            host.table,
+            windowFor = { id -> backend.opened.lastOrNull { it.config.nodeId == id } },
+            mayDraw = { window -> !window.closed && window !in shownElsewhere },
+            requestWindow = {
+                backend.application?.onWindowRequested("", made)
+                made.takeIf { it.adoptedAs != 0 }
+            },
+        )
+    }
+
+    private fun drawn(started: StartedActivity<ClockWindow>): ClockWindow? = when (started) {
+        is StartedActivity.Draw -> started.window
+        else -> null
+    }
+
     // The Flip 4 run: Back on the first window finished its Activity, the application heard
     // WindowClosed and removed the node, and the process stayed. Started again from the
     // launcher, the new Activity found no `Window` node, drew the tree's root and stayed
     // blank, because the application never heard that the user was back.
     @Test
     fun fr53_a_start_after_the_last_window_closed_asks_the_application_for_a_window() {
-        val connection = SecondWindowConnection(
-            listOf(windows(), Mutation.Create(1, WidgetKind.Window), Mutation.Insert(0, 1, -1)),
-        )
-        val requested = mutableListOf<String>()
-        connection.answer = { event ->
-            if (event is HostEvent.WindowRequested) {
-                requested += event.key
-                listOf(
-                    Mutation.Create(7, WidgetKind.Window),
-                    Mutation.SetProp(7, PropertyKind.WindowRestoreKey, PropertyValue.Text(event.key)),
-                    Mutation.Insert(0, 7, -1),
-                )
-            } else {
-                emptyList()
-            }
-        }
-        val host = ComposeRustHost(connection)
-        host.start(FrameRequestSource())
-        val backend = ClockBackend()
-        val manager = WindowManager(host, backend, onExit = {})
-        manager.attach()
-        val windowFor = { id: Int -> backend.opened.lastOrNull { it.config.nodeId == id } }
+        val app = LauncherStart(listOf(1), answers = true, initial = windows())
 
         // While the first window is there, the started Activity draws it and nothing is asked.
-        val first = startedActivityWindow(host.table, windowFor) { error("a window was asked for while the first one is open") }
-        assertEquals(1, first?.config?.nodeId)
-        assertEquals(emptyList<String>(), requested)
+        assertTrue(drawn(app.start()) === app.window(1))
+        assertEquals(emptyList<String>(), app.requested)
 
         // The user closed it, and the application removed its node.
-        connection.frameBatches.addLast(listOf(Mutation.Remove(1)))
-        host.renderFrame(16_000_000L)
-        assertEquals(emptyList<Int>(), manager.openWindows)
+        app.connection.frameBatches.addLast(listOf(Mutation.Remove(1)))
+        app.host.renderFrame(16_000_000L)
+        assertEquals(emptyList<Int>(), app.manager.openWindows)
 
         // Started from the launcher again: the application is asked, with an empty key, and the
         // window it answers with is the started Activity's.
-        val made = ClockWindow(PlatformWindowConfig(nodeId = 0, title = "", width = 0f, height = 0f))
-        val started = startedActivityWindow(host.table, windowFor) {
-            backend.application?.onWindowRequested("", made)
-            made
-        }
-        assertEquals(listOf(""), requested, "the application hears that the user started it again")
-        assertTrue(started === made)
-        assertEquals(listOf(7), manager.openWindows, "the started Activity draws the node the application put in")
-        assertEquals(1, backend.opened.size, "no second Activity is launched for that node")
+        val started = app.start()
+        assertEquals(listOf(""), app.requested, "the application hears that the user started it again")
+        assertTrue(drawn(started) === app.made)
+        assertEquals(listOf(7), app.manager.openWindows, "the started Activity draws the node the application put in")
+        assertEquals(1, app.backend.opened.size, "no second Activity is launched for that node")
+    }
+
+    // The first window was closed and the second stayed open in its own Activity. A start from
+    // the launcher used to bind the new Activity to the second window, the first `Window` node
+    // left, and took it from the Activity that showed it.
+    @Test
+    fun fr53_a_launcher_start_leaves_a_window_another_activity_shows() {
+        val app = LauncherStart(listOf(2), answers = false, initial = windows())
+        app.shownElsewhere += app.window(2)
+
+        val started = app.start()
+        assertTrue(drawn(started) !== app.window(2), "the open window stays with its own Activity")
+        assertEquals(listOf(""), app.requested, "the application is asked, with an empty key")
+        assertFalse(app.window(2).closed)
+        assertEquals(listOf(2), app.manager.openWindows)
+    }
+
+    // The application answers that start with a window: the started Activity draws it, and the
+    // open window stays where it is.
+    @Test
+    fun fr53_a_launcher_start_draws_the_window_the_application_answers_with() {
+        val app = LauncherStart(listOf(2), answers = true, initial = windows())
+        app.shownElsewhere += app.window(2)
+
+        val started = app.start()
+        assertTrue(drawn(started) === app.made, "the started Activity draws the answer")
+        assertEquals(7, app.made.adoptedAs)
+        assertEquals(listOf(2, 7), app.manager.openWindows)
+        assertFalse(app.window(2).closed)
+        assertEquals(1, app.backend.opened.size, "no Activity is launched for the answer")
+    }
+
+    // With no answer, only the started Activity ends: no window is closed or removed. The same
+    // holds for a second instance started on top of the first window's own task (`am start`),
+    // whose task must stay.
+    @Test
+    fun fr53_a_launcher_start_with_no_answer_finishes_only_that_activity() {
+        val other = LauncherStart(listOf(2), answers = false, initial = windows())
+        other.shownElsewhere += other.window(2)
+        assertTrue(other.start() === StartedActivity.FinishOnlyThis)
+        assertFalse(other.window(2).closed, "the open window is not closed")
+        assertEquals(listOf(2), other.manager.openWindows)
+        assertEquals(1, other.backend.opened.size)
+
+        val stacked = LauncherStart(listOf(1), answers = false, initial = windows())
+        stacked.shownElsewhere += stacked.window(1)
+        assertTrue(stacked.start() === StartedActivity.FinishOnlyThis)
+        assertEquals(listOf(""), stacked.requested)
+        assertFalse(stacked.window(1).closed, "the first window and its task stay")
+        assertEquals(listOf(1), stacked.manager.openWindows)
     }
 
     @Test
