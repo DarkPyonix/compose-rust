@@ -102,6 +102,9 @@ private external fun nativeTakeFollowEnd(cancelled: CPointer<IntVar>?): Int
 @SymbolName("dxc_native_window_configure_app_caption")
 private external fun nativeConfigureAppCaption(enabled: Int)
 
+@SymbolName("dxc_native_window_configure_caption_height")
+private external fun nativeConfigureCaptionHeight(dip: Int)
+
 @SymbolName("dxc_native_window_begin_drag")
 private external fun nativeBeginDrag(edge: Int)
 
@@ -184,5 +187,27 @@ internal fun startFollow(anchorX: Float, anchorY: Float): Boolean = nativeFollow
 internal fun takeFollowEnd(cancelled: CPointer<IntVar>?): Boolean = nativeTakeFollowEnd(cancelled) != 0
 
 internal fun configureAppCaption(enabled: Boolean) = nativeConfigureAppCaption(if (enabled) 1 else 0)
+
+/**
+ * The caption strip of a window with [chrome] and [titleBar], as the content draws it and as the
+ * next window's hit test is told it (FR-19.7): the platform's design system's height, none with
+ * the system's chrome.
+ */
+internal fun windowsCaptionHeight(
+    chrome: dev.darkpyonix.composerust.protocol.Chrome,
+    titleBar: dev.darkpyonix.composerust.protocol.TitleBar,
+): androidx.compose.ui.unit.Dp =
+    if (chrome == dev.darkpyonix.composerust.protocol.Chrome.System) {
+        androidx.compose.ui.unit.Dp(0f)
+    } else {
+        dev.darkpyonix.composerust.design.platformCaptionHeight(
+            dev.darkpyonix.composerust.design.HostPlatform.Windows,
+            titleBar,
+        )
+    }
+
+/** Tells the next window how tall its caption strip is, in dip; 0 for the platform's 32. */
+internal fun configureCaptionHeight(height: androidx.compose.ui.unit.Dp) =
+    nativeConfigureCaptionHeight(kotlin.math.round(height.value).toInt())
 
 internal fun beginWindowDrag() = nativeBeginDrag(0)

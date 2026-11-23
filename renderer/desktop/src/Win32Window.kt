@@ -50,6 +50,13 @@ private external fun configureWindow(
 private external fun configureAppCaption(enabled: Int)
 
 /**
+ * How tall, in dip, the next window's caption strip is, so its hit test moves the window and
+ * answers for the buttons across the strip that is drawn (FR-19.7). 0 for the platform's 32.
+ */
+@CFunction("dxc_native_window_configure_caption_height")
+private external fun configureCaptionHeight(dip: Int)
+
+/**
  * Draws the window's caption and frame light or dark: 0 follows the system, 1 is light,
  * 2 is dark.
  */
@@ -75,11 +82,6 @@ private external fun isZoomed(window: Pointer?): Int
 @CFunction("dxc_native_text_scale_percent")
 private external fun textScalePercent(): Int
 
-/**
- * Windows 11's caption height, the number win32_caption.h hit-tests. Not the devshell's
- * windowsCaptionHeight: that file names AWT, which this image does not carry.
- */
-private val WIN32_CAPTION_HEIGHT = androidx.compose.ui.unit.Dp(32f)
 
 /**
  * Draws the application into a window of our own, and holds it there until it closes.
@@ -111,6 +113,17 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         0,
     )
     configureAppCaption(if (fullSize) 1 else 0)
+    // The strip the content draws and the strip the window hit tests are one height: the title
+    // bar mode's, as the platform's design system measures it (FR-19.7).
+    val captionHeight = if (systemChrome) {
+        androidx.compose.ui.unit.Dp(0f)
+    } else {
+        dev.darkpyonix.composerust.design.platformCaptionHeight(
+            dev.darkpyonix.composerust.design.HostPlatform.Windows,
+            asked?.titleBar ?: dev.darkpyonix.composerust.protocol.TitleBar.Normal,
+        )
+    }
+    configureCaptionHeight(kotlin.math.round(captionHeight.value).toInt())
     val window = openWin32Window(
         asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
@@ -184,7 +197,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     val caption = if (systemChrome) {
         dev.darkpyonix.composerust.runtime.WindowCaption.None
     } else {
-        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = fullSize)
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = captionHeight, fullSize = fullSize)
     }
     // The right-click menu is the system's popup, holding what Compose's menu holds: a text
     // field's Cut, Copy, Paste and Select All as the field allows them, and whatever an

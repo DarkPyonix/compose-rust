@@ -980,6 +980,22 @@ internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (pla
 }
 
 /**
+ * How tall the caption strip of a window on [platform] is for [titleBar], where the renderer
+ * draws the buttons (FR-19.7): the platform's own design system's answer under its own tokens,
+ * as [platformCaption] measures it, whatever design system the application draws in. Zero where
+ * the platform draws its own (macOS, and everywhere [captionSystemFor] names nothing).
+ *
+ * It needs no application theme, so a window can be told it before it opens: the Windows
+ * window's hit test takes the strip's height then (`dxc_native_window_configure_caption_height`).
+ */
+fun platformCaptionHeight(platform: HostPlatform, titleBar: TitleBar): Dp {
+    val system = captionSystemFor(platform) ?: return 0.dp
+    val rules = rulesFor(system)
+    val native = ResolvedTheme(system, DesignTokens.of(system), rules, dark = false, platform = platform)
+    return rules.caption(native, titleBar).height
+}
+
+/**
  * The window buttons a window drawn under [theme] actually gets: the operating system's, in
  * the application's colours.
  *

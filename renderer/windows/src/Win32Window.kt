@@ -564,6 +564,7 @@ internal class Win32Window private constructor(
                 backdrop = 0,
             )
             configureAppCaption(config.chrome == Chrome.FullSize)
+            configureCaptionHeight(windowsCaptionHeight(config.chrome, config.titleBar))
             val x = config.x
             val y = config.y
             if (x != null && y != null) {
@@ -599,10 +600,12 @@ internal class Win32Window private constructor(
             minHeight: Int = 0,
             systemChrome: Boolean = true,
             appCaption: Boolean = false,
+            captionHeight: androidx.compose.ui.unit.Dp = androidx.compose.ui.unit.Dp(0f),
         ): Win32Window? {
             if (System.getenv("DXC_LAYOUT_PROFILE") == "1") LayoutProfile.enabled = true
             Win32NativeWindow.configure(resizable, minWidth, minHeight, systemChrome, backdrop = 0)
             configureAppCaption(appCaption)
+            configureCaptionHeight(captionHeight)
             val native = Win32NativeWindow.open(title, width, height) ?: return null
             // Resize frames on the CPU unless asked not to (DXC_RASTER_RESIZE=0).
             Win32Loop.setRasterResize(System.getenv("DXC_RASTER_RESIZE") != "0")

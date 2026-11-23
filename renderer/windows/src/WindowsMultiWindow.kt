@@ -4,7 +4,6 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
@@ -159,7 +158,7 @@ private fun windowContent(
                 LocalWindowActions provides actions,
                 dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
             ) {
-                WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+                WindowContent(host, caption = WindowCaption(height = windowsCaptionHeight(config.chrome, config.titleBar), fullSize = config.chrome == Chrome.FullSize))
             }
         }
     }
@@ -177,6 +176,3 @@ private fun ForWindow(nodeId: Int, content: @Composable () -> Unit) {
 
 private const val FRAME_SECONDS = 0.016
 private const val IDLE_MILLIS = 16u
-
-/** Windows 11's caption height, the same number the single window lays its caption out with. */
-private val CAPTION_HEIGHT = 32.dp
