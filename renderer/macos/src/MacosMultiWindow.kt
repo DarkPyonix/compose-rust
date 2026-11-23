@@ -110,6 +110,8 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
         onExit = { stopApplicationLoop() },
         dropTargets = DropTargets.registered(windows::contentScale),
     )
+    // A tab carrying a `TearOffKey` pulled out of its window becomes a window that follows the pointer.
+    manager.tearOffDrag = manager.leaveWindowTearOff
     manager.attach()
     // The windows the application had open when it was last quit come back, when the system
     // is set to keep windows across a quit: each is asked for by its restore key, and the

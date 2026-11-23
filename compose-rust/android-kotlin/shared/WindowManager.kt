@@ -10,6 +10,9 @@ import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.TearOffDrag
+import dev.darkpyonix.composerust.runtime.TearOffRequest
+import dev.darkpyonix.composerust.runtime.TearOffTrigger
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.ui.node.Node
 import kotlinx.coroutines.CompletableDeferred
@@ -92,6 +95,7 @@ class WindowManager(
     /** Stops managing and closes every window. The Host and the table are left as they are. */
     fun shutdown() {
         host.afterBatch = null
+        table.tearOffDrag = null
         table.fileDialogs.windowResolver = { null }
         backend.setApplicationListener(null)
         for (entry in entries.values.toList()) closeEntry(entry)
@@ -228,6 +232,29 @@ class WindowManager(
         if (key.isEmpty()) return false
         request(key, null, TearOff(pointerId, anchorX, anchorY))
         return true
+    }
+
+    /**
+     * How the windows of this process pull a node carrying a `TearOffKey` out into a window of
+     * their own, or null (the default) where the platform cannot. Kept on the node table, so
+     * the content of every window finds it.
+     */
+    var tearOffDrag: TearOffDrag?
+        get() = table.tearOffDrag
+        set(value) {
+            table.tearOffDrag = value
+        }
+
+    /**
+     * The tear-off of a desktop window system: a press on a keyed node that leaves its window
+     * asks the application for a window under the key ([tearOff]), and the `Window` node it
+     * puts in follows the pointer, anchored where the node was pressed.
+     */
+    val leaveWindowTearOff: TearOffDrag = object : TearOffDrag {
+        override val trigger: TearOffTrigger get() = TearOffTrigger.LeaveWindow
+
+        override fun start(request: TearOffRequest): Boolean =
+            tearOff(request.nodeId, request.pointerId, request.x, request.y)
     }
 
     // ---- properties ----------------------------------------------------------------------

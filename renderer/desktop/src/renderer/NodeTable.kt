@@ -348,6 +348,13 @@ class NodeTable {
     var window: Window? by mutableStateOf(null)
         private set
 
+    /**
+     * How every window of this table pulls a node carrying a `TearOffKey` out into a window of
+     * its own, or null where none can. Set by the platform's window manager; a window that
+     * provides `LocalTearOffDrag` itself overrides it.
+     */
+    var tearOffDrag: dev.darkpyonix.composerust.runtime.TearOffDrag? by mutableStateOf(null)
+
     /** The theme the window drawn for the `Window` node [windowId] uses; node 0 is the application's. */
     fun themeFor(windowId: Int): Theme? =
         if (windowId == ROOT_ID) theme else windowThemes[windowId] ?: theme

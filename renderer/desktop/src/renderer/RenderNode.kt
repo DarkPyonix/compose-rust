@@ -92,6 +92,7 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
 import dev.darkpyonix.composerust.runtime.WindowDropTargets
+import dev.darkpyonix.composerust.runtime.tearOff
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -420,7 +421,9 @@ fun RenderNode(
         val bounds = coordinates.boundsInWindow()
         WindowDropTargets.update(windowId, nodeId, bounds.left, bounds.top, bounds.right, bounds.bottom, density, depth)
     } else focusableModifier
-    val dropTarget = platformFileDrop(dropModifier, node, dispatcher)
+    // A node with a `TearOffKey` can be pulled out into a window of its own, where the
+    // platform window can do that.
+    val dropTarget = platformFileDrop(dropModifier.tearOff(node, table, windowId, depth), node, dispatcher)
     // Where the node is drawn, recorded only while a scroll request needs to know.
     val nodeModifier = if (node.placementWanted) {
         dropTarget.onPlaced { coordinates -> node.placement = coordinates }
