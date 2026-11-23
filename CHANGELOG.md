@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A tab with a `tear_off_key` tears off into a window of its own on the desktop
+
+A node with a `tear_off_key` can now be pulled out into a window of its own in an application that runs several windows; before, nothing started the drag on any platform. On a desktop window (macOS, Windows, Linux) a press on the node that leaves the window sends `WindowRequested` with the key, and the `Window` node the application puts in for it follows the pointer until the button is released. A drag that stays inside the window is not a tear-off, and a tap is still a click. The renderer now also has what Android's Activities and iOS' scenes need to draw several windows and to hear a tab dragged over them, which those renderers use in the changes that follow ([#355](https://github.com/DarkPyonix/compose-rust/issues/355), [#931](https://github.com/DarkPyonix/compose-rust/issues/931), FR-53).
+
 ### Build failures no longer send a crate user to a script only a checkout has
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).

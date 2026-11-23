@@ -1,6 +1,14 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * The one frame driver of a multi-window process.
@@ -32,4 +40,132 @@ internal suspend fun serveWindowFrames(
         stoppedAfterMillis = stoppedAfterMillis,
         alreadyServed = alreadyServed,
     )
+}
+
+/**
+ * Whether a platform whose windows each draw in a composition of their own (Android's
+ * Activities, iOS' scenes) runs the process's one driver, [serveWindowFrames]: an application
+ * of several windows ([mode]), with a platform window open for a `Window` node
+ * ([openWindows]) and a window on screen to draw it ([attachedWindows]).
+ *
+ * Otherwise the one window's content serves the Host's frame requests itself, or, with no
+ * window attached, the platform's loop for a process with no window does. Two of them
+ * serving the same requests would call the Host twice for one request.
+ */
+fun windowFrameDriverWanted(mode: WindowMode?, openWindows: Int, attachedWindows: Int): Boolean =
+    mode == WindowMode.Windows && openWindows > 0 && attachedWindows > 0
+
+/**
+ * One window's frame clock, for a platform where each window draws in a composition of its
+ * own (an Android Activity, an iOS scene).
+ *
+ * [awaitFrame] is the window's [PlatformWindow.awaitFrame]: it leaves a waiter and wakes the
+ * window's content, whose loop ([serve], through [ServeWindowFrames]) answers every waiter
+ * from inside its next frame. Its frame clock ticks with the display and stops while the
+ * window is not on screen, and then this clock answers nothing: the driver waits for another
+ * window's frame or, with none, serves the Host directly. A window between two compositions
+ * (an Activity recreated for a configuration change) keeps its waiters for the next one.
+ * After [close] the clock answers nothing again.
+ *
+ * Every call is made on the UI thread, where the Host and the compositions run, so the
+ * waiters need no lock and nothing is queued between the Host and the Renderer.
+ */
+class WindowFrameClock {
+    private val waiters = ArrayList<(Long) -> Unit>()
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    private var closed = false
+
+    /** How many callers are waiting for this window's next frame. */
+    val waiting: Int get() = waiters.size
+
+    suspend fun awaitFrame(onFrame: (Long) -> Unit) {
+        if (closed) awaitCancellation()
+        var waiter: ((Long) -> Unit)? = null
+        try {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                val callback: (Long) -> Unit = { nanos ->
+                    onFrame(nanos)
+                    if (continuation.isActive) continuation.resumeWith(Result.success(Unit))
+                }
+                waiter = callback
+                waiters += callback
+                wake.trySend(Unit)
+            }
+        } finally {
+            waiter?.let { waiters.remove(it) }
+        }
+    }
+
+    /**
+     * Answers the waiters from inside the frames of the composition it is called in, for as
+     * long as that composition runs. Asks for a frame only while someone waits, so an idle
+     * window draws nothing.
+     */
+    suspend fun serve() {
+        while (true) {
+            if (waiters.isEmpty()) wake.receive()
+            if (closed) awaitCancellation()
+            withFrameNanos { nanos -> draw(nanos) }
+        }
+    }
+
+    /** Answers every waiter with the frame time [nanos]. */
+    fun draw(nanos: Long) {
+        if (waiters.isEmpty()) return
+        val answered = waiters.toList()
+        waiters.clear()
+        for (callback in answered) callback(nanos)
+    }
+
+    /** The window is gone: its waiters are dropped and it answers nothing again. */
+    fun close() {
+        closed = true
+        waiters.clear()
+    }
+}
+
+/**
+ * The Host's one lifecycle, for a platform where every window has a lifecycle of its own
+ * (Android's Activities).
+ *
+ * The Host is started and stopped for the whole process: while it is stopped it holds back
+ * the frames its timers and animations ask for, in every window at once. So it hears a stop
+ * only when the last window leaves the screen, and a start only when the first one comes
+ * back. Passed on one window at a time, the window that stopped last decided for all of
+ * them: a window that went behind another, or one closed while another stayed on screen,
+ * stopped the Host under the window in front, and nothing started it again, because a
+ * window that stays on screen is never started a second time.
+ *
+ * Every call is made on the UI thread, where the Host runs.
+ */
+class WindowsOnScreen(private val dispatch: (HostEvent) -> Unit) {
+    private var started = 0
+
+    /** Whether any window is on screen. */
+    val onScreen: Boolean get() = started > 0
+
+    /** A window came on screen (an Activity's `onStart`). */
+    fun started() {
+        started += 1
+        if (started == 1) dispatch(HostEvent.LifecycleStart(NO_NODE, NO_HANDLER))
+    }
+
+    /** A window left the screen (an Activity's `onStop`). A stop with no start before it changes nothing. */
+    fun stopped() {
+        if (started == 0) return
+        started -= 1
+        if (started == 0) dispatch(HostEvent.LifecycleStop(NO_NODE, NO_HANDLER))
+    }
+
+    private companion object {
+        /** A lifecycle event addresses the Host itself, so it carries no node and no handler. */
+        const val NO_NODE = 0
+        const val NO_HANDLER = 0L
+    }
+}
+
+/** Serves [clock] from the frames of the window content this is composed in; nothing for null. */
+@Composable
+fun ServeWindowFrames(clock: WindowFrameClock?) {
+    if (clock != null) LaunchedEffect(clock) { clock.serve() }
 }

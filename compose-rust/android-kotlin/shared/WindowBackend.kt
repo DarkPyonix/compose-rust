@@ -238,3 +238,29 @@ fun interface DropTargets {
             }
     }
 }
+
+/**
+ * The `Window` node id a window the system created again may be bound to by the id it carries,
+ * or 0 when it must be matched by its restore key instead.
+ *
+ * A node id is unique only within one run of the process, but a mobile window carries it
+ * across runs: Android keeps an Activity's saved state and its intent, iOS a scene session's
+ * `userInfo`, after the process has died. Under a new process that id names another node or
+ * none, and a window bound to it would draw another window's content. So the id travels with
+ * a token of the process that issued it ([carriedProcess]), and it is trusted only when that is
+ * this process' token ([thisProcess]). Checking only that no window has the id would still
+ * accept an old id that a new node happens to have.
+ */
+fun carriedWindowNodeId(nodeId: Int, carriedProcess: Long, thisProcess: Long): Int =
+    if (nodeId != 0 && carriedProcess != 0L && carriedProcess == thisProcess) nodeId else 0
+
+/**
+ * The first Android API level whose public API lets an application's own drag start an
+ * Activity: an `IntentSender` on the drag item with `DRAG_FLAG_START_INTENT_SENDER_ON_UNHANDLED_DRAG`,
+ * both added in Android 15. Below it no tear-off drag starts, and an application offers the same
+ * thing as a menu action that puts a `Window` node in.
+ */
+const val ANDROID_TEAR_OFF_MIN_SDK: Int = 35
+
+/** Whether Android at API level [sdk] can start a tear-off drag. */
+fun androidTearOffSupported(sdk: Int): Boolean = sdk >= ANDROID_TEAR_OFF_MIN_SDK
