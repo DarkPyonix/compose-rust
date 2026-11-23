@@ -20,7 +20,11 @@
 # - `memory_report` runs test_memory_report (the blank window's memory, report only) and the
 #   Windows kit it links, and nothing else. It is in no default: all, an empty input, fast
 #   and measure leave it out, so a dispatch that does not name it never spends a run on it.
-#   all,memory_report is every job.
+#   all,memory_report is every job but publish_schema_renderer.
+# - `publish_schema_renderer` uploads the renderers for the commit's schema to the renderer-dev
+#   release, so it runs only when named: all, an empty input, fast, measure, owner_checks and
+#   memory_report leave it out. Named alone it runs that job and nothing else (it builds its
+#   own Windows kit, so it brings no windows_static_kit), and a list with it adds it.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 suites="$root/scripts/ci-suites.sh"
@@ -102,8 +106,8 @@ on() { "$suites" "$1" | grep -vE "$not_jobs" | sed -n 's/=true$//p' | sort | tr 
 measures() { "$suites" "$1" | sed -n 's/^measure=//p'; }
 samples_of() { "$suites" "$1" | sed -n 's/^samples=//p'; }
 desktop_only() { "$suites" "$1" | sed -n 's/^samples_desktop_only=//p'; }
-# The jobs that only report and are never part of a default suite.
-report_only=" test_memory_report "
+# The jobs that run only when named and are never part of a default suite.
+report_only=" test_memory_report publish_schema_renderer "
 every_name="$("$suites" all | grep -vE "$not_jobs" | sed 's/=.*//' | sort | tr '\n' ' ')"
 every_job=""
 for job in $every_name; do
@@ -138,8 +142,29 @@ done
     fail "memory_report ran $(on memory_report), measure=$(measures memory_report)"
 [[ "$(on test_memory_report)" == "test_memory_report windows_static_kit " ]] &&
     ok "test_memory_report by name runs the same" || fail "test_memory_report ran $(on test_memory_report)"
-[[ "$(on all,memory_report)" == "$every_name" ]] &&
-    ok "all,memory_report is every job" || fail "all,memory_report ran $(on all,memory_report), not $every_name"
+[[ "$(on all,memory_report,publish_schema_renderer)" == "$every_name" ]] &&
+    ok "all,memory_report,publish_schema_renderer is every job" ||
+    fail "all,memory_report,publish_schema_renderer ran $(on all,memory_report,publish_schema_renderer), not $every_name"
+every_but_publish=""
+for job in $every_name; do
+    [[ "$job" == publish_schema_renderer ]] || every_but_publish="$every_but_publish$job "
+done
+[[ "$(on all,memory_report)" == "$every_but_publish" ]] &&
+    ok "all,memory_report is every job but publish_schema_renderer" ||
+    fail "all,memory_report ran $(on all,memory_report), not $every_but_publish"
+[[ "$every_name" == *"publish_schema_renderer "* ]] &&
+    ok "the script names publish_schema_renderer" || fail "the script has no publish_schema_renderer line: $every_name"
+for default in all '' fast measure all,measure owner_checks memory_report test_memory_report; do
+    [[ "$(on "$default")" != *"publish_schema_renderer"* ]] &&
+        ok "'$default' leaves the renderer-dev upload out" || fail "'$default' ran publish_schema_renderer: $(on "$default")"
+done
+[[ "$(on publish_schema_renderer)" == "publish_schema_renderer " && "$(measures publish_schema_renderer)" == false ]] &&
+    ok "publish_schema_renderer alone runs only that job, without the Windows kit" ||
+    fail "publish_schema_renderer ran $(on publish_schema_renderer), measure=$(measures publish_schema_renderer)"
+[[ "$(on 'test, publish_schema_renderer')" == "publish_schema_renderer test " ]] &&
+    ok "a list with publish_schema_renderer adds it" || fail "the list ran $(on 'test, publish_schema_renderer')"
+grep -qE '^    uses: \./\.github/workflows/publish-schema-renderer\.yml$' "$root/.github/workflows/ci.yml" &&
+    ok "ci.yml calls publish-schema-renderer.yml" || fail "ci.yml does not call publish-schema-renderer.yml"
 grep -qE '^    uses: \./\.github/workflows/test-memory-report\.yml$' "$root/.github/workflows/ci.yml" &&
     ok "ci.yml calls test-memory-report.yml" || fail "ci.yml does not call test-memory-report.yml"
 [[ "$(on owner_checks)" == "test_samples windows_static_kit " && "$(measures owner_checks)" == false ]] &&
@@ -152,7 +177,7 @@ for wide in all test_samples all,owner_checks owner_checks,test_samples ''; do
         ok "'$wide' builds every sample on every platform" ||
         fail "'$wide' gave samples=$(samples_of "$wide") desktop_only=$(desktop_only "$wide")"
 done
-for name in not_a_job test_windows_resize_metrics test_windows_resize_probe memory-report; do
+for name in not_a_job test_windows_resize_metrics test_windows_resize_probe memory-report publish-schema-renderer; do
     if "$suites" "$name" >/dev/null 2>&1; then
         fail "the unknown name $name was accepted"
     else

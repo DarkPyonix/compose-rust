@@ -5,8 +5,9 @@
 #
 #   all      every job that gates a merge: what a release check runs, and the default, so a
 #            dispatch that says nothing is still complete. The window-pin probe is one of them;
-#            the resize timings beside it are not (see `measure`), and neither is the memory
-#            report (see `memory_report`).
+#            the resize timings beside it are not (see `measure`), and neither are the memory
+#            report (see `memory_report`) and the renderer-dev upload (see
+#            `publish_schema_renderer`).
 #   fast     the Rust, JVM and script tests on every system, the Windows C compile, and the
 #            GraalVM renderer built and smoke tested on macOS and Linux: an answer in about two
 #            hours instead of five, for checking a branch. Windows has no short renderer job:
@@ -22,6 +23,11 @@
 #   memory_report  the blank window's memory on Linux and Windows (test_memory_report), with
 #            the Windows kit it links. It judges nothing and only reports, so it runs only
 #            when asked for by this name or its job's: never in all, fast or measure.
+#   publish_schema_renderer  the renderers for the commit's schema, built and uploaded to the
+#            renderer-dev release (a run on develop only; elsewhere it publishes nothing). It
+#            publishes release assets, so it runs only when asked for by its own name: never
+#            in all, fast, measure or memory_report. Dispatch it alone: it builds its own
+#            Windows kit and renderers, under the artifact names the other jobs use.
 #   a,b,...  these suites and jobs together, by their names (all, fast, measure, test,
 #            test_samples, ...), and what they need: a job that takes the Windows kit brings
 #            windows_static_kit with it. `all,measure` is every job with the timings on.
@@ -51,11 +57,13 @@ jobs=(
     test_compose_from_fork
     test_samples
     test_memory_report
+    publish_schema_renderer
 )
 fast=(test test_windows_c test_graalvm_renderer)
-# The jobs that only report and gate nothing: `all` leaves them out, and only their suite or
-# their own name runs them.
-report_only=(test_memory_report)
+# The jobs that run only when asked for by name: `all` leaves them out, and only their suite or
+# their own name runs them. test_memory_report only reports and gates nothing;
+# publish_schema_renderer uploads release assets.
+report_only=(test_memory_report publish_schema_renderer)
 # The jobs `memory_report` selects.
 memory_report=(test_memory_report)
 # The jobs `measure` selects: the workflow that holds the timings.
@@ -101,7 +109,7 @@ for name in "${names[@]}"; do
             known=0
             for job in "${jobs[@]}"; do [[ "$job" == "$name" ]] && known=1; done
             if [[ "$known" == 0 ]]; then
-                echo "ci-suites: '$name' is not a suite (all, fast, measure, owner_checks, memory_report) or a ci.yml job: ${jobs[*]}" >&2
+                echo "ci-suites: '$name' is not a suite (all, fast, measure, owner_checks, memory_report, publish_schema_renderer) or a ci.yml job: ${jobs[*]}" >&2
                 exit 1
             fi
             [[ "$name" == test_samples ]] && samples_full=true
