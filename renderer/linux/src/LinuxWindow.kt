@@ -30,6 +30,8 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.foundation.DrawnOsMenuHost
+import dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
@@ -392,19 +394,22 @@ internal class LinuxWindow private constructor(
                     null
                 }
             }
-            CompositionLocalProvider(
-                LocalZoom provides zoom,
-                LocalDisplayScale provides displayScale,
-                LocalSystemDarkObserver provides { resolvedDark() },
-                LocalClipboard provides clipboard,
-                LocalClipboardManager provides clipboardManager,
-                LocalWindowActions provides actions,
-                // A node the application made a drag region (`WindowDrag(true)`) moves the
-                // window from the press it is holding: the window manager takes the pointer
-                // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { x11.startMove() },
-            ) {
-                content()
+            val drawnMenu = remember { DrawnOsMenuPresenter() }
+            DrawnOsMenuHost(drawnMenu) {
+                CompositionLocalProvider(
+                    LocalZoom provides zoom,
+                    LocalDisplayScale provides displayScale,
+                    LocalSystemDarkObserver provides { resolvedDark() },
+                    LocalClipboard provides clipboard,
+                    LocalClipboardManager provides clipboardManager,
+                    LocalWindowActions provides actions,
+                    // A node the application made a drag region (`WindowDrag(true)`) moves the
+                    // window from the press it is holding: the window manager takes the pointer
+                    // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
+                    dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { x11.startMove() },
+                ) {
+                    content()
+                }
             }
         }
     }
