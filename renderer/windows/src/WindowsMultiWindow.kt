@@ -184,6 +184,6 @@ private const val IDLE_MILLIS = 16u
 /** Windows 11's caption height, the same number the single window lays its caption out with. */
 private val CAPTION_HEIGHT = 32.dp
 
-/** The icon a window of several wears: its own `WindowIcon`, or else the application's (FR-19.3). */
+/** The icon a window of several wears: its own `WindowIcon`, or else the application's. */
 private fun iconOf(host: ComposeRustHost, config: PlatformWindowConfig): Int =
     config.icon.takeIf { it != 0 } ?: host.table.window?.icon ?: 0

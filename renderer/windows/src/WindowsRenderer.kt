@@ -53,10 +53,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
         modifier.nativeFileDrop(node, dispatcher)
     }
-    // Where the application's zoom level is kept between runs (FR-43), before the first
+    // Where the application's zoom level is kept between runs, before the first
     // composition reads it.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
-    // The file dialogs (FR-72), before the Host exists: the node table takes the platform when
+    // The file dialogs, before the Host exists: the node table takes the platform when
     // it is made, and the first batch may already ask for one. The windows they belong to are
     // handed in once they exist.
     val fileDialogs = WindowsFileDialogPlatform()
@@ -108,8 +108,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     colorScheme.follow(host.table.theme)
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
-    // Whatever the chrome, a `WindowDrag(true)` node moves the window (FR-19.9) and the
-    // system's light or dark setting is followed while the window is open (FR-44).
+    // Whatever the chrome, a `WindowDrag(true)` node moves the window and the
+    // system's light or dark setting is followed while the window is open.
     if (systemChrome) {
         window.setContent {
             androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -161,9 +161,9 @@ private val WINDOWS_CAPTION_HEIGHT = 32.dp
 
 /**
  * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
- * moves [window] (FR-19.9, through [windowsWindowDrag]), the system's dark setting is
- * followed while the window is open (FR-44), and the window wears icon asset [icon] once it
- * has arrived (FR-19.3; 0 for none).
+ * moves [window] (through [windowsWindowDrag]), the system's dark setting is
+ * followed while the window is open, and the window wears icon asset [icon] once it
+ * has arrived (0 for none).
  */
 @androidx.compose.runtime.Composable
 internal fun WindowsPlatformLocals(

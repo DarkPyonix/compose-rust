@@ -19,7 +19,7 @@ import org.jetbrains.skia.ImageInfo
 import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.windows.c.dxc_native_set_icon
 
-// The window's icon on Windows (FR-19.3): the caption, the task bar and Alt+Tab. The asset the
+// The window's icon on Windows: the caption, the task bar and Alt+Tab. The asset the
 // application named (SetWindow.icon, or a Window node's WindowIcon) arrives a little after the
 // batch that names it, so it is looked for until it is there, through the window module's
 // DockIcon as on macOS.
