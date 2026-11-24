@@ -790,6 +790,10 @@ void dxc_native_window_configure_app_caption(int32_t enabled) {
     (void)enabled;
 }
 
+void dxc_native_window_configure_caption_height(int32_t dip) {
+    (void)dip;
+}
+
 void dxc_native_set_cursor_id(int32_t idc) {
     (void)idc;
 }
