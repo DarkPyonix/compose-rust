@@ -168,9 +168,19 @@ private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
                 filters = "",
             ),
         )
-        // The dialog is up, owned by window 1, and the loop still turns while it is.
-        h.until("the file dialog to open on window 1") {
-            platform.windows.GetWindow(one.handle.reinterpret(), GW_ENABLEDPOPUP) != null
+        // The dialog is up, owned by window 1, and the loop still turns while it is. It is
+        // found by the title the request gave it, then its owner is compared: GetWindow's
+        // GW_ENABLEDPOPUP answers the window itself or nothing depending on the system, and a
+        // dialog's first open on a fresh machine can take seconds while the shell starts.
+        fun dialog() = platform.windows.FindWindowW("#32770", "fr72 check")
+        val opened = h.waitFor(20_000) { dialog() != null || results().isNotEmpty() }
+        check(opened && results().isEmpty()) {
+            if (opened) "the request was answered ${results().map { it.status }} instead of opening a dialog"
+            else "timed out after 20000 ms waiting for the file dialog to open on window 1"
+        }
+        val owner = platform.windows.GetWindow(dialog(), GW_OWNER)
+        check(owner.toLong() == one.handle.toLong()) {
+            "the file dialog is owned by ${owner.toLong()}, not window 1 (${one.handle.toLong()})"
         }
         check(results().isEmpty()) { "the request was answered ${results().map { it.status }} while its dialog was open" }
         h.forMillis(300)
@@ -192,8 +202,8 @@ private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
     }
 }
 
-/** GetWindow's "the enabled popup this window owns": a dialog it is the owner of. */
-private const val GW_ENABLEDPOPUP = 6u
+/** GetWindow's "the window that owns this one". */
+private const val GW_OWNER = 4u
 
 /**
  * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
