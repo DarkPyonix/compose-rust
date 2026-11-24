@@ -15,5 +15,9 @@
 #![windows_subsystem = "windows"]
 
 fn main() {
+    // Velopack's installer and updater start the program with hook arguments and wait for
+    // it to answer; this answers them and exits before any window opens.
+    #[cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm")))]
+    velopack::VelopackApp::build().run();
     sample_selfcare::launch();
 }

@@ -289,7 +289,9 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - `Modifier::PaddingRole(SpaceRole)`, 기존 `Modifier::Padding(f32)`는 유지합니다.
 - `Modifier::PaddingEach { start, top, end, bottom }`, f32 4개.
 - `Modifier::Weight(f32)`, `RowScope`/`ColumnScope`의 weight입니다. 부모 데이터이므로 자식을 쌓는 레이아웃만 적용할 수 있고, 자식을 세로로 쌓는 컨테이너(`Card`, `Surface`, `ScrollColumn`)도 `Column`과 같게 적용합니다. 몫이 되는 축은 부모가 쌓는 축입니다: `Column` 아래에서는 높이, `Row` 아래에서는 너비이며, `Box`처럼 쌓지 않는 부모 아래에서는 어느 축도 정하지 않습니다.
+- `Modifier::WeightUnfilled(f32)`(빌더 `Modifier::weight_unfilled(f32)`, 와이어 태그 `48`, `[provisional, #981]`): Compose `Modifier.weight(w, fill = false)`에 대응합니다. `Weight`와 같은 가중치 슬롯을 공유하며, 부모가 배분한 몫을 최대 제약으로만 넘기고 최소 제약은 0으로 둡니다. 짧은 자식은 내재 크기만 차지해 형제가 바로 옆에 놓이고, 긴 자식은 남은 공간(몫) 이하로 줄어들거나 말줄임됩니다. `Row`, `Column`과 세로 쌓기 컨테이너(`Card`, `Surface`, `ScrollColumn`)에 모두 적용됩니다.
 - 수용 기준: 높이가 정해진 `Surface` 안에서 `weight` 1과 3을 받은 자식 둘이 높이를 1:3으로 나눕니다. **(2026-09-21 통과)**
+- 수용 기준(#981): 폭 300px `Row`의 `[짧은 Text(weight_unfilled=1.0), 40px Box]`에서 짧은 Text는 내재 너비(100px 미만)만 차지하고 40px Box가 바로 옆에 붙으며, 폭 200px `Row`의 `[긴 Text(weight_unfilled=1.0), 60px Box]`에서 긴 Text는 남은 140px 이하로 제한되고 60px Box가 200px 안에 온전히 들어갑니다(`WeightUnfilledTest`, `fr13_weight_unfilled_round_trips`).
 - `Column`/`Row` 속성: `arrangement`(`Start|Center|End|SpaceBetween|SpaceAround|SpaceEvenly`), `spacing`(f32 dp) 또는 `space_role`, `alignment`(교차축 정렬).
 - `Box` 속성: `alignment`(9점 정렬).
 - 수용 기준: 위 속성/Modifier가 전부 `(tag, u64, u64)` 안에 들어가고, 인코딩 후 디코딩 결과가 입력과 같습니다.
@@ -2321,7 +2323,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
-> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
+> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_platform_caption_title_placement_follows_platform`, `fr30_2_macos_omits_bar_title_and_windows_draws_it_for_cupertino_and_fluent`, `fr30_2_windows_and_linux_draw_bar_title_for_apple_design_systems`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
 >
 > **1.0 작업(소유자, 2026-11-21).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어갑니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
@@ -3149,6 +3151,12 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
       > 이전의 모델은 노드 0 밑에 `Insert`된 노드만 보았습니다. 고정한 Dioxus 경로는 최상위 노드를 만들기만 하고 삽입하지 않습니다. 그래서 모델에서는 그 경로의 화면이 비어 있었고, 비교는 첫 시나리오 `sweep_1`의 첫 클릭에서 멈췄습니다. 이 정정 전에는 고정한 기준선에 대해 측정이 한 번도 돌지 못했습니다. 이 정정은 시나리오 크레이트 안의 변경이지만 시나리오는 아닙니다. 시나리오와 판정 규칙은 바뀌지 않았습니다. 이 규칙은 기록을 더하지 않으므로 Mutation 수와 바이트 수를 세는 방식도 그대로입니다.
       >
       > 커밋은 `6d22f442`입니다. 규칙을 고정하는 테스트는 `fr39_model_keeps_a_created_never_inserted_node_as_a_root`, `fr39_model_orders_inferred_roots_by_creation_not_by_id`, `fr39_model_places_an_insert_under_the_root_among_the_inferred_roots`, `fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into`, `fr39_model_drops_an_inferred_root_on_remove`, `fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere`, `fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`입니다.
+
+      > **후보 경로가 그리는 화면(2026-11-22, [leader, 2026-11-22]).** compose-rust 경로는 오늘 배포하는 샘플이 아니라, 시나리오를 고정할 때의 화면을 잽니다. 계산기, todo, chat, minimal 네 화면을 2026-11-13에 다시 그려지기 직전의 모습으로 벤치 안(`compose-rust/benches/fr39/screens`)에 고정 화면으로 두고, 오늘의 함수와 호출 매크로 형태로 옮겨 씁니다. 그 밑의 런타임은 오늘의 것입니다. 이 화면들은 벤치를 위해 새로 만든 화면이 아니라, 시나리오가 기록될 때의 샘플 화면 그대로입니다.
+      >
+      > 네 샘플은 2026-11-13에 디자인 참조를 따라 다시 그려졌습니다. todo의 "About" 버튼은 메뉴 안으로 들어갔고, minimal의 Panels, Colour, Parts 탭은 없어졌습니다. 그래서 오늘의 샘플은 고정한 Dioxus 경로가 만드는 트리를 더 이상 만들지 않고, 시나리오가 누르는 컨트롤도 없습니다. 비교는 양쪽이 같은 화면을 그릴 때만 성립하므로, 고정 화면은 기준선의 `rsx!` 화면과 같은 트리를 만들도록 맞추었고, 10월의 compose-rust 화면과 기준선이 다른 곳에서는 기준선을 따랐습니다. 각 파일의 머리말이 어느 커밋에서 왔는지와 기준선을 따른 곳을 적습니다.
+      >
+      > 시나리오는 하나도 바뀌지 않았습니다. 판정 규칙과 기준선도 그대로입니다. 그래서 이 측정의 숫자는 작성 경로와 런타임을 말하고, 오늘 샘플 화면의 성능을 말하지 않습니다. 이것을 지키는 검사는 `scripts/tests/fr39-bench-screens.test.sh`의 `fr39_bench_screens_candidate_uses_no_shipped_sample`, `fr39_bench_screens_say_where_they_came_from`, `fr39_bench_screens_have_no_builder_chains`이고, 고정 화면이 시나리오의 모든 단계에 답하는 것은 `fr39_screen_calculator_answers_every_step_of_calculator_input`, `fr39_screen_todo_answers_every_step_of_todo_add_delete`, `fr39_screen_todo_answers_every_step_of_long_list_scroll`, `fr39_screen_chat_answers_every_step_of_chat_streaming`, `fr39_screen_minimal_answers_every_step_of_tab_switching`이 확인합니다.
    2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
    3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
    4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
