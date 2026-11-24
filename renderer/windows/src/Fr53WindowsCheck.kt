@@ -79,6 +79,8 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr19_9_windows_window_drag_moves_its_window_with_every_chrome",
     "fr44_windows_system_dark_change_reaches_the_app_without_a_restart",
     "fr43_windows_zoom_level_is_kept_in_appdata",
+    // The system's file dialog, owned by the window that asked.
+    "fr72_windows_file_dialog_opens_on_its_window_and_ends_with_it",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -110,6 +112,7 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::windowDragMovesItsWindowWithEveryChrome,
         ::systemDarkChangeReachesTheAppWithoutARestart,
         ::zoomLevelIsKeptInAppdata,
+        ::fileDialogOpensOnItsWindowAndEndsWithIt,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -135,6 +138,72 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/**
+ * A `ShowFileDialog` for a window opens the system's file dialog owned by that window,
+ * without stopping the loop, and a window that goes away ends its dialog with exactly one
+ * Cancelled. Before the Windows renderer installed a platform, every request was Unavailable
+ * at once.
+ */
+private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
+    val before = FileDialogs.platform
+    val beforeInstalled = installedWindowsFileDialogs
+    val dialogs = WindowsFileDialogPlatform()
+    FileDialogs.platform = dialogs
+    installedWindowsFileDialogs = dialogs
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + windowNode(2))
+    try {
+        dialogs.nodeWindow = { id -> h.host.table.fileDialogs.windowResolver(id) }
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        fun results() = h.connection.events.filterIsInstance<HostEvent.FileDialogResult>().filter { it.request == 7 }
+        h.batch(
+            Mutation.ShowFileDialog(
+                request = 7,
+                window = 1,
+                kind = dev.darkpyonix.composerust.protocol.FileDialogKind.OpenFile,
+                defaultFilter = 0,
+                title = "fr72 check",
+                directory = "",
+                name = "",
+                filters = "",
+            ),
+        )
+        // The dialog is up, owned by window 1, and the loop still turns while it is. It is
+        // found by the title the request gave it, then its owner is compared: GetWindow's
+        // GW_ENABLEDPOPUP answers the window itself or nothing depending on the system, and a
+        // dialog's first open on a fresh machine can take seconds while the shell starts.
+        fun dialog() = platform.windows.FindWindowW("#32770", "fr72 check")
+        val opened = h.waitFor(20_000) { dialog() != null || results().isNotEmpty() }
+        check(opened && results().isEmpty()) {
+            if (opened) "the request was answered ${results().map { it.status }} instead of opening a dialog"
+            else "timed out after 20000 ms waiting for the file dialog to open on window 1"
+        }
+        val owner = platform.windows.GetWindow(dialog(), GW_OWNER)
+        check(owner.toLong() == one.handle.toLong()) {
+            "the file dialog is owned by ${owner.toLong()}, not window 1 (${one.handle.toLong()})"
+        }
+        check(results().isEmpty()) { "the request was answered ${results().map { it.status }} while its dialog was open" }
+        h.forMillis(300)
+        check(results().isEmpty()) { "the dialog ended by itself: ${results().map { it.status }}" }
+
+        // Window 1 goes away: its dialog ends with one cancel, and window 2 is untouched.
+        h.batch(Mutation.Remove(1))
+        h.until("the dialog of the removed window to end") { results().isNotEmpty() }
+        h.forMillis(300)
+        check(results().size == 1) { "the request was answered ${results().size} times" }
+        check(results().single().status == dev.darkpyonix.composerust.protocol.FileDialogStatus.Cancelled) {
+            "the dialog of a removed window ended ${results().single().status}, not Cancelled"
+        }
+        check(h.backend.find(2) != null) { "window 2 went with window 1's dialog" }
+    } finally {
+        FileDialogs.platform = before
+        installedWindowsFileDialogs = beforeInstalled
+        h.close()
+    }
+}
+
+/** GetWindow's "the window that owns this one". */
+private const val GW_OWNER = 4u
 
 /**
  * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
