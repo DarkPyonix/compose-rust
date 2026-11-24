@@ -94,6 +94,50 @@ check $? "a passing build runs once and its output still reaches the log (status
 mirror_init="$repo/renderer/scripts/maven-central-mirror.gradle"
 grep -q "@MIRROR@" "$mirror_init" && grep -q "repo.maven.apache.org" "$mirror_init"
 check $? "maven-central-mirror.gradle points Maven Central at @MIRROR@ and keeps Central behind it"
+# Where Central goes: Gradle gives up on a 429 rather than asking the next repository, so
+# Central behind the mirror has to come after every other repository. Run 45488752618 lost
+# the fork build to it: the plugin portal's develocity-gradle-plugin and Google's
+# com.android.settings.gradle.plugin are not on the mirror, and Central, asked before the
+# portal and Google, answered 429. A real Gradle applies the init script to a probe and prints
+# each repository list; nothing is resolved. Gradle comes from DXC_GRADLE or PATH.
+gradle_bin="${DXC_GRADLE:-$(command -v gradle || true)}"
+if [ -n "$gradle_bin" ]; then
+    probe="$work/mirror-probe"
+    mkdir -p "$probe"
+    sed "s#@MIRROR@#https://mirror.example/m2/#" "$mirror_init" > "$work/mirror-init.gradle"
+    cat > "$probe/settings.gradle" <<'GRADLE'
+pluginManagement { repositories { mavenCentral(); google(); gradlePluginPortal() } }
+buildscript { repositories { mavenLocal(); mavenCentral(); google(); gradlePluginPortal() } }
+rootProject.name = 'mirror-probe'
+def show(String label, repos) {
+    println(label + ': ' + repos.collect { it instanceof MavenArtifactRepository ? it.url.toString().replaceAll('/+$', '') : it.name }.join(' '))
+}
+show('pluginManagement', settings.pluginManagement.repositories)
+show('settings-buildscript', settings.buildscript.repositories)
+gradle.beforeProject { p ->
+    p.repositories { mavenLocal(); mavenCentral(); google(); gradlePluginPortal(); maven { url = 'https://repo1.maven.org/maven2/' } }
+}
+gradle.afterProject { p -> show('project', p.repositories) }
+GRADLE
+    "$gradle_bin" -q --offline --no-daemon --gradle-user-home "$work/probe-home" \
+        -I "$work/mirror-init.gradle" -p "$probe" help > "$work/probe.out" 2>&1
+    probe_status=$?
+    line() { grep "^$1: " "$work/probe.out" | sed "s/^$1: //" | sed 's#file:[^ ]*#local#g'; }
+    central=https://repo.maven.apache.org/maven2
+    m=https://mirror.example/m2
+    google=https://dl.google.com/dl/android/maven2
+    portal=https://plugins.gradle.org/m2
+    [ "$probe_status" -eq 0 ] && [ "$(line pluginManagement)" = "$m $google $portal $central" ]
+    check $? "plugin repositories read the mirror first and Central last ($(line pluginManagement); status $probe_status)"
+    [ "$(line settings-buildscript)" = "local $m $google $portal $central" ]
+    check $? "the settings classpath asks Google and the plugin portal before Central ($(line settings-buildscript))"
+    [ "$(line project)" = "local $m $google $portal $m $central" ]
+    check $? "a project's repositories keep their order with Central once, at the end ($(line project))"
+    [ "$probe_status" -eq 0 ] || sed 's/^/    /' "$work/probe.out"
+else
+    echo "skip - no Gradle on PATH or in DXC_GRADLE, so the repository order is not run"
+fi
+
 compose_at() { # env... -> runs build-compose.sh up to its argument check
     env -u GITHUB_ACTIONS -u DXC_MAVEN_CENTRAL_MIRROR "$@" GRADLE_USER_HOME="$work/gh" \
         DXC_COMPOSE_BUILD="$work/compose-build" \
