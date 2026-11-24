@@ -207,7 +207,10 @@ class LinuxWindowTest {
                     assertEquals(cardinal, actualType.value)
                     assertEquals(32, actualFormat.value)
                     assertEquals(4uL, nitems.value)
-                    val words = assertNotNull(prop.value).reinterpret<ULongVar>()
+                    // Xlib hands format 32 items back as C longs and sign-extends them on a
+                    // 64-bit build, so only the low 32 bits are what the server holds.
+                    val longs = assertNotNull(prop.value).reinterpret<ULongVar>()
+                    val words = List(4) { longs[it] and 0xFFFFFFFFuL }
                     assertEquals(2uL, words[0])
                     assertEquals(1uL, words[1])
                     assertEquals(0xFFFF0000uL, words[2])
