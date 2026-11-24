@@ -1,7 +1,10 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import android.app.Activity
 import dev.darkpyonix.composerust.foundation.NativeViewPlatform
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -32,6 +35,9 @@ object ComposeRustRuntime {
 
     private val connection = AndroidHostConnection()
     private var host: ComposeRustHost? = null
+    private var windowBackend: AndroidWindowBackend? = null
+    private var windowManager: WindowManager? = null
+    private var attachedActivities = 0
 
     /**
      * The application's files directory, set by [installStorageLocation] before the Host is
@@ -111,24 +117,66 @@ object ComposeRustRuntime {
     private var unattended: Job? = null
 
     /**
+     * Binds an Activity to the process-wide [WindowManager] and [AndroidWindowBackend].
+     *
+     * For single-window applications this returns null and the Activity renders the implicit
+     * root (`windowNodeId = 0`). For multi-window applications (`WindowMode.Windows`), the
+     * first Activity claims the first `Window` node, recreated Activities rebind by [nodeId],
+     * and system-revived tasks notify the Host with `WindowRequested(restoreKey)`.
+     */
+    fun attachActivity(
+        activity: Activity,
+        nodeId: Int,
+        restoreKey: String,
+    ): AndroidActivityWindow? {
+        val currentHost = host()
+        val backend = windowBackend ?: AndroidWindowBackend(rootActivity = activity).also { createdBackend ->
+            windowBackend = createdBackend
+            val manager = WindowManager(currentHost, createdBackend, onExit = {})
+            windowManager = manager
+            manager.attach()
+        }
+        if (currentHost.table.window?.mode != WindowMode.Windows) {
+            backend.attachRootActivity(activity)
+            return null
+        }
+        if (nodeId == 0 && restoreKey.isEmpty()) {
+            backend.attachRootActivity(activity)
+            val firstWindowId = currentHost.table.roots.firstOrNull {
+                currentHost.table.node(it)?.widget == WidgetKind.Window
+            }
+            if (firstWindowId != null) {
+                val existing = backend.windowFor(firstWindowId)
+                if (existing != null) {
+                    existing.rebind(activity)
+                    return existing
+                }
+            }
+            return null
+        }
+        return backend.activityCreated(activity, nodeId, restoreKey)
+    }
+
+    /** The active multi-window backend, once an Activity has attached. */
+    fun windowBackend(): AndroidWindowBackend? = windowBackend
+
+    /**
      * An Activity is drawing the Host's tree again, and its frame loop serves the Host's
      * frame requests.
      */
     fun attached() {
+        attachedActivities += 1
         unattended?.cancel()
         unattended = null
     }
 
     /**
-     * No Activity is drawing, and none may be for a while: the user went back out of the
-     * application and the process stayed.
-     *
-     * The Host is still running and a worker can still finish. Its frame request has no
-     * frame loop to reach, so it is served here, on the UI thread, straight away. The UI is
-     * stopped, so the Host renders nothing for it but what has to go out while nobody is
-     * looking, which is a notification.
+     * One Activity was destroyed. Only when no Activity remains attached does the unattended
+     * loop take over so worker notifications still go out while the process is backgrounded.
      */
     fun detached() {
+        attachedActivities = (attachedActivities - 1).coerceAtLeast(0)
+        if (attachedActivities > 0) return
         val host = host ?: return
         if (unattended != null) return
         unattended = scope.launch {
