@@ -52,7 +52,17 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
         modifier.nativeFileDrop(node, dispatcher)
     }
+    // Where the application's zoom level is kept between runs, before the first
+    // composition reads it.
+    dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
+    // The file dialogs, before the Host exists: the node table takes the platform when
+    // it is made, and the first batch may already ask for one. The windows they belong to are
+    // handed in once they exist.
+    val fileDialogs = WindowsFileDialogPlatform()
+    installedWindowsFileDialogs = fileDialogs
+    FileDialogs.platform = fileDialogs
     val host = ComposeRustHost(connection())
+    fileDialogs.nodeWindow = { id -> host.table.fileDialogs.windowResolver(id) }
     host.start()
 
     // What the application asked for. A window that said nothing is listed under whatever
@@ -93,6 +103,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         return RendererApi.RUN_FAILED
     }
 
+    fileDialogs.rootWindow = { window.handle }
+
     // The window's own light or dark, for what the system draws of it: the caption of a window
     // with the system's chrome, and the frame of every window. Given before the first frame
     // from the theme the first batch set, and again whenever the application changes it.
@@ -102,12 +114,14 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     colorScheme.follow(host.table.theme)
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
+    // Whatever the chrome, a `WindowDrag(true)` node moves the window and the
+    // system's light or dark setting is followed while the window is open.
     if (systemChrome) {
         window.setContent {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
             }
-            WindowContent(host)
+            WindowsPlatformLocals(window, host, asked?.icon ?: 0) { WindowContent(host) }
         }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
@@ -122,15 +136,16 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             }
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
             ) {
-                WindowContent(
-                    host,
-                    caption = dev.darkpyonix.composerust.runtime.WindowCaption(
-                        height = captionHeight,
-                        fullSize = fullSize,
-                    ),
-                )
+                WindowsPlatformLocals(window, host, asked?.icon ?: 0) {
+                    WindowContent(
+                        host,
+                        caption = dev.darkpyonix.composerust.runtime.WindowCaption(
+                            height = captionHeight,
+                            fullSize = fullSize,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -146,3 +161,31 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
+
+/**
+ * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
+ * moves [window] (through [windowsWindowDrag]), the system's dark setting is
+ * followed while the window is open, and the window wears icon asset [icon] once it
+ * has arrived (0 for none).
+ */
+@androidx.compose.runtime.Composable
+internal fun WindowsPlatformLocals(
+    window: Win32Window,
+    host: ComposeRustHost,
+    icon: Int,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    WindowsIconEffect(host, window, icon)
+    androidx.compose.runtime.CompositionLocalProvider(
+        dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { windowsWindowDrag(window) },
+        dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides { rememberWin32SystemDark().value },
+    ) {
+        content()
+    }
+}
+
+/**
+ * What a press on a `WindowDrag(true)` node does to its window: the system's own move, from
+ * the press. A check replaces it to see which window a press reached without moving one.
+ */
+internal var windowsWindowDrag: (Win32Window) -> Unit = { it.beginDrag() }

@@ -4,6 +4,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.AssetKind
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -15,6 +16,7 @@ import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -28,6 +30,7 @@ import kotlinx.cinterop.UIntVar
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.toLong
 import kotlinx.cinterop.value
 import kotlin.time.TimeSource
 import kotlinx.cinterop.COpaquePointer
@@ -73,6 +76,14 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     // the window's own menu on, and an application that draws its own keeps it off.
     "fr33_1_windows_focused_field_turns_the_system_edit_menu_on",
     "fr33_1_windows_drawn_menu_leaves_the_system_edit_menu_off",
+    // The window's hooks into the system, which every window has whatever its chrome (#1003).
+    "fr19_9_windows_window_drag_moves_its_window_with_every_chrome",
+    "fr44_windows_system_dark_change_reaches_the_app_without_a_restart",
+    "fr43_windows_zoom_level_is_kept_in_appdata",
+    // The system's file dialog, owned by the window that asked.
+    "fr72_windows_file_dialog_opens_on_its_window_and_ends_with_it",
+    // The icon a window names, on that window.
+    "fr19_3_windows_window_wears_the_icon_it_names",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -101,6 +112,11 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::wheelTurnedForwardScrollsTowardTheTop,
         ::focusedFieldTurnsTheSystemEditMenuOn,
         ::drawnMenuLeavesTheSystemEditMenuOff,
+        ::windowDragMovesItsWindowWithEveryChrome,
+        ::systemDarkChangeReachesTheAppWithoutARestart,
+        ::zoomLevelIsKeptInAppdata,
+        ::fileDialogOpensOnItsWindowAndEndsWithIt,
+        ::windowWearsTheIconItNames,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -126,6 +142,212 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/**
+ * A window wears the icon asset it names. Window 1 names a PNG through `WindowIcon`
+ * and gets it once the asset has arrived (WM_GETICON answers a handle). Window 2 names none and
+ * the application named none, so it is left with the class's icon (WM_GETICON answers 0).
+ * Before, Windows ignored both SetWindow.icon and WindowIcon.
+ */
+private fun windowWearsTheIconItNames() {
+    val h = Fr53Harness(
+        listOf(setWindow(), Mutation.RegisterAsset(ICON_ASSET, AssetKind.Png.ordinal + 1, ICON_PNG)) +
+            windowNode(1, PropertyKind.WindowIcon to PropertyValue.Integer(ICON_ASSET.toLong())) +
+            windowNode(2),
+    )
+    try {
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val two = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        fun icon(handle: COpaquePointer): Long =
+            platform.windows.SendMessageW(handle.reinterpret(), WM_GETICON, ICON_BIG, 0L)
+        h.until("window 1 to wear its icon") { icon(one.handle) != 0L }
+        h.forMillis(300)
+        check(icon(two.handle) == 0L) { "window 2 wears an icon it never named" }
+    } finally {
+        h.close()
+    }
+}
+
+private const val ICON_ASSET = 900
+private const val WM_GETICON = 0x007Fu
+private const val ICON_BIG = 1uL
+private val ICON_PNG = byteArrayOf(
+    0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4.toByte(),
+    0x89.toByte(), 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+    0x54, 0x78, 0x9C.toByte(), 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4.toByte(), 0x00,
+    0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(),
+    0x42, 0x60, 0x82.toByte(),
+)
+
+/**
+ * A `ShowFileDialog` for a window opens the system's file dialog owned by that window,
+ * without stopping the loop, and a window that goes away ends its dialog with exactly one
+ * Cancelled. Before the Windows renderer installed a platform, every request was Unavailable
+ * at once.
+ */
+private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
+    val before = FileDialogs.platform
+    val beforeInstalled = installedWindowsFileDialogs
+    val dialogs = WindowsFileDialogPlatform()
+    FileDialogs.platform = dialogs
+    installedWindowsFileDialogs = dialogs
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + windowNode(2))
+    try {
+        dialogs.nodeWindow = { id -> h.host.table.fileDialogs.windowResolver(id) }
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        fun results() = h.connection.events.filterIsInstance<HostEvent.FileDialogResult>().filter { it.request == 7 }
+        h.batch(
+            Mutation.ShowFileDialog(
+                request = 7,
+                window = 1,
+                kind = dev.darkpyonix.composerust.protocol.FileDialogKind.OpenFile,
+                defaultFilter = 0,
+                title = "fr72 check",
+                directory = "",
+                name = "",
+                filters = "",
+            ),
+        )
+        // The dialog is up, owned by window 1, and the loop still turns while it is.
+        h.until("the file dialog to open on window 1") {
+            platform.windows.GetWindow(one.handle.reinterpret(), GW_ENABLEDPOPUP) != null
+        }
+        check(results().isEmpty()) { "the request was answered ${results().map { it.status }} while its dialog was open" }
+        h.forMillis(300)
+        check(results().isEmpty()) { "the dialog ended by itself: ${results().map { it.status }}" }
+
+        // Window 1 goes away: its dialog ends with one cancel, and window 2 is untouched.
+        h.batch(Mutation.Remove(1))
+        h.until("the dialog of the removed window to end") { results().isNotEmpty() }
+        h.forMillis(300)
+        check(results().size == 1) { "the request was answered ${results().size} times" }
+        check(results().single().status == dev.darkpyonix.composerust.protocol.FileDialogStatus.Cancelled) {
+            "the dialog of a removed window ended ${results().single().status}, not Cancelled"
+        }
+        check(h.backend.find(2) != null) { "window 2 went with window 1's dialog" }
+    } finally {
+        FileDialogs.platform = before
+        installedWindowsFileDialogs = beforeInstalled
+        h.close()
+    }
+}
+
+/** GetWindow's "the enabled popup this window owns": a dialog it is the owner of. */
+private const val GW_ENABLEDPOPUP = 6u
+
+/**
+ * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
+ * caption as much as with one the content draws. One window of each chrome, each filled by a
+ * drag region; a press in each reaches that window's drag and no other.
+ */
+private fun windowDragMovesItsWindowWithEveryChrome() {
+    val pressed = ArrayList<Long>()
+    val before = windowsWindowDrag
+    windowsWindowDrag = { window -> pressed.add(window.handle.toLong()) }
+    fun region(window: Int, id: Int): List<Mutation> = listOf(
+        Mutation.Create(id, WidgetKind.Box),
+        Mutation.SetModifier(id, 0, ProtocolModifier.FillMaxWidth),
+        Mutation.SetModifier(id, 1, ProtocolModifier.FillMaxHeight),
+        Mutation.SetModifier(id, 2, ProtocolModifier.WindowDrag(true)),
+        Mutation.Insert(window, id, APPEND),
+    )
+    val size = PropertyKind.WindowSize to PropertyValue.Bytes(floats(480f, 320f))
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME, size) + region(1, 10) +
+            windowNode(2, size) + region(2, 20),
+    )
+    try {
+        for (node in listOf(1, 2)) {
+            val window = checkNotNull(h.backend.find(node)) { "no window for node $node" }
+            h.forMillis(200)
+            val scale = window.pixelsPerPoint
+            val x = (240f * scale).toInt()
+            val y = (200f * scale).toInt()
+            pressed.clear()
+            postButton(window.handle, down = true, x = x, y = y)
+            h.until("a press in window $node to reach its drag") { pressed.isNotEmpty() }
+            postButton(window.handle, down = false, x = x, y = y)
+            h.forMillis(100)
+            check(pressed.all { it == window.handle.toLong() }) {
+                "a press in window $node moved another window"
+            }
+        }
+    } finally {
+        windowsWindowDrag = before
+        h.close()
+    }
+}
+
+/**
+ * Windows turning dark while the application runs reaches it as a ColorSchemeChanged,
+ * and turning light again as one more, with no restart. The setting is the check's own
+ * (win32SystemDarkSource), so the machine's is left as it is.
+ */
+private fun systemDarkChangeReachesTheAppWithoutARestart() {
+    var dark = false
+    val before = win32SystemDarkSource
+    win32SystemDarkSource = { dark }
+    val h = Fr53Harness(
+        listOf(setWindow(), Mutation.SetTheme(theme(ColorScheme.FollowSystem))) +
+            windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME),
+    )
+    try {
+        fun schemes() = h.connection.events.filterIsInstance<HostEvent.ColorSchemeChanged>().map { it.scheme }
+        h.until("the scheme at start") { schemes().isNotEmpty() }
+        check(schemes().last() == SystemColorScheme.Light) { "the scheme at start was ${schemes().last()}, not Light" }
+        val atStart = schemes().size
+        dark = true
+        h.until("the dark setting to reach the app", timeoutMillis = 4 * SYSTEM_DARK_POLL_MILLIS) {
+            schemes().size > atStart && schemes().last() == SystemColorScheme.Dark
+        }
+        val afterDark = schemes().size
+        dark = false
+        h.until("the light setting to reach the app", timeoutMillis = 4 * SYSTEM_DARK_POLL_MILLIS) {
+            schemes().size > afterDark && schemes().last() == SystemColorScheme.Light
+        }
+    } finally {
+        win32SystemDarkSource = before
+        h.close()
+    }
+}
+
+/**
+ * The application's zoom level is kept in `%APPDATA%\<executable>\zoom-level`. With
+ * APPDATA pointed at a folder of the check's own, a level saved by one store is the level the
+ * next store loads, and the file holds it as a number. A window whose application set no
+ * level opens at the saved one.
+ */
+private fun zoomLevelIsKeptInAppdata() {
+    val temp = checkNotNull(System.getenv("TEMP")) { "no TEMP to put the check's APPDATA in" }
+    val appdata = "$temp\\compose-rust-fr43-${platform.windows.GetCurrentProcessId()}"
+    val before = System.getenv("APPDATA")
+    check(platform.windows.SetEnvironmentVariableW("APPDATA", appdata) != 0) { "APPDATA could not be set" }
+    val beforeStore = dev.darkpyonix.composerust.runtime.platformZoomLevelStore
+    try {
+        val first = windowsZoomLevelStore()
+        check(first.load() == null) { "a fresh APPDATA already held a level" }
+        first.save(2)
+        check(windowsZoomLevelStore().load() == 2) { "the level saved was not the level loaded" }
+
+        dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
+        val h = Fr53Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME))
+        try {
+            fun level() = h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().lastOrNull { it.nodeId == 1 }?.level
+            h.until("the window to report its zoom") { level() != null }
+            check(level() == 2) { "the window opened at level ${level()}, not the saved 2" }
+        } finally {
+            h.close()
+        }
+    } finally {
+        dev.darkpyonix.composerust.runtime.platformZoomLevelStore = beforeStore
+        platform.windows.SetEnvironmentVariableW("APPDATA", before)
+    }
+}
 
 /** A text field holding [value] in window [windowId]. */
 private fun textFieldIn(windowId: Int, id: Int, value: String): List<Mutation> = listOf(
