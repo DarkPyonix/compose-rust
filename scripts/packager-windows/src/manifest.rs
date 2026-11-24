@@ -103,7 +103,11 @@ pub fn render_with(
     executable: &str,
 ) -> String {
     let e = xml_escape;
-    let language = meta.languages.first().map(String::as_str).unwrap_or("en-us");
+    let language = meta
+        .languages
+        .first()
+        .map(String::as_str)
+        .unwrap_or("en-us");
     let mut x = templates::render(
         template,
         &[
@@ -316,32 +320,45 @@ mod tests {
         let mut have = xml.lines();
         let template = templates::APPX_MANIFEST;
         for line in template.lines().filter(|l| !l.contains("{{")) {
-            assert!(have.any(|l| l == line), "{line:?} missing or out of order in\n{xml}");
+            assert!(
+                have.any(|l| l == line),
+                "{line:?} missing or out of order in\n{xml}"
+            );
         }
         assert!(xml.contains("ProcessorArchitecture=\"arm64\""));
     }
 
     #[test]
     fn fr22_6_11_the_manifest_follows_its_template() {
-        let template = templates::APPX_MANIFEST.replace(
-            "  <Capabilities>",
-            "  <Extensions />\n  <Capabilities>",
-        );
+        let template = templates::APPX_MANIFEST
+            .replace("  <Capabilities>", "  <Extensions />\n  <Capabilities>");
         let xml = render_with(&template, &meta(), version(), Arch::X64, "Ember.exe");
-        assert!(xml.contains("  <Extensions />\n  <Capabilities>\n"), "{xml}");
+        assert!(
+            xml.contains("  <Extensions />\n  <Capabilities>\n"),
+            "{xml}"
+        );
     }
 
     #[test]
     fn fr22_6_11_the_template_names_the_assets_the_packager_makes() {
         for spec in assets::ALL {
             let path = format!("{}\\{}", assets::DIR, spec.file);
-            assert!(templates::APPX_MANIFEST.contains(&path), "the template does not name {path}");
+            assert!(
+                templates::APPX_MANIFEST.contains(&path),
+                "the template does not name {path}"
+            );
         }
     }
 
     #[test]
     #[should_panic(expected = "needs a value for {{nope}}")]
     fn fr22_6_11_an_unfilled_placeholder_stops_the_packager() {
-        render_with("<Package Name=\"{{nope}}\" />", &meta(), version(), Arch::X64, "a.exe");
+        render_with(
+            "<Package Name=\"{{nope}}\" />",
+            &meta(),
+            version(),
+            Arch::X64,
+            "a.exe",
+        );
     }
 }
