@@ -4,6 +4,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.AssetKind
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -81,6 +82,8 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr43_windows_zoom_level_is_kept_in_appdata",
     // The system's file dialog, owned by the window that asked.
     "fr72_windows_file_dialog_opens_on_its_window_and_ends_with_it",
+    // The icon a window names, on that window.
+    "fr19_3_windows_window_wears_the_icon_it_names",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -113,6 +116,7 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::systemDarkChangeReachesTheAppWithoutARestart,
         ::zoomLevelIsKeptInAppdata,
         ::fileDialogOpensOnItsWindowAndEndsWithIt,
+        ::windowWearsTheIconItNames,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -138,6 +142,46 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/**
+ * A window wears the icon asset it names. Window 1 names a PNG through `WindowIcon`
+ * and gets it once the asset has arrived (WM_GETICON answers a handle). Window 2 names none and
+ * the application named none, so it is left with the class's icon (WM_GETICON answers 0).
+ * Before, Windows ignored both SetWindow.icon and WindowIcon.
+ */
+private fun windowWearsTheIconItNames() {
+    val h = Fr53Harness(
+        listOf(setWindow(), Mutation.RegisterAsset(ICON_ASSET, AssetKind.Png.ordinal + 1, ICON_PNG)) +
+            windowNode(1, PropertyKind.WindowIcon to PropertyValue.Integer(ICON_ASSET.toLong())) +
+            windowNode(2),
+    )
+    try {
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val two = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        fun icon(handle: COpaquePointer): Long =
+            platform.windows.SendMessageW(handle.reinterpret(), WM_GETICON, ICON_BIG, 0L)
+        h.until("window 1 to wear its icon") { icon(one.handle) != 0L }
+        h.forMillis(300)
+        check(icon(two.handle) == 0L) { "window 2 wears an icon it never named" }
+    } finally {
+        h.close()
+    }
+}
+
+private const val ICON_ASSET = 900
+private const val WM_GETICON = 0x007Fu
+private const val ICON_BIG = 1uL
+private val ICON_PNG = byteArrayOf(
+    0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4.toByte(),
+    0x89.toByte(), 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+    0x54, 0x78, 0x9C.toByte(), 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4.toByte(), 0x00,
+    0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(),
+    0x42, 0x60, 0x82.toByte(),
+)
 
 /**
  * A `ShowFileDialog` for a window opens the system's file dialog owned by that window,
