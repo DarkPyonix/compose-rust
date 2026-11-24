@@ -8,7 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * FR-19.7 on Windows: the title bar mode picks the caption's height, and the design system
+ * On Windows the title bar mode picks the caption's height, and the design system
  * gives the number. The window's hit test is told the same number before it opens (the fork's
  * `dxc_native_window_configure_caption_height`), so the strip that is drawn is the strip that
  * moves the window and answers for the buttons.

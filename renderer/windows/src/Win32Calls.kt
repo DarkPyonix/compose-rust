@@ -190,7 +190,7 @@ internal fun configureAppCaption(enabled: Boolean) = nativeConfigureAppCaption(i
 
 /**
  * The caption strip of a window with [chrome] and [titleBar], as the content draws it and as the
- * next window's hit test is told it (FR-19.7): the platform's design system's height, none with
+ * next window's hit test is told it: the platform's design system's height, none with
  * the system's chrome.
  */
 internal fun windowsCaptionHeight(

@@ -51,7 +51,7 @@ private external fun configureAppCaption(enabled: Int)
 
 /**
  * How tall, in dip, the next window's caption strip is, so its hit test moves the window and
- * answers for the buttons across the strip that is drawn (FR-19.7). 0 for the platform's 32.
+ * answers for the buttons across the strip that is drawn. 0 for the platform's 32.
  */
 @CFunction("dxc_native_window_configure_caption_height")
 private external fun configureCaptionHeight(dip: Int)
@@ -114,7 +114,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     )
     configureAppCaption(if (fullSize) 1 else 0)
     // The strip the content draws and the strip the window hit tests are one height: the title
-    // bar mode's, as the platform's design system measures it (FR-19.7).
+    // bar mode's, as the platform's design system measures it.
     val captionHeight = if (systemChrome) {
         androidx.compose.ui.unit.Dp(0f)
     } else {

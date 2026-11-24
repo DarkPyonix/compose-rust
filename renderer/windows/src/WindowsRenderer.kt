@@ -67,7 +67,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // the content, which draws the title and the three buttons in it.
     val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
     val fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize
-    // The title bar mode's caption height (FR-19.7), drawn by the content and hit tested by
+    // The title bar mode's caption height, drawn by the content and hit tested by
     // the window alike.
     val captionHeight = windowsCaptionHeight(
         asked?.chrome ?: dev.darkpyonix.composerust.protocol.Chrome.Modern,

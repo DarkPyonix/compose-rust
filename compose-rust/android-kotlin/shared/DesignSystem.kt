@@ -981,7 +981,7 @@ internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (pla
 
 /**
  * How tall the caption strip of a window on [platform] is for [titleBar], where the renderer
- * draws the buttons (FR-19.7): the platform's own design system's answer under its own tokens,
+ * draws the buttons: the platform's own design system's answer under its own tokens,
  * as [platformCaption] measures it, whatever design system the application draws in. Zero where
  * the platform draws its own (macOS, and everywhere [captionSystemFor] names nothing).
  *
