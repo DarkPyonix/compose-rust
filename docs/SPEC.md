@@ -289,7 +289,9 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - `Modifier::PaddingRole(SpaceRole)`, 기존 `Modifier::Padding(f32)`는 유지합니다.
 - `Modifier::PaddingEach { start, top, end, bottom }`, f32 4개.
 - `Modifier::Weight(f32)`, `RowScope`/`ColumnScope`의 weight입니다. 부모 데이터이므로 자식을 쌓는 레이아웃만 적용할 수 있고, 자식을 세로로 쌓는 컨테이너(`Card`, `Surface`, `ScrollColumn`)도 `Column`과 같게 적용합니다. 몫이 되는 축은 부모가 쌓는 축입니다: `Column` 아래에서는 높이, `Row` 아래에서는 너비이며, `Box`처럼 쌓지 않는 부모 아래에서는 어느 축도 정하지 않습니다.
+- `Modifier::WeightUnfilled(f32)`(빌더 `Modifier::weight_unfilled(f32)`, 와이어 태그 `48`, `[provisional, #981]`): Compose `Modifier.weight(w, fill = false)`에 대응합니다. `Weight`와 같은 가중치 슬롯을 공유하며, 부모가 배분한 몫을 최대 제약으로만 넘기고 최소 제약은 0으로 둡니다. 짧은 자식은 내재 크기만 차지해 형제가 바로 옆에 놓이고, 긴 자식은 남은 공간(몫) 이하로 줄어들거나 말줄임됩니다. `Row`, `Column`과 세로 쌓기 컨테이너(`Card`, `Surface`, `ScrollColumn`)에 모두 적용됩니다.
 - 수용 기준: 높이가 정해진 `Surface` 안에서 `weight` 1과 3을 받은 자식 둘이 높이를 1:3으로 나눕니다. **(2026-09-21 통과)**
+- 수용 기준(#981): 폭 300px `Row`의 `[짧은 Text(weight_unfilled=1.0), 40px Box]`에서 짧은 Text는 내재 너비(100px 미만)만 차지하고 40px Box가 바로 옆에 붙으며, 폭 200px `Row`의 `[긴 Text(weight_unfilled=1.0), 60px Box]`에서 긴 Text는 남은 140px 이하로 제한되고 60px Box가 200px 안에 온전히 들어갑니다(`WeightUnfilledTest`, `fr13_weight_unfilled_round_trips`).
 - `Column`/`Row` 속성: `arrangement`(`Start|Center|End|SpaceBetween|SpaceAround|SpaceEvenly`), `spacing`(f32 dp) 또는 `space_role`, `alignment`(교차축 정렬).
 - `Box` 속성: `alignment`(9점 정렬).
 - 수용 기준: 위 속성/Modifier가 전부 `(tag, u64, u64)` 안에 들어가고, 인코딩 후 디코딩 결과가 입력과 같습니다.
@@ -2166,6 +2168,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 
 ### FR-23 브러시, 폰트, 재질 (`Draft`)
 
+> **검증 기록(#58).** 선형 브러시 해석과 미등록 ID 보고는 `fr23_a_gradient_is_read_into_a_brush`, `fr23_an_unregistered_brush_is_reported_rather_than_guessed`로 확인했습니다. 여섯 시스템의 `Surface` 픽셀과 브러시 사용 중 Host의 무할당은 확인하지 않았습니다. 글꼴 해석, 다른 역할 유지, 폴백은 `fr23_a_role_resolved_to_a_registered_font_is_written_in_it`, `fr23_naming_a_font_for_one_role_leaves_the_others_alone`, `fr23_an_id_that_names_nothing_leaves_the_role_on_the_system_face`로 확인했습니다. 재질의 시스템별 채움 및 불투명 대체는 `fr23_the_same_material_gives_a_different_fill_in_each_system`, `fr23_a_surface_that_cannot_blur_falls_back_to_an_opaque_fill`로 확인했습니다.
+
 13.7이 셋을 뺐고, 셋 다 같은 이유였습니다. 값이 `(u64, u64)` 모디파이어 슬롯에 들어가지 않는다는 것입니다. 그것은 맞지만 기능을 빼는 근거는 아닙니다. FR-16이 이미 리소스를 등록하고 id로 참조하는 길을 냈고, 셋 다 그 길을 씁니다. 레코드는 고정 길이로 남고 PR-4는 그대로입니다.
 
 #### 23.1 그라데이션과 이미지 브러시
@@ -2188,6 +2192,8 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
 
 ### FR-24 모션 (`Draft`)
+
+> **검증 기록(#58).** `fr24_each_design_system_answers_standard_with_its_own_length`, `fr24_a_system_asked_to_hold_still_answers_every_role_with_no_run`은 모션 역할의 해석을 확인합니다. 24.1의 종료, 중단, 모션 감소, 첫 배치, 핸들러 없음, 삭제 및 왕복 시험은 아래 기준에 적었습니다. 일곱 시스템의 실제 전환 시간과 시스템별 단일 종료 이벤트, 정상 상태 무할당은 확인하지 않았습니다.
 
 13.7은 "애니메이션 스펙"을 뺐고 그 이유는 옳았습니다. Host가 duration과 easing을 보내면 디자인 시스템이 모션을 결정한다는 FR-14가 무너집니다. 빠져 있던 것은 값이 아니라 **말할 방법**이었습니다. 색과 간격이 역할로 말해지듯 모션도 역할로 말합니다.
 
@@ -2233,13 +2239,17 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 
 ### FR-25 Grid (`Draft`)
 
+> **검증 기록(#58).** `fr25_a_window_grows_to_the_rows_it_touches`, `fr25_the_last_row_may_be_short`, `fr25_an_empty_window_stays_empty`는 행 범위를 확인합니다. 1,000개 그리드의 실제 스크롤, 창 크기 변경 뒤의 열과 순서, 그리고 크기 0 아이템의 경계 호출 수는 확인하지 않았습니다.
+
 지연 그리드입니다. FR-8이 한 축을 창으로 보는 규약을 정했고, 그리드는 그 규약을 행 단위로 씁니다. 두 번째 윈도잉 프로토콜을 만들지 않습니다.
 
 - `LazyGrid`: 열 수를 고정으로 받거나(`columns`), 최소 폭으로 받습니다(`min_column_width`). 후자는 Renderer가 자기 폭으로 열 수를 정하므로 크기 클래스와 같은 종류의 판단이고, Host는 관여하지 않습니다.
 - 창 프로토콜은 FR-8 그대로입니다. 요청 단위가 아이템이 아니라 **행**이라는 것만 다릅니다. 행 하나는 열 수만큼의 아이템이고, 마지막 행은 덜 찰 수 있습니다.
 - 수용 기준: 아이템 1000개짜리 그리드가 보이는 행만 만들고, 스크롤이 창을 옮기며, 창 밖 아이템의 노드는 존재하지 않습니다. 창 크기가 바뀌어 열 수가 달라지면 행 경계가 다시 계산되고 아이템 순서는 유지됩니다. 크기 0 아이템으로 채운 그리드가 경계 호출을 되풀이하지 않습니다(FR-8과 같은 회귀).
 
-### FR-26 서식 있는 텍스트 (`Draft`)
+### FR-26 서식 있는 텍스트 (`Agreed`)
+
+> **미완료(#638).** 편집 가능한 리치 텍스트(FR-26.1)의 검증은 [#965](https://github.com/DarkPyonix/compose-rust/pull/965), [#973](https://github.com/DarkPyonix/compose-rust/pull/973), [#974](https://github.com/DarkPyonix/compose-rust/pull/974)에 남아 있습니다. 아래 시험은 `Text`의 스팬을 검증합니다.
 
 `Text`의 스팬 모델입니다. 위젯을 더하는 것이 아니라 `Text`가 구간마다 다른 역할을 가질 수 있게 하는 것입니다.
 
@@ -2250,10 +2260,12 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
   - 스팬 레코드는 28바이트에서 **36바이트**가 됩니다. 글자색 `Paint` 뒤에 `background: Paint`(u64) 하나를 더하고, 0은 "배경 없음"입니다. 글자색과 배경을 한 `Paint` 자리에 플래그로 번갈아 싣는 방법은 쓰지 않습니다. 한 구간이 둘을 같이 가질 수 없게 되고, 바뀐 단어는 대개 글자색(문법 역할)과 배경(diff 강조)을 같이 가집니다.
   - 받는 값은 다른 `Paint` 자리와 같습니다. 역할이 먼저이고 리터럴은 탈출구입니다(13.1). 속성 태그는 그대로 `Spans`(64)이고, 레코드 길이가 바뀌므로 스키마 해시가 움직입니다. 레코드는 Rust 쪽(`spans.rs`)에 정의하고 Kotlin 디코더는 codegen이 생성합니다(FR-7).
   - 배경은 구간의 글자 상자를 칠하며, 줄이 바뀌는 구간은 줄마다 따로 칠합니다. 모양과 안쪽 여백은 두지 않습니다. 그것은 디자인 시스템이 정할 것이 생기면 그때 역할로 말할 일입니다.
-- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**일부 증명**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간이 다르게 그려지고 링크만 클릭을 보고하는 것, 스팬 없는 `Text`의 레코드가 그대로인 것은 시험이 없습니다]
+- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**증명됨**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간의 그리기 및 링크 클릭은 `fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click`, 스팬이 없는 `Text`는 `fr26_a_text_with_no_spans_keeps_its_record_size_and_path`가 확인합니다]
 - 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다. [**증명됨**: `fr26_a_background_paints_behind_its_own_run_and_nowhere_else`, `fr26_a_run_with_a_colour_and_a_background_draws_both`, `fr26_a_run_carries_its_colour_and_its_background_apart`, `fr26_the_runs_in_the_vector_decode_to_the_same_values`, `fr26_a_run_without_a_background_paints_nothing_behind_it`]
 
 ### FR-27 파일 드래그 앤 드롭 (`Draft`)
+
+> **검증 기록(#58).** `fr27_two_paths_arrive_as_one_event`, `fr27_files_let_go_where_no_target_is_reach_nothing`, `fr27_an_unreadable_path_is_dropped_and_the_rest_arrive`로 각 동작을 확인했습니다. Windows 이벤트 경로는 `fr27_windows_window_file_events_reach_the_target_under_them`이 확인합니다. 세 데스크톱에서 실제 파일을 떨어뜨리는 확인은 남았습니다.
 
 창에 파일을 떨어뜨리는 것입니다. 포인터 드래그 자체는 FR-18이고 이것과 별개입니다.
 
@@ -2263,6 +2275,8 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 - 수용 기준: 데스크톱에서 파일 두 개를 떨어뜨리면 경로 두 개가 한 이벤트로 도착합니다. 받을 준비가 없는 노드 위에서는 이벤트가 발생하지 않습니다. 경로에 UTF-8이 아닌 바이트가 있으면 그 파일을 버리고 나머지를 전달하며, 프로세스를 중단하지 않습니다.
 
 ### FR-28 노드 크기 관찰 (`Draft`)
+
+> **검증 기록(#58).** `fr28_an_observed_node_reports_both_classes_in_one_event`, `fr28_first_measurement_always_reports`, `fr28_every_dp_node_reports_a_resize_inside_one_class`, `fr28_every_dp_coalesces_measurements_within_a_frame` 및 `fr28_every_dp_off_by_default_keeps_the_record_bytes`를 확인했습니다. 미구독 트리의 경계 호출 수, 기본 모드에서 같은 클래스 안의 변화 억제, 노드 삭제 뒤 구독 해제는 별도 확인이 남았습니다.
 
 FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답합니다. 컨테이너 질의(container query)에 해당하는 것으로, 창이 아니라 자기가 놓인 자리에 맞춰 모습을 바꾸는 컴포넌트가 이것을 씁니다.
 
@@ -2296,6 +2310,8 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
 
+> **검증 기록(#58).** `fr29_a_window_made_of_chrome_lets_its_backdrop_through`, `fr29_a_window_that_did_not_ask_is_painted_as_before`는 그리기 경로를 확인합니다. `fr29_light_theme_asks_the_window_for_aqua`, `fr29_dark_theme_asks_the_window_for_dark_aqua`, `fr29_follow_system_leaves_the_window_on_the_system`은 창에 요청할 모양을 확인합니다. 실제 창 뒤 배경을 바꾼 두 장의 캡처, 재질이 없는 창에 `NSVisualEffectView`가 없는지, Windows와 Linux의 대체 그리기는 확인이 남았습니다.
+
 14.1-2가 "우리가 그릴 수 없는 것"으로 분류했던 것입니다. macOS에서 창 뒤의 시스템 배경을 비추는 재질이고, `NSVisualEffectView`가 그립니다.
 
 - 우리가 `NSApplication`을 직접 만들므로(INTENT D9-macOS) 그 뷰를 창의 콘텐츠 뷰 아래에 둘 수 있습니다. Compose 표면은 그 위에 투명하게 올라갑니다.
@@ -2307,7 +2323,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
-> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_cupertino_and_liquid_glass_omit_bar_title_when_caption_has_height`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
+> **현황.** 30.1 동작 키(속성 태그 75, #57)와 30.2 제목 배치(`CaptionTitlePlacement::Bar` / `SystemCaption` 및 `onCaptionTitle`, #79)를 구현했으며 `BarTitleTest`(`fr30_2_platform_caption_title_placement_follows_platform`, `fr30_2_macos_omits_bar_title_and_windows_draws_it_for_cupertino_and_fluent`, `fr30_2_windows_and_linux_draw_bar_title_for_apple_design_systems`, `fr30_2_cupertino_draws_bar_title_when_caption_height_is_zero`, `fr30_2_opening_bar_title_propagates_to_caption_title_callback`)로 검증합니다. CI 녹색 실행 ID 확인 후 `Done`으로 전환합니다.
 >
 > **1.0 작업(소유자, 2026-11-21).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어갑니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
@@ -2393,7 +2409,8 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
   씁니다.
 - **막대는 동작을 자르지 않습니다.** 각 동작은 자기 고유 폭으로 잽니다. 앞쪽 내용이 쓰고 남은
   폭에 고유 폭 그대로 들어가는 앞부분만 막대에 그리고, 나머지는 빠짐없이 메뉴에 넣습니다.
-  막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않습니다.
+  막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않습니다. [leader, 2026-11-23]: 이 문장은 넘칠 수 없는
+  동작(FR-33.2)이 막대에 들어가는 동안 성립합니다. 그보다 좁으면 FR-33.2대로 제목이 먼저 줄어듭니다.
 - **넘침 버튼.** 넘친 동작이 하나라도 있을 때에만 막대에 남은 동작들 뒤에 넘침 버튼 하나가
   섭니다. 그림은 디자인 시스템의 `IconRole::More`이고, 모양은 그 디자인 시스템의 글자 없는
   `Text` 버튼과 같습니다. 접근성 이름은 "More actions"입니다. 넘침 버튼의 폭도
@@ -2403,6 +2420,8 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
   고르면 그 노드 자신의 `Clicked`가 그 노드의 id와 핸들러로 갑니다. 한 노드는 한 번에 한 곳(막대
   또는 메뉴)에만 그려집니다. 항목을 고르면 메뉴가 닫힙니다. 넘친 것이 `Menu`이면 그 앵커를 눌러도
   막대의 메뉴는 닫히지 않습니다. 그 `Menu`가 자기 팝업을 열어야 하기 때문입니다.
+  [leader, 2026-11-23]: 넘침 메뉴는 항목 메뉴이므로 OS 메뉴를 쓰는 플랫폼에서는 OS 메뉴로 뜨며,
+  넘친 동작이 항목이 되는 방법, 그리고 넘치지 않는 동작(내용 슬롯을 가진 동작)은 FR-33.2가 정합니다.
 - **모든 막대 경로에서 같습니다.** 띠로 그리는 막대(창 캡션을 겸하는 막대 포함, FR-19.2),
   제목을 창 가운데 두는 막대(FR-15.2의 제목 정렬), 떠 있는 캡슐로 그리는 막대(Liquid Glass)가
   모두 이 규칙을 따릅니다. 떠 있는 막대에서 넘침 버튼은 바로 앞의 일반 동작과 같은 캡슐에
@@ -2422,7 +2441,9 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
    (`fr30_3_nothing_overflows_when_there_is_room`).
 4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
-   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`). [leader, 2026-11-23]: 이 기준은 넘칠 수
+   있는 동작들 사이에서 셉니다. 내용 슬롯을 가진 동작은 OS 메뉴의 항목이 될 수 없으므로 넘칠 수 없기
+   때문입니다(FR-33.2).
 5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
    (`fr30_3_leading_content_keeps_its_place`).
 6. 넘침 버튼의 접근성 이름이 "More actions"입니다
@@ -2527,9 +2548,9 @@ if design.is_apple() {
 
 > [user] 2026-10-05 결정(리더 전달): 기본값은 OS 네이티브 메뉴이고, 앱이 표준 확장점으로 덮어쓰면 네이티브 메뉴 없이 그것만 보여 줍니다.
 
-- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows는 Win32 팝업 메뉴(`TrackPopupMenuEx`)입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다. **[leader, 2026-11-22]** 소유자의 2025-10-05 원칙은 기본 OS 네이티브 메뉴이지만, Linux(X11)에는 툴킷 없는 표준 OS 팝업 메뉴가 없으므로 데스크톱 메뉴 경로가 생기기 전까지 디자인 시스템이 그린 메뉴를 기본값으로 쓰며 다른 OS와 같은 항목과 사용 가능 상태를 유지합니다.
+- **기본값은 그 OS의 메뉴입니다.** macOS는 `NSMenu`, Windows는 Win32 팝업 메뉴(`TrackPopupMenuEx`)입니다. OS 메뉴를 쓰면 macOS의 서비스와 찾아보기 같은 시스템 항목과 그 플랫폼의 모양이 그대로 따라옵니다. **[leader, 2026-11-22]** 소유자의 2025-10-05 원칙은 기본 OS 네이티브 메뉴이지만, Linux(X11)에는 툴킷 없는 표준 OS 팝업 메뉴가 없으므로 데스크톱 메뉴 경로가 생기기 전까지 디자인 시스템이 그린 메뉴를 기본값으로 쓰며 다른 OS와 같은 항목과 사용 가능 상태를 유지합니다. **[leader, 2026-11-23]** 백엔드별로 적으면 이렇습니다. 지금 Linux 창은 둘이고 둘 다 X11입니다. Kotlin/Native 경로는 포크의 X11 창 모듈(`extended/window/native/linux`, cinterop은 `x11.def`뿐)이고, GraalVM 경로는 `renderer/desktop/src/X11Window.kt`입니다. Wayland 세션에서는 둘 다 XWayland로 돕니다. 어느 쪽에도 OS 팝업 메뉴 서비스가 없으므로 텍스트 메뉴는 두 백엔드 모두 디자인 시스템이 그린 메뉴입니다. 이 판단과, OS 팝업 메뉴를 가진 백엔드가 생겼을 때의 규칙은 33.2와 같습니다.
 - **붙여넣기(Paste) 사용 가능 상태는 클립보드를 따릅니다([leader, 2026-11-22]).** 클립보드에 텍스트가 있을 때만 붙여넣기 항목이 활성화되고, 비어 있거나 텍스트가 아니면 비활성화됩니다.
-- **`Menu`와 `Dropdown` 팝업은 디자인 시스템이 그린 팝업을 유지합니다([leader, 2026-11-22]).** 텍스트 우클릭 메뉴와 달리 `Menu`와 `Dropdown`은 아이콘, 보조 설명, 선택 표시, 맞춤 행(Ember의 모델·브랜치 선택기 등)을 담으므로 디자인 시스템 팝업으로 그리고, 메뉴 키보드(화살표 순환, Home/End, Enter, Escape, 키보드 포커스 표시)를 제공합니다.
+- **`Menu`와 닫힌 `Dropdown`의 팝업은 33.2를 따릅니다([leader, 2026-11-23], 2026-11-22의 "디자인 시스템이 그린 팝업을 유지"를 대신합니다).** 항목만 담은 메뉴는 macOS, Windows, Android, iOS에서 OS 메뉴로 뜹니다. 맞춤 행(Ember의 모델·브랜치 선택기 등)처럼 임의 내용을 담는 팝업은 `Popover`(FR-77)로 쓰고, 디자인 시스템이 그리며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape, 키보드 포커스 표시)를 제공합니다. Linux의 지금 백엔드에서는 `Menu`와 `Dropdown`도 디자인 시스템이 그립니다.
 - **새 API를 만들지 않습니다.** Compose의 표준 확장점인 `LocalContextMenuRepresentation`과 `LocalTextContextMenu`의 기본값을 OS 메뉴 구현으로 바꿔 제공합니다.
 - **앱이 덮어쓰면 그것 하나만 뜹니다.** 앱이 `CompositionLocalProvider`로 `ContextMenuRepresentation`이나 `TextContextMenu`를 직접 정하면(자체 디자인의 메뉴), OS 메뉴는 띄우지 않고 앱이 정한 것만 보여 줍니다.
 - **메뉴는 어느 경우에도 하나입니다.** OS 메뉴와 Compose 메뉴가 함께 뜨는 일은 없습니다.
@@ -2545,7 +2566,55 @@ if design.is_apple() {
 6. 실제 OS 메뉴의 모양과 시스템 항목(서비스, 찾아보기)은 기기에서 손으로 확인합니다.
 7. Linux(X11) 기본 텍스트 메뉴는 다른 OS와 같은 항목과 사용 가능 상태로 디자인 시스템 메뉴를 냅니다(시험 이름 `fr33_1_linux_drawn_text_menu_matches_items_and_enabled_state`).
 8. 클립보드가 비어 있으면 붙여넣기 항목이 비활성화되고, 클립보드에 텍스트가 있으면 활성화됩니다(시험 이름 `fr33_1_paste_enabled_state_follows_clipboard`).
-9. `Menu`와 `Dropdown` 팝업은 디자인 시스템 팝업으로 그려지며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape)를 가집니다(시험 이름 `fr33_1_menu_and_dropdown_popups_use_design_system_popup`).
+9. 디자인 시스템이 그리는 경로(OS 메뉴가 없는 백엔드, 33.2)의 `Menu`와 `Dropdown` 팝업은 디자인 시스템 팝업으로 그려지며 메뉴 키보드(화살표 순환, Home/End, Enter, Escape)를 가집니다(시험 이름 `fr33_1_menu_and_dropdown_popups_use_design_system_popup`). [leader, 2026-11-23]: OS 창 없이 도는 이 시험은 그리는 경로를 지킵니다. OS 메뉴로 뜨는 플랫폼의 것은 33.2의 기준이 확인합니다.
+
+#### 33.2 항목 메뉴는 OS 메뉴로 뜹니다 (`Agreed`, 이슈 #19)
+
+> [leader, 2026-11-23] 이슈 #19의 결정입니다. 소유자 2026-09-25: "메뉴같은거 전부 네이티브로 뜨게 해줘. 컴포즈가 그린건 별로야." 33.1이 텍스트 우클릭 메뉴에 대해 정한 것을 앱이 선언하는 메뉴로 넓힙니다. 모바일은 소유자 2026-11-23: "모바일까지 1.0". Android와 iOS의 항목 메뉴도 1.0에서 OS 메뉴이고, 웹은 그린 메뉴입니다.
+
+- **규칙.** 항목으로만 이루어진 팝업(이 항목에서 "항목 메뉴")은 macOS에서 `NSMenu`, Windows에서 Win32 팝업 메뉴(`TrackPopupMenuEx`), Android에서 `android.widget.PopupMenu`, iOS에서 `UIMenu`로 뜹니다. 대상은 `Menu`(Compose의 `DropdownMenu`에 해당, FR-15.2.3), 닫힌 `Dropdown`(`Select`, FR-64)이 여는 선택지 목록, 30.3의 넘침 메뉴, 그리고 33.1의 우클릭 메뉴입니다. 모바일의 텍스트 선택 메뉴는 FR-33대로 시스템의 메뉴이며 바뀌지 않습니다.
+- **항목 어휘.** 항목 하나는 글자, 단축키 표시, 사용 가능 여부, 체크 표시, 선택적 아이콘을 가집니다. 그 밖의 항목은 구분선과 하위 메뉴(항목 메뉴 하나를 담은 항목) 둘뿐입니다. 단축키 표시는 글자일 뿐이어서 메뉴가 키를 등록하지 않으며, 키는 지금처럼 앱이 처리합니다. 아이콘은 `IconRole`이고 Renderer가 디자인 시스템의 그림을 OS 메뉴의 그림으로 넘깁니다. 오늘의 `MenuItem`에서 `text`, `enabled`, `selected`(체크 표시), `icon`이 어휘에 들어가고 `Separator`가 구분선입니다. 단축키 표시와 하위 메뉴는 아직 API에 없습니다. `MenuItem`의 `color`와 `modifier`는 어휘가 아니므로 OS 메뉴에서는 쓰이지 않습니다. 색이나 꾸밈이 필요한 메뉴는 `Popover`로 씁니다. 지금 샘플(chat, notepad, todo)의 `Menu`는 `MenuItem` 대신 `Button` 행과 `Divider`를 담으므로, 구현 PR이 `MenuItem`과 `Separator`로 옮깁니다.
+- **플랫폼이 못 싣는 어휘.** OS 메뉴는 그 플랫폼이 가진 것만 보여 주고 나머지는 버립니다. `color`와 같은 규칙입니다. 확실한 것은 이렇습니다. Android `PopupMenu`는 아이콘을 `setForceShowIcon`(API 29 이상)으로만 보이고, 체크 표시는 체크 가능한 항목으로 싣고, 구분선은 따로 없어서 그룹 경계의 구분선(`setGroupDividerEnabled`, API 28 이상)으로 싣습니다. iOS `UIMenu`는 상태(체크), 그림, 비활성, 하위 메뉴를 싣고 구분선은 인라인 하위 메뉴로 묶어 냅니다. 글자로 된 단축키 표시를 넣을 자리는 없습니다. Android의 단축키 표시, 그리고 각 API 수준 아래에서의 동작은 구현 PR이 확인해 여기에 적습니다.
+- **종류는 API가 말합니다.** 항목 메뉴는 `Menu`와 닫힌 `Dropdown`이고, 임의 내용을 담는 팝업은 `Popover`(FR-77)입니다. 내용을 보고 종류를 고르지 않습니다. 그래서 OS 메뉴를 쓰는 플랫폼에서 항목 메뉴가 몰래 그린 메뉴로 바뀌는 일이 없고, `Popover`는 `Role::Menu`를 가졌더라도 OS 메뉴가 되지 않습니다. `Menu`의 내용이나 닫힌 `Dropdown`의 선택지에 항목이 아닌 노드가 오면 Renderer는 그린 메뉴로 대신하지 않고 `ProtocolError`(NFR-7)를 보냅니다. Rust API가 이 제한을 어떤 형태로 드러낼지(항목만 받는 범위 등)는 구현 PR이 정합니다.
+- **스키마.** 단축키 표시, 하위 메뉴, 그리고 와이어에서 항목을 `Button`과 구별하는 표지(오늘 `MenuItem`은 `Variant=Text`인 `Button` 노드입니다)는 새 스키마가 필요합니다. 태그 예약은 구현 PR이 추가 전용으로 합니다.
+- **OS가 하는 것.** 키보드 탐색(화살표, 글자로 찾기, Enter, Escape), 접근성(메뉴와 메뉴 항목으로 노출), OS 표준 항목의 글자와 시스템 언어(33.1의 잘라내기, 복사, 붙여넣기, 전체 선택, macOS의 서비스와 찾아보기), 화면 가장자리에서의 배치, 닫힘(바깥 누름, Escape, 창 전환)입니다. FR-64와 FR-77의 메뉴 키보드는 그린 메뉴의 규칙이며 OS 메뉴에는 쓰지 않습니다. 메뉴가 여는 기준 위치는 FR-64대로 앵커의 아래쪽 가장자리입니다.
+- **앱의 것.** 앱이 준 항목의 글자, 그리고 고른 결과입니다. 항목을 고르면 오늘과 같은 이벤트가 같은 핸들러로 갑니다(`MenuItem`은 그 노드의 `Clicked`, `Dropdown`은 `ValueChanged`). 고르지 않고 닫히면 `Menu`의 `OnDismiss`가 한 번 갑니다. 메뉴가 떠 있는 동안 Host로 가는 다른 이벤트는 없습니다.
+- **30.3의 넘침 메뉴는 항목 메뉴입니다.** OS 메뉴를 쓰는 곳에서는 OS 메뉴로 뜹니다. 30.3의 넘친 동작은 `Button`이거나 `Menu`입니다. `Text`를 가진 `Button`은 항목 하나가 됩니다. 그 글자, `Icon`, `Enabled`를 싣고, 고르면 그 노드 자신의 `Clicked`가 그 노드의 id와 핸들러로 갑니다(30.3과 같음). 넘친 `Menu`는 그 `Menu`의 항목을 담은 하위 메뉴가 되고, 이름은 앵커 `Button`의 글자입니다. [leader, 2026-11-23] 나머지 두 경우는 이렇습니다.
+  - **글자 없는 동작.** 아이콘만 있는 `Button`, 또는 앵커가 그런 `Menu`는 그 노드의 접근성 이름(`AccessibleName` 속성, Rust의 `accessible_name`)을 항목의 글자로 씁니다. 글자도 접근성 이름도 없는 동작이 넘치게 되면 Renderer는 `ProtocolError`(NFR-7)를 보냅니다. 그린 메뉴로 대신하지 않고, 빈 항목도 만들지 않습니다. 막대에 들어가 있는 동안에는 아무것도 보내지 않습니다. chat 샘플의 아이콘만 있는 앵커는 접근성 이름이 없으므로 구현 PR이 붙입니다.
+  - **내용 슬롯(FR-66)을 가진 동작.** 항목이 될 수 없으므로 넘치지 않고 막대에 남습니다. 30.3의 "마지막에 선언한 동작부터 메뉴로 간다"는 넘칠 수 있는 동작에만 셉니다. 폭이 줄면 넘칠 수 있는 동작이 마지막 것부터 메뉴로 가고, 내용 슬롯을 가진 동작은 그보다 늦게 선언되었어도 자리를 지킵니다. 그래서 그런 동작이 있는 막대에서는 30.3의 기준 4("막대에 남는 동작은 늘 선언 순서의 앞부분")가 넘칠 수 있는 동작들 사이에서만 성립합니다. 막대가 넘칠 수 없는 동작조차 다 담지 못할 만큼 좁으면, 제목이 먼저 자리를 내줍니다. 제목은 말줄임표로 잘리며 아무것도 남지 않을 때까지 줄어들고, 그 다음에야 넘칠 수 없는 동작이 `Row`의 다른 자식처럼 줄어듭니다. 30.3의 "막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않는다"는 넘칠 수 없는 동작이 막대에 들어가는 동안 성립합니다.
+
+| 플랫폼 | 항목 메뉴 | 까닭 |
+|---|---|---|
+| macOS | `NSMenu` | 결정 그대로입니다. |
+| Windows | `TrackPopupMenuEx` | 결정 그대로입니다. 텍스트 메뉴는 이미 포크의 Win32 창이 띄웁니다(`dxc_native_set_edit_menu`). |
+| Linux, Kotlin/Native(X11) | 디자인 시스템이 그린 메뉴 | 툴킷 없는 X11 창에는 OS 팝업 메뉴 서비스가 없습니다. |
+| Linux, GraalVM(X11) | 디자인 시스템이 그린 메뉴 | 같은 X11 창이므로 같은 까닭입니다. |
+| Linux, Wayland 세션 | 위 두 경로가 XWayland로 돕니다 | 직접 Wayland 창은 없습니다. Wayland의 `xdg_popup`도 앱이 그리는 표면일 뿐 메뉴 서비스가 아닙니다. |
+| Android | `android.widget.PopupMenu` | 소유자 2026-11-23. Activity의 Compose 호스트 뷰(`LocalView`) 위, 앵커 자리에 놓은 뷰를 기준으로 엽니다. |
+| iOS | `UIMenu` | 소유자 2026-11-23. 앵커에서 코드로 여는 표시 방법은 구현 PR이 정해 여기에 적습니다. 후보는 `UIEditMenuInteraction`(iOS 16 이상, 위치를 주어 코드로 엽니다)과 앵커 위에 놓은 `UIButton`의 `showsMenuAsPrimaryAction`(사용자의 누름으로 열립니다)입니다. |
+| 웹 | 디자인 시스템이 그린 메뉴 | 브라우저에는 페이지가 코드로 여는 OS 팝업 메뉴가 없습니다. |
+
+- **Linux의 규칙.** DBusMenu(`com.canonical.AppMenu.Registrar`)는 전역 메뉴 막대이지 팝업 메뉴가 아니므로 OS 팝업 메뉴로 치지 않습니다. OS 팝업 메뉴를 주는 Linux 창 백엔드(툴킷 위에 선 창)가 생기면, 그 백엔드에서는 항목 메뉴가 OS 메뉴로 뜨고 이 표와 33.1에 그 백엔드의 행을 더합니다. 그린 메뉴인 백엔드도 항목, 순서, 사용 가능 상태는 OS 메뉴와 같습니다.
+- **창 쪽 코드는 포크에 둡니다.** OS 메뉴를 띄우는 창 코드(macOS의 `NSMenu`, Windows의 `TrackPopupMenuEx`, GraalVM과 Kotlin/Native 두 경로)는 `compose-multiplatform-core-extended`의 `extended` 브랜치에 두고 이 저장소는 고정 커밋을 옮깁니다. 이 저장소에는 항목을 넘기고 고른 번호를 받는 Renderer의 연결 코드만 둡니다. 포크 규칙은 데스크톱 창 코드의 것이므로, Android와 iOS의 메뉴 표시 코드는 지금의 플랫폼 연결 코드 옆(`renderer/android/src/bridge/`, `renderer/ios/src/`)에 둡니다.
+
+수용 기준(시험 이름은 구현 PR이 붙입니다):
+1. 글자, 단축키 표시, 비활성, 체크, 아이콘을 가진 항목과 구분선, 하위 메뉴를 담은 `Menu`를 열면, 창에 넘겨지는 OS 메뉴 항목 목록이 선언 순서와 상태 그대로이고 Compose 팝업은 만들어지지 않습니다. 가짜 창으로 항목 목록을 비교하는 Renderer 시험입니다.
+2. 그 가짜 OS 메뉴에서 항목 하나를 고르면 그 항목의 `Clicked`가 그린 메뉴에서와 같은 노드 id와 핸들러로 한 번 가고, 고르지 않고 닫으면 `OnDismiss`가 한 번 갑니다. 자동 시험입니다.
+3. 닫힌 `Dropdown`의 선택지 목록이 선택지마다 항목 하나, 지금 고른 선택지에 체크로 OS 메뉴에 넘겨지고, 고르면 `ValueChanged`가 한 번 갑니다. 자동 시험입니다.
+4. `Role::Menu`를 가진 `Popover`는 OS 메뉴를 쓰는 플랫폼의 설정에서도 OS 메뉴를 열지 않고 그린 팝업을 엽니다. 자동 시험입니다.
+5. 항목이 아닌 노드를 내용에 가진 `Menu`는 `ProtocolError`를 보내고 그린 메뉴로 대신하지 않습니다. 자동 시험입니다.
+6. 같은 `Menu`에서 GraalVM 경로와 Kotlin/Native 경로가 macOS와 Windows 각각 같은 항목 목록을 냅니다(일치 시험).
+7. Linux의 두 X11 백엔드에서 `Menu`는 그린 메뉴로 뜨고, 항목, 순서, 사용 가능 상태가 1의 목록과 같습니다. 자동 시험입니다.
+8. 손 확인(macOS): `Menu`가 `NSMenu`로 뜨는 것을 화면 캡처와 손쉬운 사용 검사기로 보고, 화살표, 글자로 찾기, Escape, VoiceOver 읽기를 확인합니다. 시스템 언어를 한국어로 두면 33.1의 표준 항목이 한국어로 나옵니다.
+9. 손 확인(Windows): `Menu`가 Win32 팝업 메뉴로 뜨는 것을 화면 캡처로 보고, 키보드와 Narrator 읽기를 확인합니다. CI의 Windows 작업에서 캡처합니다.
+10. Android와 iOS 각각에서, 가짜 표시기로 1부터 5까지와 같은 항목 목록, 이벤트, 종류 규칙을 확인합니다. 플랫폼이 못 싣는 어휘는 버려지고 나머지는 같은 순서와 상태입니다. 자동 시험입니다.
+11. 넘친 동작이 있는 `TopAppBar`에서 넘침 버튼을 누르면 창에(모바일은 표시기에) 넘겨지는 항목 목록이 넘친 동작의 선언 순서, 글자, 아이콘, 사용 가능 상태 그대로이고, 넘친 `Menu`는 하위 메뉴입니다. 항목 하나를 고르면 그 동작 노드의 `Clicked`가 한 번 갑니다. 자동 시험입니다.
+12. 손 확인(Android): 기기나 에뮬레이터에서 `Menu`가 `PopupMenu`로 뜨는 것을 화면 캡처로 보고 TalkBack 읽기를 확인합니다.
+13. 손 확인(iOS): 기기나 시뮬레이터에서 `Menu`가 `UIMenu`로 뜨는 것을 화면 캡처로 보고 VoiceOver 읽기를 확인합니다.
+14. 아이콘만 있고 접근성 이름을 가진 `Button` 동작이 넘치면, 그 항목의 글자가 접근성 이름과 같습니다. 자동 시험입니다.
+15. 글자도 접근성 이름도 없는 동작은 넘치게 되는 폭에서 `ProtocolError`를 한 번 보내고 항목을 만들지 않으며, 막대에 들어가는 폭에서는 아무것도 보내지 않습니다. 자동 시험입니다.
+16. 내용 슬롯을 가진 동작 뒤에 일반 동작이 선언된 막대를 좁히면, 일반 동작은 메뉴로 가고 내용 슬롯을 가진 동작은 막대에 남습니다. 자동 시험입니다.
+17. 제목과 내용 슬롯을 가진 동작이 있는 막대를 그 동작의 폭보다 좁게 그리면, 제목이 말줄임표로 잘려 줄어들고 그 동작은 제 폭을 지킵니다. 제목이 다 사라진 뒤에야 그 동작이 줄어듭니다. 자동 시험이며 시험 이름은 구현 PR이 붙입니다.
 
 ### FR-36 OS 알림 (`Draft`)
 
@@ -3082,6 +3151,12 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
       > 이전의 모델은 노드 0 밑에 `Insert`된 노드만 보았습니다. 고정한 Dioxus 경로는 최상위 노드를 만들기만 하고 삽입하지 않습니다. 그래서 모델에서는 그 경로의 화면이 비어 있었고, 비교는 첫 시나리오 `sweep_1`의 첫 클릭에서 멈췄습니다. 이 정정 전에는 고정한 기준선에 대해 측정이 한 번도 돌지 못했습니다. 이 정정은 시나리오 크레이트 안의 변경이지만 시나리오는 아닙니다. 시나리오와 판정 규칙은 바뀌지 않았습니다. 이 규칙은 기록을 더하지 않으므로 Mutation 수와 바이트 수를 세는 방식도 그대로입니다.
       >
       > 커밋은 `6d22f442`입니다. 규칙을 고정하는 테스트는 `fr39_model_keeps_a_created_never_inserted_node_as_a_root`, `fr39_model_orders_inferred_roots_by_creation_not_by_id`, `fr39_model_places_an_insert_under_the_root_among_the_inferred_roots`, `fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into`, `fr39_model_drops_an_inferred_root_on_remove`, `fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere`, `fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created`, `fr39_an_inferred_root_is_clickable_and_adds_no_record`입니다.
+
+      > **후보 경로가 그리는 화면(2026-11-22, [leader, 2026-11-22]).** compose-rust 경로는 오늘 배포하는 샘플이 아니라, 시나리오를 고정할 때의 화면을 잽니다. 계산기, todo, chat, minimal 네 화면을 2026-11-13에 다시 그려지기 직전의 모습으로 벤치 안(`compose-rust/benches/fr39/screens`)에 고정 화면으로 두고, 오늘의 함수와 호출 매크로 형태로 옮겨 씁니다. 그 밑의 런타임은 오늘의 것입니다. 이 화면들은 벤치를 위해 새로 만든 화면이 아니라, 시나리오가 기록될 때의 샘플 화면 그대로입니다.
+      >
+      > 네 샘플은 2026-11-13에 디자인 참조를 따라 다시 그려졌습니다. todo의 "About" 버튼은 메뉴 안으로 들어갔고, minimal의 Panels, Colour, Parts 탭은 없어졌습니다. 그래서 오늘의 샘플은 고정한 Dioxus 경로가 만드는 트리를 더 이상 만들지 않고, 시나리오가 누르는 컨트롤도 없습니다. 비교는 양쪽이 같은 화면을 그릴 때만 성립하므로, 고정 화면은 기준선의 `rsx!` 화면과 같은 트리를 만들도록 맞추었고, 10월의 compose-rust 화면과 기준선이 다른 곳에서는 기준선을 따랐습니다. 각 파일의 머리말이 어느 커밋에서 왔는지와 기준선을 따른 곳을 적습니다.
+      >
+      > 시나리오는 하나도 바뀌지 않았습니다. 판정 규칙과 기준선도 그대로입니다. 그래서 이 측정의 숫자는 작성 경로와 런타임을 말하고, 오늘 샘플 화면의 성능을 말하지 않습니다. 이것을 지키는 검사는 `scripts/tests/fr39-bench-screens.test.sh`의 `fr39_bench_screens_candidate_uses_no_shipped_sample`, `fr39_bench_screens_say_where_they_came_from`, `fr39_bench_screens_have_no_builder_chains`이고, 고정 화면이 시나리오의 모든 단계에 답하는 것은 `fr39_screen_calculator_answers_every_step_of_calculator_input`, `fr39_screen_todo_answers_every_step_of_todo_add_delete`, `fr39_screen_todo_answers_every_step_of_long_list_scroll`, `fr39_screen_chat_answers_every_step_of_chat_streaming`, `fr39_screen_minimal_answers_every_step_of_tab_switching`이 확인합니다.
    2. **같은 결과일 때만 셉니다.** 측정을 실행할 때마다 두 경로가 Renderer 쪽에 같은 노드 트리를 만드는지 확인하고, 다르면 그 측정은 무효입니다. 내보낸 Mutation 수와 바이트 수를 함께 기록하며, compose-rust 경로가 Dioxus 경로보다 많으면 안 됩니다.
    3. **일을 옮겨서 얻은 숫자는 세지 않습니다.** Host 시간(핸들러, recomposition, 배치 인코딩)과 함께 Renderer 적용 시간과 프레임 전체 시간을 잽니다. Host에서 줄어든 만큼 Renderer나 다른 스레드로 일이 넘어갔다면 그만큼 실패입니다. 워커 스레드, 지연 처리, 캐시 예열로 측정 구간 밖에 일을 빼는 것도 금지합니다.
    4. **기준선을 건드리지 않습니다.** Dioxus 경로는 측정을 시작한 시점의 커밋으로 고정하고, 비교할 때마다 같은 날, 같은 기계, 같은 빌드 프로필(release, 같은 플래그)로 나란히 잽니다. 기준선 쪽 코드가 바뀌면 그 측정 묶음 전체를 다시 잽니다.
@@ -4350,7 +4425,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
 
-**메뉴의 키보드**(이슈 #504, #810, [leader, provisional] (darkpyonix leader, 2026-11-13, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Menu`와 메뉴를 담은 `Popover`(FR-77)가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 항목 사이를 돌고(끝에서 처음으로 돌아가며, 구분선과 비활성 항목은 건너뜁니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고(`Popover`는 `OnDismiss`를 한 번 보내고) 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus, fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item).
+**메뉴의 키보드**(이슈 #504, #810, [leader, provisional] (darkpyonix leader, 2026-11-13, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Menu`와 메뉴를 담은 `Popover`(FR-77)가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 항목 사이를 돌고(끝에서 처음으로 돌아가며, 구분선과 비활성 항목은 건너뜁니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고(`Popover`는 `OnDismiss`를 한 번 보내고) 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. [leader, 2026-11-23]: 이 규칙은 디자인 시스템이 그리는 메뉴의 것입니다. OS 메뉴를 쓰는 플랫폼(macOS, Windows, Android, iOS)에서 `Menu`는 OS 메뉴로 뜨고 키보드도 OS의 것입니다(FR-33.2). 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus, fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item).
 
 **닫힌 선택 필드 목록의 키보드**(). 닫힌 선택 필드(`Dropdown`)가 여는 선택지 목록도 위의 메뉴 키보드 규칙을 그대로 따릅니다. 열리면 지금 고른 선택지에, 없으면 첫 선택지에 포커스가 있고, 위와 아래가 돌고, Home과 End가 처음과 끝으로 가고, Enter와 Space가 고르고, Escape가 닫고 포커스를 필드로 돌려줍니다. 수용 기준: 셋째 선택지가 골라진 필드를 열면 셋째에 포커스가 있고, 위 키 한 번과 Enter로 둘째가 골라져 그 값의 `ValueChanged`가 한 번 갑니다(fr64_dropdown_arrow_keys_move_focus).
 
@@ -5869,7 +5944,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 |---|---|---|---|
 | NFR-1 | JVM 불필요 | 배포물에 JRE가 없고, `java`가 없는 머신에서 실행됨 | Agreed |
 | NFR-2 | 코어 웹뷰 불필요 | 코어 크레이트는 WKWebView, WebView2, WebKitGTK에 링크하지 않음(웹뷰는 opt-in 별도 크레이트로만 제공) | Agreed |
-| NFR-3 | 데스크톱 무게 | 빈 창 physical footprint < 56MB, 배포 용량 < 100MB. 측정 기준과 근거는 §5.2 | Agreed |
+| NFR-3 | 데스크톱 무게 | 빈 창 < 56MB(OS별 지표는 아래), 배포 용량 < 100MB. 측정 기준과 근거는 §5.2. 한도는 56MB 그대로이고, 지표와 상태는 OS별이다 ([leader, 2026-11-22]). **macOS**: 지표 physical footprint. 충족. Kotlin/Native 렌더러의 값은 35.1~39MB이고 `docs/platforms.md`의 "빈 창 하나가 쓰는 메모리"가 적고 있다. **Windows**: 지표 private working set. 충족. +60초 18.8MiB, +10초 19.9MiB. CI 러너의 WARP(소프트웨어 D3D12) 어댑터에서 잰 값이고 실행 45010220308이 근거다. **Linux**: 지표 PSS. CI에서는 판정하지 않음. Xvfb 위의 Mesa 소프트웨어 GL(llvmpipe)에서 +60초 81.1MiB, +10초 82.3MiB이고 실행 45010220308이 근거다. 소프트웨어 GL이 약 40MiB이고 나머지는 중앙값에서 약 41MiB다. 하드웨어 GPU를 쓰는 Linux의 판독은 소유자 항목이다(DarkPyonix/darkpyonix#141) | Agreed |
 | NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족으로 적었던 기록**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 이 기록이 스스로 적듯 Linux와 Windows는 빌드와 스모크 테스트까지이고, 같은 화면을 확인한 기록이 없습니다. 또 macOS의 확인은 데스크톱 렌더러가 Kotlin/Native 정적 렌더러로 바뀌기(NFR-14, 2026-10-04) 전의 렌더러로 한 것입니다 | Agreed |
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족으로 적었던 기록**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 지금 `renderer/desktop/src`에서만 Compose의 실험 또는 내부 API 표시(`@ExperimentalComposeUiApi`, `@ExperimentalTextApi`, `@InternalComposeUiApi`)를 쓰는 파일이 15개이고(2026-11-21에 그 세 이름으로 grep), 어댑터 한 파일에 모여 있지 않습니다. 그래서 2026-09-22의 근거는 더 이상 맞지 않습니다 | Agreed |
@@ -5909,7 +5984,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 
 **측정 기준은 macOS의 physical footprint입니다.** RSS는 이미지에서 매핑된 깨끗한 페이지까지 세기 때문에 실제 점유량을 과장합니다. 같은 프로세스가 RSS 127MB, footprint 54MB로 두 배 넘게 차이납니다. Activity Monitor의 "메모리" 열이 footprint입니다. 측정은 `desktop/scripts/measure-memory.sh`로 재현합니다.
 
-**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창)**
+**현재값 (2026-09-20, macOS 26.5.1, Apple M1, 스모크 테스트 창, 예전 GraalVM 이미지)**
 
 | 영역 | dirty | 정체 |
 |---|---|---|
@@ -5932,7 +6007,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 3. **로케일과 도달 가능 코드는 footprint에 영향이 없습니다.** 이미지 코드와 읽기 전용 힙은 `__TEXT`(18MB)와 깨끗한 `__DATA`(8.7MB)에 들어가고, footprint는 dirty 페이지만 셉니다. 이 레버들은 디스크 용량(65MB)을 줄이지 resident를 줄이지 않습니다.
 4. **`skiko.buffering=DOUBLE`은 JVM에서는 1.9MB를 줄이지만 네이티브 이미지에서는 동작하지 않습니다.** Skiko의 속성 보관 객체가 이미지 빌드 시점에 초기화돼서, 시작 시점에 설정한 값이 너무 늦게 도착합니다. IOSurface가 9408KB로 동일한 것을 측정으로 확인했습니다.
 
-**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`)**
+**Windows 실측 (2026-09-23, private working set, `examples/memory_probe`, 예전 GraalVM 이미지)**
 
 지표가 다릅니다. macOS는 physical footprint, Windows는 작업 관리자가 "메모리" 열에 보여 주는
 private working set입니다. 직접 빼서 비교할 수 있는 값이 아니지만, **비교가 유리한 쪽이
@@ -5969,6 +6044,72 @@ macOS의 고정분은 약 33MB이므로, **100MB가 Windows에만 있고 창을 
 **남은 여지**: 그래픽이 약 22.5MB로 전체의 40%를 넘고 창 크기에 비례합니다. Skia와 그래픽을 합친 약 36.5MB가 Compose/Skia 프로세스의 바닥이며, 시스템 텍스트 스택을 공유하는 AppKit 앱은 지지 않는 비용입니다.
 
 **더 줄이려면 IME 등록 메타데이터를 건드려야 합니다.** `ImeReachabilityFeature`가 패키지 단위로 등록하면서 약 7.8MB의 이미지 힙을 만듭니다. 이것을 좁히는 것이 남은 유일한 큰 레버지만, 실패하면 입력기가 텍스트 필드를 건드리는 순간 프로세스가 죽습니다(§6). **사람이 네이티브 빌드에서 한글을 직접 입력해 확인할 수 있을 때만 시도합니다.**
+
+**Kotlin/Native 빈 창 측정 방법 (Linux, Windows; #59)**
+
+위 표와 Windows 숫자는 GraalVM 네이티브 이미지로 잰 것이다. 지금 데스크톱이 싣는 Kotlin/Native 렌더러의 빈 창은 아래 방법으로 잰다. 이 방법은 보고만 하고 판정하지 않는다. 56MB 목표와 위 표는 그대로 둔다. Kotlin/Native 숫자는 이 방법의 첫 실행 결과로 아래에 OS별로 기록한다(#59).
+
+- **앱**: `compose-rust/tests/fixtures/blank-window`. 800x600dp 창 하나에 창을 채우는 빈 `Box` 하나뿐이다. 내용과 입력이 없으므로 프로세스가 쥔 메모리는 렌더러, 그래픽 서피스, 창의 몫이다.
+- **빌드**: 같은 커밋의 릴리스 렌더러에 링크한다. Linux는 `build-linux.sh --release`로 그 자리에서 만들고, Windows는 같은 실행의 `windows-static-renderer-kit`을 받는다.
+- **지표**:
+
+| OS | 지표 | 읽는 곳 | 참고값 |
+|---|---|---|---|
+| Linux (ubuntu-latest, Xvfb) | PSS | `/proc/<pid>/smaps_rollup` | RSS (`/proc/<pid>/status`) |
+| Windows (windows-latest) | private working set | `\Process(<name>)\Working Set - Private` 카운터. 읽지 못하면 `PrivateMemorySize64`(private bytes)로 대신하고, 요약에 어느 쪽인지 적는다 | working set |
+
+- **시점과 대표값**: 앱을 3번 띄운다. 매번 시작 후 10초와 60초에 한 번씩 읽고, 띄운 pid로 닫는다. 각 시점마다 3개의 중앙값을 보고하고 최소, 최대를 함께 적는다. 한 번의 실행은 아무 데나 떨어지고, 3개는 가운데가 있는 가장 작은 수이기 때문이다.
+- **실행**: 리더가 `ci.yml`을 `suites: memory_report`로 dispatch한다. `all`, `fast`, `measure`에는 들어가지 않는다. 결과는 잡 요약의 표와, 모든 샘플을 담은 `memory-report-linux-x64`, `memory-report-windows-x64` 아티팩트(JSON)다.
+- **실패 조건**: 첫 판독 전에 앱이 사라지거나 판독이 하나도 없을 때만 실패한다. 숫자로는 실패하지 않는다. 아무것도 재지 못한 보고가 통과로 읽히면 안 되기 때문이다.
+- **한계**: CI 러너에는 그래픽 카드가 없다. Linux는 Xvfb 위의 Mesa 소프트웨어 래스터라이저로, Windows는 Basic Render Driver의 WARP로 100% 배율에서 그린다. 실제 그래픽 드라이버 메모리는 잡히지 않는다. 실제 하드웨어의 200% 분해(#171)는 소유자 확인 항목으로 남는다.
+
+**Kotlin/Native 빈 창 결과 (2026-11-22, #59)**
+
+- **실행**: CI 실행 45010220308 (`ci/targeted-1`, 스위트 `test_compose_from_fork,memory_report`). 잰 커밋은 82236d3e이다. 이 커밋은 PR #989의 머리 2ed7e7a9를 `ci/targeted-1`에 합친 것이다.
+- **조건**: `blank-window`, 창 800x600, 3번 띄워 중앙값. 두 잡 "Blank window memory (Linux, x64)"와 "(Windows, x64)"가 모두 성공했다.
+- 단위: 이 절의 MiB는 kB를 1024로 나눈 값이다. CI 요약이 계산한 그대로다.
+
+Linux (PSS, Xvfb 위의 Mesa 소프트웨어 GL)
+
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
+|---|---|---|---|---|
+| +10초 | **PSS** | **82.3** | 82.1 | 92.1 |
+| +10초 | RSS (참고) | 108.7 | 108.6 | 118.5 |
+| +10초 | PSS anonymous | 28.8 | 28.8 | 32.8 |
+| +10초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +10초 | Private dirty | 28.8 | 28.8 | 50.6 |
+| +60초 | **PSS** | **81.1** | 80.9 | 91.0 |
+| +60초 | RSS (참고) | 107.4 | 107.3 | 117.4 |
+| +60초 | PSS anonymous | 27.6 | 27.5 | 31.6 |
+| +60초 | PSS file | 52.5 | 52.4 | 58.4 |
+| +60초 | Private dirty | 27.6 | 27.5 | 31.6 |
+
+Linux PSS 내역. 첫 번째 실행(launch 1)의 +60초 판독이고, `smaps-launch-1.txt`가 그 시점의 가장 큰 매핑 25개를 담는다. 이 실행의 PSS는 93191kB(91.0MiB)로 3번 중 가장 크다. kB는 파일의 값이고 MiB는 kB를 1024로 나눈 값이다.
+
+| 매핑 | PSS (kB) | PSS (MiB) |
+|---|---|---|
+| libLLVM.so.21.1 | 32310 | 31.6 |
+| blank-window 실행 파일 | 21120 | 20.6 |
+| `[heap]` | 15636 | 15.3 |
+| `[anonymous]` | 9904 | 9.7 |
+| libgallium | 8832 | 8.6 |
+| 나머지 합계 | 5389 | 5.3 |
+| **합계** | **93191** | **91.0** |
+
+libLLVM + libgallium = 41142kB (40.2MiB), launch 1. 둘은 Mesa 소프트웨어 래스터라이저(llvmpipe)의 몫이다. 하드웨어 GPU에서는 없을 수 있으므로 이 값을 Linux 일반의 값으로 읽지 않는다. 중앙값 81.1MiB에서 40.2MiB를 빼면 나머지는 약 41MiB다.
+
+Windows (private working set, WARP)
+
+| 시점 | 값 | 중앙값 (MiB) | 최소 (MiB) | 최대 (MiB) |
+|---|---|---|---|---|
+| +10초 | **Private working set** | **19.9** | 19.9 | 19.9 |
+| +10초 | Working set (참고) | 61.2 | 61.2 | 62.7 |
+| +10초 | Private bytes (참고) | 117.4 | 116.6 | 117.4 |
+| +60초 | **Private working set** | **18.8** | 18.8 | 18.9 |
+| +60초 | Working set (참고) | 60.1 | 60.1 | 61.7 |
+| +60초 | Private bytes (참고) | 116.3 | 115.6 | 116.3 |
+
+Windows의 지표는 카운터 `Working Set - Private`에서 읽었다. 같은 지표의 예전 GraalVM 값(138.7MB)은 다른 이미지의 값이므로 이 값과 이어 읽지 않는다. Linux와 Windows의 값은 서로 비교하지 않는다.
 
 ### 5.3 렌더러 획득 (NFR-10, NFR-11)
 
@@ -6223,7 +6364,7 @@ Cargo는 path 패키지의 유닛 해시에 패키지 경로를 넣지 않습니
    - 그 실행 파일의 `dumpbin /dependents` 결과에 Windows 시스템 DLL만 나오고 `vcruntime140.dll`, `msvcp140.dll`이 없습니다.
    - 그 실행 파일이 빈 폴더에서 실행되어 창을 띄웁니다.
    - 동적 C 런타임으로 미리 빌드된 C/C++ 라이브러리와 섞여 링커가 `RuntimeLibrary` 불일치(LNK2038)를 내면, 빌드 스크립트가 어느 라이브러리가 동적 런타임인지와 무엇을 하면 되는지를 짚는 메시지를 냅니다. 테스트로 확인합니다.
-   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다(측정 전).
+   - 같은 샘플을 동적 런타임과 정적 런타임으로 각각 링크한 실행 파일 크기를 재서 여기에 적습니다. [Windows x64 CI 실행 42116487399](https://github.com/DarkPyonix/compose-rust/actions/runs/42116487399/job/127563694530)의 디버그 `consumer.exe`: 기본값(정적 vcruntime·C++ 런타임, 시스템 UCRT) 80,384,000바이트, `DXC_WINDOWS_CRT=dynamic` 80,345,088바이트, `+crt-static`(UCRT 포함) 80,731,136바이트입니다. 기본값은 동적 링크보다 38,912바이트 큽니다.
 6. FR-22.6의 번들(FR-22.6 표의 앱, 패키지, 스토어 패키지 형식)은 이 실행 파일 하나와 아이콘, 메타데이터만 담습니다.
 
 ### 5.8 메모리 안정성 (NFR-17)

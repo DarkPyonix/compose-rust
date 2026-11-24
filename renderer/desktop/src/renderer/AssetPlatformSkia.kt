@@ -23,7 +23,9 @@ import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontListFontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import kotlin.math.abs
 import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.text.platform.SystemFont
 import org.jetbrains.skia.Data
@@ -119,13 +121,43 @@ internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
     val declared = typeface.fontStyle
     val weight = declared.weight.coerceIn(1, 1000)
     val italic = declared.slant != FontSlant.UPRIGHT
+    val wghtBounds = typeface.variationAxes
+        ?.firstOrNull { it.tag == "wght" && it.maxValue > it.minValue }
+        ?.let { it.minValue.toInt().coerceIn(1, 1000) to it.maxValue.toInt().coerceIn(1, 1000) }
     val glyphs = parseCmapRanges(bytes) ?: probeGlyphRanges(typeface)
     typeface.close()
+    val style = if (italic) FontStyle.Italic else FontStyle.Normal
+    val baseIdentity = "compose-rust-font-${bytes.size}-${bytes.contentHashCode()}"
+    if (wghtBounds != null) {
+        val (minWeight, maxWeight) = wghtBounds
+        val weights = buildSet {
+            add(minWeight)
+            add(maxWeight)
+            add(weight.coerceIn(minWeight, maxWeight))
+            for (standard in 100..900 step 100) {
+                if (standard in minWeight..maxWeight) add(standard)
+            }
+        }.sorted()
+        val fonts = weights.map { w ->
+            Font(
+                identity = "$baseIdentity-w$w",
+                getData = { bytes },
+                weight = FontWeight(w),
+                style = style,
+                variationSettings = FontVariation.Settings(FontVariation.weight(w)),
+            )
+        }
+        val primary = fonts.minBy { abs(it.weight.weight - weight) }
+        return Asset.Font(
+            family = FontFamily(fonts),
+            face = Asset.Font.Face(primary, weight, italic, glyphs::contains, fonts),
+        )
+    }
     val font = Font(
-        identity = "compose-rust-font-${bytes.size}-${bytes.contentHashCode()}",
+        identity = baseIdentity,
         getData = { bytes },
         weight = FontWeight(weight),
-        style = if (italic) FontStyle.Italic else FontStyle.Normal,
+        style = style,
     )
     return Asset.Font(
         family = FontFamily(font),

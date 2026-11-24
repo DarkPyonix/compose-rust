@@ -2,12 +2,25 @@
 
 ## Unreleased
 
+### Build failures no longer send a crate user to a script only a checkout has
+
+When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
+
+### `release_asset(id)` lets go of a registered font or picture
+
+`compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
+
+### A memory report for a blank window on Linux and Windows
+
+`compose-rust/tests/fixtures/blank-window` is one 800 by 600 dp window with one empty box, so what its process holds is what the renderer, its graphics surface and the window cost. A development CI dispatch with the `memory_report` suite builds it against the Kotlin/Native renderer of the same commit and starts it three times on ubuntu-latest (under Xvfb) and on windows-latest. It reads PSS on Linux and the private working set on Windows, 10 and 60 seconds after each start, and puts the median of the three in the job summary, with every sample kept as an artifact. The report fails only when the window does not come up or nothing could be read, never on a number. No default suite runs it, and nothing it measures gates a merge (#59).
 ### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
 
 The Windows job that packs with Velopack now builds the `.msi` twice, with `--instLocation PerUser` and `PerMachine`, and `scripts/tests/msi-info.ps1` opens each one's Property table and checks the product name, the manufacturer, the codes and that the version is the one packed. The two jobs that run `appcert.exe` on the `.msix` and `.msixbundle` (`package-windows.yml`, `package-windows-host.yml`) both require `DPIAwarenessValidation` to pass, and FR-22.6 no longer calls that check manual. The Store submission and the Store's update of an installed bundle still wait for a Partner Center account ([#3](https://github.com/DarkPyonix/compose-rust/issues/3)).
+
 ### A button that names no kind sends no kind
 
 A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
+
 ### Compose from fork test compares the fork with its own baseline
 
 The workflow no longer builds Compose a second time from JetBrains' sources and the three patches. It compares the fork's publication with a stored baseline of the fork line, one digest per published module (`renderer/scripts/compose-baseline/`), and fails on any module that differs unless the fork changed that module's sources since the baseline's revision. `.github/scripts/refresh-compose-baseline.sh <run id>` refreshes the baseline when the pin moves ([#361](https://github.com/DarkPyonix/compose-rust/issues/361)).
@@ -49,6 +62,9 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
 
+### A page that measures nodes is answered when the window is resized
+
+A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28). A `CodeEditor` first put on screen inside a split pane or a lazy list is attached during a measure pass too, so what it has to say at that moment is sent just after the pass; everything it says later, a key's echo included, is sent at once as before (FR-38).
 ### A `CodeEditor`'s two scroll reports arrive together
 
 A `CodeEditor` with both an `OnCodeScrolled` and an `OnScrollChanged` handler now sends `ScrollChanged` straight after `CodeScrolled` for the same move, in the same frame, and `ScrollChanged.y_px` equals `CodeScrolled`'s offset. Before, `ScrollChanged` for a move could reach the Host a frame after `CodeScrolled`, or in the same frame with the offset of the frame before. `CodeScrolled` is sent when it always was. Such an editor sends at most one `ScrollChanged` in a frame even when it moves along its lines and down the page in that frame, so a report that does not come with a `CodeScrolled` (a move along the lines, a new range, coming to rest) is sent when the frame is composed, which can be one frame later than before. An animated `ScrollTo` on a `CodeEditor` now moves down the page towards the offset asked for. It moved the other way. An editor with one of the two handlers, and every other scroll container, reports as before ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).

@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -96,11 +97,22 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     }
 
     /**
-     * Set while a scroll request needs to know where this node is drawn. Nothing records
-     * that for a node nobody asked about.
+     * Count of active scroll requests that need to know where this node is drawn. Nothing
+     * records that for a node nobody asked about, and overlapping requests on the same
+     * target keep placement alive until the last request finishes.
      */
-    internal var placementWanted by mutableStateOf(false)
+    private var placementWatchers by mutableIntStateOf(0)
+    internal val placementWanted: Boolean get() = placementWatchers > 0
     internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
+
+    internal fun watchPlacement() {
+        placementWatchers++
+    }
+
+    internal fun unwatchPlacement() {
+        placementWatchers = (placementWatchers - 1).coerceAtLeast(0)
+        if (placementWatchers == 0) placement = null
+    }
 
     /**
      * A `NativeView`'s platform view: the handle the Host attached, 0 for none. The view is

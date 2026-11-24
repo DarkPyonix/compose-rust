@@ -5,7 +5,9 @@
 #
 #   all      every job that gates a merge: what a release check runs, and the default, so a
 #            dispatch that says nothing is still complete. The window-pin probe is one of them;
-#            the resize timings beside it are not (see `measure`).
+#            the resize timings beside it are not (see `measure`), and neither are the memory
+#            report (see `memory_report`) and the renderer-dev upload (see
+#            `publish_schema_renderer`).
 #   fast     the Rust, JVM and script tests on every system, the Windows C compile, and the
 #            GraalVM renderer built and smoke tested on macOS and Linux: an answer in about two
 #            hours instead of five, for checking a branch. Windows has no short renderer job:
@@ -18,6 +20,14 @@
 #   owner_checks  the owner-checks sample alone, built on the desktop by test_samples, which
 #            uploads it as owner-checks-<os> downloads for the hand checks before a release.
 #            With all or test_samples in the same list it narrows nothing.
+#   memory_report  the blank window's memory on Linux and Windows (test_memory_report), with
+#            the Windows kit it links. It judges nothing and only reports, so it runs only
+#            when asked for by this name or its job's: never in all, fast or measure.
+#   publish_schema_renderer  the renderers for the commit's schema, built and uploaded to the
+#            renderer-dev release (a run on develop only; elsewhere it publishes nothing). It
+#            publishes release assets, so it runs only when asked for by its own name: never
+#            in all, fast, measure or memory_report. Dispatch it alone: it builds its own
+#            Windows kit and renderers, under the artifact names the other jobs use.
 #   a,b,...  these suites and jobs together, by their names (all, fast, measure, test,
 #            test_samples, ...), and what they need: a job that takes the Windows kit brings
 #            windows_static_kit with it. `all,measure` is every job with the timings on.
@@ -46,12 +56,20 @@ jobs=(
     packager_macos
     test_compose_from_fork
     test_samples
+    test_memory_report
+    publish_schema_renderer
 )
 fast=(test test_windows_c test_graalvm_renderer)
+# The jobs that run only when asked for by name: `all` leaves them out, and only their suite or
+# their own name runs them. test_memory_report only reports and gates nothing;
+# publish_schema_renderer uploads release assets.
+report_only=(test_memory_report publish_schema_renderer)
+# The jobs `memory_report` selects.
+memory_report=(test_memory_report)
 # The jobs `measure` selects: the workflow that holds the timings.
 measure=(test_windows_resize)
 # The jobs that download the Windows renderer kit windows_static_kit builds for the run.
-needs_windows_kit=(windows_static_consumer test_windows_resize test_native_renderer package_windows_host test_samples)
+needs_windows_kit=(windows_static_consumer test_windows_resize test_native_renderer package_windows_host test_samples test_memory_report)
 
 asked="${1:-all}"
 asked="${asked// /}"
@@ -62,6 +80,7 @@ asked="${asked// /}"
 selected=" "
 select_job() { case "$selected" in *" $1 "*) ;; *) selected="$selected$1 " ;; esac; }
 is_selected() { case "$selected" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+is_report_only() { case " ${report_only[*]} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 measuring=false
 # Whether test_samples was asked for in full (by all or by name) or only for the owner checks.
@@ -74,13 +93,14 @@ for name in "${names[@]}"; do
         "") ;;
         all)
             samples_full=true
-            for job in "${jobs[@]}"; do select_job "$job"; done
+            for job in "${jobs[@]}"; do is_report_only "$job" || select_job "$job"; done
             ;;
         fast) for job in "${fast[@]}"; do select_job "$job"; done ;;
         owner_checks)
             owner_checks=true
             select_job test_samples
             ;;
+        memory_report) for job in "${memory_report[@]}"; do select_job "$job"; done ;;
         measure)
             measuring=true
             for job in "${measure[@]}"; do select_job "$job"; done
@@ -89,7 +109,7 @@ for name in "${names[@]}"; do
             known=0
             for job in "${jobs[@]}"; do [[ "$job" == "$name" ]] && known=1; done
             if [[ "$known" == 0 ]]; then
-                echo "ci-suites: '$name' is not a suite (all, fast, measure) or a ci.yml job: ${jobs[*]}" >&2
+                echo "ci-suites: '$name' is not a suite (all, fast, measure, owner_checks, memory_report, publish_schema_renderer) or a ci.yml job: ${jobs[*]}" >&2
                 exit 1
             fi
             [[ "$name" == test_samples ]] && samples_full=true

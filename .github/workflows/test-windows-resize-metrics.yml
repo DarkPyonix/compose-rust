@@ -682,6 +682,7 @@ jobs:
           cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
 
       - name: Build the GraalVM Windows renderer
+        id: renderer-build
         shell: powershell
         run: .\renderer\desktop\scripts\build-native-windows.ps1
 
@@ -690,6 +691,21 @@ jobs:
         # so the marker scene below is the only thing the probe run adds.
         shell: powershell
         run: .\renderer\desktop\scripts\smoke-test-windows.ps1
+
+      - name: The linked image carries no toolkit
+        # Run whatever the smoke test said, so a run shows every way it fails.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
+
+      - name: The image's ways into the toolkit
+        # The check is Python, and Windows' Python is python.exe only.
+        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/python3"
+          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
+          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
 
       - name: The renderer holds the resize code the probe judges
         # The lines the gate reads from the application's log, compiled in from the fork's

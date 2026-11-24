@@ -177,14 +177,11 @@ fn main() {
             .is_file()
         {
             panic!(
-                "\n\ncompose-rust: {} does not hold {}.\n\nThe variable names the \
-                 directory a static renderer build wrote: \
-                 renderer/desktop/scripts/build-macos.sh writes \
-                 renderer/build/macos, and build-linux.sh writes \
-                 renderer/build/linux. Unset it and this build finds or \
-                 downloads a renderer by itself.\n\n",
-                dir.display(),
-                renderer_dir::renderer_static_file(&target_os)
+                "\n\n{}\n\n",
+                renderer_dir::static_override_missing_message(
+                    &dir,
+                    renderer_dir::renderer_static_file(&target_os)
+                )
             );
         }
         check_schema_agreement(&dir);
@@ -450,11 +447,8 @@ fn link_windows_native(dir: &Path) {
     ] {
         if !dir.join(piece).is_file() {
             panic!(
-                "\n\ncompose-rust: the Windows renderer kit at {} has no {piece} ({what}).\n\n\
-                 renderer/desktop/scripts/build-windows.sh writes the whole \
-                 directory; build the renderer again, or set DXC_WINDOWS_NATIVE_LIB (or \
-                 COMPOSE_RUST_RENDERER_DIR) to the directory it wrote.\n\n",
-                dir.display()
+                "\n\n{}\n\n",
+                renderer_dir::windows_kit_incomplete_message(dir, piece, what)
             );
         }
     }
@@ -527,7 +521,7 @@ fn link_windows_native(dir: &Path) {
     ] {
         let file = format!("{library}.lib");
         let source = dir.join("skiko").join(&file);
-        rewrite_runtime_directives(&source, &rewritten.join(&file));
+        rewrite_runtime_directives(&source, &rewritten.join(&file), Some(dir));
         println!("cargo:rustc-link-lib=static={library}");
     }
 
@@ -540,7 +534,7 @@ fn link_windows_native(dir: &Path) {
     // (LNK2001, 160 times, for a link that named msvcprt.lib instead).
     let source = msvc_library("libcpmt.lib");
     println!("cargo:rerun-if-changed={}", source.display());
-    rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"));
+    rewrite_runtime_directives(&source, &rewritten.join("dxc-libcpmt.lib"), None);
     println!("cargo:rustc-link-lib=static:+verbatim=dxc-libcpmt.lib");
     match crt {
         WindowsCrt::LinkedIn | WindowsCrt::FullyStatic => {
@@ -599,14 +593,12 @@ fn link_windows_native(dir: &Path) {
 /// Copies a prebuilt MSVC library with its runtime directives blanked
 /// (`build/windows_crt.rs`), or stops the build naming it when it was built against a
 /// runtime that cannot share an executable with the others.
-fn rewrite_runtime_directives(source: &Path, destination: &Path) {
+fn rewrite_runtime_directives(source: &Path, destination: &Path, kit: Option<&Path>) {
     let mut bytes = match std::fs::read(source) {
         Ok(bytes) => bytes,
         Err(error) => panic!(
-            "\n\ncompose-rust: could not read {}: {error}\n\n\
-             renderer/desktop/scripts/build-windows.sh writes every library the \
-             Windows renderer links; build the renderer again.\n\n",
-            source.display()
+            "\n\n{}\n\n",
+            renderer_dir::windows_library_unreadable_message(source, &error.to_string(), kit)
         ),
     };
     let found = blank_runtime_directives(&mut bytes);
@@ -1057,9 +1049,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.ui.platform.AndroidNativeViewWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
+import dev.darkpyonix.composerust.ui.platform.AndroidOsMenuPresenter
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
@@ -1074,6 +1068,7 @@ class MainActivity : ComponentActivity() {{
         }}
 
     private var nativeViews: AndroidNativeViewWindow? = null
+    private var osMenus: AndroidOsMenuPresenter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
@@ -1098,13 +1093,18 @@ class MainActivity : ComponentActivity() {{
         val root = FrameLayout(this)
         val view = ComposeView(this)
         val slotWindow = AndroidNativeViewWindow(root)
+        val menuPresenter = AndroidOsMenuPresenter(root)
         nativeViews = slotWindow
+        osMenus = menuPresenter
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
             // grows down into the gesture bar, and whatever is left over is kept off the
             // page there.
-            CompositionLocalProvider(LocalNativeViewWindow provides slotWindow) {{
+            CompositionLocalProvider(
+                LocalNativeViewWindow provides slotWindow,
+                LocalOsMenuPresenter provides menuPresenter,
+            ) {{
                 ComposeRustContent(host, Modifier.fillMaxSize())
             }}
         }}
@@ -1135,6 +1135,8 @@ class MainActivity : ComponentActivity() {{
     }}
 
     override fun onDestroy() {{
+        osMenus?.close()
+        osMenus = null
         nativeViews?.close()
         nativeViews = null
         // The process may stay without an Activity, and a worker's notification still has

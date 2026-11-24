@@ -1,0 +1,267 @@
+# Memory report: what a blank window costs in memory on the Kotlin/Native renderer, on Linux
+# and on Windows. It reports and fails nothing on a number.
+#
+# The application is compose-rust/tests/fixtures/blank-window: one 800 by 600 dp window with
+# one empty box filling it, so what the process holds is the renderer, its graphics surface
+# and the window, with no content on top. Each job builds it against the renderer of this
+# commit, starts it three times, reads its memory 10 and 60 seconds after each start, closes
+# it by its process id, and writes the median of the three for each reading to the job
+# summary. Every sample is kept as the memory-report-<os> artifact.
+#
+#   linux    PSS from /proc/<pid>/smaps_rollup (RSS beside it for reference), under Xvfb.
+#            Xvfb has no graphics card, so GL is Mesa's software rasteriser and there is no
+#            driver memory to count; a desktop with a GPU reads differently.
+#   windows  the private working set from the \Process(<name>)\Working Set - Private
+#            counter, or PrivateMemorySize64 where the counter cannot be read (the summary
+#            says which), with the working set beside it. The runner draws with WARP on the
+#            Basic Render Driver at 100% display scale.
+#
+# A job fails only when the window does not come up (the process is gone at its first
+# reading) or no reading could be made, because a report of nothing must not read as a pass.
+#
+# Called only from ci.yml, and only when its dispatch names the memory_report suite: it is
+# in no default suite, so `all` and `fast` never run it. Linux builds its own static renderer
+# here, as static-renderer.yml builds the linux-x64 one, without that workflow's input and
+# parity checks and without uploading a renderer artifact that test_samples in the same run
+# could also upload. Windows takes the windows-static-renderer-kit artifact ci.yml's
+# windows_static_kit job built in the same run, as test-windows-resize-metrics.yml does for
+# hand-check.
+
+name: Memory report
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+env:
+  # The toolchain windows-static.yml builds the kit's consumer with, so the fixture links the
+  # kit with the same Rust the shipped check links it with.
+  RUST_TOOLCHAIN_WINDOWS: 1.100.0
+
+jobs:
+  linux:
+    name: Blank window memory (Linux, x64)
+    runs-on: ubuntu-latest
+    # The renderer build is most of it; Compose from source on a cache miss is the rest.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the Compose build
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install JDK 21 for the Compose build
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Point the Compose build at the JDK
+        run: echo "ANDROIDX_JDK21=$JAVA_HOME" >> "$GITHUB_ENV"
+
+      - name: Install the X11, GL and font headers, and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config unzip xvfb xauth x11-utils \
+            libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libfontconfig1-dev libfreetype-dev
+
+      - name: Restore the patched Compose
+        id: compose-cache
+        # The key static-renderer.yml uses for linux-x64.
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-linux-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
+
+      - name: Cache the Kotlin toolchain
+        id: kotlin-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-native-linux-x64-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-native-linux-x64-
+
+      - name: Configure Gradle for this runner
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/gradle.properties <<EOF
+          org.gradle.workers.max=4
+          org.gradle.jvmargs=-Xmx11g -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Build and publish the patched Compose
+        if: steps.compose-cache.outputs.cache-hit != 'true'
+        env:
+          DXC_COMPOSE_BUILD: ${{ runner.temp }}/compose-build
+        run: ./renderer/scripts/build-compose.sh --target linux
+
+      - name: Keep the patched Compose for the next run
+        if: github.event_name != 'pull_request' && steps.compose-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.compose-cache.outputs.cache-primary-key }}
+
+      - name: Build the static renderer
+        # Release, as the linux-x64 release asset is built.
+        run: ./renderer/desktop/scripts/build-linux.sh --release
+
+      - name: Keep the Kotlin toolchain for the next run
+        if: github.event_name != 'pull_request' && steps.kotlin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+          key: ${{ steps.kotlin-cache.outputs.cache-primary-key }}
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Build the blank window against the renderer
+        run: |
+          set -euo pipefail
+          export DXC_LINUX_NATIVE_LIB="$PWD/renderer/build/linux"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/blank-window/Cargo.toml
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Measure the blank window
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/memory-report"
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/blank-window-memory.sh \
+            compose-rust/tests/fixtures/blank-window/target/release/blank-window "$out" 3
+
+      - name: Write the summary
+        if: always()
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/memory-report"
+          [[ -f "$out/samples.json" ]] || { echo "no samples.json: the measurement did not get that far" >&2; exit 1; }
+          python -I .github/scripts/blank-window-memory-summary.py "$out/samples.json" \
+            "Blank window memory, Kotlin/Native renderer (Linux, x64)" | tee "$out/summary.md"
+          {
+            cat "$out/summary.md"
+            echo "Xvfb has no graphics card: GL is Mesa's software rasteriser, so no driver memory is counted."
+            echo "Commit ${{ github.sha }}, runner $(lsb_release -ds 2>/dev/null || uname -sr)."
+            echo
+            if [[ -s "$out/smaps-launch-1.txt" ]]; then
+              echo "<details><summary>Largest mappings by PSS, launch 1 at its last reading</summary>"
+              echo
+              echo '```'
+              cat "$out/smaps-launch-1.txt"
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep every sample
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-report-linux-x64
+          path: ${{ runner.temp }}/memory-report/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  windows:
+    name: Blank window memory (Windows, x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check symbolic links out as links
+        run: |
+          git config --global core.symlinks true
+          git config --global core.longpaths true
+
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN_WINDOWS" --profile minimal && rustup default "$RUST_TOOLCHAIN_WINDOWS"
+
+      - name: Receive the renderer kit
+        # Built by windows-static.yml's renderer job in this run (ci.yml's windows_static_kit):
+        # the release build the windows-x64 release asset is packaged from.
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+
+      - name: Enter the Visual Studio developer environment
+        # The headers and the linker the kit is linked with, as the resize job sets them up.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Build the blank window against the renderer
+        run: |
+          set -euo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/blank-window/Cargo.toml
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Measure the blank window
+        shell: pwsh
+        env:
+          # The runner has no graphics card; the renderer draws with Windows' software adapter.
+          DXC_D3D12_WARP: '1'
+        run: |
+          ./.github/scripts/blank-window-memory.ps1 `
+            -Exe compose-rust/tests/fixtures/blank-window/target/release/blank-window.exe `
+            -Out "$env:RUNNER_TEMP/memory-report" -Launches 3
+          exit $LASTEXITCODE
+
+      - name: Write the summary
+        if: always()
+        run: |
+          set -euo pipefail
+          out="$(cygpath -u "$RUNNER_TEMP")/memory-report"
+          [[ -f "$out/samples.json" ]] || { echo "no samples.json: the measurement did not get that far" >&2; exit 1; }
+          python -I .github/scripts/blank-window-memory-summary.py "$out/samples.json" \
+            "Blank window memory, Kotlin/Native renderer (Windows, x64)" | tee "$out/summary.md"
+          {
+            cat "$out/summary.md"
+            echo "The runner draws with WARP on the Basic Render Driver at 100% display scale, so no graphics driver memory of a real card is counted."
+            echo "Commit ${{ github.sha }}, runner $(powershell -NoProfile -Command '(Get-CimInstance Win32_OperatingSystem).Caption')."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep every sample
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-report-windows-x64
+          path: ${{ runner.temp }}/memory-report/
+          if-no-files-found: ignore
+          retention-days: 30

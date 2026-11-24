@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.composed
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.remember
@@ -409,7 +410,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
 
             // Weight is parent data: it is applied by the Column or Row that owns this node,
             // not here. See `weightOf` and `Children` in RenderNode.kt.
-            is ProtocolModifier.Weight -> chain
+            is ProtocolModifier.Weight, is ProtocolModifier.WeightUnfilled -> chain
 
             // The elements an HTML and CSS screen is drawn with. The Host's layout engine has
             // already decided where every box goes and how big it is, so these place and
@@ -1045,11 +1046,19 @@ private fun spreadRadius(radius: Float, spread: Float): Float = when {
     }
 }
 
+/** The weight this node asked its parent layout for, and whether it fills its share. */
+internal data class ChildWeight(val value: Float, val fill: Boolean)
+
 /** The weight this node asked its parent layout for, or null. */
-internal fun List<ProtocolModifier>.weightOf(): Float? =
-    lastOrNull { it is ProtocolModifier.Weight }
-        ?.let { (it as ProtocolModifier.Weight).value }
-        ?.takeIf { it > 0f }
+internal fun List<ProtocolModifier>.weightOf(): ChildWeight? =
+    lastOrNull { it is ProtocolModifier.Weight || it is ProtocolModifier.WeightUnfilled }
+        ?.let {
+            when (it) {
+                is ProtocolModifier.Weight -> if (it.value > 0f) ChildWeight(it.value, fill = true) else null
+                is ProtocolModifier.WeightUnfilled -> if (it.value > 0f) ChildWeight(it.value, fill = false) else null
+                else -> null
+            }
+        }
 
 /**
  * Makes a node a button: it takes keyboard focus, a click and Enter or Space run
@@ -1463,7 +1472,11 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
         val density = LocalDensity.current
         val reportedWidth = remember(nodeId) { arrayOfNulls<WindowSizeClass>(1) }
         val reportedHeight = remember(nodeId) { arrayOfNulls<WindowHeightClass>(1) }
-        onSizeChanged { size ->
+        // After the layout pass and not inside it, as onSizeChanged would be. A Host that
+        // answers by laying its page out asks this side to measure nodes before the call
+        // returns, and Compose refuses to measure one while a measure pass is running.
+        onGloballyPositioned { coordinates ->
+            val size = coordinates.size
             val widthDp = with(density) { size.width.toDp().value }
             val heightDp = with(density) { size.height.toDp().value }
             val sizeClass = windowSizeClassOf(widthDp)
