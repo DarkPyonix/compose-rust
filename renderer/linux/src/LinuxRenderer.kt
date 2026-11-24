@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
@@ -131,9 +132,12 @@ private fun runWindows(
         defaultIcon = defaultIcon,
         windowContent = { config, window ->
             val caption = linuxWindowCaption(config.chrome, window.x11.caption())
-            {
+            // Named rather than left as a bare lambda on its own line, which Kotlin would read
+            // as a trailing lambda passed to the call above it.
+            val content: @Composable () -> Unit = {
                 WindowContent(host, caption = caption, windowNodeId = config.nodeId)
             }
+            content
         },
     )
     opened(backend)
