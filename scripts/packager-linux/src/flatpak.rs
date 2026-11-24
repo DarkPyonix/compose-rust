@@ -20,6 +20,7 @@ use crate::appstream::metainfo_file_name;
 use crate::desktop::desktop_file_name;
 use crate::icons::{Icon, IconKind};
 use crate::metadata::AppMetadata;
+use crate::templates;
 
 /// The runtime branch used when the application's file does not name one.
 pub const DEFAULT_RUNTIME_VERSION: &str = "25.08";
@@ -98,25 +99,52 @@ pub fn icon_source_path(meta: &AppMetadata, icon: &Icon) -> String {
     }
 }
 
-/// The manifest, as JSON.
+/// The manifest, as JSON: the fork's `flatpak-manifest.json.in` filled from `meta`, then
+/// what the template does not have. The payload's sources and commands, the build options,
+/// the window's socket and the application's permissions, the icons and the patchelf
+/// module are added around what the template holds, keeping its order.
 pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
+    manifest_with(templates::FLATPAK, meta, options)
+}
+
+/// [`manifest`] from a given template, so a test can show the output follows it.
+pub fn manifest_with(template: &str, meta: &AppMetadata, options: &FlatpakOptions) -> String {
+    let runtime_version = meta
+        .runtime_version
+        .clone()
+        .unwrap_or_else(|| DEFAULT_RUNTIME_VERSION.to_owned());
+    let rendered = templates::render(
+        template,
+        &[
+            ("identifier", &templates::json_escape(&meta.id)),
+            ("runtime_version", &templates::json_escape(&runtime_version)),
+            ("executable", &templates::json_escape(&meta.exec)),
+        ],
+    );
+    let mut top = match templates::parse_json(&rendered) {
+        Ok(Json::Object(fields)) => fields,
+        Ok(_) => panic!("the Flatpak template is not a JSON object"),
+        Err(error) => panic!("the Flatpak template is not JSON once filled: {error}"),
+    };
+
     let module = meta.exec.clone();
     let lib = format!("/app/lib/{}", meta.exec);
-    let mut sources = Vec::new();
-    let mut commands: Vec<String> = Vec::new();
+    // Sources and commands before and after the template's own.
+    let mut payload_sources = Vec::new();
+    let mut before_mkdir: Vec<String> = Vec::new();
+    let mut after_mkdir: Vec<String> = Vec::new();
     let mut build_options: Vec<(String, Json)> = Vec::new();
     let mut top_extra: Vec<(String, Json)> = Vec::new();
 
     match &options.payload {
         Payload::Prebuilt { archives } => {
             for archive in archives {
-                sources.push(archive_source(archive, Some("payload")));
+                payload_sources.push(archive_source(archive, Some("payload")));
             }
-            commands.push(format!("mkdir -p {lib} /app/bin"));
-            commands.push(format!("cp -a payload/. {lib}/"));
+            after_mkdir.push(format!("cp -a payload/. {lib}/"));
             // A release archive whose executable was built without an rpath only finds the
             // renderer beside it when told to look there.
-            commands.push(format!(
+            after_mkdir.push(format!(
                 "readelf -d {lib}/{exec} | grep -qE '\\((RPATH|RUNPATH)\\)' || patchelf --set-rpath '$ORIGIN:$ORIGIN/lib' {lib}/{exec}",
                 exec = meta.exec
             ));
@@ -148,10 +176,10 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                     Json::str(&meta.version),
                 ),
             ];
-            sources.push(archive_source(source, None));
-            sources.push(Json::str(cargo_sources));
+            payload_sources.push(archive_source(source, None));
+            payload_sources.push(Json::str(cargo_sources));
             for archive in renderer {
-                sources.push(archive_source(archive, Some("renderer")));
+                payload_sources.push(archive_source(archive, Some("renderer")));
             }
             if !renderer.is_empty() {
                 env.push((
@@ -167,18 +195,17 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 build.push(' ');
                 build.push_str(&shell_quote(arg));
             }
-            commands.push("cargo --offline fetch --manifest-path Cargo.toml --verbose".into());
-            commands.push(build);
-            commands.push(format!("mkdir -p {lib} /app/bin"));
+            before_mkdir.push("cargo --offline fetch --manifest-path Cargo.toml --verbose".into());
+            before_mkdir.push(build);
             if !renderer.is_empty() {
                 // The renderer keeps its own `lib` directory beside the executable. AWT
                 // looks for its companions in the parent of the renderer's directory plus
                 // `lib`, so the files flattened beside the executable are not found.
-                commands.push(format!(
+                after_mkdir.push(format!(
                     "mkdir -p {lib}/lib && if [ -d renderer/lib ]; then cp -a renderer/lib/. {lib}/lib/; else cp -a renderer/. {lib}/lib/; fi"
                 ));
             }
-            commands.push(format!(
+            after_mkdir.push(format!(
                 "install -m755 target/release/{bin} {lib}/{}",
                 meta.exec
             ));
@@ -187,7 +214,7 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
                 // the executable at the copy installed beside it instead. Executables built
                 // before the rename to compose-rust name the renderer
                 // libdioxus_compose_renderer.so, so the match takes either name.
-                commands.push(format!(
+                after_mkdir.push(format!(
                     "recorded=\"$(readelf -d {lib}/{exec} | sed -n 's/.*(NEEDED).*\\[\\(.*lib[a-z_]*_renderer.so\\)\\]/\\1/p')\"; \
                      if [ -n \"$recorded\" ] && [ \"$recorded\" != \"${{recorded##*/}}\" ]; then \
                      patchelf --replace-needed \"$recorded\" \"${{recorded##*/}}\" {lib}/{exec}; fi; \
@@ -197,74 +224,98 @@ pub fn manifest(meta: &AppMetadata, options: &FlatpakOptions) -> String {
             }
         }
     }
-    commands.push(format!("test -x {lib}/{}", meta.exec));
-    commands.push(format!("ln -s ../lib/{0}/{0} /app/bin/{0}", meta.exec));
 
-    let desktop = desktop_file_name(meta);
-    let metainfo = metainfo_file_name(meta);
-    sources.push(file_source(&desktop, "packaging"));
-    sources.push(file_source(&metainfo, "packaging"));
-    commands.push(format!(
-        "install -Dm644 packaging/{desktop} /app/share/applications/{desktop}"
-    ));
-    commands.push(format!(
-        "install -Dm644 packaging/{metainfo} /app/share/metainfo/{metainfo}"
-    ));
+    let mut icon_sources = Vec::new();
+    let mut icon_commands = Vec::new();
     for icon in options.icons {
         let path = icon_source_path(meta, icon);
         let dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
-        sources.push(file_source(&path, &format!("packaging/{dir}")));
-        commands.push(format!(
+        icon_sources.push(file_source(&path, &format!("packaging/{dir}")));
+        icon_commands.push(format!(
             "install -Dm644 packaging/{path} /app/{}",
             icon.install_path(&meta.id)
         ));
     }
 
-    let mut module_fields = vec![
-        ("name".to_owned(), Json::str(&module)),
-        ("buildsystem".to_owned(), Json::str("simple")),
-    ];
-    if !build_options.is_empty() {
-        module_fields.push(("build-options".to_owned(), Json::Object(build_options)));
+    // The window's socket after the template's IPC, the application's permissions last.
+    let wanted = finish_args(meta, options.wayland);
+    let finish = field(&mut top, "finish-args");
+    let Json::Array(args) = finish else {
+        panic!("the Flatpak template's finish-args is not an array")
+    };
+    // Each template argument keeps its place; what the application wants before it goes
+    // before it, and the rest after the last.
+    let mut rest: Vec<Json> = wanted.iter().map(|a| Json::str(a)).collect();
+    let mut merged: Vec<Json> = Vec::new();
+    for arg in args.iter() {
+        match rest.iter().position(|a| a == arg) {
+            Some(index) => merged.extend(rest.drain(..=index)),
+            None => merged.push(arg.clone()),
+        }
     }
-    module_fields.push((
-        "build-commands".to_owned(),
-        Json::Array(commands.iter().map(|c| Json::str(c)).collect()),
-    ));
-    module_fields.push(("sources".to_owned(), Json::Array(sources)));
+    merged.extend(rest);
+    *finish = Json::Array(merged);
 
-    let runtime_version = meta
-        .runtime_version
-        .clone()
-        .unwrap_or_else(|| DEFAULT_RUNTIME_VERSION.to_owned());
-    let mut top = vec![
-        ("id".to_owned(), Json::str(&meta.id)),
-        ("runtime".to_owned(), Json::str("org.freedesktop.Platform")),
-        ("runtime-version".to_owned(), Json::str(&runtime_version)),
-        ("sdk".to_owned(), Json::str("org.freedesktop.Sdk")),
-    ];
-    top.extend(top_extra);
-    top.push(("command".to_owned(), Json::str(&meta.exec)));
-    top.push((
-        "finish-args".to_owned(),
-        Json::Array(
-            finish_args(meta, options.wayland)
-                .iter()
-                .map(|a| Json::str(a))
-                .collect(),
-        ),
-    ));
     let needs_patchelf = match &options.payload {
         Payload::Prebuilt { .. } => true,
         Payload::FromSource { renderer, .. } => !renderer.is_empty(),
     };
-    let mut modules = Vec::new();
-    if needs_patchelf {
-        modules.push(patchelf_module());
+    {
+        let Json::Array(modules) = field(&mut top, "modules") else {
+            panic!("the Flatpak template's modules is not an array")
+        };
+        let Some(Json::Object(app)) = modules.last_mut() else {
+            panic!("the Flatpak template has no application module")
+        };
+        if let Json::Array(commands) = field(app, "build-commands") {
+            let mkdir = commands
+                .iter()
+                .position(|c| matches!(c, Json::String(s) if s.starts_with("mkdir -p ")))
+                .expect("the Flatpak template makes the application's directories");
+            for (offset, command) in after_mkdir.iter().enumerate() {
+                commands.insert(mkdir + 1 + offset, Json::str(command));
+            }
+            for (offset, command) in before_mkdir.iter().enumerate() {
+                commands.insert(mkdir + offset, Json::str(command));
+            }
+            commands.extend(icon_commands.iter().map(|c| Json::str(c)));
+        }
+        if let Json::Array(sources) = field(app, "sources") {
+            for (offset, source) in payload_sources.into_iter().enumerate() {
+                sources.insert(offset, source);
+            }
+            sources.extend(icon_sources);
+        }
+        if !build_options.is_empty() {
+            let at = app
+                .iter()
+                .position(|(key, _)| key == "build-commands")
+                .unwrap_or(app.len());
+            app.insert(at, ("build-options".into(), Json::Object(build_options)));
+        }
+        if needs_patchelf {
+            modules.insert(0, patchelf_module());
+        }
     }
-    modules.push(Json::Object(module_fields));
-    top.push(("modules".to_owned(), Json::Array(modules)));
+    if !top_extra.is_empty() {
+        let at = top
+            .iter()
+            .position(|(key, _)| key == "command")
+            .unwrap_or(top.len());
+        for (offset, extra) in top_extra.into_iter().enumerate() {
+            top.insert(at + offset, extra);
+        }
+    }
     render_manifest(top)
+}
+
+/// The value of `key` in an object the template holds.
+fn field<'a>(object: &'a mut [(String, Json)], key: &str) -> &'a mut Json {
+    object
+        .iter_mut()
+        .find(|(k, _)| k == key)
+        .map(|(_, value)| value)
+        .unwrap_or_else(|| panic!("the Flatpak template has no {key:?}"))
 }
 
 /// The SDK has `readelf` but not `patchelf`, so a build that has to rewrite the
