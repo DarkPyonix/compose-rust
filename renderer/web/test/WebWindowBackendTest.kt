@@ -48,12 +48,12 @@ class WebWindowBackendTest {
         host.table.apply(Mutation.Create(1, WidgetKind.Window))
         host.table.apply(Mutation.SetProp(1, PropertyKind.WindowTitle, PropertyValue.Text("First")))
         host.table.apply(Mutation.SetProp(1, PropertyKind.OnWindowUnavailable, PropertyValue.Integer(101)))
-        host.table.apply(Mutation.InsertChild(0, 1, 0))
+        host.table.apply(Mutation.Insert(0, 1, 0))
 
         host.table.apply(Mutation.Create(2, WidgetKind.Window))
         host.table.apply(Mutation.SetProp(2, PropertyKind.WindowTitle, PropertyValue.Text("Second")))
         host.table.apply(Mutation.SetProp(2, PropertyKind.OnWindowUnavailable, PropertyValue.Integer(202)))
-        host.table.apply(Mutation.InsertChild(0, 2, 1))
+        host.table.apply(Mutation.Insert(0, 2, 1))
         manager.sync()
 
         assertEquals(1, backend.activeNodeId)
