@@ -35,7 +35,7 @@ fn sweep() {
                 Text!(format!("{}-{slot}", count.get()));
             });
         }
-        let more = count.clone();
+        let more = count;
         Button!("Increment", move || more.update(|count| *count += 1));
     });
 }

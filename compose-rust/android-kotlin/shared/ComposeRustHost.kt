@@ -9,7 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
@@ -1385,12 +1388,14 @@ private const val BAR_SEARCH_DEPTH = 4
  * setting directly assigns to this at startup instead; a platform that cannot leaves the
  * reader with a way to say so, which is better than no way at all.
  */
-var reduceTransparency: Boolean = run {
-    val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
-        ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
-        ?: return@run false
-    !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
-}
+var reduceTransparency: Boolean by mutableStateOf(
+    run {
+        val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
+            ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
+            ?: return@run false
+        !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
+    },
+)
 
 /**
  * The strips of the window the system draws its own things in.
