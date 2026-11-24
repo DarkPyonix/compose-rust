@@ -103,7 +103,8 @@ after="$(sed -n '/dxc_draw_frame(dxc_draw_thread)/=' <<< "$resized" | head -1)"
 [[ -n "$before" && -n "$after" && "$before" -lt "$after" ]] ||
     fail "setFrameSize draws before it has told the layer the new size"
 
-grep -q 'viewWillStartLiveResize' "$source_file" && grep -q 'presentsWithTransaction = !dxc_legacy_resize()' "$source_file" ||
+started="$(body '- (void)viewWillStartLiveResize')"
+grep -q '!dxc_legacy_resize()' <<< "$started" && grep -q 'presentsWithTransaction = YES' <<< "$started" ||
     fail "a live resize does not present with the transaction"
 grep -q 'viewDidEndLiveResize' "$source_file" && grep -q 'presentsWithTransaction = NO' "$source_file" ||
     fail "the end of a live resize does not go back to presenting on its own"
