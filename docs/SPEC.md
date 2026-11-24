@@ -5196,6 +5196,13 @@ pub mod storage {
 8. **macOS 2배.** macOS 러너의 가상 디스플레이가 HiDPI 모드(`kCGDisplayShowDuplicateLowResolutionModes`로 받은 `CGDisplayCopyAllDisplayModes` 가운데 픽셀 폭이 점 폭의 두 배인 모드)를 주면, 공개 API `CGConfigureDisplayWithDisplayMode`로 1배와 2배를 오가며 기준 1, 2, 3, 5와 기준 6의 macOS판(1배에서 2배로, 2배에서 1배로)을 CI에서 확인합니다(fr82_macos_scales_one_and_two). 러너가 그런 모드를 주지 않으면 이 기준은 손 확인이고, CI 로그가 받은 배율을 적습니다. 어느 쪽인지는 구현의 첫 단계에서 러너로 확인해 보고합니다.
 9. **실제 화면에서의 손 확인.** 자동화할 수 없습니다. CI 러너에는 가상 모니터가 하나뿐이라 모니터 사이를 옮기는 일과 실제 패널에서의 모습은 사람이 봅니다. (가) Windows: 200% 주 모니터와 125% 보조 모니터가 있는 기기에서 창을 끌어 두 모니터를 오가고, 양쪽에서 시험 장면과 샘플이 선명하며, 옮긴 뒤 입력 없이도 새 배율로 다시 그려집니다. (나) macOS: Retina 내장 화면과 1배 외장 모니터를 오가며 같은 것을 봅니다. 둥근 도형의 가장자리가 계단이 아닙니다. (다) 각 배율의 스크린숏을 기록합니다(FR-19.8의 2번과 같은 방식). 사람이 확인한 날짜와 기기를 이 항목에 적습니다(fr82_hand_check_on_real_displays, 수동).
 10. 기준 1에서 7이 여섯 창 경로 모두에서 통과합니다. 경로 하나를 이 기준에서 빼는 것(예: 그 플랫폼에 GraalVM 창을 더는 내놓지 않는 경우)은 소유자가 정하고 이 항목에 적습니다.
+    - **여섯 창 경로 현황 (2026-11-22)**:
+      1. Windows Kotlin/Native (`renderer/windows`, `Win32Window.kt` + 포크 `win32_dpi.h` #243): 기준 1-7을 PR #726 CI(`fr82_*`)에서 검증.
+      2. Windows GraalVM (`renderer/desktop/src/Win32Window.kt`): 동일한 `win32_window.c` / `win32_dpi.h` 경유, per-monitor v2 및 `WM_DPICHANGED` 반영.
+      3. Linux Kotlin/Native (`renderer/linux/src/LinuxWindow.kt`): `Xft.dpi` 변경 시 즉시 재그리기, 기준 1-6을 PR #726 CI(`fr82_*`)에서 검증.
+      4. Linux GraalVM (`renderer/desktop/src/LinuxWindow.kt` + 포크 `1.11.1-ext.4` X11 창): 동일한 `Xft.dpi` 배율 추적 경로 사용.
+      5. macOS Kotlin/Native (`renderer/macos` + 포크 `MacosWindow.kt`): 백킹 배율 변경 알림(`viewDidChangeBackingProperties` / `backingChanged()`, 포크 커밋 `fb10df02c0a`, `WINDOW_REVISION=98002181`에 포함)으로 즉시 재그리기, 실제 다중 모니터 손 확인은 darkpyonix#141에 남깁니다.
+      6. macOS GraalVM (`renderer/desktop/src/AppKitWindow.kt` + 포크 `appkit_window.m`): `WindowBackingScale`로 매 프레임 및 크기/배율 변경을 추적(`WindowBackingScaleTest`), 포크 `appkit_window.m`의 `viewDidChangeBackingProperties`(`fb10df02c0a`)가 즉시 `contentsScale`/`drawableSize`를 갱신하고 재그리기를 요청합니다. 제외된 경로는 없습니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
