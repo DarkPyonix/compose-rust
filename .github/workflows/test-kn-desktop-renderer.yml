@@ -258,6 +258,15 @@ jobs:
           chmod +x "$RUNNER_TEMP/consumer-idle-launch"
           ./.github/scripts/resize-metrics-run.sh "$RUNNER_TEMP/consumer-idle-launch" "$out" idle-macos-kn idle
           { echo "### Kotlin/Native idle after typing"; ./.github/scripts/idle-soak-check.sh "$out/idle-macos-kn.log" 4 4; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory stays under 2x start after thousands of synthetic-input frames
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          ./.github/scripts/frame-soak-run.sh \
+            compose-rust/tests/fixtures/consumer/target/release/consumer "$out" frame-soak-macos-kn
+          { echo "### macOS Kotlin/Native frame soak"; ./.github/scripts/frame-soak-check.sh "$out/frame-soak-macos-kn.log" 2.0 2000; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: The content stays put while the window's height is dragged
         # Drags the bottom edge and then the top edge with mouse events and takes the
         # window's image throughout; a mark drawn at a fixed distance below the top of every
@@ -318,6 +327,15 @@ jobs:
           out="$RUNNER_TEMP/resize-metrics"
           xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/linux-live-resize.sh "$out" \
             compose-rust/tests/fixtures/consumer/target/release/consumer --launch | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory stays under 2x start after thousands of synthetic-input frames
+        if: matrix.module == 'linux'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/frame-soak-run.sh \
+            compose-rust/tests/fixtures/consumer/target/release/consumer "$out" frame-soak-linux-kn
+          { echo "### Linux Kotlin/Native frame soak"; ./.github/scripts/frame-soak-check.sh "$out/frame-soak-linux-kn.log" 2.0 2000; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build the HiDPI fixture on the Linux renderer
         if: matrix.module == 'linux'
