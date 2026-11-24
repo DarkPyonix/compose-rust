@@ -12,7 +12,9 @@
 #   renderer/desktop/scripts/*.ps1, build-windows.sh, build-linux.sh,
 #   renderer/desktop/scripts/windows-build-contract.test.sh, windows-metadata/
 #   scripts/check-windows-consumer.sh and the multi-window fixture only it builds
-#   (compose-rust/tests/fixtures/multi-window/), .github/scripts/check-linux-input-access.sh,
+#   (compose-rust/tests/fixtures/multi-window/), the HiDPI check on Windows with its scale tool
+#   and the fixture only it builds here (.github/scripts/hidpi-windows-check.sh,
+#   set-display-scale.c, compose-rust/tests/fixtures/hidpi/), .github/scripts/check-linux-input-access.sh,
 #   .github/scripts/atspi-walk.py, .github/workflows/windows-static.yml
 #
 # Everything else counts as macOS-relevant: the shared renderer sources, the build scripts,
@@ -31,7 +33,8 @@ while IFS= read -r file; do
         renderer/desktop/scripts/build-windows.sh|renderer/desktop/scripts/build-linux.sh) ;;
         renderer/desktop/scripts/windows-build-contract.test.sh) ;;
         scripts/check-windows-consumer.sh|.github/scripts/check-linux-input-access.sh) ;;
-        compose-rust/tests/fixtures/multi-window/*) ;;
+        compose-rust/tests/fixtures/multi-window/*|compose-rust/tests/fixtures/hidpi/*) ;;
+        .github/scripts/hidpi-windows-check.sh|.github/scripts/set-display-scale.c) ;;
         .github/scripts/atspi-walk.py|.github/workflows/windows-static.yml) ;;
         *) echo "macos=true"; exit 0 ;;
     esac

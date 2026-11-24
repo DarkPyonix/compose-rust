@@ -35,6 +35,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Linux would otherwise answer with a stand-in that throws at the first dispatch.
     val main = FrameDispatcher()
     installMainDispatcher(main)
+    // Asked for by the build that proves the window draws in device pixels at every `Xft.dpi`
+    // (`HiDpiCheck.kt`). It is the whole run: its window is the check's, not the application's,
+    // so the application does not start after it.
+    runFr82LinuxChecksIfAsked(main)?.let { passed -> return if (passed) RendererApi.RUN_OK else RendererApi.RUN_FAILED }
     // The notification daemon, over the session bus, before the Host starts: its first batch
     // may already post one. A press on a notification's body raises the window, which does
     // not exist yet, so it is found when the press arrives.
