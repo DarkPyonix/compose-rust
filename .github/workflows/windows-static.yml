@@ -384,6 +384,16 @@ jobs:
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Memory stays under 2x start after thousands of synthetic-input frames
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          set -euo pipefail
+          out="$(cygpath -u "$RUNNER_TEMP")/frame-soak"
+          ./.github/scripts/frame-soak-run.sh \
+            target/windows-consumer-check/release/release/consumer.exe "$out" frame-soak-windows-kn
+          { echo "### Windows Kotlin/Native frame soak"; ./.github/scripts/frame-soak-check.sh "$out/frame-soak-windows-kn.log" 2.0 2000; } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Keep the application
         if: always()
         # multi-window.exe is the two-window application for the hand check of an input
