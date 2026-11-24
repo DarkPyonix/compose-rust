@@ -95,6 +95,7 @@ $ForkWindowDir = Join-Path $RepoDir ".scratch\fork-window\$WindowRevision"
 $WindowCDir = Join-Path $ForkWindowDir "extended\window\windows-shared\c"
 $WindowSource = Join-Path $WindowCDir "win32_window.c"
 $NotificationsSource = Join-Path $WindowCDir "win32_notifications.c"
+$DcompSource = Join-Path $WindowCDir "win32_dcomp.cpp"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
 $JvmLog = Join-Path $BuildDir "jvm-run-windows.log"
@@ -321,11 +322,19 @@ if ($LASTEXITCODE -ne 0) {
 
 # The window the renderer opens for itself, with its Direct3D 12 swapchain. Compiled as
 # C11 like the shim beside it; the Direct3D and DXGI interfaces are reached through the
-# macros the Windows SDK provides for C, so no part of this needs a C++ compiler.
+# macros the Windows SDK provides for C.
 $WindowObject = Join-Path $ObjDir "win32_window.obj"
 Invoke-Native { & cl.exe /nologo /c /O2 /std:c11 "/Fo$WindowObject" $WindowSource }
 if ($LASTEXITCODE -ne 0) {
     Fail "MSVC could not compile $WindowSource"
+}
+
+# The window's DirectComposition calls, the one C++ file of the window, which win32_window.c
+# calls through a plain C surface. No exceptions and no RTTI, so it brings no C++ runtime.
+$DcompObject = Join-Path $ObjDir "win32_dcomp.obj"
+Invoke-Native { & cl.exe /nologo /c /O2 /std:c++17 /GR- /EHs-c- "/Fo$DcompObject" $DcompSource }
+if ($LASTEXITCODE -ne 0) {
+    Fail "MSVC could not compile $DcompSource"
 }
 
 # Toasts, through the Windows Runtime's notification manager. C11 like the two above: the
@@ -380,6 +389,7 @@ $NativeImageArgs = @(
     "-H:ConfigurationFileDirectories=$ResourceMetadataDir",
     "-H:NativeLinkerOption=$RendererObject",
     "-H:NativeLinkerOption=$WindowObject",
+    "-H:NativeLinkerOption=$DcompObject",
     "-H:NativeLinkerOption=$NotificationsObject",
     # Named rather than left to the linker. Direct3D and DXGI resolve nowhere else, and
     # dxguid carries the interface identifiers that C code has to name as values because
