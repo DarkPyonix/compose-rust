@@ -140,7 +140,6 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 // ---- the checks ------------------------------------------------------------------------
 
 /**
-<<<<<<< HEAD
  * A `ShowFileDialog` for a window opens the system's file dialog owned by that window,
  * without stopping the loop, and a window that goes away ends its dialog with exactly one
  * Cancelled. Before the Windows renderer installed a platform, every request was Unavailable
@@ -198,9 +197,6 @@ private const val GW_ENABLEDPOPUP = 6u
 
 /**
  * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
-=======
- * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
->>>>>>> origin/fix/windows-kn-platform-hooks
  * caption as much as with one the content draws. One window of each chrome, each filled by a
  * drag region; a press in each reaches that window's drag and no other.
  */
