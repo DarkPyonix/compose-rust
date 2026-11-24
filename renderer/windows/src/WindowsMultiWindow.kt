@@ -148,7 +148,7 @@ private fun windowContent(
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { WindowsPlatformLocals(window) { WindowContent(host) } }
+            ForWindow(nodeId) { WindowsPlatformLocals(window, host, iconOf(host, config)) { WindowContent(host) } }
         }
     }
     val actions = WindowActions(
@@ -160,7 +160,7 @@ private fun windowContent(
     return {
         ForWindow(nodeId) {
             CompositionLocalProvider(LocalWindowActions provides actions) {
-                WindowsPlatformLocals(window) {
+                WindowsPlatformLocals(window, host, iconOf(host, config)) {
                     WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
                 }
             }
@@ -183,3 +183,7 @@ private const val IDLE_MILLIS = 16u
 
 /** Windows 11's caption height, the same number the single window lays its caption out with. */
 private val CAPTION_HEIGHT = 32.dp
+
+/** The icon a window of several wears: its own `WindowIcon`, or else the application's. */
+private fun iconOf(host: ComposeRustHost, config: PlatformWindowConfig): Int =
+    config.icon.takeIf { it != 0 } ?: host.table.window?.icon ?: 0
