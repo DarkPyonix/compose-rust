@@ -4,7 +4,6 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
@@ -32,6 +31,8 @@ internal fun runMultiWindow(host: ComposeRustHost): Int {
     val windows = Win32System.windows
     val loop = MultiWindowLoop(host) { windows.postQuit(0) }
     loop.attach()
+    // A file dialog for node 0 in an application of several windows goes to the first open one.
+    installedWindowsFileDialogs?.rootWindow = { loop.backend.handles.firstOrNull() }
     if (loop.backend.openCount == 0 && host.roots.isNotEmpty()) {
         // Windows were asked for and none opened. Told to the application as WindowUnavailable
         // where it listens, and to the person here, as a window on its own says it.
@@ -114,10 +115,12 @@ internal class MultiWindowLoop(
             // A pump with no window does not wait, and a loop that kept the policy
             // `KeepRunning` with none open would spin.
             Win32Loop.pump(0.0)
+            deliverWindowsFileDialogs()
             platform.windows.Sleep(IDLE_MILLIS)
             return false
         }
         Win32Loop.pump(if (rest) FRAME_SECONDS else 0.0)
+        deliverWindowsFileDialogs()
         return backend.turn()
     }
 
@@ -144,7 +147,7 @@ private fun windowContent(
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { WindowContent(host) }
+            ForWindow(nodeId) { WindowsPlatformLocals(window, host, iconOf(host, config)) { WindowContent(host) } }
         }
     }
     val actions = WindowActions(
@@ -155,11 +158,10 @@ private fun windowContent(
     )
     return {
         ForWindow(nodeId) {
-            CompositionLocalProvider(
-                LocalWindowActions provides actions,
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
-            ) {
-                WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+            CompositionLocalProvider(LocalWindowActions provides actions) {
+                WindowsPlatformLocals(window, host, iconOf(host, config)) {
+                    WindowContent(host, caption = WindowCaption(height = windowsCaptionHeight(config.chrome, config.titleBar), fullSize = config.chrome == Chrome.FullSize))
+                }
             }
         }
     }
@@ -178,5 +180,6 @@ private fun ForWindow(nodeId: Int, content: @Composable () -> Unit) {
 private const val FRAME_SECONDS = 0.016
 private const val IDLE_MILLIS = 16u
 
-/** Windows 11's caption height, the same number the single window lays its caption out with. */
-private val CAPTION_HEIGHT = 32.dp
+/** The icon a window of several wears: its own `WindowIcon`, or else the application's. */
+private fun iconOf(host: ComposeRustHost, config: PlatformWindowConfig): Int =
+    config.icon.takeIf { it != 0 } ?: host.table.window?.icon ?: 0
