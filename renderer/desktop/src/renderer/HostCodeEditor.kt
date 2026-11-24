@@ -100,7 +100,7 @@ internal fun HostCodeEditor(
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
-            onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher) },
+            onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher, table.scrolls) },
             onSave = {
                 val handler = node.handler(PropertyKind.OnSave)
                 if (handler != null) {
@@ -168,6 +168,7 @@ internal fun HostCodeEditor(
 /** The editor's own offset down its document, as an axis a scroll request can move. */
 private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     state = scrollable,
+    reversed = true,
     value = { offset },
     max = { max },
     viewport = viewport,
@@ -483,7 +484,7 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
 }
 
 /** Sends what the surface made the model queue, straight away, on the UI thread. */
-private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDispatcher) {
+private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDispatcher, scrolls: ScrollReports) {
     val events = codeEvents(outputs) { message ->
         dispatcher.dispatch(
             HostEvent.ProtocolError(
@@ -494,7 +495,8 @@ private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDi
             ),
         )
     }
-    for (event in events) dispatcher.dispatch(event)
+    // The scroll report for a move the editor has just told goes out right behind it.
+    for (event in scrolls.paired(scroll, events)) dispatcher.dispatch(event)
 }
 
 /** The protocol error code a code editor reports a record it could not honour with. */

@@ -131,7 +131,7 @@
           <tr><td><code>Text!(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, and one parameter per type axis</td></tr>
           <tr><td><code>TextField!(text, on_value_change)</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code>. <code>text</code> is only the starting text.</td></tr>
           <tr><td><code>Button!(label, on_click)</code></td><td><code>variant</code>, <code>kind</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>. An empty label with an icon is an icon button.</td></tr>
-          <tr><td><code>Checkbox!(checked, on_change)</code>, <code>RadioButton!(selected, on_change)</code>, <code>Switch!(checked, on_change)</code></td><td><code>enabled</code>. A switch also takes <code>track_color</code>, <code>thumb_color</code>, <code>size</code>, <code>thumb_elevation</code> (a soft shadow under the thumb, in dp) and <code>track_border</code> (<code>(width, paint)</code>, a line around the track). Each one left out keeps the design system's look.</td></tr>
+          <tr><td><code>Checkbox!(checked, on_change)</code>, <code>RadioButton!(selected, on_change)</code>, <code>Switch!(checked, on_change)</code></td><td><code>enabled</code>. <code>Checkbox!</code> also takes <code>indeterminate</code> (a mixed box, drawn filled with a dash; a press asks for <code>true</code>) and <code>outline_color</code> (the box's border); its corners follow the modifier's <code>corner_radius</code>. A switch also takes <code>track_color</code>, <code>thumb_color</code>, <code>size</code>, <code>thumb_elevation</code> (a soft shadow under the thumb, in dp) and <code>track_border</code> (<code>(width, paint)</code>, a line around the track). Each one left out keeps the design system's look.</td></tr>
           <tr><td><code>Slider!(value, on_change)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code></td></tr>
           <tr><td><code>Dropdown!(selected_index, on_change)</code></td><td><code>enabled</code>; each child is one option</td></tr>
           <tr><td><code>DatePicker!(days, on_change)</code>, <code>TimePicker!(minutes, on_change)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code></td></tr>
@@ -364,6 +364,16 @@
       in Rust, because a size that changed every layout pass would run Rust code every layout pass.
       Before the first measurement the value is <code>Compact</code> at 0 by 0, because a
       one-column layout works at any width.
+    </p>
+    <p>
+      <strong>Your own breakpoints.</strong> When a screen changes shape at other widths than the
+      classes, <code>current_window_breakpoint(&amp;[560.0, 900.0, 1279.0])</code> returns which
+      bucket the window is in: how many of the breakpoints its width has reached, so a width
+      exactly on a breakpoint is in the bucket above it. The composable runs again only when the
+      bucket changes. It does not make the window report more often: to see a breakpoint that is
+      not a class edge as it is crossed, open the window with <code>report_size(true)</code>
+      (<code>Window::new().with_report_size(true)</code> for the single window), which costs a
+      call into Rust for every whole dp of a drag.
     </p>
     <p>
       <code>Navigation</code>, <code>Sheet</code> and <code>Scaffold</code> already adapt without

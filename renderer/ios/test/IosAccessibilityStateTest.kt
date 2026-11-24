@@ -5,6 +5,7 @@ import androidx.compose.ui.semantics.SemanticsConfiguration
 import androidx.compose.ui.semantics.SemanticsModifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.state.ToggleableState
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.SemanticsRole
@@ -49,9 +50,28 @@ class IosAccessibilityStateTest {
         assertEquals(null, configOf(SemanticsRole.Button, 0).getOrNull(SemanticsProperties.StateDescription))
     }
 
+    /**
+     * The checked field's fourth value is mixed. The iOS build of the shared interpreter puts
+     * Compose's indeterminate toggle state on the node, which Compose's iOS bridge hands to
+     * VoiceOver as the element's mixed value.
+     */
+    @Test
+    fun fr68_mixed_checkbox_reaches_the_ios_accessibility_value() {
+        assertEquals(
+            ToggleableState.Indeterminate,
+            configOf(SemanticsRole.Checkbox, MIXED).getOrNull(SemanticsProperties.ToggleableState),
+        )
+        assertEquals(
+            ToggleableState.On,
+            configOf(SemanticsRole.Checkbox, CHECKED).getOrNull(SemanticsProperties.ToggleableState),
+        )
+    }
+
     private companion object {
         const val NODE = 1
         const val COLLAPSED = 1 shl 4
         const val HAS_POPUP = 1 shl 13
+        const val CHECKED = 2
+        const val MIXED = 3
     }
 }

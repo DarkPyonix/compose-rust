@@ -52,6 +52,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private const val NAVIGATION = 1
@@ -273,6 +274,30 @@ class CompactNavigationTest {
                     assertEquals(window.top, page.top, "$system $shape inset the page from the top")
                 }
             }
+        }
+    }
+
+    /** Hidden navigation clears the page gradient under Liquid Glass while a put-away sidebar keeps it. */
+    @Test
+    fun fr21_2_3_a_chosen_none_clears_the_page_gradient_under_liquid_glass() {
+        val none = navigationNode(CompactNavigation.None)
+        val sidebar = navigationNode(CompactNavigation.Sidebar)
+        for (platform in HostPlatform.entries) {
+            val resolved = resolveTheme(
+                theme(DesignSystem.LiquidGlass),
+                platform,
+                systemDark = false,
+                sizeClass = WindowSizeClass.Compact,
+            )
+            val hidden = resolved.navigationFor(none, WindowSizeClass.Compact)
+            assertEquals(null, hidden.pageGradientStart, "LiquidGlass on $platform kept pageGradientStart")
+            assertEquals(null, hidden.pageGradientEnd, "LiquidGlass on $platform kept pageGradientEnd")
+            assertEquals(null, hidden.pageCornerGlow, "LiquidGlass on $platform kept pageCornerGlow")
+
+            val putAway = resolved.navigationFor(sidebar, WindowSizeClass.Compact)
+            assertNotNull(putAway.pageGradientStart, "LiquidGlass on $platform dropped pageGradientStart for Sidebar")
+            assertNotNull(putAway.pageGradientEnd, "LiquidGlass on $platform dropped pageGradientEnd for Sidebar")
+            assertNotNull(putAway.pageCornerGlow, "LiquidGlass on $platform dropped pageCornerGlow for Sidebar")
         }
     }
 

@@ -227,10 +227,20 @@ compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "d
 ```
 
 `cargo build` works out which renderer the target needs, downloads the release artifact for the
-crate's exact version, checks it against the published `.sha256`, unpacks it into a cache
-outside `target/`, and links it. There is no environment variable to set and no script to run.
-The cache is keyed by version and target, so it survives `cargo clean` and is shared between
-projects.
+crate's version, checks it against the published `.sha256`, unpacks it into a cache outside
+`target/`, and links it. There is no environment variable to set and no script to run.
+
+What has to match is the schema the crate was generated from, not the version number. Every
+renderer artifact says which schema it was built from, and the crate knows its own. A git
+revision after a release keeps that release's version while its schema moves on, so when the
+release's renderer was built from another schema, the build fetches the renderer `develop`
+published for the crate's schema instead, from the `renderer-dev` release. When neither
+matches, the build stops and names the crate's schema hash, each renderer's hash and both
+addresses it tried.
+
+The cache is keyed by schema hash and target, so it survives `cargo clean`, is shared between
+projects, and is shared by every crate version with the same schema. Two revisions of one
+version with different schemas never share an entry.
 
 Where the artifact is the static archive (macOS and Linux from 0.0.2), what `cargo
 build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
@@ -244,6 +254,7 @@ the Windows Kotlin/Native renderer is already one executable.
 |---|---|
 | `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory: an unpacked artifact, or the directory a renderer build wrote. It may hold the static archive or a shared library, and whichever it holds is linked. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
 | `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows) |
+| `COMPOSE_RUST_RENDERER_URL` | Download from this address instead of `https://github.com/DarkPyonix/compose-rust/releases`, for a mirror or a CI machine without access to GitHub. Both renderers are looked up under it with the same paths: `download/v<version>/...` and `download/renderer-dev/...` |
 
 `default-features = false` builds with no renderer at all, for a headless or documentation
 build. A binary built that way says what is missing and exits non-zero rather than opening no

@@ -9,6 +9,7 @@ product: jvm/app
 # skiko-awt under org.thisisthepy.compose.skiko, on the same version line.
 repositories:
   - mavenLocal
+  - https://maven-central.storage-download.googleapis.com/maven2/
 
 # Compose's compiler plugin through the template rather than `compose: enabled`, which would add
 # JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.

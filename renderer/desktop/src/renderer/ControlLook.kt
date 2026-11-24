@@ -41,6 +41,8 @@ class ControlLook(
     val shape: Shape? = null,
     /** A Slider thumb's diameter. The track and the area that takes presses keep theirs. */
     val thumbSize: Dp? = null,
+    /** A Checkbox's border, in every state alike. */
+    val outline: Color? = null,
     /**
      * How high a Switch lifts its thumb: the shadow under it. Zero is no shadow, and null is
      * the design system's, which is no shadow in every system today.
@@ -51,11 +53,17 @@ class ControlLook(
     /** The colour of that line. Set whenever [trackBorderWidth] is. */
     val trackBorder: Color? = null,
 ) {
-    /** Whether a toggle has to be drawn from this look rather than by default. */
+    /**
+     * Whether a toggle has to be drawn from this look rather than by default.
+     *
+     * A Checkbox's corner shape counts as well as its colours and size: a library that draws
+     * its own box has no shape to take, so a box the application rounded is drawn here too.
+     */
     fun appliesTo(role: ToggleRole): Boolean = when (role) {
         ToggleRole.Switch -> track != null || thumb != null || width != null || height != null ||
             thumbElevation != null || trackBorderWidth != null
-        ToggleRole.Checkbox, ToggleRole.RadioButton -> container != null || check != null || width != null
+        ToggleRole.Checkbox -> container != null || check != null || width != null || outline != null || shape != null
+        ToggleRole.RadioButton -> container != null || check != null || width != null
     }
 
     companion object {
@@ -66,7 +74,7 @@ class ControlLook(
 /**
  * The look of [node], rebuilt only when something it reads has changed.
  *
- * A recomposition that changes none of the nine properties, the corner modifier or the theme
+ * A recomposition that changes none of the ten properties, the corner modifier or the theme
  * hands back the look it made last time, and a node that sends none of them gets the shared
  * [ControlLook.None], so the steady state allocates nothing. A property that is removed
  * makes its slot null, which differs from the value it held, so the look returns to the
@@ -86,6 +94,7 @@ private class ControlLookCache {
     private var activeTrack: PropertyValue? = null
     private var container: PropertyValue? = null
     private var check: PropertyValue? = null
+    private var outline: PropertyValue? = null
     private var size: PropertyValue? = null
     private var thumbSize: PropertyValue? = null
     private var thumbElevation: PropertyValue? = null
@@ -102,6 +111,7 @@ private class ControlLookCache {
         val newActive = props[PropertyKind.ActiveTrackColor]
         val newContainer = props[PropertyKind.ContainerColor]
         val newCheck = props[PropertyKind.CheckColor]
+        val newOutline = props[PropertyKind.OutlineColor]
         val newSize = props[PropertyKind.ControlSize]
         val newThumbSize = props[PropertyKind.ThumbSize]
         val newElevation = props[PropertyKind.ThumbElevation]
@@ -119,20 +129,22 @@ private class ControlLookCache {
         }
         if (primed && theme === current && track == newTrack && thumb == newThumb &&
             activeTrack == newActive && container == newContainer && check == newCheck &&
-            size == newSize && thumbSize == newThumbSize && thumbElevation == newElevation &&
-            trackBorder == newBorder && named == newNamed && corner == newCorner && curve == newCurve
+            outline == newOutline && size == newSize && thumbSize == newThumbSize &&
+            thumbElevation == newElevation && trackBorder == newBorder &&
+            named == newNamed && corner == newCorner && curve == newCurve
         ) {
             return look
         }
         primed = true
         theme = current
         track = newTrack; thumb = newThumb; activeTrack = newActive
-        container = newContainer; check = newCheck; size = newSize; thumbSize = newThumbSize
+        container = newContainer; check = newCheck; outline = newOutline; size = newSize
+        thumbSize = newThumbSize
         thumbElevation = newElevation; trackBorder = newBorder
         named = newNamed; corner = newCorner; curve = newCurve
         val empty = newTrack == null && newThumb == null && newActive == null &&
-            newContainer == null && newCheck == null && newSize == null && newThumbSize == null &&
-            newElevation == null && newBorder == null && !newNamed
+            newContainer == null && newCheck == null && newOutline == null && newSize == null &&
+            newThumbSize == null && newElevation == null && newBorder == null && !newNamed
         look = if (empty) ControlLook.None else node.controlLook(current)
         return look
     }
@@ -159,6 +171,7 @@ internal fun Node.controlLook(theme: ResolvedTheme): ControlLook {
         height = height,
         shape = if (named) modifiers.resolvedShape(theme) else null,
         thumbSize = number(PropertyKind.ThumbSize)?.takeIf { it > 0f }?.dp,
+        outline = colour(PropertyKind.OutlineColor),
         // A height that is not a number, or is below zero, is read as not given.
         thumbElevation = number(PropertyKind.ThumbElevation)?.takeIf { it.isFinite() && it >= 0f }?.dp,
         trackBorderWidth = border?.first?.dp,

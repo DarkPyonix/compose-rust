@@ -43,6 +43,20 @@ private external fun configureWindow(
 )
 
 /**
+ * Whether the application owns the caption strip of the next window (`Chrome.FullSize`):
+ * called after [configureWindow], which resets it to 0 for each window.
+ */
+@CFunction("dxc_native_window_configure_app_caption")
+private external fun configureAppCaption(enabled: Int)
+
+/**
+ * Draws the window's caption and frame light or dark: 0 follows the system, 1 is light,
+ * 2 is dark.
+ */
+@CFunction("dxc_native_window_set_color_scheme")
+private external fun setWindowColorScheme(scheme: Int): Int
+
+/**
  * The system's popup menu, built from the lines [items] holds (`packMenu`): up until it
  * closes, answering the index of the entry chosen or -1. The window's C defines it on every
  * desktop.
@@ -88,6 +102,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // Who draws the caption, as the Kotlin/Native renderer decides it: with Chrome.System the
     // system's, otherwise the caption strip is the content's and the buttons are drawn below.
     val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
+    val fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize
     configureWindow(
         if (asked?.resizable == false) 0 else 1,
         asked?.minWidth?.takeIf { it > 0 } ?: 0,
@@ -95,6 +110,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         if (systemChrome) 1 else 0,
         0,
     )
+    configureAppCaption(if (fullSize) 1 else 0)
     val window = openWin32Window(
         asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
@@ -108,6 +124,11 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         host.shutdown()
         return
     }
+    // The window's own light or dark, for what the system draws of it: the caption of a window
+    // with the system's chrome, and the frame of every window. Given before the first frame
+    // from the theme the first batch set, and again in the scene below whenever it changes.
+    val colorScheme = WindowSchemeFollower { scheme -> setWindowColorScheme(windowAppearanceCode(scheme)) }
+    colorScheme.follow(host.table.theme)
     // Resize frames on the CPU, copied into the window before the resize returns, unless
     // asked not to (DXC_RASTER_RESIZE=0). The same choice, in the same C, as the
     // Kotlin/Native renderer makes.
@@ -163,7 +184,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     val caption = if (systemChrome) {
         dev.darkpyonix.composerust.runtime.WindowCaption.None
     } else {
-        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize)
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = fullSize)
     }
     // The right-click menu is the system's popup, holding what Compose's menu holds: a text
     // field's Cut, Copy, Paste and Select All as the field allows them, and whatever an
@@ -181,11 +202,18 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     }
     @Suppress("DEPRECATION")
     scene.setContent {
+        // A theme the application sends later moves the window's caption and frame with it.
+        // Read as a snapshot rather than in composition, so a new theme does not recompose
+        // this scope as well as everything that resolves it.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
+        }
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
             androidx.compose.ui.platform.LocalClipboard provides WindowClipboard,
             androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
+            dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { beginNativeWindowDrag(0) },
         ) {
             dev.darkpyonix.composerust.runtime.WindowContent(host, caption = caption)
         }

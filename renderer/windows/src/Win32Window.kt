@@ -18,6 +18,9 @@ import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
 import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlin.math.roundToInt
@@ -111,10 +114,14 @@ internal class Win32Window private constructor(
     private val work = FrameDispatcher()
 
     /**
-     * Whether the window is the active one. A window on its own is always taken to be, as it
-     * always was; a window of several is told by the activations the C side reports.
+     * Whether the window is the active one. A window on its own starts from
+     * whether it is active and follows the activations it reports, read once a turn in [run];
+     * a window of several is told by the window manager, which reads the same reports.
      */
-    val focused = androidx.compose.runtime.mutableStateOf(true)
+    private val activation = WindowActivation(initial = if (multi) true else windowIsActive()) {
+        if (multi) null else memScopedActivation()
+    }
+    val focused = activation.focused
 
     /** Called with the frame's time after each frame that reached the swapchain. Windows of several only. */
     var afterFrame: ((Long) -> Unit)? = null
@@ -225,6 +232,9 @@ internal class Win32Window private constructor(
                     },
                 )
             }
+            // After the pump, which is when WM_ACTIVATE arrives. A change invalidates what
+            // reads isWindowFocused, so the frame below draws it.
+            activation.poll()
             var heard = false
             Win32EditMenu.current = editMenu
             for (event in Win32Loop.drainEvents()) {
@@ -637,3 +647,9 @@ private const val DEFAULT_OPEN_HEIGHT = 360
 private const val SWAPCHAIN_FORMAT = 87
 
 private const val FRAME_SECONDS = 0.016
+
+/** The activation the selected window reported since it was last asked, or null. */
+private fun memScopedActivation(): Boolean? = kotlinx.cinterop.memScoped {
+    val active = alloc<kotlinx.cinterop.IntVar>()
+    if (takeActivation(active.ptr)) active.value != 0 else null
+}

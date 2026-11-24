@@ -63,8 +63,9 @@
       Outside this repository the build downloads the renderer, so a failure here comes with a
       message that says what it tried and what to do. Read it. It tells no network apart from a
       release that does not carry your target, and the offline case names the files to place and
-      the directory to place them in. <code>COMPOSE_RUST_RENDERER_DIR</code> points the build at a
-      renderer you already have.
+      the directory to place them in. When no published renderer was built from your crate's
+      schema, it names the crate's schema hash, each renderer's hash and both addresses it tried.
+      <code>COMPOSE_RUST_RENDERER_DIR</code> points the build at a renderer you already have.
     </p>
     <p>
       Inside a checkout the build prefers a workspace build over anything it could download: the

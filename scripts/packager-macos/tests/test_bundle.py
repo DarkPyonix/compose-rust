@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from support import CARGO, DIOXUS, REPOSITORY, project
 
@@ -178,6 +179,136 @@ class Bundle(unittest.TestCase):
             )
         finally:
             subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True)
+
+    def test_fr22_6_8_pkg_builds_mas_component_and_passes_pkgutil_checks(self):
+        out_pkg = self.scratch / "Demo App.pkg"
+        built = bundle.pkg(self.app, out_pkg)
+        self.assertEqual(built, out_pkg)
+        self.assertTrue(out_pkg.is_file())
+
+        report = bundle.verify_pkg(out_pkg, expect_signed=False)
+        self.assertFalse(report["signed"])
+        self.assertTrue(
+            "no signature" in report["signature_output"].lower()
+            or "not signed" in report["signature_output"].lower(),
+            report["signature_output"],
+        )
+        self.assertTrue(
+            any("Demo App.app/Contents/MacOS/sample-demo" in p for p in report["payload_files"]),
+            report["payload_files"],
+        )
+        self.assertTrue(
+            any("Demo App.app/Contents/Info.plist" in p for p in report["payload_files"]),
+            report["payload_files"],
+        )
+        self.assertTrue(
+            any("Demo App.app/Contents/Resources/AppIcon.icns" in p for p in report["payload_files"]),
+            report["payload_files"],
+        )
+        with self.assertRaisesRegex(metadata.PackagingError, "expected .* to be signed"):
+            bundle.verify_pkg(out_pkg, expect_signed=True)
+
+
+class PkgCommandTests(unittest.TestCase):
+    """Cross-platform tests for `bundle.pkg`, `bundle.verify_pkg` and the `pkg` CLI subcommand."""
+
+    def setUp(self):
+        self.scratch = Path(tempfile.mkdtemp(prefix="packager-pkg-"))
+        self.app = self.scratch / "Demo App.app"
+        self.app.mkdir()
+        self.out_pkg = self.scratch / "dist" / "Demo App.pkg"
+
+    def test_fr22_6_8_pkg_invokes_productbuild_with_and_without_sign_identity(self):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            Path(command[-1]).write_bytes(b"pkg")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch.object(bundle, "run", side_effect=fake_run):
+            result = bundle.pkg(self.app, self.out_pkg)
+            self.assertEqual(result, self.out_pkg)
+            self.assertEqual(
+                calls[-1],
+                ["productbuild", "--component", str(self.app), "/Applications", str(self.out_pkg)],
+            )
+
+            bundle.pkg(
+                self.app,
+                self.out_pkg,
+                sign_identity="3rd Party Mac Developer Installer: Example (TEAMID)",
+            )
+            self.assertEqual(
+                calls[-1],
+                [
+                    "productbuild",
+                    "--component",
+                    str(self.app),
+                    "/Applications",
+                    "--sign",
+                    "3rd Party Mac Developer Installer: Example (TEAMID)",
+                    str(self.out_pkg),
+                ],
+            )
+
+    def test_fr22_6_8_verify_pkg_accepts_unsigned_when_not_required_and_rejects_when_required(self):
+        self.out_pkg.parent.mkdir(parents=True, exist_ok=True)
+        self.out_pkg.write_bytes(b"pkg")
+
+        payload_proc = subprocess.CompletedProcess(
+            ["pkgutil", "--payload-files", str(self.out_pkg)],
+            0,
+            stdout="./Demo App.app/Contents/MacOS/sample-demo\n./Demo App.app/Contents/Info.plist\n",
+            stderr="",
+        )
+        unsigned_proc = subprocess.CompletedProcess(
+            ["pkgutil", "--check-signature", str(self.out_pkg)],
+            1,
+            stdout='Package "Demo App.pkg":\n   Status: package is not signed\n',
+            stderr="",
+        )
+        signed_proc = subprocess.CompletedProcess(
+            ["pkgutil", "--check-signature", str(self.out_pkg)],
+            0,
+            stdout='Package "Demo App.pkg":\n   Status: signed by a developer certificate\n',
+            stderr="",
+        )
+
+        with mock.patch.object(bundle, "run", return_value=payload_proc), mock.patch.object(
+            bundle.subprocess, "run", return_value=unsigned_proc
+        ):
+            report = bundle.verify_pkg(self.out_pkg, expect_signed=False)
+            self.assertFalse(report["signed"])
+            self.assertEqual(len(report["payload_files"]), 2)
+            with self.assertRaises(metadata.PackagingError):
+                bundle.verify_pkg(self.out_pkg, expect_signed=True)
+
+        with mock.patch.object(bundle, "run", return_value=payload_proc), mock.patch.object(
+            bundle.subprocess, "run", return_value=signed_proc
+        ):
+            report = bundle.verify_pkg(self.out_pkg, expect_signed=True)
+            self.assertTrue(report["signed"])
+
+    def test_fr22_6_8_cli_pkg_parses_options_and_runs_verify(self):
+        with mock.patch.object(bundle, "pkg", return_value=self.out_pkg) as mock_pkg, mock.patch.object(
+            bundle, "verify_pkg"
+        ) as mock_verify:
+            status = cli.main(
+                [
+                    "pkg",
+                    "--app",
+                    str(self.app),
+                    "--out",
+                    str(self.out_pkg),
+                    "--sign-identity",
+                    "Installer Cert",
+                    "--verify",
+                ]
+            )
+            self.assertEqual(status, 0)
+            mock_pkg.assert_called_once_with(self.app, self.out_pkg, sign_identity="Installer Cert")
+            mock_verify.assert_called_once_with(self.out_pkg, expect_signed=True)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -80,6 +81,10 @@ interface ControlWidgets {
      *
      * [onChange] carries the state the user asked for, and is null when the Host attached
      * no handler, which is how a read-only control is expressed.
+     *
+     * [indeterminate] is a Checkbox's third state, mixed, and wins over [checked]: the box
+     * is filled as a checked one is, with a dash instead of the check, assistive technology
+     * hears it as mixed, and a press asks for checked. The other two roles ignore it.
      */
     @Composable
     fun Toggle(
@@ -90,6 +95,7 @@ interface ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         look: ControlLook = ControlLook.None,
+        indeterminate: Boolean = false,
     )
 
     /**
@@ -167,16 +173,21 @@ internal object DrawnControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         look: ControlLook,
+        indeterminate: Boolean,
     ) {
         val style = theme.rules.controls(theme).toggle(role)
         val motion = theme.rules.motion
+        // Only a Checkbox has a third state. A mixed box is drawn filled, the way a checked
+        // one is, so from here on it counts as on for the fill and the transition.
+        val mixed = indeterminate && role == ToggleRole.Checkbox
+        val filled = checked || mixed
         val spec = tween<Float>(
-            durationMillis = if (checked) motion.pressMillis else motion.releaseMillis,
+            durationMillis = if (filled) motion.pressMillis else motion.releaseMillis,
             easing = motion.easing,
         )
         // The transition between the two states belongs to the Renderer, so a toggle
         // animates without a frame of it crossing the boundary.
-        val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
+        val progress by animateFloatAsState(if (filled) 1f else 0f, spec)
         // A radio button's ring colour fills it only where the design system fills a
         // selected one: there the fill is what reads as the ring. Elsewhere the ring is the
         // outline and the inside stays the design system's.
@@ -186,7 +197,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                 role == ToggleRole.Switch && look.track != null -> look.track
                 role == ToggleRole.RadioButton && checked ->
                     if (radioFills) look.container ?: style.containerChecked else style.containerChecked
-                checked -> look.container ?: style.containerChecked
+                filled -> look.container ?: style.containerChecked
                 else -> style.container
             },
             animationSpec = tween(spec.durationMillis, easing = motion.easing),
@@ -206,7 +217,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                 if (role == ToggleRole.RadioButton) {
                     selected = checked
                 } else {
-                    toggleableState = ToggleableState(checked)
+                    toggleableState = if (mixed) ToggleableState.Indeterminate else ToggleableState(checked)
                 }
             }
 
@@ -222,6 +233,18 @@ internal object DrawnControlWidgets : ControlWidgets {
                 onChange(!checked)
             }
 
+            // A mixed box is announced as mixed, and a press on it asks for all of it to be
+            // checked, as a mixed box does on macOS and in HTML.
+            mixed -> modifier.triStateToggleable(
+                state = ToggleableState.Indeterminate,
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = role.semanticsRole,
+            ) {
+                onChange(true)
+            }
+
             else -> modifier.toggleable(
                 value = checked,
                 interactionSource = interactionSource,
@@ -235,15 +258,22 @@ internal object DrawnControlWidgets : ControlWidgets {
         when (role) {
             ToggleRole.Checkbox -> {
                 val shape = look.shape ?: style.shape
-                // A box the application filled has no outline of its own to show.
-                val outline = if (checked && look.container != null) 0.dp else style.borderWidth
+                // A box the application filled has no outline of its own to show, unless the
+                // application named one: that one is drawn in every state, and is drawn even
+                // where the design system draws no line at all.
+                val outline = when {
+                    look.outline != null -> if (style.borderWidth.value > 0f) style.borderWidth else NAMED_OUTLINE_WIDTH
+                    filled && look.container != null -> 0.dp
+                    else -> style.borderWidth
+                }
+                val mark = (look.check ?: style.mark).copy(alpha = alpha)
                 Box(
                     clickable
                         .size(look.width ?: style.size)
                         .clip(shape)
                         .background(container.copy(alpha = container.alpha * alpha), shape)
-                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
-                        .drawBehind { drawTick((look.check ?: style.mark).copy(alpha = alpha), progress) },
+                        .controlBorder(outline, (look.outline ?: style.border).copy(alpha = alpha), shape)
+                        .drawBehind { if (mixed) drawDash(mark, progress) else drawTick(mark, progress) },
                 )
             }
 
@@ -610,6 +640,32 @@ private fun DrawScope.drawTick(color: Color, progress: Float) {
         style = Stroke(width = width * 0.14f, cap = StrokeCap.Round),
     )
 }
+
+/**
+ * The dash a mixed checkbox draws in place of the check: one stroke across the middle of
+ * the box, as wide and as thick as the check's own strokes are, fading in as the check does.
+ */
+private fun DrawScope.drawDash(color: Color, progress: Float) {
+    if (progress <= 0f) return
+    val width = size.width
+    val middle = size.height / 2f
+    drawLine(
+        color = color.copy(alpha = color.alpha * progress.coerceIn(0f, 1f)),
+        start = Offset(width * DASH_START, middle),
+        end = Offset(width * (1f - DASH_START), middle),
+        strokeWidth = width * 0.14f,
+        cap = StrokeCap.Round,
+    )
+}
+
+/** Where a mixed checkbox's dash starts, as a share of the box's width; it ends as far from the other side. */
+private const val DASH_START = 0.26f
+
+/**
+ * The width of a border the application named for a checkbox whose design system draws none,
+ * the hairline a box of this size needs to read as a box at all.
+ */
+private val NAMED_OUTLINE_WIDTH = 1.5.dp
 
 /** The value a press at [x] lands on, with the thumb's own width taken off both ends. */
 private fun valueAt(x: Float, width: Float, thumb: Float, min: Float, max: Float): Float {
