@@ -56,7 +56,14 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Where the application's zoom level is kept between runs, before the first
     // composition reads it.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
+    // The file dialogs, before the Host exists: the node table takes the platform when
+    // it is made, and the first batch may already ask for one. The windows they belong to are
+    // handed in once they exist.
+    val fileDialogs = WindowsFileDialogPlatform()
+    installedWindowsFileDialogs = fileDialogs
+    FileDialogs.platform = fileDialogs
     val host = ComposeRustHost(connection())
+    fileDialogs.nodeWindow = { id -> host.table.fileDialogs.windowResolver(id) }
     host.start()
 
     // What the application asked for. A window that said nothing is listed under whatever
@@ -89,6 +96,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         host.shutdown()
         return RendererApi.RUN_FAILED
     }
+
+    fileDialogs.rootWindow = { window.handle }
 
     // The window's own light or dark, for what the system draws of it: the caption of a window
     // with the system's chrome, and the frame of every window. Given before the first frame
