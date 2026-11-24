@@ -15,7 +15,7 @@ import org.thisisthepy.compose.window.windows.Win32Loop
 import org.thisisthepy.compose.window.windows.WindowsFileDialogs
 
 /**
- * The file dialogs of the Windows renderer (FR-72): `IFileOpenDialog` and `IFileSaveDialog`
+ * The file dialogs of the Windows renderer: `IFileOpenDialog` and `IFileSaveDialog`
  * owned by the request's window, through the fork's [WindowsFileDialogs], which shows them
  * without stopping the message pump and answers on the window's thread.
  *

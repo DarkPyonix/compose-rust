@@ -18,7 +18,7 @@ grep -q 'configureAppCaption(config.chrome == Chrome.FullSize)' "$WIN" || { echo
 grep -q 'configureAppCaption(appCaption)' "$WIN" || { echo "FAIL: Win32Window.open missing configureAppCaption"; exit 1; }
 grep -q 'fun beginDrag()' "$WIN" || { echo "FAIL: Win32Window missing beginDrag()"; exit 1; }
 # Both window paths provide the drag through WindowsPlatformLocals, whose drag goes through the
-# windowsWindowDrag seam (the FR-53 check swaps it) and defaults to Win32Window.beginDrag.
+# windowsWindowDrag seam (the multi-window check swaps it) and defaults to Win32Window.beginDrag.
 grep -q 'LocalWindowDrag provides { windowsWindowDrag(window) }' "$SINGLE" || { echo "FAIL: WindowsRenderer.kt missing LocalWindowDrag"; exit 1; }
 grep -q 'windowsWindowDrag: (Win32Window) -> Unit = { it.beginDrag() }' "$SINGLE" || { echo "FAIL: windowsWindowDrag does not default to beginDrag"; exit 1; }
 grep -q 'setWindowColorScheme(' "$SINGLE" || { echo "FAIL: WindowsRenderer.kt missing setWindowColorScheme"; exit 1; }

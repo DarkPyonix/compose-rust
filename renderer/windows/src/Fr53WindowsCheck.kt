@@ -79,7 +79,7 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr19_9_windows_window_drag_moves_its_window_with_every_chrome",
     "fr44_windows_system_dark_change_reaches_the_app_without_a_restart",
     "fr43_windows_zoom_level_is_kept_in_appdata",
-    // The system's file dialog, owned by the window that asked (FR-72).
+    // The system's file dialog, owned by the window that asked.
     "fr72_windows_file_dialog_opens_on_its_window_and_ends_with_it",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
@@ -140,7 +140,8 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 // ---- the checks ------------------------------------------------------------------------
 
 /**
- * FR-72: a `ShowFileDialog` for a window opens the system's file dialog owned by that window,
+<<<<<<< HEAD
+ * A `ShowFileDialog` for a window opens the system's file dialog owned by that window,
  * without stopping the loop, and a window that goes away ends its dialog with exactly one
  * Cancelled. Before the Windows renderer installed a platform, every request was Unavailable
  * at once.
@@ -196,7 +197,10 @@ private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
 private const val GW_ENABLEDPOPUP = 6u
 
 /**
- * FR-19.9: a press on a `WindowDrag(true)` node moves the window it is in, with the system's
+ * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
+=======
+ * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
+>>>>>>> origin/fix/windows-kn-platform-hooks
  * caption as much as with one the content draws. One window of each chrome, each filled by a
  * drag region; a press in each reaches that window's drag and no other.
  */
@@ -240,7 +244,7 @@ private fun windowDragMovesItsWindowWithEveryChrome() {
 }
 
 /**
- * FR-44: Windows turning dark while the application runs reaches it as a ColorSchemeChanged,
+ * Windows turning dark while the application runs reaches it as a ColorSchemeChanged,
  * and turning light again as one more, with no restart. The setting is the check's own
  * (win32SystemDarkSource), so the machine's is left as it is.
  */
@@ -273,7 +277,7 @@ private fun systemDarkChangeReachesTheAppWithoutARestart() {
 }
 
 /**
- * FR-43: the application's zoom level is kept in `%APPDATA%\<executable>\zoom-level`. With
+ * The application's zoom level is kept in `%APPDATA%\<executable>\zoom-level`. With
  * APPDATA pointed at a folder of the check's own, a level saved by one store is the level the
  * next store loads, and the file holds it as a number. A window whose application set no
  * level opens at the saved one.

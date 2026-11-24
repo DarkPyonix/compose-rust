@@ -39,7 +39,7 @@ import platform.windows.ReadFile
 import platform.windows.WriteFile
 
 // What the Windows window asks of the system besides drawing: whether the system is in dark
-// mode (FR-44), and where the application's zoom level is kept between runs (FR-43).
+// mode, and where the application's zoom level is kept between runs.
 
 /**
  * Whether Windows is in dark mode now: `AppsUseLightTheme` under the user's Personalize key,
@@ -49,7 +49,7 @@ import platform.windows.WriteFile
 internal var win32SystemDarkSource: () -> Boolean = { dxc_native_system_dark() != 0 }
 
 /**
- * Whether the system is in dark mode, kept current while the composition lives (FR-44).
+ * Whether the system is in dark mode, kept current while the composition lives.
  *
  * Windows announces a change of the setting with a WM_SETTINGCHANGE broadcast the window
  * answers in C (its caption) without telling Kotlin, so this reads the setting again every
@@ -74,7 +74,7 @@ internal fun rememberWin32SystemDark(): State<Boolean> {
 internal const val SYSTEM_DARK_POLL_MILLIS = 1_000L
 
 /**
- * Where this application keeps its zoom level (FR-43): `%APPDATA%\<executable name>\zoom-level`,
+ * Where this application keeps its zoom level: `%APPDATA%\<executable name>\zoom-level`,
  * or nowhere when the environment names no `APPDATA`.
  */
 internal fun windowsZoomLevelStore(): ZoomLevelStore {
