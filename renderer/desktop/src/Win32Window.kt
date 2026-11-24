@@ -49,7 +49,7 @@ private external fun configureWindow(
 @CFunction("dxc_native_window_configure_app_caption")
 private external fun configureAppCaption(enabled: Int)
 
-/** The pointer as the system cursor IDC_* [idc] (`CursorShape.win32Idc`), hidden for 0 (FR-47.1). */
+/** The pointer as the system cursor IDC_* [idc] (`CursorShape.win32Idc`), hidden for 0. */
 @CFunction("dxc_native_set_cursor_id")
 private external fun setCursorId(idc: Int)
 

@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 import org.thisisthepy.compose.window.CursorShape
 
 /**
- * FR-47.1: a node's `Cursor` reaches the window as the fork's [CursorShape], whose table holds
+ * A node's `Cursor` reaches the window as the fork's [CursorShape], whose table holds
  * every keyword's closest shape on Windows, X11 and AppKit. A window that cannot set a shape by
  * keyword yet takes the nearest of the few shapes every desktop window here knows.
  */

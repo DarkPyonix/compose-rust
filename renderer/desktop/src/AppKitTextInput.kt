@@ -61,7 +61,7 @@ class NativePlatformContext(
     private val setCursor: (Int) -> Unit,
     private val focused: () -> Boolean = { true },
     /**
-     * Sets the pointer's shape by its CSS keyword (FR-47.1), on a window that can: the fork's
+     * Sets the pointer's shape by its CSS keyword, on a window that can: the fork's
      * table gives each keyword its closest shape there. Null where the window knows only the
      * few shapes of [PointerShape]; a keyword then takes the nearest of those.
      */
@@ -116,7 +116,7 @@ internal fun pointerShapeOf(pointerIcon: PointerIcon): Int = when (pointerIcon) 
 
 /**
  * The nearest of the few shapes every desktop window here knows, for a CSS `cursor` keyword on
- * a window that cannot set one by keyword (FR-47.1). Anything without a near shape is the arrow.
+ * a window that cannot set one by keyword. Anything without a near shape is the arrow.
  */
 internal fun nearestPointerShape(shape: org.thisisthepy.compose.window.CursorShape): Int {
     return when (shape) {

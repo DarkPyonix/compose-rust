@@ -7,7 +7,7 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.ui.node.Node as HostNode
 
-// FR-47.1: a node's `Cursor`, a CSS `cursor` keyword the Host has already inherited, is the
+// A node's `Cursor`, a CSS `cursor` keyword the Host has already inherited, is the
 // pointer's shape over the node. Which shape each keyword is on Windows, X11 and AppKit is the
 // fork's table (`org.thisisthepy.compose.window.CursorShape`, numbered as the wire numbers the
 // keywords); applying it is the window's code. This side only carries the keyword from the node
