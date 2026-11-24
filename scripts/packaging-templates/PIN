@@ -2,7 +2,7 @@
 # Change a template in the fork, then move this pin:
 #   python3 scripts/check-packaging-templates.py --bump <revision>
 fork https://github.com/thisisthepy/compose-multiplatform-core-extended.git
-revision 7e930f670e34676a4b0c9eeb8e611de58497e2d7
+revision 1306bfe1215719e05d2fa6687394b845e8c23a37
 path extended/packaging
 file metadata-map.md 8f685a2c8521a44c730647dfafde3986d72a2043
 file templates/AppxManifest.xml.in bc91b8098d67f80c6ba2acc79e85177e7623e58d
