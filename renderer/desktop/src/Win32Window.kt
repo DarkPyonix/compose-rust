@@ -49,6 +49,10 @@ private external fun configureWindow(
 @CFunction("dxc_native_window_configure_app_caption")
 private external fun configureAppCaption(enabled: Int)
 
+/** The pointer as the system cursor IDC_* [idc] (`CursorShape.win32Idc`), hidden for 0. */
+@CFunction("dxc_native_set_cursor_id")
+private external fun setCursorId(idc: Int)
+
 /**
  * How tall, in dip, the next window's caption strip is, so its hit test moves the window and
  * answers for the buttons across the strip that is drawn. 0 for the platform's 32.
@@ -182,7 +186,13 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
+        platformContext = NativePlatformContext(
+            { size },
+            textInput,
+            semantics,
+            window::setCursor,
+            setCursorShape = { shape -> setCursorId(shape.win32Idc) },
+        ),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
