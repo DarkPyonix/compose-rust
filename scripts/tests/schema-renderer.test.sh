@@ -216,12 +216,21 @@ nfr16_prune_only_on_renderer_dev() {
     done
 }
 
-# The workflow runs when the leader dispatches it and on nothing else.
+# The workflow runs when the leader dispatches it, directly or as the publish_schema_renderer
+# suite of ci.yml, and on nothing else.
 nfr16_publish_runs_only_when_dispatched() {
     local triggers
     triggers="$(awk '/^on:/ { inside = 1; next } inside && /^[^ #]/ { exit } inside && /^  [a-z_]+:/ { sub(/:.*/, ""); sub(/^ +/, ""); print }' \
-        "$repo_root/.github/workflows/publish-schema-renderer.yml")"
-    expect "Publish schema renderer has workflow_dispatch and no other trigger" test "$triggers" = workflow_dispatch
+        "$repo_root/.github/workflows/publish-schema-renderer.yml" | tr '\n' ' ')"
+    expect "Publish schema renderer has workflow_dispatch and workflow_call and no other trigger" \
+        test "$triggers" = "workflow_dispatch workflow_call "
+    expect "ci.yml calls it only on its plan's publish_schema_renderer output" \
+        python3 -I -c 'import sys; sys.exit(sys.argv[2] not in open(sys.argv[1]).read())' \
+        "$repo_root/.github/workflows/ci.yml" "  publish_schema_renderer:
+    if: needs.plan.outputs.publish_schema_renderer == '"'true'"'
+    needs: plan
+    uses: ./.github/workflows/publish-schema-renderer.yml
+"
 }
 
 # Over every call any test above made: none created, edited or deleted a tag or a release.

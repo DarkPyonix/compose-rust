@@ -49,7 +49,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // not exist yet, so it is found when the press arrives.
     var opened: LinuxWindow? = null
     var openedMany: LinuxWindowBackend? = null
-    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = ::askLinuxForMotion
+    installLinuxReducedMotion()
     Notifications.platform = DBusNotifications(
         open = { PosixBusConnection.open() },
         bringToFront = { opened?.raise() ?: openedMany?.raiseAny() },
@@ -238,6 +238,26 @@ internal fun linuxWindowCaption(
     chrome = asked?.chrome,
     strip = X11Chrome.caption(linuxWindowConfig(asked), fullscreen),
 )
+
+/**
+ * Wires both reduced-motion hooks to the Linux desktop query.
+ *
+ * The full setting query runs at startup and whenever focus returns, and caches its answer so
+ * the boolean hook read during composition and press feedback does not spawn a subprocess on
+ * every render.
+ */
+internal fun installLinuxReducedMotion(
+    ask: () -> dev.darkpyonix.composerust.protocol.ReducedMotion = ::askLinuxForMotion,
+) {
+    var cached: dev.darkpyonix.composerust.protocol.ReducedMotion? = null
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        ask().also { cached = it }
+    }
+    dev.darkpyonix.composerust.ui.node.platformReducedMotion = {
+        val current = cached ?: ask().also { cached = it }
+        current == dev.darkpyonix.composerust.protocol.ReducedMotion.On
+    }
+}
 
 /**
  * What the desktop says about reducing motion: KDE's animation speed factor, where zero is

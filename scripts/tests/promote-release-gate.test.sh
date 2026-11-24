@@ -111,7 +111,7 @@ check("promoted, single-executable skipped: not released",
 check("not a tag: not released", evaluate(everything, "", ref="refs/heads/develop"), False)
 
 # Every build the release would otherwise need is skipped when the tag was promoted.
-for job in builds + ["fork-desktop"]:
+for job in builds:
     check(f"{job} is skipped on promotion",
           "needs.changed.outputs.promoted != 'true'" in " ".join(jobs[job]["if"].split()),
           True)

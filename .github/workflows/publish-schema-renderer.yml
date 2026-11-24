@@ -25,14 +25,17 @@
 # publishes only from develop, and builds nothing when every asset for the schema is
 # already there.
 #
-# When it runs: only when the leader dispatches it, like all development CI. It has no
-# push trigger on purpose.
+# When it runs: only when the leader asks for it, like all development CI. It has no push
+# trigger on purpose. It runs as a suite of ci.yml: dispatch CI on develop with
+# suites=publish_schema_renderer. GitHub dispatches only a workflow the default branch has,
+# and this file is not on main until a release carries it there; ci.yml is, and a dispatch
+# on develop runs develop's copy of both. Once it is on main it can be dispatched directly too.
 #
 # Merge checklist for a pull request that changes compose-rust/schema-hash.txt:
 #   1. Merge it into develop.
-#   2. Dispatch this workflow on develop right away (Actions, "Publish schema renderer",
-#      branch develop). Until it has run, a git dependency on that revision finds no
-#      renderer for its schema.
+#   2. Right away, dispatch CI on develop with suites=publish_schema_renderer
+#      (gh workflow run ci.yml --ref develop -f suites=publish_schema_renderer). Until it has
+#      run, a git dependency on that revision finds no renderer for its schema.
 #   3. Check that its plan job reported publish=true and its publish job uploaded five
 #      renderers and the .source file to renderer-dev.
 
@@ -40,6 +43,10 @@ name: Publish schema renderer
 
 on:
   workflow_dispatch: {}
+  # ci.yml calls it for its publish_schema_renderer suite. A called workflow sees the caller's
+  # event and ref, so the request job below passes and the develop check reads the
+  # dispatched branch.
+  workflow_call: {}
 
 concurrency:
   group: publish-schema-renderer
@@ -49,7 +56,8 @@ permissions:
   contents: read
 
 jobs:
-  # Heavy: every job below needs this one. A dispatch is always a request.
+  # Heavy: every job below needs this one. A dispatch is always a request, and so is a call
+  # from a dispatched ci.yml.
   requested:
     name: Heavy checks requested
     if: >-
