@@ -10,7 +10,17 @@ its platform ships are looked for in `--artifacts`, named `<sample>-<target>.<ex
     macos-aarch64              .tar.gz, .app.zip, .dmg, .pkg
     linux-x64                  .tar.gz, .AppImage, .deb, .rpm, .flatpak
     linux-arm64                .tar.gz, .AppImage, .deb, .rpm
-    windows-x64                .tar.gz, .zip, .msix
+    windows-x64                .tar.gz, .zip, .setup.exe, .msi, .msix
+
+The direct-distribution packages are Velopack's: the .app in the .dmg and the .app.zip
+carries Velopack's UpdateMac, the AppImage is Velopack's self-updating one with UpdateNix,
+and .setup.exe and .msi are vpk's installers. Every target also has its update feed,
+`releases.<sample>-<target>.json` (the sample's own Velopack channel, so the feeds of
+eleven samples on four targets do not overwrite each other in one release), and the full
+`.nupkg` the feed names for this version, which has to be the sample's (id, title, version,
+main executable), hold the executable and no renderer piece beside it, and match the
+digest the feed records. A delta `.nupkg`, when the feed names one, has to be there too.
+The store .pkg carries no updater: the store updates what it installs.
 
 Each one that is there is opened and has to hold the sample's one executable, its icon
 and the metadata the platform reads, and nothing else: the renderer is linked into the
@@ -34,6 +44,7 @@ checked for presence and digest alone, and the check says so.
 import argparse
 import hashlib
 import io
+import json
 import os
 import plistlib
 import re
@@ -57,8 +68,13 @@ FORMATS = {
     # Flatpak on x64 only: Flathub builds the other architectures from the same manifest.
     "linux-x64": ["tar.gz", "AppImage", "deb", "rpm", "flatpak"],
     "linux-arm64": ["tar.gz", "AppImage", "deb", "rpm"],
-    "windows-x64": ["tar.gz", "zip", "msix"],
+    "windows-x64": ["tar.gz", "zip", "setup.exe", "msi", "msix"],
 }
+
+# What vpk adds to an .app: its updater, and the version file the updater reads.
+MACOS_UPDATER = ("MacOS/UpdateMac", "MacOS/sq.version", "Resources/sq.version")
+# An .msi is a Windows Installer database, an OLE compound file.
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 # What an executable may load. A library outside these is one that would have to travel
 # with it, and nothing travels with it.
@@ -278,21 +294,32 @@ def check_windows_zip(path, sample):
     return problems
 
 
-def app_problems(label, files, read, sample, version):
-    """An .app, given as its file list (relative to the bundle's parent) and a reader."""
+def app_problems(label, files, read, sample, version, updater=False):
+    """An .app, given as its file list (relative to the bundle's parent) and a reader.
+
+    `updater` is the direct-distribution app, which carries Velopack's updater; the store's
+    app must not, because the store updates it."""
     app = f"{sample.macos_name}.app"
     contents = f"{re.escape(app)}/Contents"
-    problems = unexpected(label, files, [
+    allowed = [
         f"{contents}/Info\\.plist",
         f"{contents}/PkgInfo",
         f"{contents}/MacOS/{re.escape(sample.executable)}",
         f"{contents}/Resources/AppIcon\\.icns",
         f"{contents}/_CodeSignature/CodeResources",
-    ])
-    for required in ("Info.plist", f"MacOS/{sample.executable}", "Resources/AppIcon.icns",
-                     "_CodeSignature/CodeResources"):
+    ]
+    if updater:
+        allowed += [f"{contents}/{re.escape(name)}" for name in MACOS_UPDATER]
+    problems = unexpected(label, files, allowed)
+    required = ["Info.plist", f"MacOS/{sample.executable}", "Resources/AppIcon.icns", "_CodeSignature/CodeResources"]
+    if updater:
+        required.append("MacOS/UpdateMac")
+    elif f"{app}/Contents/MacOS/UpdateMac" in files:
+        problems.append(f"{label} carries Velopack's updater, and the store updates what it installs")
+    for required in required:
         if f"{app}/Contents/{required}" not in files:
-            what = {"Resources/AppIcon.icns": "an icon", "_CodeSignature/CodeResources": "a signature"}.get(required, required)
+            what = {"Resources/AppIcon.icns": "an icon", "_CodeSignature/CodeResources": "a signature",
+                    "MacOS/UpdateMac": "Velopack's updater, so it cannot update itself"}.get(required, required)
             problems.append(f"{label} has no {app}/Contents/{required} ({what})")
     if f"{app}/Contents/Info.plist" in files:
         info = plistlib.loads(read(f"{app}/Contents/Info.plist"))
@@ -313,7 +340,7 @@ def app_problems(label, files, read, sample, version):
 def check_app_zip(path, sample, version):
     with zipfile.ZipFile(path) as archive:
         files = [name for name in archive.namelist() if not name.endswith("/")]
-        return app_problems(path.name, files, archive.read, sample, version)
+        return app_problems(path.name, files, archive.read, sample, version, updater=True)
 
 
 def files_under(root):
@@ -343,7 +370,8 @@ def check_dmg(path, sample, version, scratch):
         if "If macOS will not open the app.txt" not in files:
             problems.append(f"{path.name} does not carry the notes on opening an app signed ad hoc")
         inside = [name for name in files if name.startswith(app + "/")]
-        problems += app_problems(path.name, inside, lambda name: (mount / name).read_bytes(), sample, version)
+        problems += app_problems(path.name, inside, lambda name: (mount / name).read_bytes(), sample, version,
+                                 updater=True)
         return problems
     finally:
         subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True)
@@ -413,6 +441,8 @@ def desktop_entry(text):
 
 
 def check_appimage(path, sample, scratch):
+    """Velopack's self-updating AppImage: AppRun, the desktop entry and its icon at the top,
+    and the package in usr/bin (the executable, UpdateNix and the sq.version it reads)."""
     workdir = scratch / "appimage"
     workdir.mkdir()
     copy = workdir / path.name
@@ -424,31 +454,135 @@ def check_appimage(path, sample, scratch):
         return [f"{path.name} does not unpack: {extracted.stderr.strip() or extracted.stdout.strip()}"]
     files = files_under(root)
     ident = re.escape(sample.identifier)
-    payload = f"usr/lib/{sample.executable}/{sample.executable}"
+    payload = f"usr/bin/{sample.executable}"
     problems = unexpected(path.name, files, [
         r"AppRun", r"\.DirIcon", f"{ident}\\.desktop", f"{ident}\\.(png|svg)",
-        f"usr/share/applications/{ident}\\.desktop",
-        f"usr/share/metainfo/{ident}\\.(appdata|metainfo)\\.xml",
-        f"usr/share/icons/hicolor/[0-9a-z]+(x[0-9]+)?/apps/{ident}\\.(png|svg)",
-        re.escape(payload),
+        re.escape(payload), r"usr/bin/UpdateNix", r"usr/bin/sq\.version",
     ])
     if payload not in files:
         problems.append(f"{path.name} has no {payload}")
     else:
         problems += reference_problems(f"{path.name}:{payload}", (root / payload).read_bytes(), "linux")
-    if not any(re.fullmatch(f"usr/share/icons/hicolor/.*/apps/{ident}\\.(png|svg)", name) for name in files):
+    if "usr/bin/UpdateNix" not in files:
+        problems.append(f"{path.name} has no usr/bin/UpdateNix (Velopack's updater), so it cannot update itself")
+    if not any(re.fullmatch(f"{ident}\\.(png|svg)", name) for name in files):
         problems.append(f"{path.name} has no icon for {sample.identifier}")
     desktop = root / f"{sample.identifier}.desktop"
     if not desktop.is_file():
         problems.append(f"{path.name} has no {sample.identifier}.desktop, so the sample's identifier is not its name")
     else:
         entry = desktop_entry(desktop.read_text())
-        for key, want in (("Name", sample.name), ("Comment", sample.description), ("Icon", sample.identifier)):
+        # vpk writes the entry's Comment itself (the title and version), so the sample's
+        # description is checked in the .deb, .rpm and Flatpak, which carry its metainfo.
+        for key, want in (("Name", sample.name), ("Icon", sample.identifier)):
             have = entry.get(key)
-            # AppStream and desktop entries read a summary as a fragment, without the full stop.
-            if (have or "").rstrip(".") != want.rstrip("."):
+            if have != want:
                 problems.append(f"{path.name}: the desktop entry's {key} is {have!r}, and the sample says {want!r}")
     return problems
+
+
+def check_setup_exe(path):
+    """vpk's Setup.exe: a Windows program. What it unpacks is the .nupkg, checked on its own."""
+    data = path.read_bytes()[:4096]
+    try:
+        pe, = struct.unpack_from("<I", data, 0x3C)
+        if data[:2] == b"MZ" and data[pe:pe + 4] == b"PE\0\0":
+            return []
+    except struct.error:
+        pass
+    return [f"{path.name} is not a Windows program"]
+
+
+def check_msi(path):
+    """vpk's .msi: a Windows Installer database. packager-macos.yml reads its Property table."""
+    with open(path, "rb") as handle:
+        if handle.read(8) == OLE_MAGIC:
+            return []
+    return [f"{path.name} is not a Windows Installer database"]
+
+
+# --- the update feed ---------------------------------------------------------------------
+
+
+def field(entry, name):
+    """A feed field, whatever case vpk wrote its name in."""
+    for key, value in entry.items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
+
+def local_name(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def check_nupkg(path, sample, version, platform, channel):
+    """A Velopack package: its .nuspec names the sample, and lib/app holds the executable."""
+    executable = sample.executable + (".exe" if platform == "windows" else "")
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [name for name in archive.namelist() if not name.endswith("/")]
+            nuspecs = [name for name in names if "/" not in name and name.endswith(".nuspec")]
+            if not nuspecs:
+                return [f"{path.name} has no .nuspec"]
+            metadata = {}
+            for element in ET.fromstring(archive.read(nuspecs[0])).iter():
+                metadata.setdefault(local_name(element.tag), (element.text or "").strip())
+            app = [name for name in names if name.startswith("lib/app/")]
+            mains = [name for name in app if name.rsplit("/", 1)[-1] == executable]
+            main_bytes = archive.read(mains[0]) if mains else None
+    except (zipfile.BadZipFile, ET.ParseError, OSError) as error:
+        return [f"{path.name} is not a readable package: {error}"]
+    problems = []
+    for key, want in (("id", sample.identifier), ("version", version), ("title", sample.name),
+                      ("mainExe", executable), ("channel", channel)):
+        if metadata.get(key) != want:
+            problems.append(f"{path.name}: the .nuspec {key} is {metadata.get(key)!r}, and the sample says {want!r}")
+    if main_bytes is None:
+        problems.append(f"{path.name} has no {executable} under lib/app/")
+    else:
+        problems += reference_problems(f"{path.name}:{mains[0]}", main_bytes, platform)
+    # The package is the app as it is installed, Velopack's own files beside it. A
+    # renderer piece or a library named like one is the packaging mistake the bundles
+    # are checked for.
+    for name in app:
+        base = name.rsplit("/", 1)[-1]
+        if base != executable and RENDERER_PIECES.search(base) and re.search(r"\.(so|dylib|dll)(\.|$)", base):
+            problems.append(f"{path.name} holds {name}, and the renderer is linked into the executable")
+    return problems
+
+
+def check_feed(artifacts, sample, target, version, platform):
+    """(problems, missing, names) for releases.<sample>-<target>.json and its packages."""
+    channel = f"{sample.slug}-{target}"
+    feed_path = artifacts / f"releases.{channel}.json"
+    if not feed_path.is_file():
+        return [], [f"{sample.slug} {target} feed"], []
+    names = [feed_path.name]
+    try:
+        feed = json.loads(feed_path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        return [f"{feed_path.name} is not JSON: {error}"], [], names
+    assets = field(feed, "Assets") if isinstance(feed, dict) else None
+    assets = [entry for entry in assets or [] if isinstance(entry, dict)]
+    ours = [entry for entry in assets if str(field(entry, "Version")) == version]
+    if not any(str(field(entry, "Type")).lower() == "full" for entry in ours):
+        return [f"{feed_path.name} lists no full package of {version}"], [], names
+    problems = []
+    for entry in ours:
+        name = str(field(entry, "FileName") or "")
+        package = artifacts / name
+        if not name or "/" in name or not package.is_file():
+            problems.append(f"{feed_path.name} lists {name or 'a package with no name'}, which is not in the release")
+            continue
+        names.append(name)
+        recorded = str(field(entry, "SHA256") or "").lower()
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        if recorded and recorded != digest:
+            problems.append(f"{feed_path.name} records SHA256 {recorded} for {name}, and the file is {digest}")
+        if str(field(entry, "Type")).lower() == "full":
+            problems += check_nupkg(package, sample, version, platform, channel)
+    return problems, [], names
 
 
 # --- distribution packages ---------------------------------------------------------------
@@ -593,7 +727,7 @@ def check_pkg(path, sample, version, scratch):
     for payload in payloads:
         files = files_under(payload)
         problems += app_problems(path.name, files, lambda name, root=payload: (root / name).read_bytes(),
-                                 sample, version)
+                                 sample, version, updater=False)
     return problems
 
 
@@ -653,6 +787,10 @@ def check(target, artifacts, samples, built, version):
                     found = check_deb(path, sample, version)
                 elif extension == "rpm":
                     found = check_rpm(path, sample, version)
+                elif extension == "setup.exe":
+                    found = check_setup_exe(path)
+                elif extension == "msi":
+                    found = check_msi(path)
                 elif extension == "flatpak":
                     # A Flatpak bundle is an OSTree commit that flatpak-builder made from
                     # the Flathub manifest; reading it needs flatpak itself, so here it is
@@ -679,8 +817,21 @@ def check(target, artifacts, samples, built, version):
             problems += found
             if not found:
                 print(f"ok    {path.name}")
+        found, absent, names = check_feed(artifacts, sample, target, version, platform)
+        problems += found
+        missing += absent
+        present += names
+        if names and not found:
+            print(f"ok    {names[0]} ({', '.join(names[1:])})")
     problems += checksum_problems(artifacts, target, present)
     return problems, missing
+
+
+def missing_sentence(line):
+    slug, target, extension = line.split(" ")
+    if extension == "feed":
+        return f"sample-{slug} has no update feed releases.{slug}-{target}.json for {target}"
+    return f"sample-{slug} has no .{extension} for {target}"
 
 
 def main(argv=None):
@@ -704,12 +855,10 @@ def main(argv=None):
                 for line in missing:
                     handle.write(line + "\n")
             for line in missing:
-                slug, target, extension = line.split(" ")
-                print(f"::warning title=Format missing::sample-{slug} has no .{extension} for {target}")
+                print(f"::warning title=Format missing::{missing_sentence(line)}")
         else:
             for line in missing:
-                slug, target, extension = line.split(" ")
-                print(f"::error title=Format missing::sample-{slug} has no .{extension} for {target}")
+                print(f"::error title=Format missing::{missing_sentence(line)}")
     for problem in problems:
         print(f"::error title=Bundle is wrong::{problem}")
     failure_count = len(problems) + (0 if args.allow_missing else len(missing))
