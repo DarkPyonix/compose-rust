@@ -468,6 +468,14 @@ echo "consumer.exe, debug build, by C runtime:"
 echo "  vcruntime and C++ library linked in, UCRT from Windows (the default): $default_size bytes ($(megabytes "$default_size"))"
 echo "  vcruntime from its DLL (DXC_WINDOWS_CRT=dynamic):                     $dynamic_size bytes ($(megabytes "$dynamic_size"))"
 echo "  everything static, UCRT too (+crt-static):                           $static_size bytes ($(megabytes "$static_size"))"
+{
+    printf '### Windows consumer executable size (debug)\n\n'
+    printf '| C runtime | Bytes |\n| --- | ---: |\n'
+    printf '| Static vcruntime and C++ library, system UCRT (default) | %s |\n' "$default_size"
+    printf '| Dynamic vcruntime | %s |\n' "$dynamic_size"
+    printf '| Static vcruntime and UCRT (`+crt-static`) | %s |\n' "$static_size"
+    printf '\nDefault minus dynamic: %d bytes.\n' "$((default_size - dynamic_size))"
+} > "$scratch/crt-sizes.md"
 if [[ "${#failed[@]}" -ne 0 ]]; then
     fail "these did not succeed from an empty directory: ${failed[*]}" \
         "Each one's output and, where it crashed, its stack are above."

@@ -246,6 +246,21 @@ impl ComposeHost {
             Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
         }))
     }
+
+    /// A Host for a closure in the given theme (used by offscreen preview rendering).
+    pub fn with_content_and_theme(
+        content: impl Fn() + Send + Sync + 'static,
+        theme: Theme,
+    ) -> Self {
+        let content = Arc::new(content);
+        Self(Host::with_theme(
+            move || {
+                let content = Arc::clone(&content);
+                Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
+            },
+            theme,
+        ))
+    }
 }
 
 impl std::ops::Deref for ComposeHost {

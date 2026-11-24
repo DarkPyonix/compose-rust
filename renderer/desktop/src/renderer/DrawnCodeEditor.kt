@@ -504,7 +504,7 @@ private fun DrawnSurface(
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
-    val foldColumn = foldColumnWidthPx(model, look, rowPx)
+    val foldColumn = density.foldColumnWidthPx(model, look, rowPx)
     val gutterWidth = (
         density.numberColumnPx(look, rows.lineCount.toString().length, digitWidth) +
             markColumn + foldColumn + density.changeColumnPx(model, look)
@@ -534,7 +534,10 @@ private fun DrawnSurface(
     }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
-    SideEffect { callbacks.onOutput() }
+    // The first of these, and the first focus state, are the editor being put on screen.
+    val output = remember(scope) { FirstOutputLater(scope) }
+    val focusOutput = remember(scope) { FirstOutputLater(scope) }
+    SideEffect { output.send(callbacks) }
     // Scrolling redraws without recomposing, so the lines on screen are read from a flow.
     LaunchedEffect(rows, viewportHeight, rowPx, padTopPx) {
         snapshotFlow { vertical.offset }.collect { scroll ->
@@ -603,7 +606,7 @@ private fun DrawnSurface(
                 .onFocusChanged {
                     focused = it.isFocused
                     model.focusChanged(it.isFocused)
-                    callbacks.onOutput()
+                    focusOutput.send(callbacks)
                 }
                 .focusable()
                 .onKeyEvent { event ->

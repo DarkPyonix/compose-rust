@@ -12,6 +12,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -20,13 +21,16 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.EveryDpReport
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 private const val NODE = 1
 private const val TOKEN = 7
@@ -80,6 +84,48 @@ class ObserveSizeTest {
                 assertEquals(WindowSizeClass.Compact, sizes.single().sizeClass)
                 assertEquals(300f, sizes.single().widthDp)
             }
+        }
+    }
+
+    /**
+     * A Host that lays out by a node's size answers the report by measuring nodes, before
+     * the call returns. That is a layout of its own, which cannot start inside the pass
+     * that measured the observed node, so the class is told once that pass is over. The
+     * first measurement and a resize into another class both get an answer.
+     */
+    @Test
+    fun fr28_host_measures_a_node_while_answering_an_observed_size() = runComposeUiTest {
+        val connection = observed(everyDp = false)
+        val calls = mutableListOf<Int>()
+        val answers = mutableListOf<MeasuredResult>()
+        connection.respondWith { event ->
+            if (event is HostEvent.WindowSizeChanged && event.nodeId == NODE) {
+                val requests = MeasureRequests().node(NODE, maxWidth = 200f)
+                val results = resultBuffer(requests.count)
+                calls += RendererMeasure.measure(requests.encode(), requests.count, results)
+                answers += results.results(requests.count)
+            }
+            HostResponse()
+        }
+        var width by mutableStateOf(300.dp)
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(width, 300.dp))
+            }
+        }
+        waitForIdle()
+        width = 700.dp
+        waitForIdle()
+
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        assertTrue(errors.isEmpty(), "measuring from inside a size report failed: ${errors.map { it.message }}")
+        assertEquals(listOf(300f, 700f), connection.sizes().map { it.widthDp })
+        assertEquals(listOf(MeasureRecords.CALL_OK, MeasureRecords.CALL_OK), calls)
+        answers.forEachIndexed { index, measured ->
+            assertEquals(MeasureRecords.STATUS_OK, measured.status, "answer $index")
+            // The node fills the width it is given, and it was given 200 dp.
+            assertEquals(200f, measured.width, "width in answer $index")
+            assertTrue(measured.height > 0f, "height in answer $index")
         }
     }
 

@@ -11,6 +11,13 @@ import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.draw.CacheDrawScope
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.AndroidFont
 import androidx.compose.ui.text.font.DeviceFontFamilyName
@@ -71,9 +78,12 @@ internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
         val paint = android.graphics.Paint().apply { this.typeface = typeface }
         Asset.Font(
             family = FontFamily(font),
-            face = Asset.Font.Face(font, declared.weight, declared.italic) { codePoint ->
-                paint.hasGlyph(String(Character.toChars(codePoint)))
-            },
+            face = Asset.Font.Face(
+                font,
+                declared.weight,
+                declared.italic,
+                hasGlyph = { codePoint -> paint.hasGlyph(String(Character.toChars(codePoint))) },
+            ),
         )
     } catch (error: RuntimeException) {
         // An unreadable font is the application's mistake and is reported as one.
@@ -185,3 +195,41 @@ internal fun ellipticalRadialShader(
 
 /** The size the document says it is in its own units, or null where it says none. */
 internal fun vectorIntrinsicSize(document: VectorDocument): Size? = document.intrinsicSize
+
+/**
+ * Draws a blurred box shadow: [shape] in [brush], blurred by a Gaussian of standard deviation
+ * [sigma], over a shadow of [width] by [height].
+ *
+ * Android blurs through a layer: the shape is drawn into it with room for the blur around it,
+ * and the layer is blurred as a whole. The Skia renderers draw the shape with a blurring
+ * paint instead; Android's own canvas and its blur are a different path, and its pictures
+ * were matched to the desktop's falloff through this layer.
+ */
+internal fun CacheDrawScope.blurredShadow(
+    shape: Path,
+    brush: Brush,
+    sigma: Float,
+    width: Float,
+    height: Float,
+): DrawScope.() -> Unit {
+    val margin = kotlin.math.ceil(3f * sigma)
+    val layer = obtainGraphicsLayer()
+    layer.record(
+        this,
+        layoutDirection,
+        IntSize(kotlin.math.ceil(width + 2f * margin).toInt(), kotlin.math.ceil(height + 2f * margin).toInt()),
+    ) {
+        translate(margin, margin) { drawPath(shape, brush) }
+    }
+    layer.renderEffect = BlurEffect(composeBlurRadius(sigma), composeBlurRadius(sigma), TileMode.Decal)
+    return { translate(-margin, -margin) { drawLayer(layer) } }
+}
+
+/**
+ * The radius Compose's blur takes for a Gaussian of standard deviation [sigma].
+ *
+ * Compose turns a blur radius r into a deviation of 0.57735 r + 0.5, the conversion Skia
+ * and Android both use, so this is that conversion run backwards. Below half a pixel there
+ * is nothing to blur.
+ */
+private fun composeBlurRadius(sigma: Float): Float = kotlin.math.max(0f, (sigma - 0.5f) / 0.57735f)

@@ -1,0 +1,238 @@
+# Publish schema renderer: the renderers develop has built, by schema hash.
+#
+# A crate version stays the same between two releases while its schema moves on. A git
+# dependency on a revision after a release therefore gets a crate whose version names a
+# renderer of another schema, which the build refuses, rightly. This workflow builds the
+# renderers for develop's schema and puts them on the renderer-dev release, where the
+# crate's build script looks next:
+#
+#   compose-rust-renderer-schema-<hash>-<target>.tar.gz and .sha256, for macos-aarch64,
+#   linux-x64, linux-arm64, windows-x64 and ios, and compose-rust-renderer-schema-<hash>.source
+#   naming the commit and renderer/ tree they were built from.
+#
+# <hash> is compose-rust/schema-hash.txt without 0x. A version tag whose schema and renderer/
+# tree match a set here releases these instead of building its own (test-native-renderer.yml).
+#
+# The builds are the ones the release runs: static-renderer.yml for macOS and Linux,
+# windows-static.yml for Windows, and the iOS archives build-ios.sh writes, packaged by the
+# script the release packages them with. .github/scripts/schema-renderer.sh renames them,
+# uploads them with --clobber, and prunes the release to the 20 most recently published
+# hashes and the hash of every released version.
+#
+# What it does not do. It creates, moves and deletes no tag and no release: renderer-dev
+# was made once by the owner, and when it is not there the upload says so and ends green.
+# It deletes assets on renderer-dev only; the script refuses any other release. It
+# publishes only from develop, and builds nothing when every asset for the schema is
+# already there.
+#
+# When it runs: only when the leader asks for it, like all development CI. It has no push
+# trigger on purpose. It runs as a suite of ci.yml: dispatch CI on develop with
+# suites=publish_schema_renderer. GitHub dispatches only a workflow the default branch has,
+# and this file is not on main until a release carries it there; ci.yml is, and a dispatch
+# on develop runs develop's copy of both. Once it is on main it can be dispatched directly too.
+#
+# Merge checklist for a pull request that changes compose-rust/schema-hash.txt:
+#   1. Merge it into develop.
+#   2. Right away, dispatch CI on develop with suites=publish_schema_renderer
+#      (gh workflow run ci.yml --ref develop -f suites=publish_schema_renderer). Until it has
+#      run, a git dependency on that revision finds no renderer for its schema.
+#   3. Check that its plan job reported publish=true and its publish job uploaded five
+#      renderers and the .source file to renderer-dev.
+
+name: Publish schema renderer
+
+on:
+  workflow_dispatch: {}
+  # ci.yml calls it for its publish_schema_renderer suite. A called workflow sees the caller's
+  # event and ref, so the request job below passes and the develop check reads the
+  # dispatched branch.
+  workflow_call: {}
+
+concurrency:
+  group: publish-schema-renderer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Heavy: every job below needs this one. A dispatch is always a request, and so is a call
+  # from a dispatched ci.yml.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
+  plan:
+    needs: requested
+    name: Check whether this schema's renderers are published
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      hash: ${{ steps.hash.outputs.hash }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the schema hash
+        id: hash
+        run: echo "hash=$(tr -d '[:space:]' < compose-rust/schema-hash.txt)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Compare with what renderer-dev holds
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HASH: ${{ steps.hash.outputs.hash }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/heads/develop ]]; then
+            echo "::notice::renderer-dev holds what develop built; $GITHUB_REF publishes nothing"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! gh release view renderer-dev --json assets --jq '.assets[].name' > "$RUNNER_TEMP/assets.txt" 2> "$RUNNER_TEMP/view.err"; then
+            if grep -qi "not found" "$RUNNER_TEMP/view.err"; then
+              echo "::notice::the renderer-dev release does not exist, so there is nowhere to publish; the owner creates it once, and this workflow never creates a tag or a release"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/view.err" >&2
+            exit 1
+          fi
+          ./.github/scripts/schema-renderer.sh plan "$HASH" "$RUNNER_TEMP/assets.txt" | tee -a "$GITHUB_OUTPUT"
+
+  macos-static:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/static-renderer.yml
+    with:
+      target: macos-aarch64
+
+  linux-static:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/static-renderer.yml
+    with:
+      target: linux-x64
+
+  linux-arm64-static:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/static-renderer.yml
+    with:
+      target: linux-arm64
+
+  windows-static:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    uses: ./.github/workflows/windows-static.yml
+    with:
+      part: kit
+
+  ios:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    name: Build the iOS renderer
+    # macos-26 for the same reason as the release's iOS job: Compose's iOS objects are built
+    # against the iOS 26 SDK.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the Kotlin toolchain, konan and Maven dependencies
+        id: cache-1
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: kotlin-ios-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          restore-keys: |
+            kotlin-ios-
+
+      - name: Build the simulator archive
+        run: ./renderer/desktop/scripts/build-ios.sh
+
+      - name: Build the device archive
+        run: ./renderer/desktop/scripts/build-ios.sh --target device
+
+      - name: Package it the way the release carries it
+        id: package
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
+          name="compose-rust-renderer-v$version-ios"
+          ./.github/scripts/package-ios-renderer.sh "$name" renderer/build/ios "$RUNNER_TEMP/artifact"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz
+            ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+      - name: Save the Kotlin toolchain, konan and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
+
+  publish:
+    needs: [plan, macos-static, linux-static, linux-arm64-static, windows-static, ios]
+    if: needs.plan.outputs.publish == 'true'
+    name: Upload the renderers to renderer-dev
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploads and deletes assets on the renderer-dev release. It creates no tag and no
+      # release, and moves none.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Every tag, for the hash of each released version, which pruning keeps.
+          fetch-depth: 0
+
+      - name: Take the renderers the builds packaged
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compose-rust-renderer-v*
+          path: ${{ runner.temp }}/built
+          merge-multiple: true
+
+      - name: Name them by schema
+        env:
+          HASH: ${{ needs.plan.outputs.hash }}
+        run: |
+          set -euo pipefail
+          ls -la "$RUNNER_TEMP/built"
+          ./.github/scripts/schema-renderer.sh rename "$HASH" "$RUNNER_TEMP/built" "$RUNNER_TEMP/publish"
+          ./.github/scripts/schema-renderer.sh source "$HASH" "$GITHUB_SHA" "$(git rev-parse HEAD:renderer)" "$RUNNER_TEMP/publish"
+          count="$(ls "$RUNNER_TEMP/publish"/*.tar.gz | wc -l)"
+          if [[ "$count" -ne "$(./.github/scripts/schema-renderer.sh targets | wc -l)" ]]; then
+            echo "::error::$count renderers were packaged; a release promotes only a full set, so none is published"
+            exit 1
+          fi
+          ls -la "$RUNNER_TEMP/publish"
+
+      - name: Upload, and keep the 20 newest schemas and every released one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for tag in $(git tag -l 'v*'); do
+            git show "$tag:compose-rust/schema-hash.txt" 2>/dev/null || true
+          done > "$RUNNER_TEMP/released.txt"
+          ./.github/scripts/schema-renderer.sh upload "$RUNNER_TEMP/publish" "$RUNNER_TEMP/released.txt"

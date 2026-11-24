@@ -115,17 +115,23 @@ jobs:
           if ($installed.Version -ne '${{ steps.pack.outputs.version }}') { throw "installed $($installed.Version), packaged ${{ steps.pack.outputs.version }}" }
           $installed | Remove-AppxPackage
 
+      # appcert.exe ships with the Windows SDK that windows-latest has installed
+      # (run-wack.ps1 fails with a clear message if it is ever missing). A FAIL of a
+      # required test fails the job; FR-22.6 criterion 13 also requires
+      # DPIAwarenessValidation to pass, not merely to avoid failing.
       - name: Windows App Certification Kit (package)
         run: >
           ./scripts/packager-windows/scripts/run-wack.ps1
           -Package '${{ steps.pack.outputs.package }}'
           -Report "$env:RUNNER_TEMP\wack\package-report.xml"
+          -RequirePass DPIAwarenessValidation
 
       - name: Windows App Certification Kit (bundle)
         run: >
           ./scripts/packager-windows/scripts/run-wack.ps1
           -Package '${{ steps.pack.outputs.bundle }}'
           -Report "$env:RUNNER_TEMP\wack\bundle-report.xml"
+          -RequirePass DPIAwarenessValidation
 
       - name: Upload the reports
         if: always()

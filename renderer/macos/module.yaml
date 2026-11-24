@@ -24,6 +24,7 @@ product:
 # org.thisisthepy.compose.*, which nothing JetBrains publishes can stand in for.
 repositories:
   - mavenLocal
+  - https://maven-central.storage-download.googleapis.com/maven2/
 
 # Compose's compiler plugin through the template rather than `compose: enabled`, which would add
 # JetBrains' runtime and components-resources and with them JetBrains' Compose next to the fork's.

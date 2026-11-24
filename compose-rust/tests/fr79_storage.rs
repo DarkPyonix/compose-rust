@@ -14,9 +14,11 @@ use compose_rust::protocol::{
 use compose_rust::runtime::*;
 use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, IoStatus, PropertyKind, StorageOp, Theme,
+    WEB_EVENT_BUFFER_BYTES,
 };
 use compose_rust::storage::{self, Backend, Platform, StorageError, testing};
 use compose_rust::ui::*;
+use compose_rust::web_event_buffer::LentEventBuffer;
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::PathBuf;
@@ -770,6 +772,59 @@ fn fr79_every_storage_request_gets_exactly_one_answer() {
     session.answer(answer(save[0].0, IoStatus::QuotaExceeded, &[]));
     assert_eq!(results()[3], ("save", "Err(QuotaExceeded)".to_owned()));
     assert_eq!(testing::waiting(), 0, "every request was answered");
+}
+
+/// A web storage read whose value is larger than the 4 KiB initial event buffer grows the
+/// lent event buffer and delivers the full 1 MiB value intact to the awaiting caller.
+#[test]
+fn fr79_web_reads_a_value_larger_than_the_event_buffer() {
+    let _serial = serial();
+    testing::reset(Some(ID), Backend::Renderer);
+    RESULTS.with_borrow_mut(Vec::clear);
+    let mut host = ComposeHost::with_theme(Savers, Theme::unified(DesignSystem::Material3));
+    let mut tree = Tree::default();
+    let first = host.rebuild().unwrap().to_vec();
+    tree.apply(&first);
+    let mut session = Session { host, tree };
+    let loader = calls(&first);
+    assert!(session.press("hide").is_empty());
+    session.answer(answer(loader[0].0, IoStatus::NotFound, &[]));
+
+    let load = session.press("load");
+    assert_eq!(load.len(), 1);
+    let request = load[0].0;
+
+    let value: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
+    let event = answer(request, IoStatus::Ok, &value);
+    let mut wire = Vec::new();
+    encode_event(&event, &mut wire).expect("the 1 MiB IoAnswer encodes");
+    assert!(
+        wire.len() > WEB_EVENT_BUFFER_BYTES as usize,
+        "the encoded answer must exceed the 4 KiB startup event buffer"
+    );
+
+    let mut lender = LentEventBuffer::new();
+    let needed = u32::try_from(wire.len()).expect("the event length fits in u32");
+    let ptr = lender
+        .lend(needed)
+        .expect("the Host lends a buffer large enough for a 1 MiB answer");
+    assert!(lender.len() >= wire.len());
+    // SAFETY: `lender.lend(needed)` returned a writable buffer of at least `wire.len()` bytes
+    // owned by `lender`, and nothing else accesses it while we copy and read it back.
+    let carried = unsafe {
+        let lent = std::slice::from_raw_parts_mut(ptr, wire.len());
+        lent.copy_from_slice(&wire);
+        lent.to_vec()
+    };
+    let decoded = decode_event(&carried).expect("the lent buffer holds a valid IoAnswer");
+    session.answer(decoded);
+
+    let expected: Result<Option<Vec<u8>>, StorageError> = Ok(Some(value));
+    assert_eq!(
+        results().last().cloned(),
+        Some(("load", format!("{expected:?}")))
+    );
+    assert_eq!(testing::waiting(), 0);
 }
 
 /// A read whose value is larger than the largest event the web carries gets one too-large

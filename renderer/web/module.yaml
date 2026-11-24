@@ -9,6 +9,9 @@
 # The module cannot depend on `desktop` instead, because that one is a `jvm/app`.
 product: wasm-js/app
 
+repositories:
+  - https://maven-central.storage-download.googleapis.com/maven2/
+
 dependencies:
   - $compose.runtime
   - $compose.foundation

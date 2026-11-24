@@ -28,6 +28,7 @@ product:
 # the fork, and publishes both to the local repository under the versions asked for below.
 repositories:
   - mavenLocal
+  - https://maven-central.storage-download.googleapis.com/maven2/
 
 # Named by the coordinate of the target, for the reason the Linux module gives: the
 # shorthand asks for a module's root, and what is needed is the target's own klib. Every
