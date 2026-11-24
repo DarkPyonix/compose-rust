@@ -249,6 +249,8 @@ elif platform == "linux":
             "Exec=sample-demo\n"
             "DESKTOP\n"
             "  printf '\\211PNG\\r\\n\\032\\n' > squashfs-root/dev.example.samples.demo.png\n"
+            "  mkdir -p squashfs-root/usr/share/icons/hicolor/scalable/apps\n"
+            "  cp squashfs-root/dev.example.samples.demo.png squashfs-root/usr/share/icons/hicolor/scalable/apps/\n"
             f"  printf '%s' '{encoded_exe}' | base64 -d > squashfs-root/usr/bin/sample-demo\n"
             "  chmod 755 squashfs-root/usr/bin/sample-demo\n"
             + updater +
@@ -278,6 +280,11 @@ elif platform == "linux":
     if target == "linux-x64" and fault != "missing-flatpak":
         (artifacts / f"demo-{target}.flatpak").write_bytes(b"flatpak-bundle-fixture")
     nupkg_app = [("lib/app/sample-demo", exe)]
+    if fault == "nupkg-appimage":
+        # vpk can carry the AppImage whole on Linux, the executable inside it.
+        nupkg_app = [("lib/app/dev.example.samples.demo.AppImage", b"\x7fELF-appimage")]
+    elif fault == "nupkg-empty":
+        nupkg_app = [("lib/app/README", b"nothing")]
 else:
     libraries = ["/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit"]
     if fault == "absolute-renderer":
@@ -351,7 +358,7 @@ if platform == "macos" and fault != "missing-pkg":
 # The update feed Velopack's SDK reads, and the full package it names.
 channel = f"demo-{target}"
 nupkg = f"dev.example.samples.demo-{VERSION}-{channel}-full.nupkg"
-main_exe = "sample-demo.exe" if platform == "windows" else "sample-demo"
+main_exe = {"windows": "sample-demo.exe", "macos": "Contents/MacOS/sample-demo"}.get(platform, "sample-demo")
 pack_id = "dev.example.wrong" if fault == "nupkg-wrong-id" else "dev.example.samples.demo"
 nuspec = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packages/2010/07/nuspec.xsd">
@@ -501,6 +508,10 @@ run_case fr22_6_7_a_package_id_other_than_the_samples_fails linux-x64 nupkg-wron
     "the .nuspec id is 'dev.example.wrong'"
 run_case fr22_6_7_a_renderer_library_in_the_update_package_fails linux-x64 nupkg-renderer fail \
     "holds lib/app/libskiko.so"
+run_case fr22_6_7_a_linux_update_package_carrying_the_appimage_passes linux-x64 nupkg-appimage ok \
+    "ok    demo-linux-x64.AppImage"
+run_case fr22_6_7_a_linux_update_package_without_the_app_says_what_it_holds linux-x64 nupkg-empty fail \
+    "(it holds lib/app/README)"
 run_case fr22_6_7_the_direct_app_without_velopacks_updater_fails macos-aarch64 no-updater fail \
     "has no Demo.app/Contents/MacOS/UpdateMac" --allow-missing
 if [[ "$(uname -s)" == "Linux" ]]; then

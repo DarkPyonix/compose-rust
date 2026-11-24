@@ -457,6 +457,8 @@ def check_appimage(path, sample, scratch):
     payload = f"usr/bin/{sample.executable}"
     problems = unexpected(path.name, files, [
         r"AppRun", r"\.DirIcon", f"{ident}\\.desktop", f"{ident}\\.(png|svg)",
+        # vpk also puts the icon where the desktop's icon theme looks for it.
+        f"usr/share/icons/hicolor/[0-9a-z]+(x[0-9]+)?/apps/{ident}\\.(png|svg)",
         re.escape(payload), r"usr/bin/UpdateNix", r"usr/bin/sq\.version",
     ])
     if payload not in files:
@@ -534,12 +536,20 @@ def check_nupkg(path, sample, version, platform, channel):
     except (zipfile.BadZipFile, ET.ParseError, OSError) as error:
         return [f"{path.name} is not a readable package: {error}"]
     problems = []
+    # On macOS vpk names the executable by its path inside the .app.
+    main_exe = f"Contents/MacOS/{executable}" if platform == "macos" else executable
     for key, want in (("id", sample.identifier), ("version", version), ("title", sample.name),
-                      ("mainExe", executable), ("channel", channel)):
+                      ("mainExe", main_exe), ("channel", channel)):
         if metadata.get(key) != want:
             problems.append(f"{path.name}: the .nuspec {key} is {metadata.get(key)!r}, and the sample says {want!r}")
-    if main_bytes is None:
-        problems.append(f"{path.name} has no {executable} under lib/app/")
+    # On Linux the package can carry the AppImage whole, the executable inside it; that
+    # AppImage is the one uploaded beside the package and is checked on its own.
+    appimages = [name for name in app if name.endswith(".AppImage")]
+    if main_bytes is None and platform == "linux" and appimages:
+        pass
+    elif main_bytes is None:
+        held = ", ".join(app[:12]) or "nothing"
+        problems.append(f"{path.name} has no {executable} under lib/app/ (it holds {held})")
     else:
         problems += reference_problems(f"{path.name}:{mains[0]}", main_bytes, platform)
     # The package is the app as it is installed, Velopack's own files beside it. A
