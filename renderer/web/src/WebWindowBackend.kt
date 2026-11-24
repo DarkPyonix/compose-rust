@@ -37,6 +37,10 @@ internal class WebWindowBackend(
             onClose = { id -> if (activeNodeId == id) activeNodeId = 0 },
         )
     }
+
+    // A page has no application around it: nothing reopens it without a window, and the
+    // browser never makes a window the page did not ask for, so there is nothing to report.
+    override fun setApplicationListener(listener: ApplicationListener?) {}
 }
 
 private class WebPageWindow(
