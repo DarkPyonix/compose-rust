@@ -19,6 +19,10 @@
 /// The manifest: per-monitor v2 DPI awareness, the same awareness the renderer asks for,
 /// and `asInvoker`, so Windows never guesses from a file name that the program is an
 /// installer wanting elevation.
+///
+/// The file is the Compose fork's packaging template `application.manifest.in`, copied as
+/// it is: the published crate cannot read `scripts/packaging-templates/`, and
+/// `scripts/tests/packaging-templates.test.sh` fails when the two differ.
 pub const APPLICATION_MANIFEST: &str = include_str!("application.manifest");
 
 /// `RT_MANIFEST`.
