@@ -5,8 +5,10 @@
 //!         [--load-average N] [--machine TEXT]
 //! ```
 //!
-//! Every ratio is printed, not only the means. A scenario whose trees differ, or whose
-//! candidate sent more records or bytes, is printed as invalid and fails the verdict.
+//! Every ratio is printed, not only the means. A scenario whose trees differ is printed as
+//! invalid. One whose trees are equal but whose candidate sent more records or bytes is
+//! printed as a violation, on a line of its own starting `violation <scenario>:`, and is
+//! recorded in `record_violations`. Both fail the verdict.
 //! For a scenario whose trees differ, the first differing line of the two final trees is
 //! printed under the table, so the failure says what to look at.
 //! `--record` writes the table, the run conditions and the paths of the raw runs into the
@@ -14,7 +16,9 @@
 //!
 //! `--trees-only` checks that the two paths built the same trees and sent no more records,
 //! and ignores the timings: it is how the ported samples are checked against the `rsx!`
-//! ones after the same interactions, with one pass of each scenario.
+//! ones after the same interactions, with one pass of each scenario. It exits 0 when every
+//! scenario is clean, 1 when any scenario's trees differ or a run is missing (whatever
+//! else happened), and 3 when the trees all agree but some scenario is a violation.
 
 use fr39_scenarios::{Comparison, ScenarioRun, compare, first_difference, quantile, verdict};
 use std::collections::BTreeMap;
@@ -119,6 +123,7 @@ fn main() {
                     candidate_mutations: 0,
                     baseline_bytes: 0,
                     candidate_bytes: 0,
+                    record_violation: None,
                 });
             }
         }
@@ -142,26 +147,36 @@ fn main() {
             c.baseline_mutations,
             c.candidate_bytes,
             c.baseline_bytes,
-            if c.valid {
-                "ok".to_owned()
-            } else {
-                format!("INVALID: {}", c.reason)
+            match (c.valid, &c.record_violation) {
+                (false, _) => format!("INVALID: {}", c.reason),
+                (true, Some(_)) => "VIOLATION: more records or bytes than the baseline".to_owned(),
+                (true, None) => "ok".to_owned(),
             },
         );
     }
     for difference in &differences {
         println!("{difference}");
     }
+    let violations: Vec<_> = comparisons
+        .iter()
+        .filter_map(|c| c.record_violation.clone())
+        .collect();
+    for violation in &violations {
+        println!("{violation}");
+    }
     if trees_only {
         let invalid: Vec<&Comparison> = comparisons.iter().filter(|c| !c.valid).collect();
         for c in &invalid {
             println!("{}: {}", c.name, c.reason);
         }
-        if invalid.is_empty() {
-            println!("every scenario built the same trees on both paths");
-            return;
+        if !invalid.is_empty() {
+            std::process::exit(1);
         }
-        std::process::exit(1);
+        println!("every scenario built the same trees on both paths");
+        if !violations.is_empty() {
+            std::process::exit(3);
+        }
+        return;
     }
     let (passed, g50, g99) = verdict(&comparisons);
     println!(
@@ -199,6 +214,7 @@ fn main() {
             "raw_runs": baseline_files.iter().chain(candidate_files.iter()).collect::<Vec<_>>(),
             "runs": runs,
             "comparisons": comparisons,
+            "record_violations": violations,
             "geometric_mean_p50_ratio": g50,
             "geometric_mean_p99_ratio": g99,
             "target_met": passed,
