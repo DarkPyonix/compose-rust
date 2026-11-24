@@ -286,6 +286,11 @@ c_dir="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window/windows
 compile "$c_dir/win32_window.c" "$OUT_DIR/native/win32_window.obj" "/I$(tool_path "$c_dir")"
 compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$c_dir/win32_file_dialog.c" "$OUT_DIR/native/win32_file_dialog.obj" "/I$(tool_path "$c_dir")"
+# The window's DirectComposition calls, the fork's one C++ file. No exceptions and no RTTI, so
+# it needs no C++ runtime: what it calls is COM, and dcomp.dll is loaded when it runs.
+[[ -f "$c_dir/win32_dcomp.cpp" ]] || die "the pinned fork commit has no extended/window/windows-shared/c/win32_dcomp.cpp"
+compile "$c_dir/win32_dcomp.cpp" "$OUT_DIR/native/win32_dcomp.obj" "/I$(tool_path "$c_dir")" \
+    /std:c++17 /GR- /EHs-c-
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"
 # Skia's ICU data, compiled in by the fork's skiko build (embedded_icu.obj), so no icudtl.dat sits
 # beside the executable. Taken as it is built: the fork compiles it with the flags clang 19 needs.
@@ -301,7 +306,7 @@ rm -rf "$OUT_DIR/static-ucrt"
 # does not: it travels in the rlib to every application. Whole, because nothing calls into
 # the ICU loader or the initialiser the bridge registers, and a member nothing calls is a
 # member the linker leaves out.
-(cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib win32_window.obj \
+(cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib win32_window.obj win32_dcomp.obj \
     win32_notifications.obj win32_file_dialog.obj mingw_bridge.obj embedded_icu.obj)
 cp "$SKIKO_OUT/skiko-bridges.lib" "$OUT_DIR/skiko/"
 cp "$SKIKO_OUT"/skia/*.lib "$OUT_DIR/skiko/"
