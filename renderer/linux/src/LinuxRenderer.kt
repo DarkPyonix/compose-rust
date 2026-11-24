@@ -1,8 +1,14 @@
 package dev.darkpyonix.composerust.ui.platform
 
-import dev.darkpyonix.composerust.runtime.WindowContent
+import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.WindowCaption
+import dev.darkpyonix.composerust.runtime.WindowContent
+import dev.darkpyonix.composerust.ui.node.Asset
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.allocArray
@@ -12,8 +18,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import dev.darkpyonix.composerust.protocol.WidgetKind
+import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.TitleBarStyle
+import org.thisisthepy.compose.window.WindowChrome
 import org.thisisthepy.compose.window.WindowConfig
+import org.thisisthepy.compose.window.X11Chrome
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run` calls.
@@ -81,14 +90,22 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
     // The application's own tree, drawn by the same interpreter the native image path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
-    //
-    // No caption is passed. The window manager draws this platform's title bar itself, outside
-    // the window, so there is no strip of our own for content to step clear of.
     opened = window
+    val iconAsset = asked?.icon ?: 0
+    val windowIcon = DockIcon(
+        lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        apply = { picture -> window.setIcon(picture) },
+    )
+    if (iconAsset != 0) windowIcon.tryApply(iconAsset)
     // The bus is read on this thread every turn, because there is no other thread to read it
-    // on and nothing else would notice a press arriving while the window is idle.
-    window.onTurn = { host.table.notifications.pump() }
-    window.setContent { WindowContent(host) }
+    // on and nothing else would notice a press arriving while the window is idle. The icon
+    // asset may also arrive after the first batch, so it is checked until applied.
+    window.onTurn = {
+        if (iconAsset != 0 && !windowIcon.applied) windowIcon.tryApply(iconAsset)
+        host.table.notifications.pump()
+    }
+    val caption = linuxWindowCaption(asked?.chrome, window.x11.caption())
+    window.setContent { WindowContent(host, caption = caption) }
     try {
         window.run()
     } finally {
@@ -111,7 +128,18 @@ private fun runWindows(
     main: FrameDispatcher,
     opened: (LinuxWindowBackend) -> Unit,
 ): Int {
-    val backend = LinuxWindowBackend(main) { nodeId -> { WindowContent(host, windowNodeId = nodeId) } }
+    val defaultIcon = host.table.window?.icon ?: 0
+    val backend = LinuxWindowBackend(
+        work = main,
+        lookupIcon = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
+        defaultIcon = defaultIcon,
+        windowContent = { config, window ->
+            val caption = linuxWindowCaption(config.chrome, window.x11.caption())
+            {
+                WindowContent(host, caption = caption, windowNodeId = config.nodeId)
+            }
+        },
+    )
     opened(backend)
     val manager = WindowManager(host, backend, onExit = backend::requestExit, dropTargets = DropTargets.Registered)
     val frames = CoroutineScope(main + Job())
@@ -152,14 +180,26 @@ private fun runWindows(
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
 
+/** Maps the Host's chrome choice to the X11 window layer's chrome mode. */
+internal fun linuxWindowChrome(chrome: Chrome?): WindowChrome = when (chrome) {
+    Chrome.System -> WindowChrome.System
+    Chrome.Modern, Chrome.FullSize, null -> WindowChrome.Modern
+}
+
+/** Maps the Host's title bar style to the X11 window layer's title bar style. */
+internal fun linuxTitleBarStyle(titleBar: TitleBar?): TitleBarStyle = when (titleBar) {
+    TitleBar.Simple -> TitleBarStyle.Simple
+    TitleBar.Normal, null -> TitleBarStyle.Normal
+}
+
 /**
  * The window the application asked for, in the form the X11 layer opens one from.
  *
- * Everything the application can say about its window's size travels: whether it may be
- * resized and the smallest size it may be dragged to, as well as the size it opens at. The
- * X11 layer turns the last three into the hints the window manager reads, so a window that
- * asked not to be resized stays at its size and one with a minimum is not dragged below it.
- * A window that said nothing opens at the default size, resizable, with no minimum.
+ * Everything the application can say about its window's size, chrome and title bar travels:
+ * whether it may be resized and the smallest size it may be dragged to, as well as the size
+ * it opens at and whether the window manager draws the frame or the scene draws the caption.
+ * A window that said nothing opens at the default size, resizable, with no minimum, in modern
+ * chrome with a normal title bar.
  */
 internal fun linuxWindowConfig(asked: dev.darkpyonix.composerust.protocol.Window?): WindowConfig =
     WindowConfig(
@@ -169,7 +209,39 @@ internal fun linuxWindowConfig(asked: dev.darkpyonix.composerust.protocol.Window
         minWidth = asked?.minWidth?.takeIf { it > 0 } ?: 0,
         minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
         resizable = asked?.resizable ?: true,
+        chrome = linuxWindowChrome(asked?.chrome),
+        titleBar = linuxTitleBarStyle(asked?.titleBar),
     )
+
+/**
+ * The caption strip the interpreter lays out around, from the X11 window's own caption
+ * measurement and the application's chrome mode.
+ *
+ * System chrome leaves the frame to the window manager, so there is no strip for the scene.
+ * Modern and full-size chrome carry the strip height and button metrics the X11 layer
+ * resolved for the title bar mode, with `fullSize` set when content starts at the top edge.
+ */
+internal fun linuxWindowCaption(
+    chrome: Chrome?,
+    strip: org.thisisthepy.compose.window.WindowCaption,
+): WindowCaption {
+    if (chrome == Chrome.System || strip.height <= 0f) return WindowCaption.None
+    return WindowCaption(
+        height = strip.height.dp,
+        buttonsWidth = strip.buttonsWidth.dp,
+        buttonsAtStart = strip.buttonsAtStart,
+        fullSize = chrome == Chrome.FullSize,
+    )
+}
+
+/** Pure caption computation from a Host window description, for tests without a display server. */
+internal fun linuxWindowCaption(
+    asked: dev.darkpyonix.composerust.protocol.Window?,
+    fullscreen: Boolean = false,
+): WindowCaption = linuxWindowCaption(
+    chrome = asked?.chrome,
+    strip = X11Chrome.caption(linuxWindowConfig(asked), fullscreen),
+)
 
 /**
  * Wires both reduced-motion hooks to the Linux desktop query.
