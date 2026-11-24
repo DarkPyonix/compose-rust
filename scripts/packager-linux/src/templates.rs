@@ -9,8 +9,7 @@
 use crate::flatpak::Json;
 
 pub const DESKTOP: &str = include_str!("../../packaging-templates/templates/app.desktop.in");
-pub const METAINFO: &str =
-    include_str!("../../packaging-templates/templates/app.metainfo.xml.in");
+pub const METAINFO: &str = include_str!("../../packaging-templates/templates/app.metainfo.xml.in");
 pub const FLATPAK: &str =
     include_str!("../../packaging-templates/templates/flatpak-manifest.json.in");
 
@@ -58,7 +57,10 @@ pub fn render(template: &str, values: &[(&str, &str)]) -> String {
         };
         let key = &rest[start + 2..start + 2 + end];
         out.push_str(&rest[..start]);
-        let (_, value) = values.iter().find(|(k, _)| *k == key).expect("checked above");
+        let (_, value) = values
+            .iter()
+            .find(|(k, _)| *k == key)
+            .expect("checked above");
         out.push_str(value);
         rest = &rest[start + 2 + end + 2..];
     }
@@ -82,7 +84,10 @@ pub fn parse_json(text: &str) -> Result<Json, String> {
     let value = parser.value()?;
     parser.space();
     if parser.at != parser.chars.len() {
-        return Err(format!("text after the JSON value at character {}", parser.at));
+        return Err(format!(
+            "text after the JSON value at character {}",
+            parser.at
+        ));
     }
     Ok(value)
 }
@@ -106,7 +111,10 @@ impl Parser {
                 self.at += 1;
                 Ok(())
             }
-            other => Err(format!("expected {want:?} at character {}, found {other:?}", self.at)),
+            other => Err(format!(
+                "expected {want:?} at character {}, found {other:?}",
+                self.at
+            )),
         }
     }
 
@@ -131,7 +139,12 @@ impl Parser {
                             self.at += 1;
                             return Ok(Json::Array(items));
                         }
-                        other => return Err(format!("expected ',' or ']' at character {}, found {other:?}", self.at)),
+                        other => {
+                            return Err(format!(
+                                "expected ',' or ']' at character {}, found {other:?}",
+                                self.at
+                            ));
+                        }
                     }
                 }
             }
@@ -155,11 +168,19 @@ impl Parser {
                             self.at += 1;
                             return Ok(Json::Object(fields));
                         }
-                        other => return Err(format!("expected ',' or '}}' at character {}, found {other:?}", self.at)),
+                        other => {
+                            return Err(format!(
+                                "expected ',' or '}}' at character {}, found {other:?}",
+                                self.at
+                            ));
+                        }
                     }
                 }
             }
-            other => Err(format!("a template holds objects, arrays and strings, found {other:?} at character {}", self.at)),
+            other => Err(format!(
+                "a template holds objects, arrays and strings, found {other:?} at character {}",
+                self.at
+            )),
         }
     }
 
@@ -184,9 +205,18 @@ impl Parser {
                         'r' => out.push('\r'),
                         't' => out.push('\t'),
                         'u' => {
-                            let hex: String = self.chars.get(self.at..self.at + 4).unwrap_or(&[]).iter().collect();
-                            let code = u32::from_str_radix(&hex, 16).map_err(|_| format!("bad \\u escape {hex:?}"))?;
-                            out.push(char::from_u32(code).ok_or_else(|| format!("bad \\u escape {hex:?}"))?);
+                            let hex: String = self
+                                .chars
+                                .get(self.at..self.at + 4)
+                                .unwrap_or(&[])
+                                .iter()
+                                .collect();
+                            let code = u32::from_str_radix(&hex, 16)
+                                .map_err(|_| format!("bad \\u escape {hex:?}"))?;
+                            out.push(
+                                char::from_u32(code)
+                                    .ok_or_else(|| format!("bad \\u escape {hex:?}"))?,
+                            );
                             self.at += 4;
                         }
                         other => return Err(format!("unknown escape \\{other}")),
@@ -217,13 +247,22 @@ pub fn json_holds(template: &Json, output: &Json, path: &str) -> Result<(), Stri
         (Json::Array(want), Json::Array(have)) => {
             let mut from = 0;
             for (index, item) in want.iter().enumerate() {
-                let Some(found) = (from..have.len()).find(|&i| json_holds(item, &have[i], "").is_ok()) else {
-                    return Err(format!("{path}[{index}] ({}) is missing or out of order", item.render(0)));
+                let Some(found) =
+                    (from..have.len()).find(|&i| json_holds(item, &have[i], "").is_ok())
+                else {
+                    return Err(format!(
+                        "{path}[{index}] ({}) is missing or out of order",
+                        item.render(0)
+                    ));
                 };
                 from = found + 1;
             }
             Ok(())
         }
-        _ => Err(format!("{path} is {}, and the template has {}", output.render(0), template.render(0))),
+        _ => Err(format!(
+            "{path} is {}, and the template has {}",
+            output.render(0),
+            template.render(0)
+        )),
     }
 }

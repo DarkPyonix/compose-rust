@@ -16,8 +16,6 @@
 //! X11 only as a fallback is for a renderer that speaks Wayland itself, which this one
 //! does not yet.
 
-use crate::appstream::metainfo_file_name;
-use crate::desktop::desktop_file_name;
 use crate::icons::{Icon, IconKind};
 use crate::metadata::AppMetadata;
 use crate::templates;

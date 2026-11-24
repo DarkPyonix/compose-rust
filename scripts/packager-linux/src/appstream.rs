@@ -25,7 +25,11 @@ pub fn metainfo(meta: &AppMetadata) -> String {
 
 /// [`metainfo`] from a given template, so a test can show the output follows it.
 pub fn metainfo_with(template: &str, meta: &AppMetadata) -> String {
-    let first = meta.description.first().map(String::as_str).unwrap_or(meta.summary.as_str());
+    let first = meta
+        .description
+        .first()
+        .map(String::as_str)
+        .unwrap_or(meta.summary.as_str());
     let mut x = templates::render(
         template,
         &[
@@ -109,7 +113,12 @@ pub fn metainfo_with(template: &str, meta: &AppMetadata) -> String {
                 escape(value)
             ));
         }
-        fill_empty(&mut x, "  <content_rating ", "  </content_rating>\n", &children);
+        fill_empty(
+            &mut x,
+            "  <content_rating ",
+            "  </content_rating>\n",
+            &children,
+        );
     }
     if !meta.release_notes.is_empty() {
         let mut children = String::from("      <description>\n");

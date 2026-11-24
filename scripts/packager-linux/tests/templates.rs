@@ -112,10 +112,14 @@ fn fr22_6_11_the_desktop_entry_is_its_template_then_additions() {
 
 #[test]
 fn fr22_6_11_the_desktop_entry_follows_its_template() {
-    let template = templates::DESKTOP.replace("Version=1.5", "Version=1.6") + "X-From-Template=true\n";
+    let template =
+        templates::DESKTOP.replace("Version=1.5", "Version=1.6") + "X-From-Template=true\n";
     let entry = desktop_entry_with(&template, &meta());
     assert!(entry.contains("Version=1.6\n"), "{entry}");
-    assert!(entry.contains("X-From-Template=true\nKeywords=math;\n"), "{entry}");
+    assert!(
+        entry.contains("X-From-Template=true\nKeywords=math;\n"),
+        "{entry}"
+    );
 }
 
 #[test]
@@ -154,7 +158,10 @@ fn fr22_6_11_the_metainfo_keeps_every_line_its_template_renders() {
         "    <release version=\"1.2.3\" date=\"2026-10-03\">",
         "        <p>Faster.</p>",
     ] {
-        assert!(xml.lines().any(|l| l == added), "missing {added:?} in\n{xml}");
+        assert!(
+            xml.lines().any(|l| l == added),
+            "missing {added:?} in\n{xml}"
+        );
     }
 }
 
@@ -165,7 +172,10 @@ fn fr22_6_11_the_metainfo_follows_its_template() {
         "  <categories>\n    <category>FromTemplate</category>\n  </categories>\n  <provides>",
     );
     let xml = metainfo_with(&template, &meta());
-    assert!(xml.contains("    <category>FromTemplate</category>\n"), "{xml}");
+    assert!(
+        xml.contains("    <category>FromTemplate</category>\n"),
+        "{xml}"
+    );
 }
 
 #[test]
@@ -241,20 +251,36 @@ fn fr22_6_11_an_unfilled_placeholder_stops_the_packager() {
 #[test]
 fn fr22_6_11_a_change_the_packager_did_not_make_is_reported() {
     let template = parse_json(r#"{"a": ["x", "y"], "b": {"c": "d"}}"#).unwrap();
-    let holds = parse_json(r#"{"a": ["x", "added", "y"], "b": {"c": "d", "e": "f"}, "g": "h"}"#).unwrap();
+    let holds =
+        parse_json(r#"{"a": ["x", "added", "y"], "b": {"c": "d", "e": "f"}, "g": "h"}"#).unwrap();
     json_holds(&template, &holds, "t").unwrap();
     let reordered = parse_json(r#"{"a": ["y", "x"], "b": {"c": "d"}}"#).unwrap();
-    assert!(json_holds(&template, &reordered, "t").unwrap_err().contains("t.a[1]"));
+    assert!(
+        json_holds(&template, &reordered, "t")
+            .unwrap_err()
+            .contains("t.a[1]")
+    );
     let changed = parse_json(r#"{"a": ["x", "y"], "b": {"c": "changed"}}"#).unwrap();
-    assert!(json_holds(&template, &changed, "t").unwrap_err().contains("t.b.c"));
+    assert!(
+        json_holds(&template, &changed, "t")
+            .unwrap_err()
+            .contains("t.b.c")
+    );
 }
 
 #[test]
 fn fr22_6_11_template_json_reads_back_what_the_packager_writes() {
     let value = Json::Object(vec![(
         "k\"ey".into(),
-        Json::Array(vec![Json::str("a\\b\n\u{1}"), Json::Array(vec![]), Json::Object(vec![])]),
+        Json::Array(vec![
+            Json::str("a\\b\n\u{1}"),
+            Json::Array(vec![]),
+            Json::Object(vec![]),
+        ]),
     )]);
     assert_eq!(parse_json(&value.render(0)).unwrap(), value);
-    assert!(parse_json("{\"a\": 1}").is_err(), "numbers are not in any template");
+    assert!(
+        parse_json("{\"a\": 1}").is_err(),
+        "numbers are not in any template"
+    );
 }
