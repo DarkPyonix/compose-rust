@@ -149,7 +149,6 @@ pub fn stage(number: u32) -> Vec<&'static Lesson> {
         .collect()
 }
 
-/// How far through the whole course a pupil is, as a fraction.
 /// Whether a pupil has reached a stage: any lesson in it is open. The strip names a stage
 /// that has been reached in white and one that has not in grey, as the reference does.
 pub fn reached(number: u32) -> bool {
@@ -158,6 +157,7 @@ pub fn reached(number: u32) -> bool {
         .any(|lesson| lesson.stage == number && lesson.open)
 }
 
+/// How far through the whole course a pupil is, as a fraction.
 pub fn overall_progress() -> f32 {
     let open = LESSONS.iter().filter(|lesson| lesson.open).count();
     open as f32 / LESSONS.len() as f32

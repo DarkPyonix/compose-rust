@@ -261,8 +261,8 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,sheet_handle,read_only,native_visible,on_native_view_focus,rich_text,on_text_format,on_rich_text_changed;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,thumb_elevation,track_border,sheet_handle,read_only,native_visible,on_native_view_focus,indeterminate,outline_color,rich_text,on_text_format,on_rich_text_changed,fold_column_width_dp,insert_spaces;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle,WeightUnfilled;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged,TextFormatAtSelection,RichTextChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -464,6 +464,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
     hash = hash_bytes(hash, &SEMANTICS_STATE_MASK.to_le_bytes());
+    hash = hash_bytes(hash, &SEMANTICS_CHECKED_MIXED.to_le_bytes());
     hash
 }
 
@@ -2758,7 +2759,8 @@ pub enum Modifier {
     },
     /// What this node is to assistive technology: its role, and whether it is checked or
     /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
-    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
+    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on; the
+    /// checked field also takes 3, `SEMANTICS_CHECKED_MIXED`, for a mixed node. The
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
@@ -2869,6 +2871,9 @@ pub enum Modifier {
         tint: Option<Paint>,
         press_easing: Option<[f32; 4]>,
     },
+    /// Compose `Modifier.weight(w, fill = false)`: takes up to its weighted share of the
+    /// parent's remaining main-axis space, without forcing a shorter child to expand.
+    WeightUnfilled(f32),
 }
 
 /// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
@@ -2893,6 +2898,10 @@ pub const SEMANTICS_DISABLED_SHIFT: u32 = 6;
 /// Where the focused field sits in `Modifier::Semantics::state`: 0 unset, 1 not focused,
 /// 2 focused.
 pub const SEMANTICS_FOCUSED_SHIFT: u32 = 8;
+/// The value of the checked field that says the node is mixed, neither checked nor
+/// unchecked: a box that stands for a set of which only some are checked. The two-bit field
+/// is otherwise 0 unset, 1 off and 2 on, so this takes the one value that was left.
+pub const SEMANTICS_CHECKED_MIXED: u32 = 3;
 /// The bit that excludes the node from the accessibility tree.
 pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
 /// The bit that exposes a click action on the node.
@@ -3947,6 +3956,12 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         extra_words: 1,
         fields: PRESS_STYLE_FIELDS,
     },
+    VariantSchema {
+        name: "WeightUnfilled",
+        tag: 48,
+        extra_words: 0,
+        fields: VALUE_FLOAT_FIELD,
+    },
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -4364,9 +4379,17 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // gutter, so the text starts at the same place whether or not the file has folds or
     // changes. A boolean, absent is no.
     FixedGutterColumns = 211,
+    // How high a `Switch` lifts its thumb, an f32 in dp: a soft shadow under the thumb
+    // that travels with it, cut to the track. Absent is the design system's, which is no
+    // shadow in every system today; 0 is no shadow.
+    ThumbElevation = 212,
+    // A line around a `Switch`'s track in both states, as a blob of 12 bytes: the width as
+    // an f32 in dp, then the `Paint` bits as a u64, both little-endian. The fields are the
+    // `Border` modifier's, in its order. Absent is the design system's border; a width of 0
+    // is none.
+    TrackBorder = 213,
     // Whether a bottom `Sheet` draws its drag handle, a boolean. Absent is yes. Without it
-    // the sheet still drags the same way. 212 and 213 are held by properties on other
-    // branches.
+    // the sheet still drags the same way.
     SheetHandle = 214,
     // When true on a TextField, the field stays focusable and selectable (including copy)
     // while rejecting edits and announcing itself as read-only.
@@ -4378,6 +4401,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     NativeVisible = 190,
     // The handler that hears the platform view take and lose keyboard focus.
     OnNativeViewFocus = 191,
+    // Whether a Checkbox is in the mixed state, a boolean sent only when true. It wins over
+    // `Checked`: the box is drawn filled with a dash instead of a check, assistive
+    // technology hears it as mixed, and a press asks for checked.
+    Indeterminate = 216,
+    // The colour of a Checkbox's border as `Paint` bits, in every state alike. Absent is the
+    // design system's border.
+    OutlineColor = 217,
     // When true on a TextField, the Renderer keeps character and paragraph formatting for the
     // field's text, takes `FormatText` and `SetRichText`, and reports the formatting at the
     // selection and the document. Absent is a plain field with no formatting bookkeeping.
@@ -4386,6 +4416,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     OnTextFormat = 221,
     // The handler that hears a rich text field's document: text, character runs, paragraphs.
     OnRichTextChanged = 222,
+    // The width in dp of a code editor's fold column when folds (or fixed gutter columns) are
+    // shown, an f32. Absent leaves the column one row wide (`rowPx`).
+    FoldColumnWidthDp = 226,
+    // Whether pressing Tab in a code editor inserts spaces to the next tab stop (true, the
+    // default when absent) or a literal tab character (false). A boolean.
+    InsertSpaces = 227,
 });
 
 /// What happened, for each event the Renderer can send.

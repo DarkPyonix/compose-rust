@@ -10,6 +10,7 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -309,6 +310,72 @@ class ScrollWireTest {
     }
 
     @Test
+    fun fr80_scroll_into_view_in_creating_batch_for_absolute_box_target() = runComposeUiTest {
+        val rowScroll = 3
+        val absBox = 4
+        val target = 100 + 38
+        val mutations = buildList {
+            add(Mutation.Create(LIST, WidgetKind.ScrollColumn))
+            add(Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(400f, 320f)))
+            add(Mutation.SetProp(LIST, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)))
+            add(Mutation.Create(rowScroll, WidgetKind.ScrollRow))
+            add(Mutation.Insert(LIST, rowScroll, 0))
+            add(Mutation.Create(absBox, WidgetKind.AbsoluteBox))
+            add(Mutation.SetModifier(absBox, 0, ProtocolModifier.Size(400f, 60 * 34f)))
+            add(Mutation.Insert(rowScroll, absBox, 0))
+            for (i in 0 until 60) {
+                val id = 100 + i
+                add(Mutation.Create(id, WidgetKind.Box))
+                add(Mutation.SetModifier(id, 0, ProtocolModifier.Offset(0f, i * 34f)))
+                add(Mutation.SetModifier(id, 1, ProtocolModifier.RequiredSize(400f, 34f)))
+                add(Mutation.Insert(absBox, id, i))
+            }
+            // Mirrors dioxus-compose's overflow:auto (ScrollRow inside ScrollColumn): both
+            // containers receive ScrollIntoView for the same target node in the creating batch.
+            add(intoView(rowScroll, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST))
+            add(intoView(LIST, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST))
+        }
+        val screen = screen(mutations)
+        assertTrue(screen.errors.isEmpty(), "no protocol error: ${screen.errors}")
+        val expectedY = (38 + 1) * 34.0 - 320.0
+        assertEquals(expectedY, screen.reports.last().yPx, 1.0, "row 38 should be scrolled into view on first batch")
+        val bounds = onNodeWithTag(nodeTestTag(target)).getUnclippedBoundsInRoot()
+        assertTrue(bounds.top.value >= -0.5f && bounds.bottom.value <= 320.5f, "target bounds $bounds must be inside 0..320")
+    }
+
+    @Test
+    fun fr80_scroll_into_view_on_two_containers_for_same_target_keeps_placement_alive() = runComposeUiTest {
+        val rowScroll = 3
+        val absBox = 4
+        val target = 5
+        val rowHandler = HANDLER + 1
+        val screen = screen(
+            listOf(
+                Mutation.Create(LIST, WidgetKind.ScrollColumn),
+                Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(400f, 320f)),
+                Mutation.SetProp(LIST, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.Create(rowScroll, WidgetKind.ScrollRow),
+                Mutation.SetProp(rowScroll, PropertyKind.OnScrollChanged, PropertyValue.Integer(rowHandler)),
+                Mutation.Insert(LIST, rowScroll, 0),
+                Mutation.Create(absBox, WidgetKind.AbsoluteBox),
+                Mutation.SetModifier(absBox, 0, ProtocolModifier.Size(1000f, 60 * 34f)),
+                Mutation.Insert(rowScroll, absBox, 0),
+                Mutation.Create(target, WidgetKind.Box),
+                Mutation.SetModifier(target, 0, ProtocolModifier.Offset(600f, 38 * 34f)),
+                Mutation.SetModifier(target, 1, ProtocolModifier.RequiredSize(100f, 34f)),
+                Mutation.Insert(absBox, target, 0),
+                intoView(rowScroll, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST),
+                intoView(LIST, ScrollWire.TARGET_NODE, target, alignX = ScrollWire.ALIGN_NEAREST, alignY = ScrollWire.ALIGN_NEAREST),
+            ),
+        )
+        assertTrue(screen.errors.isEmpty(), "no protocol error: ${screen.errors}")
+        val colReport = screen.reports.last { it.nodeId == LIST }
+        val rowReport = screen.reports.last { it.nodeId == rowScroll }
+        assertEquals((38 + 1) * 34.0 - 320.0, colReport.yPx, 1.0, "vertical container should scroll target into view")
+        assertEquals(600.0 + 100.0 - 400.0, rowReport.xPx, 1.0, "horizontal container should also scroll target into view")
+    }
+
+    @Test
     fun fr80_lazy_list_scroll_into_view_reaches_an_unseen_item() = runComposeUiTest {
         val screen = screen(
             listOf(
@@ -462,6 +529,200 @@ class ScrollWireTest {
         waitForIdle()
         assertEquals(400.0, screen.reports.last().yPx)
         assertEquals(700.0, screen.reports.last().maxYPx)
+    }
+
+    /**
+     * The editor's older scroll command and the request every container takes are one move:
+     * each leaves the editor where the other would, and the editor's two reports of it carry
+     * the same pixel.
+     */
+    @Test
+    fun fr80_code_editor_set_scroll_offset_and_scroll_to_agree() = runComposeUiTest {
+        val editor = 3
+        val codeHandler = 9L
+        val text = (0 until 400).joinToString("\n") { line -> "let line_$line = $line;" }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(codeHandler)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        val first = screen.reports.last()
+        assertEquals(0.0, first.yPx)
+        assertTrue(first.maxYPx > 500.0, "the editor has far to scroll: $first")
+        assertEquals(emptyList(), scrolled(), "an editor at the top has nothing to say about its offset")
+
+        // One command moves the editor, and both reports say the same place, once each.
+        // The other command with the same offset then finds the editor already there: it
+        // moves nothing, so neither report is sent again.
+        fun agree(move: Mutation, same: Mutation, expected: Double, what: String) {
+            val reports = screen.reports.size
+            val offsets = scrolled().size
+            send(screen, move)
+            val report = screen.reports.drop(reports)
+            val offset = scrolled().drop(offsets)
+            assertEquals(1, report.size, "$what: one scroll report for the move: $report")
+            assertEquals(1, offset.size, "$what: one offset report for the move: $offset")
+            assertEquals(expected, report.single().yPx, what)
+            assertEquals(report.single().yPx, offset.single().value, "$what: the two reports name one place")
+            assertEquals(HANDLER, report.single().handlerId)
+            assertEquals(codeHandler, offset.single().handlerId)
+            assertEquals(editor, report.single().nodeId)
+            assertEquals(editor, offset.single().nodeId)
+
+            send(screen, same)
+            assertEquals(reports + 1, screen.reports.size, "$what: the same offset from the other command must move nothing")
+            assertEquals(offsets + 1, scrolled().size, "$what: the same offset from the other command must move nothing")
+        }
+
+        agree(Mutation.SetScrollOffset(editor, 240.0), scrollTo(editor, y = 240.0), 240.0, "the older command first")
+        agree(scrollTo(editor, y = 90.0), Mutation.SetScrollOffset(editor, 90.0), 90.0, "the request first")
+        // Part of a pixel is rounded the same way by both.
+        agree(Mutation.SetScrollOffset(editor, 133.4), scrollTo(editor, y = 133.4), 133.0, "part of a pixel")
+        // Past the end is the end for both, and below the top is the top.
+        agree(Mutation.SetScrollOffset(editor, 1.0e9), scrollTo(editor, y = 1.0e9), first.maxYPx, "past the end")
+        agree(scrollTo(editor, y = -12.5), Mutation.SetScrollOffset(editor, -12.5), 0.0, "below the top")
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
+    }
+
+    @Test
+    fun fr80_code_editor_scroll_reports_arrive_in_the_same_frame() = runComposeUiTest {
+        val editor = 3
+        val codeHandler = 9L
+        val text = (0 until 400).joinToString("\n") { line -> "let line_$line = $line;" }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(codeHandler)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        assertEquals(0.0, screen.reports.last().yPx)
+        assertEquals(emptyList(), scrolled(), "an editor at the top has nothing to say about its offset")
+        mainClock.autoAdvance = false
+
+        // Makes one move and then runs the frames one at a time, reading what each of them
+        // sent. Whatever the move itself sent is counted with the first frame. Returns
+        // where the editor was last said to be.
+        fun together(what: String, move: () -> Unit): Double {
+            var reports = screen.reports.size
+            var offsets = scrolled().size
+            var place = screen.reports.last().yPx
+            var pairs = 0
+            move()
+            repeat(60) { frame ->
+                mainClock.advanceTimeByFrame()
+                val report = screen.reports.drop(reports)
+                val offset = scrolled().drop(offsets)
+                reports += report.size
+                offsets += offset.size
+                assertTrue(report.size <= 1, "$what, frame $frame: ${report.size} scroll reports in one frame: $report")
+                assertTrue(offset.size <= 1, "$what, frame $frame: ${offset.size} offset reports in one frame: $offset")
+                // The offset report never leaves a frame without the scroll report for
+                // the same place.
+                offset.singleOrNull()?.let { said ->
+                    assertEquals(
+                        listOf(said.value),
+                        report.map { it.yPx },
+                        "$what, frame $frame: the offset report and the scroll report of one frame",
+                    )
+                    assertEquals(editor, said.nodeId)
+                    assertEquals(codeHandler, said.handlerId)
+                    assertEquals(HANDLER, report.single().handlerId)
+                    pairs++
+                }
+                // And a scroll report that names a new place down the page has the offset
+                // report beside it. One that only says the movement ended has none.
+                report.singleOrNull()?.let { said ->
+                    if (said.yPx != place) {
+                        assertEquals(
+                            listOf(said.yPx),
+                            offset.map { it.value },
+                            "$what, frame $frame: the scroll report and the offset report of one frame",
+                        )
+                    }
+                    place = said.yPx
+                }
+            }
+            assertTrue(pairs >= 1, "$what: the move sent no pair of reports")
+            assertTrue(screen.reports.last().settled, "$what: the last report says the movement ended")
+            assertEquals(place, scrolled().last().value, "$what: both reports end on one place")
+            return place
+        }
+
+        assertEquals(240.0, together("SetScrollOffset") { send(screen, Mutation.SetScrollOffset(editor, 240.0), idle = false) })
+        assertEquals(90.0, together("ScrollTo") { send(screen, scrollTo(editor, y = 90.0), idle = false) })
+        // A move that takes many frames says a new place in each of them, and each frame's
+        // two reports still agree.
+        assertEquals(
+            700.0,
+            together("an animated ScrollTo") { send(screen, scrollTo(editor, y = 700.0, animate = true), idle = false) },
+        )
+        // The user's wheel moves the same state and is reported the same way.
+        val wheeled = together("a wheel turn") {
+            onNodeWithTag(nodeTestTag(editor)).performMouseInput {
+                moveTo(center)
+                scroll(6f)
+            }
+        }
+        assertTrue(wheeled > 700.0, "the wheel moved the editor down from 700: $wheeled")
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
+    }
+
+    @Test
+    fun fr80_code_editor_sends_one_scroll_report_for_a_frame_with_two_changes() = runComposeUiTest {
+        val editor = 3
+        val text = (0 until 200).joinToString("\n") { line -> "line $line " + "x".repeat(400) }
+        val screen = screen(
+            listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                Mutation.Create(editor, WidgetKind.CodeEditor),
+                Mutation.SetModifier(editor, 0, ProtocolModifier.Size(300f, 200f)),
+                Mutation.SetProp(editor, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(editor, PropertyKind.OnScrollChanged, PropertyValue.Integer(HANDLER)),
+                Mutation.SetProp(editor, PropertyKind.OnCodeScrolled, PropertyValue.Integer(9L)),
+            ),
+        )
+        fun scrolled() = screen.connection.events.filterIsInstance<HostEvent.CodeScrolled>()
+        mainClock.autoAdvance = false
+
+        // Runs the frames after [mutations] one at a time. No frame may carry two scroll
+        // reports, and the one a frame carries names the offset its offset report names.
+        fun oneReportAFrame(what: String, vararg mutations: Mutation) {
+            var reports = screen.reports.size
+            var offsets = scrolled().size
+            send(screen, *mutations, idle = false)
+            repeat(60) { frame ->
+                mainClock.advanceTimeByFrame()
+                val report = screen.reports.drop(reports)
+                val offset = scrolled().drop(offsets)
+                reports += report.size
+                offsets += offset.size
+                assertTrue(report.size <= 1, "$what, frame $frame: ${report.size} scroll reports in one frame: $report")
+                offset.lastOrNull()?.let { said ->
+                    assertEquals(listOf(said.value), report.map { it.yPx }, "$what, frame $frame: both reports of one frame")
+                }
+            }
+        }
+
+        // Along the lines by the scroll request and down the page by the editor's own
+        // command, in one batch: two changes, and never two reports in a frame.
+        oneReportAFrame("two commands in a batch", scrollTo(editor, x = 60.0), Mutation.SetScrollOffset(editor, 40.0))
+        assertEquals(60.0 to 40.0, screen.reports.last().let { it.xPx to it.yPx })
+        // Both axes animated at once move in every frame, each from its own frame callback.
+        oneReportAFrame("an animated move on both axes", scrollTo(editor, x = 200.0, y = 300.0, animate = true))
+        assertEquals(200.0 to 300.0, screen.reports.last().let { it.xPx to it.yPx })
+        assertEquals(300.0, scrolled().last().value)
+        assertTrue(screen.errors.isEmpty(), "${screen.errors}")
     }
 
     @Test

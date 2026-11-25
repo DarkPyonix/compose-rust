@@ -1,5 +1,12 @@
+@file:OptIn(
+    androidx.compose.ui.InternalComposeUiApi::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
+
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -9,12 +16,28 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.PlatformTextInputMethodRequest
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.CommitTextCommand
+import androidx.compose.ui.text.input.EditCommand
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.ImeOptions
+import androidx.compose.ui.text.input.TextEditingScope
+import androidx.compose.ui.text.input.TextEditorState
+import androidx.compose.ui.text.input.TextFieldValue
 import dev.darkpyonix.composerust.ui.platform.MacModifiers
+import dev.darkpyonix.composerust.ui.platform.NativeTextInput
 import dev.darkpyonix.composerust.ui.platform.editingKeyEvents
 import dev.darkpyonix.composerust.ui.platform.insertableText
 import dev.darkpyonix.composerust.ui.platform.isEditingShortcut
 import dev.darkpyonix.composerust.ui.platform.macKeyEvent
 import dev.darkpyonix.composerust.ui.platform.reachesInputMethod
+import dev.darkpyonix.composerust.ui.platform.receive
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.thisisthepy.compose.window.WindowEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -103,6 +126,46 @@ class MacKeysTest {
         assertKeys(editingKeyEvents("redo:"), Key.Z, meta = true, shift = true)
         assertNull(editingKeyEvents("noop:"), "a command nobody maps does nothing")
         assertNull(editingKeyEvents("insertText:"))
+    }
+
+    @Test
+    fun fr5_native_text_input_drops_control_characters_on_macos() = runBlocking {
+        val committed = mutableListOf<String>()
+        val request = object : PlatformTextInputMethodRequest {
+            override val value: () -> TextFieldValue = { TextFieldValue("") }
+            override val state: TextEditorState = object : TextEditorState {
+                override val length: Int get() = 0
+                override fun get(index: Int): Char = throw IndexOutOfBoundsException()
+                override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = ""
+                override val selection: TextRange get() = TextRange.Zero
+                override val composition: TextRange? get() = null
+            }
+            override val imeOptions: ImeOptions = ImeOptions.Default
+            override val onEditCommand: (List<EditCommand>) -> Unit = { commands ->
+                for (command in commands) {
+                    if (command is CommitTextCommand) committed += command.text
+                }
+            }
+            override val onImeAction: ((ImeAction) -> Unit)? = null
+            override val textLayoutResult: () -> TextLayoutResult = { error("unused") }
+            override val focusedRectInRoot: () -> Rect = { Rect.Zero }
+            override val textFieldRectInRoot: () -> Rect = { Rect.Zero }
+            override val textClippingRectInRoot: () -> Rect = { Rect.Zero }
+            override val unclippedTextOffsetInRoot: () -> Offset = { Offset.Zero }
+            override val editText: ((TextEditingScope) -> Unit) -> Unit = {}
+        }
+        val textInput = NativeTextInput()
+        val session = launch(start = CoroutineStart.UNDISPATCHED) { textInput.run(request) }
+        try {
+            assertTrue(textInput.isActive)
+            textInput.receive(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, "\u0001"), macos = true)
+            assertEquals(emptyList(), committed, "control characters must never be committed on macOS")
+            textInput.receive(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, "a"), macos = true)
+            textInput.receive(WindowEvent(WindowEvent.TEXT_COMMIT, 0f, 0f, 0, 0, 0, 0, "b\u0001c"), macos = true)
+            assertEquals(listOf("a", "bc"), committed)
+        } finally {
+            session.cancel()
+        }
     }
 
     private fun assertKeys(

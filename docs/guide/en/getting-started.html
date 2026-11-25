@@ -90,10 +90,19 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
 
     <p>
       <code>cargo build</code> works out which renderer the target needs. It downloads the release
-      artifact for the crate's exact version, checks it against the published <code>.sha256</code>,
+      artifact for the crate's version, checks it against the published <code>.sha256</code>,
       unpacks it into a cache outside <code>target/</code>, and links it. There is no environment
-      variable to set and no script to run. The cache is keyed by version and target, so it
-      survives <code>cargo clean</code> and is shared between projects.
+      variable to set and no script to run.
+    </p>
+    <p>
+      What has to match is the schema the crate was generated from, not the version number. A git
+      revision after a release keeps that release's version while its schema moves on. When the
+      release's renderer was built from another schema, the build fetches the renderer
+      <code>develop</code> published for the crate's schema from the <code>renderer-dev</code>
+      release instead. When neither matches, the build stops and names the crate's schema hash,
+      each renderer's hash and both addresses it tried. The cache is keyed by schema hash and
+      target, so it survives <code>cargo clean</code>, is shared between projects, and is shared by
+      every crate version with the same schema.
     </p>
     <p>
       On macOS (arm64) and Linux (x64 and arm64) the renderer is a Kotlin/Native static archive, so
@@ -111,6 +120,7 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
         <tbody>
           <tr><td><code>COMPOSE_RUST_RENDERER_DIR</code></td><td>Use the renderer in this directory. It is checked first, and nothing is downloaded when it is set. A renderer you built yourself, a vendored copy and an offline build all work through it. The path must be absolute, because a build script runs in its package's directory.</td></tr>
           <tr><td><code>COMPOSE_RUST_CACHE_DIR</code></td><td>Moves the cache off <code>$HOME/.cache/compose-rust</code> (<code>%LOCALAPPDATA%\compose-rust</code> on Windows).</td></tr>
+          <tr><td><code>COMPOSE_RUST_RENDERER_URL</code></td><td>Downloads from this address instead of <code>https://github.com/DarkPyonix/compose-rust/releases</code>, for a mirror or a CI machine without access to GitHub. Both renderers are looked up under it with the same paths.</td></tr>
         </tbody>
       </table>
     </div>

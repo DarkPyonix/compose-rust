@@ -170,6 +170,51 @@ jobs:
             target
           key: ${{ steps.cache-1.outputs.cache-primary-key }}
 
+  bench:
+    # The benchmark workspaces under compose-rust/benches/ are cargo workspaces of their own,
+    # so the Rust job above never formats, lints or tests them. A job of its own keeps the
+    # Rust job as long as it was and names the bench when it is the bench that fails.
+    #
+    # Linux only: the bench code has nothing platform specific, and these crates build with
+    # compose-rust's mock-renderer feature, so no renderer and no link library is needed.
+    # Nothing is measured here; timings on a shared runner mean nothing.
+    name: Check the bench workspaces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache cargo registry and the bench build artifacts
+        id: cache-bench
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            compose-rust/benches/*/target
+          key: cargo-bench-${{ runner.os }}-${{ hashFiles('compose-rust/benches/*/Cargo.lock') }}
+          restore-keys: |
+            cargo-bench-${{ runner.os }}-
+
+      - name: Format, lint and test each bench workspace
+        run: ./.github/scripts/check-bench-workspaces.sh
+
+      - name: Save cargo registry and the bench build artifacts (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-bench.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            compose-rust/benches/*/target
+          key: ${{ steps.cache-bench.outputs.cache-primary-key }}
+
   generated:
     # The generated files, regenerated from this tree's schema and compared with what is
     # checked in. The Rust gate's staleness tests say that a file is stale; this says what
@@ -299,18 +344,26 @@ jobs:
         # and each one deletes and recreates the same files there, so one of them fails
         # with FileAlreadyExistsException (#494). Building the app bundle alone first leaves
         # it up to date, so the build below only runs the test bundle and nothing races.
+        # Through retry-resolution.sh: Amper fetches the dependencies here, and a repository that
+        # answers "not found" for a moment runs the build again instead of failing the job.
         if: matrix.platform == 'wasmJs'
         working-directory: renderer
-        run: ./kotlin task :web:buildWasmJsAppWasmJsDebug
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/retry-resolution.log
+        run: ./scripts/retry-resolution.sh ./kotlin task :web:buildWasmJsAppWasmJsDebug
 
       - name: Build the renderer
         working-directory: renderer
-        run: ./kotlin build -p ${{ matrix.platform }}
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/retry-resolution.log
+        run: ./scripts/retry-resolution.sh ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the renderer
         if: matrix.test
         working-directory: renderer
-        run: ./kotlin test -p ${{ matrix.platform }}
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/amper-test-retry.log
+        run: ./scripts/retry-resolution.sh ./kotlin test -p ${{ matrix.platform }}
 
       - name: Save the Kotlin toolchain, konan and Maven dependencies (not from a pull request)
         if: github.event_name != 'pull_request' && steps.cache-2.outputs.cache-hit != 'true'

@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, RichText, OnTextFormat, OnRichTextChanged, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, ThumbElevation, TrackBorder, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Indeterminate, OutlineColor, FoldColumnWidthDp, InsertSpaces, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -119,12 +119,6 @@ enum class WheelDeltaMode { Pixel, Line, Page }
 enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
 
 enum class UserSelect { Auto, None, Text, All }
-
-enum class FormatOp { Bold, Italic, Underline, Strikethrough, Color, Paragraph, List, Indent, Outdent, Quote }
-
-enum class ParagraphRole { Body, Title, Heading, Subheading, Monostyled }
-
-enum class ListKind { None, Bulleted, Dashed, Numbered }
 
 enum class WindowMode { Single, Windows }
 
@@ -1347,6 +1341,7 @@ sealed interface Modifier {
     data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
     data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
     data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
+    data class WeightUnfilled(val value: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1748,46 +1743,6 @@ sealed interface Mutation {
     }
 
     /**
-     * Applies one formatting command to the selection of the rich text field [nodeId].
-     * [value] is what the operation takes: 0 off, 1 on or 2 flip for the four character
-     * styles and for Quote, a ParagraphRole or ListKind tag for those two, else 0. [paint] is
-     * only for Color, where none clears the colour.
-     */
-    data class FormatText(
-        val nodeId: Int,
-        val op: FormatOp,
-        val value: Int,
-        val paint: Paint?,
-    ) : Mutation
-
-    /**
-     * Replaces the document of the rich text field [nodeId]. [characters] is 24-byte records
-     * (start, length, style flags, colour paint word and a reserved word) and [paragraphs]
-     * 16-byte records (start, role, list kind, indent, quote and a reserved word), every
-     * offset a byte offset into [text]. A selection of -1 and -1 leaves the field's own.
-     * The records are as sent: the field checks them against the text.
-     */
-    data class SetRichText(
-        val nodeId: Int,
-        val text: String,
-        val characters: ByteArray,
-        val paragraphs: ByteArray,
-        val selectionStart: Int,
-        val selectionEnd: Int,
-    ) : Mutation {
-        override fun equals(other: Any?): Boolean =
-            this === other ||
-                (other is SetRichText && nodeId == other.nodeId && text == other.text &&
-                    characters.contentEquals(other.characters) &&
-                    paragraphs.contentEquals(other.paragraphs) &&
-                    selectionStart == other.selectionStart && selectionEnd == other.selectionEnd)
-
-        override fun hashCode(): Int =
-            (((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 +
-                paragraphs.contentHashCode()) * 31 + selectionStart * 31 + selectionEnd
-    }
-
-    /**
      * Replaces a range of the code editor [nodeId]'s document, as it stood at
      * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
      * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
@@ -1972,27 +1927,13 @@ sealed interface HostEvent {
             "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
     }
     data class DensityChanged(override val nodeId: Int, override val handlerId: Long, val scale: kotlin.Float) : HostEvent
-    data class TextFormatAtSelection(override val nodeId: Int, override val handlerId: Long, val flags: Int, val role: Int, val list: Int, val indent: Int, val quote: Int, val paint: Long) : HostEvent
-    data class RichTextChanged(override val nodeId: Int, override val handlerId: Long, val text: String, val characters: ByteArray, val paragraphs: ByteArray) : HostEvent {
-        override fun equals(other: Any?): Boolean =
-            this === other ||
-                (other is RichTextChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
-                    text == other.text && characters.contentEquals(other.characters) &&
-                    paragraphs.contentEquals(other.paragraphs))
-
-        override fun hashCode(): Int =
-            ((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 + paragraphs.contentHashCode()
-
-        override fun toString(): String =
-            "RichTextChanged(nodeId=$nodeId, handlerId=$handlerId, textLength=${text.length}, characters=${characters.size / 24}, paragraphs=${paragraphs.size / 16})"
-    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4456742054032099063L
+    const val SCHEMA_HASH: Long = 5367882572576466994L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2037,8 +1978,6 @@ object Protocol {
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
-    private const val TAG_FORMAT_TEXT = 42
-    private const val TAG_SET_RICH_TEXT = 43
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -2361,26 +2300,6 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
-                    }
-                    TAG_FORMAT_TEXT -> {
-                        requireRecordLength(length, 20, offset)
-                        Mutation.FormatText(
-                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
-                            op = formatOp(readU16(batch, base, available, offset + 8), offset + 8),
-                            value = readU16(batch, base, available, offset + 10),
-                            paint = optionalPaint(readU64(batch, base, available, offset + 12), offset + 12),
-                        )
-                    }
-                    TAG_SET_RICH_TEXT -> {
-                        requireRecordLength(length, 40, offset)
-                        Mutation.SetRichText(
-                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
-                            text = readString(batch, base, available, offset + 8),
-                            characters = readBytes(batch, base, available, offset + 16),
-                            paragraphs = readBytes(batch, base, available, offset + 24),
-                            selectionStart = readU32(batch, base, available, offset + 32).toInt(),
-                            selectionEnd = readU32(batch, base, available, offset + 36).toInt(),
-                        )
                     }
                     TAG_SET_SELECTIONS -> {
                         requireRecordLength(length, 20, offset)
@@ -2724,8 +2643,6 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> null
                 is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
                 is HostEvent.DensityChanged -> null
-                is HostEvent.TextFormatAtSelection -> null
-                is HostEvent.RichTextChanged -> event.text.toByteArray(StandardCharsets.UTF_8) + event.characters + event.paragraphs
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2788,8 +2705,6 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> 20
                 is HostEvent.SelectionsChanged -> 28
                 is HostEvent.DensityChanged -> 20
-                is HostEvent.TextFormatAtSelection -> 36
-                is HostEvent.RichTextChanged -> 40
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2856,8 +2771,6 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> 52
                 is HostEvent.SelectionsChanged -> 67
                 is HostEvent.DensityChanged -> 53
-                is HostEvent.TextFormatAtSelection -> 68
-                is HostEvent.RichTextChanged -> 69
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -3145,23 +3058,6 @@ object Protocol {
                     writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.DensityChanged -> out.putFloat(event.scale)
-                is HostEvent.TextFormatAtSelection -> {
-                    out.putInt(event.flags)
-                    out.putShort(event.role.toShort())
-                    out.putShort(event.list.toShort())
-                    out.putShort(event.indent.toShort())
-                    out.putShort(event.quote.toShort())
-                    out.putLong(event.paint)
-                }
-                is HostEvent.RichTextChanged -> {
-                    val textLength = event.text.toByteArray(StandardCharsets.UTF_8).size
-                    out.putInt(recordLength)
-                    out.putInt(textLength)
-                    out.putInt(recordLength + textLength)
-                    out.putInt(event.characters.size)
-                    out.putInt(recordLength + textLength + event.characters.size)
-                    out.putInt(event.paragraphs.size)
-                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -3401,13 +3297,16 @@ object Protocol {
         209 -> PropertyKind.SpanFontFeatures
         210 -> PropertyKind.ContentPaddingDp
         211 -> PropertyKind.FixedGutterColumns
+        212 -> PropertyKind.ThumbElevation
+        213 -> PropertyKind.TrackBorder
         214 -> PropertyKind.SheetHandle
         215 -> PropertyKind.ReadOnly
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
-        220 -> PropertyKind.RichText
-        221 -> PropertyKind.OnTextFormat
-        222 -> PropertyKind.OnRichTextChanged
+        216 -> PropertyKind.Indeterminate
+        217 -> PropertyKind.OutlineColor
+        226 -> PropertyKind.FoldColumnWidthDp
+        227 -> PropertyKind.InsertSpaces
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -4145,37 +4044,6 @@ object Protocol {
         else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
     }
 
-    private fun formatOp(tag: Int, offset: Int): FormatOp = when (tag) {
-        1 -> FormatOp.Bold
-        2 -> FormatOp.Italic
-        3 -> FormatOp.Underline
-        4 -> FormatOp.Strikethrough
-        5 -> FormatOp.Color
-        6 -> FormatOp.Paragraph
-        7 -> FormatOp.List
-        8 -> FormatOp.Indent
-        9 -> FormatOp.Outdent
-        10 -> FormatOp.Quote
-        else -> throw ProtocolException("unknown FormatOp tag $tag", offset)
-    }
-
-    private fun paragraphRole(tag: Int, offset: Int): ParagraphRole = when (tag) {
-        1 -> ParagraphRole.Body
-        2 -> ParagraphRole.Title
-        3 -> ParagraphRole.Heading
-        4 -> ParagraphRole.Subheading
-        5 -> ParagraphRole.Monostyled
-        else -> throw ProtocolException("unknown ParagraphRole tag $tag", offset)
-    }
-
-    private fun listKind(tag: Int, offset: Int): ListKind = when (tag) {
-        0 -> ListKind.None
-        1 -> ListKind.Bulleted
-        2 -> ListKind.Dashed
-        3 -> ListKind.Numbered
-        else -> throw ProtocolException("unknown ListKind tag $tag", offset)
-    }
-
     private fun windowMode(tag: Int, offset: Int): WindowMode = when (tag) {
         0 -> WindowMode.Single
         1 -> WindowMode.Windows
@@ -4394,6 +4262,7 @@ object Protocol {
         43 -> 1
         44 -> 0
         45 -> 1
+        48 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4445,6 +4314,7 @@ object Protocol {
             43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            48 -> Modifier.WeightUnfilled(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
