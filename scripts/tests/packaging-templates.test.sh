@@ -110,6 +110,16 @@ else
         "$(cat "$t/scripts/packaging-templates/PIN")"
 fi
 
+# The application manifest has no placeholder: every Windows executable built on the crate
+# carries it as it is. The crate is published on its own, so it cannot read this directory
+# and keeps its copy in compose-rust/build/; that copy has to be the template, byte for byte.
+if cmp -s "$repo/compose-rust/build/application.manifest" "$repo/scripts/packaging-templates/templates/application.manifest.in"; then
+    pass fr22_6_11_the_crate_application_manifest_is_the_template
+else
+    fail fr22_6_11_the_crate_application_manifest_is_the_template \
+        "$(diff "$repo/scripts/packaging-templates/templates/application.manifest.in" "$repo/compose-rust/build/application.manifest")"
+fi
+
 if [[ "${CI:-}" == true || "${PACKAGING_TEMPLATES_ONLINE:-}" == 1 ]]; then
     expect fr22_6_11_the_pin_matches_the_fork_on_github ok "match PIN and the fork" "$repo" --fetch
 else

@@ -6,8 +6,8 @@
 //! configuration and open files the way it does unpackaged; the Store accepts it for
 //! desktop applications, with a sentence of justification at submission.
 
-use crate::assets;
 use crate::metadata::AppMetadata;
+use crate::templates;
 use crate::version::PackageVersion;
 
 /// Escapes text for an XML attribute or element.
@@ -84,110 +84,109 @@ impl Arch {
     }
 }
 
+/// The manifest: the fork's `AppxManifest.xml.in` filled from `meta`, then what the
+/// template does not have. More languages follow the first; the application's foundation
+/// and `uap` capabilities go before `runFullTrust`, its other restricted capabilities and
+/// its device capabilities after it.
+///
 /// `executable` is the path of the program inside the package, with backslashes.
 pub fn render(meta: &AppMetadata, version: PackageVersion, arch: Arch, executable: &str) -> String {
+    render_with(templates::APPX_MANIFEST, meta, version, arch, executable)
+}
+
+/// [`render`] from a given template, so a test can show the output follows it.
+pub fn render_with(
+    template: &str,
+    meta: &AppMetadata,
+    version: PackageVersion,
+    arch: Arch,
+    executable: &str,
+) -> String {
     let e = xml_escape;
-    let mut x = String::new();
-    x.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
-    x.push_str(
-        "<Package\n  xmlns=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10\"\n  \
-         xmlns:uap=\"http://schemas.microsoft.com/appx/manifest/uap/windows10\"\n  \
-         xmlns:rescap=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities\"\n  \
-         IgnorableNamespaces=\"uap rescap\">\n",
+    let language = meta
+        .languages
+        .first()
+        .map(String::as_str)
+        .unwrap_or("en-us");
+    let mut x = templates::render(
+        template,
+        &[
+            ("identity_name", &e(&meta.identity_name)),
+            ("publisher_id", &e(&meta.publisher)),
+            ("version4", &version.to_string()),
+            ("arch", arch.as_str()),
+            ("name", &e(&meta.display_name)),
+            ("publisher", &e(&meta.publisher_display_name)),
+            ("min_windows", &e(&meta.min_version)),
+            ("max_windows_tested", &e(&meta.max_version_tested)),
+            ("language", &e(language)),
+            ("app_id", &application_id(&meta.display_name)),
+            ("executable", &e(executable)),
+            ("description", &e(&meta.description)),
+            ("background_color", &e(&meta.background_color)),
+        ],
     );
-    x.push_str(&format!(
-        "  <Identity Name=\"{}\" Publisher=\"{}\" Version=\"{}\" ProcessorArchitecture=\"{}\" />\n",
-        e(&meta.identity_name),
-        e(&meta.publisher),
-        version,
-        arch.as_str()
-    ));
-    x.push_str("  <Properties>\n");
-    x.push_str(&format!(
-        "    <DisplayName>{}</DisplayName>\n",
-        e(&meta.display_name)
-    ));
-    x.push_str(&format!(
-        "    <PublisherDisplayName>{}</PublisherDisplayName>\n",
-        e(&meta.publisher_display_name)
-    ));
-    x.push_str(&format!(
-        "    <Logo>{}\\{}</Logo>\n",
-        assets::DIR,
-        assets::STORE_LOGO.file
-    ));
-    x.push_str("  </Properties>\n");
-    x.push_str("  <Dependencies>\n");
-    x.push_str(&format!(
-        "    <TargetDeviceFamily Name=\"Windows.Desktop\" MinVersion=\"{}\" MaxVersionTested=\"{}\" />\n",
-        e(&meta.min_version),
-        e(&meta.max_version_tested)
-    ));
-    x.push_str("  </Dependencies>\n");
-    x.push_str("  <Resources>\n");
-    for lang in &meta.languages {
-        x.push_str(&format!("    <Resource Language=\"{}\" />\n", e(lang)));
-    }
-    x.push_str("  </Resources>\n");
-    x.push_str("  <Applications>\n");
-    x.push_str(&format!(
-        "    <Application Id=\"{}\" Executable=\"{}\" EntryPoint=\"Windows.FullTrustApplication\">\n",
-        application_id(&meta.display_name),
-        e(executable)
-    ));
-    x.push_str(&format!(
-        "      <uap:VisualElements DisplayName=\"{}\" Description=\"{}\" BackgroundColor=\"{}\" \
-         Square150x150Logo=\"{d}\\{}\" Square44x44Logo=\"{d}\\{}\">\n",
-        e(&meta.display_name),
-        e(&meta.description),
-        e(&meta.background_color),
-        assets::SQUARE_150.file,
-        assets::SQUARE_44.file,
-        d = assets::DIR,
-    ));
-    x.push_str(&format!(
-        "        <uap:DefaultTile Wide310x150Logo=\"{}\\{}\" />\n",
-        assets::DIR,
-        assets::WIDE_310.file
-    ));
-    x.push_str("      </uap:VisualElements>\n");
-    x.push_str("    </Application>\n");
-    x.push_str("  </Applications>\n");
-    x.push_str("  <Capabilities>\n");
+
+    let more_languages: String = meta
+        .languages
+        .iter()
+        .skip(1)
+        .map(|lang| format!("    <Resource Language=\"{}\" />\n", e(lang)))
+        .collect();
+    insert_after_line(&mut x, "    <Resource Language=", &more_languages);
+
     // The schema wants every Capability before any DeviceCapability.
+    let mut before = String::new();
     for cap in meta
         .capabilities
         .iter()
         .filter(|c| !UAP_CAPABILITIES.contains(&c.as_str()))
     {
-        x.push_str(&format!("    <Capability Name=\"{}\" />\n", e(cap)));
+        before.push_str(&format!("    <Capability Name=\"{}\" />\n", e(cap)));
     }
     for cap in meta
         .capabilities
         .iter()
         .filter(|c| UAP_CAPABILITIES.contains(&c.as_str()))
     {
-        x.push_str(&format!("    <uap:Capability Name=\"{}\" />\n", e(cap)));
+        before.push_str(&format!("    <uap:Capability Name=\"{}\" />\n", e(cap)));
     }
-    x.push_str("    <rescap:Capability Name=\"runFullTrust\" />\n");
+    let mut after = String::new();
     for cap in meta
         .restricted_capabilities
         .iter()
         .filter(|c| c.as_str() != "runFullTrust")
     {
-        x.push_str(&format!("    <rescap:Capability Name=\"{}\" />\n", e(cap)));
+        after.push_str(&format!("    <rescap:Capability Name=\"{}\" />\n", e(cap)));
     }
     for cap in &meta.device_capabilities {
-        x.push_str(&format!("    <DeviceCapability Name=\"{}\" />\n", e(cap)));
+        after.push_str(&format!("    <DeviceCapability Name=\"{}\" />\n", e(cap)));
     }
-    x.push_str("  </Capabilities>\n");
-    x.push_str("</Package>\n");
+    let full_trust = "    <rescap:Capability Name=\"runFullTrust\" />\n";
+    let at = x
+        .find(full_trust)
+        .expect("the AppxManifest template declares runFullTrust");
+    x.insert_str(at + full_trust.len(), &after);
+    x.insert_str(at, &before);
     x
+}
+
+/// Puts `text` after the first line that starts with `anchor`.
+fn insert_after_line(doc: &mut String, anchor: &str, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let start = doc
+        .find(anchor)
+        .unwrap_or_else(|| panic!("the AppxManifest template has no {anchor:?}"));
+    let end = start + doc[start..].find('\n').expect("a template line ends") + 1;
+    doc.insert_str(end, text);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets;
     use crate::metadata::{DEFAULT_MAX_VERSION_TESTED, DEFAULT_MIN_VERSION};
     use crate::version::Channel;
 
@@ -283,5 +282,102 @@ mod tests {
         assert_eq!(application_id("My App 2"), "MyApp2");
         assert_eq!(application_id("2048"), "App");
         assert_eq!(application_id("노트"), "App");
+    }
+
+    #[test]
+    fn fr22_6_11_the_manifest_is_its_template_filled() {
+        // With one language and no extra capability, nothing is added to the template.
+        let mut m = meta();
+        m.languages = vec!["en-us".into()];
+        m.capabilities.clear();
+        m.restricted_capabilities.clear();
+        m.device_capabilities.clear();
+        let xml = render(&m, version(), Arch::X64, "Ember.exe");
+        let template = templates::render(
+            templates::APPX_MANIFEST,
+            &[
+                ("identity_name", "DarkPyonix.Ember"),
+                ("publisher_id", "CN=&quot;Dark, Pyonix&quot;"),
+                ("version4", "1.2.3.0"),
+                ("arch", "x64"),
+                ("name", "Ember"),
+                ("publisher", "DarkPyonix"),
+                ("min_windows", DEFAULT_MIN_VERSION),
+                ("max_windows_tested", DEFAULT_MAX_VERSION_TESTED),
+                ("language", "en-us"),
+                ("app_id", "Ember"),
+                ("executable", "Ember.exe"),
+                ("description", "Notes &amp; &lt;things&gt;"),
+                ("background_color", "transparent"),
+            ],
+        );
+        assert_eq!(xml, template);
+    }
+
+    #[test]
+    fn fr22_6_11_additions_keep_every_template_line_in_order() {
+        let xml = render(&meta(), version(), Arch::Arm64, "Ember.exe");
+        let mut have = xml.lines();
+        let template = templates::APPX_MANIFEST;
+        for line in template.lines().filter(|l| !l.contains("{{")) {
+            assert!(
+                have.any(|l| l == line),
+                "{line:?} missing or out of order in\n{xml}"
+            );
+        }
+        assert!(xml.contains("ProcessorArchitecture=\"arm64\""));
+    }
+
+    #[test]
+    fn fr22_6_11_the_manifest_is_the_same_from_a_crlf_checkout() {
+        // Git on a Windows runner checks the template out with CRLF line ends. Made from LF
+        // first, because on that runner the compiled-in template already is CRLF.
+        let crlf = templates::APPX_MANIFEST
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n");
+        assert_eq!(
+            render_with(&crlf, &meta(), version(), Arch::X64, "Ember.exe"),
+            render_with(
+                templates::APPX_MANIFEST,
+                &meta(),
+                version(),
+                Arch::X64,
+                "Ember.exe"
+            ),
+        );
+    }
+
+    #[test]
+    fn fr22_6_11_the_manifest_follows_its_template() {
+        let template = templates::APPX_MANIFEST
+            .replace("  <Capabilities>", "  <Extensions />\n  <Capabilities>");
+        let xml = render_with(&template, &meta(), version(), Arch::X64, "Ember.exe");
+        assert!(
+            xml.contains("  <Extensions />\n  <Capabilities>\n"),
+            "{xml}"
+        );
+    }
+
+    #[test]
+    fn fr22_6_11_the_template_names_the_assets_the_packager_makes() {
+        for spec in assets::ALL {
+            let path = format!("{}\\{}", assets::DIR, spec.file);
+            assert!(
+                templates::APPX_MANIFEST.contains(&path),
+                "the template does not name {path}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "needs a value for {{nope}}")]
+    fn fr22_6_11_an_unfilled_placeholder_stops_the_packager() {
+        render_with(
+            "<Package Name=\"{{nope}}\" />",
+            &meta(),
+            version(),
+            Arch::X64,
+            "a.exe",
+        );
     }
 }
