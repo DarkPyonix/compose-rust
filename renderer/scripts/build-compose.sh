@@ -168,6 +168,12 @@ if [[ -n "$MAVEN_CENTRAL_MIRROR" && "$MAVEN_CENTRAL_MIRROR" != off ]]; then
     sed "s#@MIRROR@#$MAVEN_CENTRAL_MIRROR#" "$SCRIPT_DIR/maven-central-mirror.gradle" \
         > "$init_d/dxc-maven-central-mirror.gradle"
     echo "==> Gradle reads Maven Central through $MAVEN_CENTRAL_MIRROR first"
+    # The init script cannot reach a buildscript block of a script the fork applies with
+    # `apply from:` (buildSrc/shared.gradle takes the Kotlin Gradle plugin that way), and
+    # Central's 429 there ended the build (run 45546405467). The fork's repos.gradle asks the
+    # mirror this names before Central in every list it builds, that one included; a fork
+    # commit from before it ignores the variable.
+    export COMPOSE_MAVEN_MIRROR="$MAVEN_CENTRAL_MIRROR"
 fi
 
 die() {
