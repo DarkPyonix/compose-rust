@@ -1743,8 +1743,11 @@ class NodeTable {
 
                 // OpenType features, such as digits of one width. They pick a form the font
                 // has rather than another font, so text with a role takes them too.
+                // An editor takes them for its text, to turn off the ligatures a coding font
+                // draws by default.
                 PropertyKind.FontFeatureSettings ->
-                    widget == WidgetKind.Text || widget == WidgetKind.TextField
+                    widget == WidgetKind.Text || widget == WidgetKind.TextField ||
+                        widget == WidgetKind.CodeEditor
 
                 PropertyKind.SpanFonts,
                 PropertyKind.SpanFontFeatures,

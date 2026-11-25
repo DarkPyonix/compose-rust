@@ -94,6 +94,7 @@ internal fun HostCodeEditor(
         node.property(PropertyKind.WordWrap),
         node.bytes(PropertyKind.ContentPaddingDp),
         node.property(PropertyKind.FixedGutterColumns),
+        node.fontFeatures,
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
@@ -248,7 +249,14 @@ internal fun codeEditorLook(
     // monospace rung of the type ladder where it does not.
     val type = node.textStyle(theme, TypeRole.Mono)
     return CodeEditorLook(
-        textStyle = type.copy(color = style.text, fontFamily = fontChain?.primary ?: type.fontFamily),
+        // The node's OpenType features follow the style's own, so a tag both name takes the
+        // node's value, as in a `Text`. The string was made when the property arrived.
+        textStyle = type.copy(
+            color = style.text,
+            fontFamily = fontChain?.primary ?: type.fontFamily,
+            fontFeatureSettings = appendFontFeatures(type.fontFeatureSettings, node.fontFeatures),
+        ),
+        lineNumberFeatures = type.fontFeatureSettings,
         container = colors?.container?.let { theme.color(it) } ?: style.container,
         gutter = colors?.gutter?.let { theme.color(it) } ?: style.gutter,
         lineNumber = colors?.lineNumber?.let { theme.color(it) } ?: style.lineNumber,

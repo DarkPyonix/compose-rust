@@ -872,7 +872,10 @@ private fun DrawScope.drawLines(
         if (look.lineNumbers) {
             val number = state.measurer!!.measure(
                 (line + 1).toString(),
-                state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
+                state.style.copy(
+                    color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber,
+                    fontFeatureSettings = look.lineNumberFeatures,
+                ),
             )
             val padding = look.gutterPadding.toPx() + divider + foldColumn + changeColumn
             drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
