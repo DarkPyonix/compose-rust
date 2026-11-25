@@ -1285,6 +1285,30 @@ mod tests {
         (writer, first, second, tab)
     }
 
+    /// Each property kept outside the optional range has a bit of its own: a count never
+    /// sent stays unsent on a node that carries a button kind, and the other way round.
+    #[test]
+    fn fr30_1_properties_outside_the_optional_range_keep_separate_sent_bits() {
+        let bits = [SPANS_BIT, COUNT_BIT, BUTTON_KIND_BIT];
+        for (i, a) in bits.iter().enumerate() {
+            assert!(*a > u32::from(LAST_OPTIONAL_PROPERTY - FIRST_OPTIONAL_PROPERTY));
+            for b in &bits[i + 1..] {
+                assert_ne!(a, b, "two properties share a sent bit");
+            }
+        }
+        let mut writer = NodeWriter::new();
+        assert!(writer.should_write_optional_property(1, PropertyKind::ButtonKind, false));
+        assert!(
+            !writer.should_write_optional_property(1, PropertyKind::Count, true),
+            "a count never sent is not cleared because a button kind was"
+        );
+        assert!(writer.should_write_optional_property(2, PropertyKind::Count, false));
+        assert!(
+            !writer.should_write_optional_property(2, PropertyKind::ButtonKind, true),
+            "a button kind never sent is not cleared because a count was"
+        );
+    }
+
     #[test]
     fn nfr7_moving_a_node_between_windows_is_a_protocol_error() {
         let (mut writer, _first, second, tab) = two_windows();
