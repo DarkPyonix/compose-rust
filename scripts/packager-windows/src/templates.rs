@@ -11,8 +11,12 @@ pub const APPX_MANIFEST: &str =
 /// The templates are compiled into this program, so a placeholder without a value is this
 /// program being out of step with its pinned templates, and it stops here, naming it.
 pub fn render(template: &str, values: &[(&str, &str)]) -> String {
+    // A Windows checkout can give the template CRLF line ends, and what the packager adds
+    // afterwards finds its place by whole lines ending in "\n". The output has LF ends on
+    // every system, as the pinned template does.
+    let template = template.replace("\r\n", "\n");
     let mut out = String::with_capacity(template.len());
-    let mut rest = template;
+    let mut rest = template.as_str();
     while let Some(start) = rest.find("{{") {
         let Some(end) = rest[start + 2..].find("}}") else {
             break;
@@ -27,4 +31,17 @@ pub fn render(template: &str, values: &[(&str, &str)]) -> String {
     }
     out.push_str(rest);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fr22_6_11_a_template_with_crlf_line_ends_renders_as_with_lf() {
+        let lf = "<a>\n  <b>{{x}}</b>\n</a>\n";
+        let crlf = lf.replace('\n', "\r\n");
+        assert_eq!(render(&crlf, &[("x", "1")]), render(lf, &[("x", "1")]));
+        assert_eq!(render(&crlf, &[("x", "1")]), "<a>\n  <b>1</b>\n</a>\n");
+    }
 }

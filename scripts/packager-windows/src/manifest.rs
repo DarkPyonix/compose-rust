@@ -329,6 +329,22 @@ mod tests {
     }
 
     #[test]
+    fn fr22_6_11_the_manifest_is_the_same_from_a_crlf_checkout() {
+        // Git on a Windows runner checks the template out with CRLF line ends.
+        let crlf = templates::APPX_MANIFEST.replace('\n', "\r\n");
+        assert_eq!(
+            render_with(&crlf, &meta(), version(), Arch::X64, "Ember.exe"),
+            render_with(
+                templates::APPX_MANIFEST,
+                &meta(),
+                version(),
+                Arch::X64,
+                "Ember.exe"
+            ),
+        );
+    }
+
+    #[test]
     fn fr22_6_11_the_manifest_follows_its_template() {
         let template = templates::APPX_MANIFEST
             .replace("  <Capabilities>", "  <Extensions />\n  <Capabilities>");
