@@ -86,6 +86,19 @@ else
     grep -q '^FAIL ' <<<"$out" || fail "checker missing-end failure did not print FAIL: $out"
 fi
 
+# 5b. A soak that failed shows what the application printed, and how it ended.
+printf '#!/usr/bin/env bash\necho "the renderer could not open a window"\nexit 3\n' > "$tmp/crashed-app"
+chmod +x "$tmp/crashed-app"
+DXC_FRAME_SOAK_TIMEOUT=10 "$run_script" "$tmp/crashed-app" "$tmp/crashed" crashed || true
+if out="$("$check_script" "$tmp/crashed/crashed.log" 2.0 2000 2>&1)"; then
+    fail "checker accepted a soak whose application crashed: $out"
+else
+    grep -q 'the renderer could not open a window' <<<"$out" ||
+        fail "checker failure did not show what the application printed: $out"
+    grep -q 'exited with status 3 before phase start' <<<"$out" ||
+        fail "the runner did not record how the application ended: $out"
+fi
+
 # 6. Runner end-to-end with a stub app: samples real host memory and feeds checker.
 cat > "$tmp/fake-app" <<'EOF'
 #!/usr/bin/env bash

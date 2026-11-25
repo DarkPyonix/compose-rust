@@ -17,6 +17,12 @@ min_frames="${3:-2000}"
 
 [[ -f "$log" ]] || { echo "FAIL no log at $log" >&2; exit 1; }
 
+# What the application printed, for a failure the numbers alone do not explain.
+show_log() {
+    echo "The last lines of $log:"
+    tail -n 40 "$log" | sed 's/^/    /'
+}
+
 awk -v max_ratio="$max_ratio" -v min_frames="$min_frames" '
     function field(line, key,    n, i, parts, kv) {
         n = split(line, parts, " ")
@@ -89,4 +95,4 @@ awk -v max_ratio="$max_ratio" -v min_frames="$min_frames" '
         }
         exit failed
     }
-' "$log"
+' "$log" || { status=$?; show_log; exit "$status"; }

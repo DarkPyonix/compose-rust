@@ -111,12 +111,24 @@ trap cleanup EXIT
 
 max_tries=$(( timeout_s * 5 ))
 
+# Says in the log how the application ended when it went before a phase it was waited for,
+# so a soak that never started reads as the crash it was, not as missing lines.
+note_exit() {
+    local phase="$1" status=0
+    kill -0 "$app_pid" 2>/dev/null && return 0
+    wait "$app_pid" 2>/dev/null || status=$?
+    printf 'compose-rust: frame-soak the application exited with status %s before phase %s\n' \
+        "$status" "$phase" >> "$log"
+}
+
 if start_line="$(wait_for_phase "$app_pid" start "$max_tries")"; then
     os_pid="$(field_of "$start_line" pid)"
     start_frames="$(field_of "$start_line" frames)"
     read -r start_kb start_metric < <(sample_memory "${os_pid:-$app_pid}")
     printf 'compose-rust: frame-soak phase start frames=%s footprint_kb=%s metric=%s\n' \
         "${start_frames:-0}" "${start_kb:-0}" "${start_metric:-unknown}" >> "$log"
+else
+    note_exit start
 fi
 
 if end_line="$(wait_for_phase "$app_pid" end "$max_tries")"; then
@@ -126,6 +138,8 @@ if end_line="$(wait_for_phase "$app_pid" end "$max_tries")"; then
     printf 'compose-rust: frame-soak phase end frames=%s footprint_kb=%s metric=%s\n' \
         "${end_frames:-0}" "${end_kb:-0}" "${end_metric:-unknown}" >> "$log"
     printf 'compose-rust: frame-soak done frames=%s\n' "${end_frames:-0}" >> "$log"
+else
+    note_exit end
 fi
 
 cleanup
