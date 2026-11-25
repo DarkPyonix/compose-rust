@@ -1109,8 +1109,7 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
                 state.moved()
                 callbacks.onOutput()
             } else {
-                val line = document.line(caret.line)
-                val indent = if (line.takeWhile { it == ' ' || it == '\t' }.contains('\t')) {
+                val indent = if (!look.insertSpaces) {
                     "\t"
                 } else {
                     " ".repeat(look.tabWidth - caret.column % look.tabWidth)

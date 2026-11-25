@@ -440,7 +440,7 @@ mod tests {
         );
         assert_eq!(
             PROPERTY_SCHEMA.len(),
-            158,
+            159,
             "the number of properties moved: {on_purpose}"
         );
         assert_eq!(
@@ -449,7 +449,7 @@ mod tests {
             "the number of modifiers moved: {on_purpose}"
         );
         assert_eq!(
-            tables_hash, 0x35ba_1d0c_85dd_81a6,
+            tables_hash, 0x356d_d2f8_078c_86f5,
             "the names, tags or modifier fields of the widget, property and modifier tables \
              moved, and now hash to {tables_hash:#018x}: {on_purpose}"
         );
