@@ -6,6 +6,11 @@
  * resolves those symbols from the executable it is loaded into and calls `host_init` as soon
  * as the window composes. The batch it returns is hand-encoded with the same fixed-layout
  * records the Rust Host emits, so the smoke test exercises the real decode path.
+ *
+ * With DXC_RESIZE_MARKER set (and neither empty nor 0) it draws hand-check's marker scene
+ * instead, record for record, and keeps the window open until it is closed. That is how the
+ * Windows resize probe drags the GraalVM renderer: compose-rust links only the static
+ * Kotlin/Native kit on Windows, so hand-check cannot link the GraalVM image, and this host can.
  */
 #include <math.h>
 #include <stdint.h>
@@ -44,16 +49,19 @@ typedef struct {
 enum { STATUS_OK = 0, STATUS_PROTOCOL_ERROR = -1 };
 
 /* Mutation tags (schema.rs). */
-enum { TAG_ENVELOPE = 0, TAG_CREATE = 1, TAG_SET_PROP = 2, TAG_INSERT = 4 };
+enum {
+    TAG_ENVELOPE = 0, TAG_CREATE = 1, TAG_SET_PROP = 2, TAG_SET_MODIFIER = 3, TAG_INSERT = 4,
+    TAG_SET_WINDOW = 13
+};
 /* WidgetKind tags. */
 enum {
-    WIDGET_COLUMN = 1, WIDGET_TEXT = 4, WIDGET_TEXT_FIELD = 5, WIDGET_BUTTON = 6,
-    WIDGET_NAVIGATION = 30, WIDGET_NAVIGATION_ITEM = 31
+    WIDGET_COLUMN = 1, WIDGET_ROW = 2, WIDGET_BOX = 3, WIDGET_TEXT = 4, WIDGET_TEXT_FIELD = 5,
+    WIDGET_BUTTON = 6, WIDGET_NAVIGATION = 30, WIDGET_NAVIGATION_ITEM = 31
 };
 /* PropertyKind tags. */
 enum {
     PROP_TEXT = 1, PROP_ON_CLICK = 5, PROP_TYPE_ROLE = 13, PROP_FONT_SIZE = 14,
-    PROP_SELECTED_INDEX = 42, PROP_ICON = 60, PROP_FONT = 100
+    PROP_ARRANGEMENT = 22, PROP_SELECTED_INDEX = 42, PROP_ICON = 60, PROP_FONT = 100
 };
 /* PropertyValue tags. */
 enum { VALUE_TEXT = 1, VALUE_INTEGER = 3, VALUE_FLOAT = 4, VALUE_BYTES = 5 };
@@ -72,7 +80,13 @@ enum { VALUE_TEXT = 1, VALUE_INTEGER = 3, VALUE_FLOAT = 4, VALUE_BYTES = 5 };
 #define HOME_LABEL "Home"
 #define SETTINGS_LABEL "Settings"
 
-static uint8_t batch_bytes[1024];
+/* The default runs write into 1024 bytes, which their recorded byte counts come from. The
+   marker scene is about 32 KB and has a buffer of its own, so a run that does not ask for it
+   never touches that one. */
+static uint8_t small_batch[1024];
+static uint8_t marker_batch[65536];
+static uint8_t *batch_bytes = small_batch;
+static uint32_t batch_capacity = sizeof small_batch;
 static uint32_t batch_length;
 static uint32_t records_length;
 static uint32_t record_count;
@@ -89,13 +103,23 @@ static void put_u64(uint32_t offset, uint64_t value) {
     memcpy(batch_bytes + offset, &value, sizeof value);
 }
 
+/* Stops the run when a batch would not fit its buffer, rather than writing past it. */
+static void need(uint32_t end) {
+    if (end > batch_capacity) {
+        fprintf(stderr, "smoke host: a batch of %u bytes does not fit its %u byte buffer\n", end,
+                batch_capacity);
+        exit(1);
+    }
+}
+
 static void begin_batch(void) {
-    memset(batch_bytes, 0, sizeof batch_bytes);
+    memset(batch_bytes, 0, batch_capacity);
     records_length = 12;
     record_count = 0;
 }
 
 static uint32_t begin_record(uint16_t tag, uint16_t length) {
+    need(records_length + length);
     uint32_t offset = records_length;
     put_u16(offset, tag);
     put_u16(offset + 2, length);
@@ -108,6 +132,7 @@ static uint32_t begin_record(uint16_t tag, uint16_t length) {
    Keeping them in the batch is what lets the renderer read them in place. */
 static void put_string(uint32_t reference_offset, const char *text) {
     uint32_t length = (uint32_t)strlen(text);
+    need(batch_length + length);
     memcpy(batch_bytes + batch_length, text, length);
     put_u32(reference_offset, batch_length);
     put_u32(reference_offset + 4, length);
@@ -236,6 +261,180 @@ static void build_tree(const char *label) {
         put_string(settings_prop + 12, SETTINGS_LABEL);
     }
 }
+
+/*
+ * The marker scene, which the Windows resize probe reads from a screen capture: hand-check's
+ * (compose-rust/tests/fixtures/hand-check/src/main.rs, rebuild_marker_scene), the same window
+ * and the same records in the same order, so the probe judges this host's frames exactly as it
+ * judges hand-check's. A light field with a 2 dp green column down its left and right edges and
+ * a 2 dp green row along its bottom edge, and between the columns a ruler, a dark 2 dp line
+ * every 24 dp from the left edge. scripts/tests/smoke-host-marker-scene.test.sh holds every
+ * number here to hand-check's and every tag to the Rust Host's.
+ *
+ * The Rust Host also sends its theme and its default window before an application's records.
+ * This host sends neither: the scene names its colours outright, so no theme reaches it, and
+ * hand-check's own window record replaces the default one.
+ */
+#define MARKER_WINDOW_TITLE "compose-rust hand check"
+#define MARKER_WINDOW_WIDTH 480
+#define MARKER_WINDOW_HEIGHT 700
+#define MARKER_WINDOW_MIN_WIDTH 320
+#define MARKER_WINDOW_MIN_HEIGHT 320
+#define WINDOW_RESIZABLE 1
+#define CHROME_MODERN 1
+#define TITLE_BAR_NORMAL 1
+
+#define MARKER_ROOT 1000
+#define MARKER_BODY 1001
+#define MARKER_LEFT 1002
+#define MARKER_RULER 1003
+#define MARKER_RIGHT 1004
+#define MARKER_BOTTOM 1005
+#define MARKER_EDGES 1006
+#define RULER_LEAD 1007
+#define RULER_MARK0 2000
+
+#define MARKER_GREEN 0x00ff00
+#define FIELD_LIGHT 0xe0e0e0
+#define RULER_DARK 0x404040
+#define MARKER_DP 2.0f
+#define RULER_PERIOD_DP 24.0f
+#define RULER_PERIODS 160
+
+/* Modifier tags, as compose-rust's encoder writes them; none of these has extra words. */
+#define MODIFIER_FILL_MAX_WIDTH 2
+#define MODIFIER_FILL_MAX_HEIGHT 3
+#define MODIFIER_WIDTH 4
+#define MODIFIER_HEIGHT 5
+#define MODIFIER_BACKGROUND 7
+#define MODIFIER_WEIGHT 11
+#define ARRANGEMENT_SPACE_BETWEEN 4
+/* A paint's kind sits in the high word: 2 is a literal colour, 0xAARRGGBB in the low word. */
+#define PAINT_LITERAL ((uint64_t)2 << 32)
+#define OPAQUE(rgb) (0xff000000u | ((rgb) & 0x00ffffffu))
+
+typedef struct {
+    uint16_t tag;
+    uint64_t word;
+} MarkerModifier;
+
+static uint64_t float_word(float value) {
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    return bits;
+}
+
+static MarkerModifier fill_max_width(void) { MarkerModifier m = {MODIFIER_FILL_MAX_WIDTH, 0}; return m; }
+static MarkerModifier fill_max_height(void) { MarkerModifier m = {MODIFIER_FILL_MAX_HEIGHT, 0}; return m; }
+static MarkerModifier width_dp(float dp) { MarkerModifier m = {MODIFIER_WIDTH, float_word(dp)}; return m; }
+static MarkerModifier height_dp(float dp) { MarkerModifier m = {MODIFIER_HEIGHT, float_word(dp)}; return m; }
+static MarkerModifier weight(float value) { MarkerModifier m = {MODIFIER_WEIGHT, float_word(value)}; return m; }
+static MarkerModifier background(uint32_t rgb) {
+    MarkerModifier m = {MODIFIER_BACKGROUND, PAINT_LITERAL | OPAQUE(rgb)};
+    return m;
+}
+
+/* A SetModifier record: the node, the modifier's place in its chain, its tag and two words. */
+static void set_modifier(uint32_t node_id, uint16_t index, MarkerModifier modifier) {
+    uint32_t offset = begin_record(TAG_SET_MODIFIER, 28);
+    put_u32(offset + 4, node_id);
+    put_u16(offset + 8, index);
+    put_u16(offset + 10, modifier.tag);
+    put_u64(offset + 12, modifier.word);
+}
+
+static void marker_node(uint32_t node_id, uint16_t widget, const MarkerModifier *modifiers, uint16_t count) {
+    create(node_id, widget);
+    for (uint16_t index = 0; index < count; index++) {
+        set_modifier(node_id, index, modifiers[index]);
+    }
+}
+
+/* A SetWindow record. The title is a string reference, filled in once the records are closed;
+   answers where that reference is. */
+static uint32_t set_window(void) {
+    uint32_t offset = begin_record(TAG_SET_WINDOW, 32);
+    put_u16(offset + 4, CHROME_MODERN);
+    put_u16(offset + 6, TITLE_BAR_NORMAL);
+    put_u16(offset + 8, MARKER_WINDOW_WIDTH);
+    put_u16(offset + 10, MARKER_WINDOW_HEIGHT);
+    put_u16(offset + 12, MARKER_WINDOW_MIN_WIDTH);
+    put_u16(offset + 14, MARKER_WINDOW_MIN_HEIGHT);
+    /* Bit 0 is resizable; no size reports, one window, exit when it closes. */
+    put_u16(offset + 16, WINDOW_RESIZABLE);
+    /* No zoom level. */
+    put_u16(offset + 18, 0);
+    /* No icon. */
+    put_u32(offset + 28, 0);
+    return offset + 20;
+}
+
+/* Whether DXC_RESIZE_MARKER asks for the marker scene: set, and neither empty nor 0. */
+static int want_marker_scene(void) {
+    const char *flag = getenv("DXC_RESIZE_MARKER");
+    return flag != NULL && flag[0] != '\0' && strcmp(flag, "0") != 0;
+}
+
+static void build_marker_scene(void) {
+    batch_bytes = marker_batch;
+    batch_capacity = sizeof marker_batch;
+    begin_batch();
+    uint32_t title = set_window();
+    {
+        MarkerModifier m[] = {fill_max_width(), fill_max_height(), background(FIELD_LIGHT)};
+        marker_node(MARKER_ROOT, WIDGET_COLUMN, m, 3);
+    }
+    {
+        MarkerModifier m[] = {weight(1.0f), fill_max_width()};
+        marker_node(MARKER_BODY, WIDGET_BOX, m, 2);
+    }
+    {
+        MarkerModifier m[] = {fill_max_width(), fill_max_height()};
+        marker_node(MARKER_RULER, WIDGET_ROW, m, 2);
+        marker_node(MARKER_EDGES, WIDGET_ROW, m, 2);
+    }
+    set_handler(MARKER_EDGES, PROP_ARRANGEMENT, ARRANGEMENT_SPACE_BETWEEN);
+    {
+        MarkerModifier m[] = {width_dp(MARKER_DP), fill_max_height(), background(MARKER_GREEN)};
+        marker_node(MARKER_LEFT, WIDGET_BOX, m, 3);
+        marker_node(MARKER_RIGHT, WIDGET_BOX, m, 3);
+    }
+    {
+        MarkerModifier m[] = {fill_max_width(), height_dp(MARKER_DP), background(MARKER_GREEN)};
+        marker_node(MARKER_BOTTOM, WIDGET_BOX, m, 3);
+    }
+    /* The ruler starts under the left marker with a light 2 dp lead, then each period is a
+       light 22 dp gap and a dark 2 dp line, so the first line starts 24 dp from the window's
+       left edge and the lines repeat every 24 dp. */
+    {
+        MarkerModifier m[] = {width_dp(MARKER_DP), fill_max_height()};
+        marker_node(RULER_LEAD, WIDGET_BOX, m, 2);
+    }
+    for (uint32_t period = 0; period < RULER_PERIODS; period++) {
+        uint32_t gap = RULER_MARK0 + period * 2;
+        MarkerModifier gap_modifiers[] = {width_dp(RULER_PERIOD_DP - MARKER_DP), fill_max_height()};
+        MarkerModifier line_modifiers[] = {width_dp(MARKER_DP), fill_max_height(), background(RULER_DARK)};
+        marker_node(gap, WIDGET_BOX, gap_modifiers, 2);
+        marker_node(gap + 1, WIDGET_BOX, line_modifiers, 3);
+    }
+    insert(MARKER_RULER, RULER_LEAD, 0);
+    for (uint32_t period = 0; period < RULER_PERIODS; period++) {
+        insert(MARKER_RULER, RULER_MARK0 + period * 2, 1 + period * 2);
+        insert(MARKER_RULER, RULER_MARK0 + period * 2 + 1, 2 + period * 2);
+    }
+    insert(MARKER_EDGES, MARKER_LEFT, 0);
+    insert(MARKER_EDGES, MARKER_RIGHT, 1);
+    /* Later children of a box are drawn over earlier ones: the markers over the ruler. */
+    insert(MARKER_BODY, MARKER_RULER, 0);
+    insert(MARKER_BODY, MARKER_EDGES, 1);
+    insert(MARKER_ROOT, MARKER_BODY, 0);
+    insert(MARKER_ROOT, MARKER_BOTTOM, 1);
+    end_batch();
+    batch_length = records_length;
+    put_string(title, MARKER_WINDOW_TITLE);
+}
+
+static int marker_scene;
 
 static void build_label_update(const char *label) {
     begin_batch();
@@ -453,6 +652,14 @@ HOST_EXPORT int32_t compose_rust_host_init(
     if (out == NULL || handshake == NULL || len < 12) {
         return STATUS_PROTOCOL_ERROR;
     }
+    if (marker_scene) {
+        build_marker_scene();
+        out->ptr = batch_bytes;
+        out->len = batch_length;
+        out->result = 0;
+        printf("compose_rust_host_init: marker scene, %u bytes, %u records\n", batch_length, record_count);
+        return STATUS_OK;
+    }
     /* A frame after the tree is applied, which is where the measure round trip is made. */
     compose_rust_renderer_request_frame();
     build_tree("smoke host: 0 clicks");
@@ -471,6 +678,14 @@ HOST_EXPORT int32_t compose_rust_host_dispatch_event(
     if (out == NULL || event == NULL || len < 4) {
         return STATUS_PROTOCOL_ERROR;
     }
+    /* The marker scene has nothing to change: whatever the renderer reports, it stays as it
+       is, as hand-check's does. */
+    if (marker_scene) {
+        out->ptr = NULL;
+        out->len = 0;
+        out->result = 0;
+        return STATUS_OK;
+    }
     clicks += 1;
     snprintf(label, sizeof label, "smoke host: %d clicks", clicks);
     build_label_update(label);
@@ -488,6 +703,12 @@ HOST_EXPORT int32_t compose_rust_host_render_frame(
     (void)frame_time_nanos;
     if (out == NULL) {
         return STATUS_PROTOCOL_ERROR;
+    }
+    if (marker_scene) {
+        out->ptr = NULL;
+        out->len = 0;
+        out->result = 0;
+        return STATUS_OK;
     }
     frames_served += 1;
     if (frames_served == 1) {
@@ -522,6 +743,13 @@ HOST_EXPORT void compose_rust_host_shutdown(void) {
 }
 
 int main(void) {
+    marker_scene = want_marker_scene();
+    if (marker_scene) {
+        /* Unbuffered: the resize probe's script stops this process when it is done with it,
+           and a buffered line would be lost with it. */
+        setvbuf(stdout, NULL, _IONBF, 0);
+        printf("smoke host: marker scene (DXC_RESIZE_MARKER)\n");
+    }
     int32_t status = compose_rust_renderer_run();
     printf("compose_rust_renderer_run returned %d\n", status);
     return status == 0 ? 0 : 1;

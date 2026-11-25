@@ -189,8 +189,9 @@ impl Recomposer {
         effects::apply_effects();
         drain_graveyard();
         effects::poll_woken();
-        // Focus asked for by the handlers, the composition or its effects goes out last,
-        // once every node it may name has been placed.
+        // A text given to a field and focus asked for by the handlers, the composition or
+        // its effects go out last, once every node they may name has been placed.
+        with_composer(Composer::flush_text_requests);
         with_composer(Composer::flush_focus_requests);
         // Whatever was written during this round, by the composition, an effect or a
         // future, is the next frame's.
@@ -245,6 +246,21 @@ impl ComposeHost {
             let content = Arc::clone(&content);
             Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
         }))
+    }
+
+    /// A Host for a closure in the given theme (used by offscreen preview rendering).
+    pub fn with_content_and_theme(
+        content: impl Fn() + Send + Sync + 'static,
+        theme: Theme,
+    ) -> Self {
+        let content = Arc::new(content);
+        Self(Host::with_theme(
+            move || {
+                let content = Arc::clone(&content);
+                Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
+            },
+            theme,
+        ))
     }
 }
 
@@ -424,6 +440,25 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         ) => (*handler.borrow_mut())(crate::MotionFinished {
             width_dp: *width_dp,
             height_dp: *height_dp,
+        }),
+        (
+            EventCallback::Scroll(handler),
+            EventPayload::ScrollChanged {
+                x_px,
+                y_px,
+                max_x_px,
+                max_y_px,
+                viewport_width_px,
+                viewport_height_px,
+                ..
+            },
+        ) => (*handler.borrow_mut())(super::composer::ScrollReport {
+            x_px: *x_px,
+            y_px: *y_px,
+            max_x_px: *max_x_px,
+            max_y_px: *max_y_px,
+            viewport_width_px: *viewport_width_px,
+            viewport_height_px: *viewport_height_px,
         }),
         (EventCallback::Window(handler), payload) => {
             let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {

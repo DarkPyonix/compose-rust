@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -127,12 +128,29 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      */
     internal val scroll: ScrollPort? = if (widget in NodeTable.SCROLL_CONTAINERS) ScrollPort(id) else null
 
+    init {
+        // An editor says its offset in an event of its own as well. The scroll report for
+        // a move leaves with that event, so the port asks whether it is still to come.
+        if (code != null) scroll?.companionOwes = code::owesScroll
+    }
+
     /**
-     * Set while a scroll request needs to know where this node is drawn. Nothing records
-     * that for a node nobody asked about.
+     * Count of active scroll requests that need to know where this node is drawn. Nothing
+     * records that for a node nobody asked about, and overlapping requests on the same
+     * target keep placement alive until the last request finishes.
      */
-    internal var placementWanted by mutableStateOf(false)
+    private var placementWatchers by mutableIntStateOf(0)
+    internal val placementWanted: Boolean get() = placementWatchers > 0
     internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
+
+    internal fun watchPlacement() {
+        placementWatchers++
+    }
+
+    internal fun unwatchPlacement() {
+        placementWatchers = (placementWatchers - 1).coerceAtLeast(0)
+        if (placementWatchers == 0) placement = null
+    }
 
     /**
      * A `NativeView`'s platform view: the handle the Host attached, 0 for none. The view is
@@ -1092,9 +1110,10 @@ class NodeTable {
 
     private fun collectCode(node: Node, includeReports: Boolean = false) {
         val code = node.code ?: return
-        outbox += node.codeEvents(code.drainOutput(includeReports)) { message ->
+        val events = node.codeEvents(code.drainOutput(includeReports)) { message ->
             fail(TableError.INVALID_CODE_EDIT, "code editor ${node.id}: $message")
         }
+        outbox += scrolls.paired(node.scroll, events)
     }
 
     private fun create(mutation: Mutation.Create) {
@@ -1457,6 +1476,10 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
                 PropertyKind.ThumbSize -> widget == WidgetKind.Slider
+                // The shadow under a switch's thumb and the line around its track.
+                PropertyKind.ThumbElevation,
+                PropertyKind.TrackBorder,
+                -> widget == WidgetKind.Switch
 
                 // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
@@ -1466,6 +1489,13 @@ class NodeTable {
                 PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
                     widget == WidgetKind.Checkbox ||
                     widget == WidgetKind.RadioButton
+
+                // The mixed state and the border colour belong to a Checkbox alone: a radio
+                // button and a switch have no third state, and their outlines are the ring
+                // and the track.
+                PropertyKind.Indeterminate,
+                PropertyKind.OutlineColor,
+                -> widget == WidgetKind.Checkbox
 
                 // A linear layout gathers the radio buttons inside it into one group.
                 PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
@@ -1816,6 +1846,7 @@ class NodeTable {
                 PropertyKind.Decorations,
                 PropertyKind.SyntaxSpans,
                 PropertyKind.TabWidth,
+                PropertyKind.InsertSpaces,
                 PropertyKind.OnEditRejected,
                 PropertyKind.OnHover,
                 PropertyKind.OnSave,
@@ -1832,6 +1863,7 @@ class NodeTable {
                 PropertyKind.GutterMinWidthDp,
                 PropertyKind.GutterPaddingDp,
                 PropertyKind.TextInsetDp,
+                PropertyKind.FoldColumnWidthDp,
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,

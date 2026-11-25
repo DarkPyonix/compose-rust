@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.state.ToggleableState
@@ -11,6 +12,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
@@ -109,6 +113,49 @@ class SelectionControlTest {
         assertEquals(CONTROL, changes.single().nodeId)
         assertEquals(HANDLER, changes.single().handlerId)
         assertEquals(1.0, changes.single().value, "an unchecked box asks to be checked")
+    }
+
+    /**
+     * A press on a mixed Checkbox asks for all of it to be checked, whether the Host also
+     * says it is checked or not, in every design system. So does Space with the box focused.
+     * Each is one event, and the box stays mixed until the Host says otherwise.
+     */
+    @Test
+    fun fr67_pressing_a_mixed_checkbox_requests_checked() {
+        DesignSystem.entries.forEach { system ->
+            listOf(false, true).forEach { checked ->
+                val mixed = toggleTree(WidgetKind.Checkbox, checked, system) +
+                    Mutation.SetProp(CONTROL, PropertyKind.Indeterminate, PropertyValue.Bool(true))
+                runComposeUiTest {
+                    val connection = FakeHostConnection(mixed)
+                    setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                    waitForIdle()
+                    onNodeWithTag(nodeTestTag(CONTROL)).performClick()
+                    waitForIdle()
+                    assertEquals(
+                        listOf(HostEvent.ValueChanged(CONTROL, HANDLER, 1.0)),
+                        connection.events.filterIsInstance<HostEvent.ValueChanged>(),
+                        "$system (checked: $checked): a press",
+                    )
+                }
+                runComposeUiTest {
+                    val connection = FakeHostConnection(mixed)
+                    setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                    waitForIdle()
+                    onNodeWithTag(nodeTestTag(CONTROL)).requestFocus()
+                    onNodeWithTag(nodeTestTag(CONTROL)).performKeyInput { pressKey(Key.Spacebar) }
+                    waitForIdle()
+                    assertEquals(
+                        listOf(HostEvent.ValueChanged(CONTROL, HANDLER, 1.0)),
+                        connection.events.filterIsInstance<HostEvent.ValueChanged>(),
+                        "$system (checked: $checked): Space",
+                    )
+                    onNodeWithTag(nodeTestTag(CONTROL)).assert(
+                        SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.Indeterminate),
+                    )
+                }
+            }
+        }
     }
 
     /** Turning something off is the same event carrying the other value. */

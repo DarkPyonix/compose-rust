@@ -734,11 +734,19 @@ macro_rules! plain_container {
 /// [`ScrollRow`](fn@crate::ui::ScrollRow), and a handle to move it.
 ///
 /// The Renderer owns the scroll physics and the scrollbar; this handle reads the current
-/// offset and maximum offset in dp as observable states and sends target scroll requests.
+/// offset, the maximum offset and the size of the viewport in dp as observable states, and
+/// sends target scroll requests.
+///
+/// The three values come from the position the Renderer reports for the container, along
+/// the axis it scrolls on: the height of a `ScrollColumn`, the width of a `ScrollRow`. The
+/// report is in physical pixels and is turned into dp with the density and the application's
+/// zoom level of the window the container is in, so a value read here is the same dp that
+/// `scroll_to` takes. Before the first report all three are `0.0`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScrollState {
     offset: crate::runtime::MutableState<f32>,
     max_offset: crate::runtime::MutableState<f32>,
+    viewport: crate::runtime::MutableState<f32>,
     command: crate::runtime::MutableState<(i64, f32, bool)>,
 }
 
@@ -754,6 +762,7 @@ impl ScrollState {
         Self {
             offset: crate::runtime::mutable_state_of(0.0),
             max_offset: crate::runtime::mutable_state_of(0.0),
+            viewport: crate::runtime::mutable_state_of(0.0),
             command: crate::runtime::mutable_state_of((0, 0.0, false)),
         }
     }
@@ -769,6 +778,21 @@ impl ScrollState {
     /// viewport size changes the scrollable distance.
     pub fn max_offset(&self) -> f32 {
         self.max_offset.get()
+    }
+
+    /// The size in dp of the visible part of the container along the axis it scrolls on:
+    /// the height of a `ScrollColumn`, the width of a `ScrollRow`. `0.0` until the Renderer
+    /// has reported where the container is. A composable that reads this runs again when
+    /// the viewport is resized.
+    ///
+    /// It is what one page is, so a "scroll one page" control moves by it:
+    ///
+    /// ```ignore
+    /// let page = state.clone();
+    /// Button!("Next", move || page.animate_scroll_to(page.offset() + page.viewport_size()));
+    /// ```
+    pub fn viewport_size(&self) -> f32 {
+        self.viewport.get()
     }
 
     /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
@@ -791,8 +815,26 @@ pub fn remember_scroll_state() -> ScrollState {
     crate::runtime::remember(ScrollState::new)
 }
 
+/// A length from a `ScrollChanged` report, in physical pixels, as layout dp: the dp widgets
+/// are laid out and scrolled in, which `ScrollState::scroll_to` takes.
+///
+/// One layout dp is the display scale times the application's zoom step (`1.2^level`), which
+/// is the density the Renderer draws native widgets with. It is not the zoom's whole factor
+/// `k`: `k` also carries the system text size, and the Renderer applies that to text alone
+/// (as the font scale), so a dp of layout does not grow with it. Dividing by `k` would make
+/// every offset shrink when the reader enlarges their text.
+///
+/// Read inside a handler, the density and zoom are those of the window the handler's node is
+/// in. `None` for a value that is not a number; a value below zero is zero.
+pub(crate) fn scroll_px_to_layout_dp(px: f64) -> Option<f32> {
+    let px_per_dp = f64::from(crate::density::density()) * f64::from(crate::zoom::zoom().app());
+    let dp = px / px_per_dp;
+    dp.is_finite().then(|| dp.max(0.0) as f32)
+}
+
 fn scroll_state_input(
     state: Option<ScrollState>,
+    vertical: bool,
     attrs: &mut Attrs,
     listeners: &mut Vec<(&'static str, EventCallback)>,
 ) {
@@ -807,23 +849,33 @@ fn scroll_state_input(
     }
     let offset = state.offset;
     let max_offset = state.max_offset;
+    let viewport = state.viewport;
     listeners.push((
-        "onrangerequest",
-        EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
-            let next_offset = f32::from_bits(range.start() as u32);
-            let next_max = f32::from_bits(range.count() as u32);
-            if next_offset.is_finite() {
-                offset.set(next_offset);
-            }
-            if next_max.is_finite() {
-                max_offset.set(next_max);
-            }
-        }))),
+        "onscrollchanged",
+        EventCallback::Scroll(Rc::new(RefCell::new(
+            move |report: crate::runtime::composer::ScrollReport| {
+                let (along, furthest, visible) = if vertical {
+                    (report.y_px, report.max_y_px, report.viewport_height_px)
+                } else {
+                    (report.x_px, report.max_x_px, report.viewport_width_px)
+                };
+                // A value that is not a number leaves what was there.
+                if let Some(value) = scroll_px_to_layout_dp(along) {
+                    offset.set(value);
+                }
+                if let Some(value) = scroll_px_to_layout_dp(furthest) {
+                    max_offset.set(value);
+                }
+                if let Some(value) = scroll_px_to_layout_dp(visible) {
+                    viewport.set(value);
+                }
+            },
+        ))),
     ));
 }
 
 macro_rules! scroll_container {
-    ($name:ident, $widget:ident, $key:literal, $doc:literal) => {
+    ($name:ident, $widget:ident, $vertical:literal, $key:literal, $doc:literal) => {
         #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
         pub(crate) struct $name {
             modifier: Modifier,
@@ -849,8 +901,9 @@ macro_rules! scroll_container {
         }
 
         impl $name {
-            /// Binds a [`ScrollState`] so the application can read `offset()` and
-            /// `max_offset()` or call `scroll_to` and `animate_scroll_to`.
+            /// Binds a [`ScrollState`] so the application can read `offset()`,
+            /// `max_offset()` and `viewport_size()` or call `scroll_to` and
+            /// `animate_scroll_to`.
             pub(crate) fn scroll_state(mut self, state: &ScrollState) -> Self {
                 self.scroll_state = Some(state.clone());
                 self
@@ -874,7 +927,7 @@ macro_rules! scroll_container {
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
-                scroll_state_input(scroll_state, &mut subscription, &mut listeners);
+                scroll_state_input(scroll_state, $vertical, &mut subscription, &mut listeners);
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
                 focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
@@ -906,12 +959,14 @@ macro_rules! scroll_container {
 scroll_container!(
     ScrollColumnScope,
     ScrollColumn,
+    true,
     "compose_rust::ui::ScrollColumn",
     "All of its content, with a vertical scroll the Renderer owns."
 );
 scroll_container!(
     ScrollRowScope,
     ScrollRow,
+    false,
     "compose_rust::ui::ScrollRow",
     "All of its content, with a horizontal scroll the Renderer owns."
 );
@@ -1230,6 +1285,7 @@ pub(crate) struct TextFieldScope {
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
+    text_handle: Option<super::TextFieldHandle>,
     bare: bool,
     read_only: bool,
     done: bool,
@@ -1266,6 +1322,7 @@ pub(crate) fn TextField() -> TextFieldScope {
         on_composition_change: None,
         on_motion_finished: None,
         focus_handle: None,
+        text_handle: None,
         bare: false,
         read_only: false,
         done: false,
@@ -1421,6 +1478,12 @@ impl TextFieldScope {
         self
     }
 
+    /// Binds `handle` to this field, so `handle.set_text(..)` gives it a new text.
+    pub(crate) fn text_handle(mut self, handle: &super::TextFieldHandle) -> Self {
+        self.text_handle = Some(handle.clone());
+        self
+    }
+
     /// Runs once when the field's size motion comes to rest, with the size it settled at
     /// in dp. The field needs `Modifier::motion` for its size to move; without it nothing
     /// is reported. A run interrupted by a newer size is not reported, only the one that
@@ -1492,6 +1555,7 @@ impl TextFieldScope {
         }
         motion_input(self.on_motion_finished.take(), &mut listeners);
         super::focus::bind_focus_handle(self.focus_handle.take());
+        super::text_handle::bind_text_field_handle(self.text_handle.take());
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,
@@ -1582,7 +1646,12 @@ struct ControlLook {
     active_track: Option<Paint>,
     container: Option<Paint>,
     check: Option<Paint>,
+    outline: Option<Paint>,
     size: Option<(f32, f32)>,
+    /// How high a Switch lifts its thumb, in dp.
+    thumb_elevation: Option<f32>,
+    /// The width in dp and the paint of the line around a Switch's track.
+    track_border: Option<(f32, Paint)>,
 }
 
 impl ControlLook {
@@ -1593,6 +1662,7 @@ impl ControlLook {
             ("active_track_color", self.active_track),
             ("container_color", self.container),
             ("check_color", self.check),
+            ("outline_color", self.outline),
         ];
         for (name, paint) in paints {
             if let Some(paint) = paint {
@@ -1604,6 +1674,16 @@ impl ControlLook {
             bytes.extend_from_slice(&width.to_bits().to_le_bytes());
             bytes.extend_from_slice(&height.to_bits().to_le_bytes());
             attrs.push(("control_size", OwnedAttr::Bytes(bytes)));
+        }
+        if let Some(dp) = self.thumb_elevation {
+            attrs.push(("thumb_elevation", OwnedAttr::Float(f64::from(dp))));
+        }
+        if let Some((width, paint)) = self.track_border {
+            // The `Border` modifier's two fields, in its order: the width, then the paint.
+            let mut bytes = Vec::with_capacity(12);
+            bytes.extend_from_slice(&width.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
+            attrs.push(("track_border", OwnedAttr::Bytes(bytes)));
         }
     }
 }
@@ -1857,6 +1937,8 @@ macro_rules! toggle {
         pub(crate) struct $name {
             modifier: Modifier,
             checked: bool,
+            // Only a Checkbox has a third state; the other two never set it.
+            indeterminate: bool,
             enabled: bool,
             accessible_name: Option<String>,
             look: ControlLook,
@@ -1870,6 +1952,7 @@ macro_rules! toggle {
             $name {
                 modifier: Modifier::new(),
                 checked: $setter,
+                indeterminate: false,
                 enabled: true,
                 accessible_name: None,
                 look: ControlLook::default(),
@@ -1897,6 +1980,7 @@ macro_rules! toggle {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = std::mem::take(&mut self.modifier);
                 let (checked, enabled) = (self.checked, self.enabled);
+                let indeterminate = self.indeterminate;
                 let accessible_name = self.accessible_name.take();
                 let look = self.look;
                 let handler: EventCallback = match self.on_change.take() {
@@ -1917,6 +2001,11 @@ macro_rules! toggle {
                         attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                         push_accessible_name(accessible_name, attrs);
                         look.push(attrs);
+                        // Sent only while it is mixed, so a box that never is writes no
+                        // record, and one that stops being mixed sends a removal.
+                        if indeterminate {
+                            attrs.push(("indeterminate", OwnedAttr::Bool(true)));
+                        }
                     },
                     with_motion(vec![("onchange", handler)], motion),
                     content,
@@ -1949,20 +2038,52 @@ impl SwitchScope {
         self.look.size = Some((width, height));
         self
     }
+
+    /// How high the thumb is lifted, in dp: a soft shadow under it that travels with it.
+    /// Zero is no shadow; not calling this leaves the design system's.
+    pub(crate) fn thumb_elevation(mut self, dp: f32) -> Self {
+        self.look.thumb_elevation = Some(dp);
+        self
+    }
+
+    /// A line of `width` dp in `paint` around the track, in both states. A width of zero is
+    /// no line; not calling this leaves the design system's.
+    pub(crate) fn track_border(mut self, (width, paint): (f32, Paint)) -> Self {
+        self.look.track_border = Some((width, paint));
+        self
+    }
 }
 
 control_colour!(
     CheckboxScope,
     container,
     container_color,
-    "The box when it is checked."
+    "The box when it is checked or mixed."
 );
-control_colour!(CheckboxScope, check, check_color, "The check mark.");
+control_colour!(
+    CheckboxScope,
+    check,
+    check_color,
+    "The check mark, or the dash of a mixed box."
+);
+control_colour!(
+    CheckboxScope,
+    outline,
+    outline_color,
+    "The box's border, in every state alike."
+);
 
 impl CheckboxScope {
     /// The length of the box's side in dp.
     pub(crate) fn size(mut self, side: f32) -> Self {
         self.look.size = Some((side, side));
+        self
+    }
+
+    /// Whether the box is mixed: filled, with a dash instead of a check, whatever
+    /// `checked` says.
+    pub(crate) fn indeterminate(mut self, indeterminate: bool) -> Self {
+        self.indeterminate = indeterminate;
         self
     }
 }

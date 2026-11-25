@@ -207,7 +207,8 @@ macro_rules! scroll {
 scroll! {
     /// All of its content, with a vertical scroll the Renderer owns.
     ///
-    /// `scroll_state` binds a [`ScrollState`] to read the offset and move it. `snap` is
+    /// `scroll_state` binds a [`ScrollState`] to read the offset, the furthest offset and
+    /// the size of the viewport, and to move it. `snap` is
     /// where the content comes to rest once a drag or a fling ends.
     ScrollColumn
 }

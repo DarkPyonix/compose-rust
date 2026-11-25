@@ -46,6 +46,7 @@ pub mod native_view;
 pub mod notification;
 pub mod palette;
 pub mod picked_file;
+pub mod preview;
 pub mod protocol;
 pub mod rich_text;
 pub mod runtime;
@@ -68,7 +69,7 @@ pub use animation::{
     animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
     start_animation, transition,
 };
-pub use asset::{AssetId, asset};
+pub use asset::{AssetId, asset, release_asset};
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
@@ -83,6 +84,7 @@ pub use code::{
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
+pub use compose_rust_macros::Preview;
 pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
@@ -99,6 +101,7 @@ pub use notification::{
 };
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
+pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
 pub use rich_text::{
     CharacterRun, Format, ParagraphFormat, RichDocument, RichTextError, TextFormat, Toggle, Tri,
 };
