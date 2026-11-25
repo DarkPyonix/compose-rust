@@ -78,7 +78,7 @@ internal class MultiWindowLoop(
 ) {
     private val driver = FrameDispatcher()
     private val frames = CoroutineScope(driver + SupervisorJob())
-    val backend = WindowsWindowBackend { config, window -> windowContent(host, config, window) }
+    val backend = WindowsWindowBackend { config, window -> windowContent(host, requests, config, window) }
 
     /** Which node of a window is under a point of its content, answered from where the scenes laid the nodes out. */
     val dropTargets = DropTargets { windowId, x, y -> backend.dropTargetAt(windowId, x, y) }
@@ -142,13 +142,16 @@ internal class MultiWindowLoop(
  */
 private fun windowContent(
     host: ComposeRustHost,
+    requests: FrameRequestSource,
     config: PlatformWindowConfig,
     window: Win32Window,
 ): @Composable () -> Unit {
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { WindowsPlatformLocals(window) { WindowContent(host) } }
+            ServedBy(requests) {
+                ForWindow(nodeId) { WindowsPlatformLocals(window) { WindowContent(host) } }
+            }
         }
     }
     val actions = WindowActions(
@@ -158,14 +161,28 @@ private fun windowContent(
         maximised = window.maximised,
     )
     return {
-        ForWindow(nodeId) {
-            CompositionLocalProvider(LocalWindowActions provides actions) {
-                WindowsPlatformLocals(window) {
-                    WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+        ServedBy(requests) {
+            ForWindow(nodeId) {
+                CompositionLocalProvider(LocalWindowActions provides actions) {
+                    WindowsPlatformLocals(window) {
+                        WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Gives a window's content the frame requests this loop serves. The content asks for a frame
+ * through them whenever an answer from another thread is waiting (a file dialog that ended, a
+ * notification, a clipboard read), and the answer is handed to the Host in that frame. Left to
+ * the default, a loop serving a source of its own, as the checks do, never heard those asks:
+ * a file dialog's request waited for a frame that never came and was never shown.
+ */
+@Composable
+private fun ServedBy(requests: FrameRequestSource, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalFrameRequests provides requests, content = content)
 }
 
 @Composable
