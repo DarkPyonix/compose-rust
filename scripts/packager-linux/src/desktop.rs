@@ -2,6 +2,7 @@
 //! application.
 
 use crate::metadata::AppMetadata;
+use crate::templates;
 
 /// The entry's file name. Flatpak and AppStream both require it to be the application
 /// identifier.
@@ -9,27 +10,37 @@ pub fn desktop_file_name(meta: &AppMetadata) -> String {
     format!("{}.desktop", meta.id)
 }
 
-/// The `[Desktop Entry]` group.
+/// The `[Desktop Entry]` group: the fork's `app.desktop.in` filled from `meta`, then the
+/// keys the template does not have.
 ///
 /// `Exec` is the bare executable name. Inside a Flatpak that name is on `PATH`; inside an
 /// AppImage the runtime starts `AppRun` and never reads `Exec`, and the desktop
 /// integration tools rewrite it to the AppImage's path when they install the entry.
 pub fn desktop_entry(meta: &AppMetadata) -> String {
-    let mut out = String::from("[Desktop Entry]\n");
+    desktop_entry_with(templates::DESKTOP, meta)
+}
+
+/// [`desktop_entry`] from a given template, so a test can show the output follows it.
+pub fn desktop_entry_with(template: &str, meta: &AppMetadata) -> String {
+    let mut out = templates::render(
+        template,
+        &[
+            ("name", &escape(&meta.name)),
+            ("summary", &escape(&meta.summary)),
+            ("executable", &meta.exec),
+            ("identifier", &meta.id),
+            ("category_xdg", &list(&meta.categories)),
+        ],
+    );
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
     let mut line = |key: &str, value: &str| {
         out.push_str(key);
         out.push('=');
         out.push_str(value);
         out.push('\n');
     };
-    line("Type", "Application");
-    line("Version", "1.5");
-    line("Name", &escape(&meta.name));
-    line("Comment", &escape(&meta.summary));
-    line("Exec", &meta.exec);
-    line("Icon", &meta.id);
-    line("Terminal", "false");
-    line("Categories", &list(&meta.categories));
     if !meta.keywords.is_empty() {
         line("Keywords", &list(&meta.keywords));
     }
