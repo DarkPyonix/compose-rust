@@ -2,7 +2,7 @@
 Type=Application
 Version=1.5
 Name={{name}}
-Comment={{description}}
+Comment={{summary}}
 Exec={{executable}}
 Icon={{identifier}}
 Terminal=false
