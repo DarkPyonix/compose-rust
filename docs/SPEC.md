@@ -71,6 +71,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 - Host가 값을 바꿀 때는 명시적 명령 `SetText(node_id, text, selection)`을 씁니다. Renderer는 IME 조합이 진행 중이면 조합이 끝날 때까지 적용을 미룹니다.
 - 수용 기준: §6 IME 체크리스트를 통과합니다. **핵심 5개 항목은 2026-09-21 native-image 빌드에서 확인했습니다.** 나머지 4개(멀티라인 Enter 처리, 한글 혼합 붙여넣기, 일본어/중국어 후보창 위치, TextChanged 중 조합 유지)는 미확인이므로 `Done`이 아닙니다.
 - 읽기 전용(`read_only`, `PropertyKind::ReadOnly = 215`, Bool) `[leader, provisional, 2026-11-20]`: `read_only(true)`인 `TextField`는 포커스, 캐럿 이동, 텍스트 선택과 복사를 유지하되 타이핑·삭제·붙여넣기 등 편집을 적용하지 않으며, 접근성 트리에 읽기 전용으로 노출됩니다. 수용 기준: `read_only(true)`인 필드에서 타이핑해도 값이 바뀌지 않고 `TextChanged`가 발생하지 않으며, 캐럿·선택·복사와 읽기 전용 접근성 상태가 동작합니다(Rust + 데스크톱 렌더러 테스트).
+- 작성 API에서의 `SetText` `[leader, 2026-11-25, 이슈 #1075]`: 조합(composition) 코드는 노드 id를 보지 못하므로 `FocusHandle`과 같은 모양의 `TextFieldHandle`(`use_text_field_handle()`, `TextField`의 `text_handle`)로 필드에 묶고, `set_text`로 값을 바꿉니다. 필드는 여전히 비제어이고(D5), 나중에 바뀐 `text` 인자는 살아 있는 필드를 바꾸지 않습니다. 수용 기준: 화면에 있는 필드에 대해 `set_text`를 부르면 다음 배치에 그 노드의 `SetText`가 1건 실리고 새 노드는 만들어지지 않습니다. 빈 문자열도 값으로 보냅니다. 배치 전에 여러 번 부르면 마지막 값 하나만 보냅니다. 화면에 없는 핸들은 아무것도 보내지 않습니다(Rust 테스트 `fr5_text_field_handle_*`).
 
 ### FR-6 Dioxus 렌더러 (`Done`)
 `dioxus-core` VirtualDom의 `Mutations`를 프로토콜 Mutation으로 변환하는 렌더러를 제공합니다.

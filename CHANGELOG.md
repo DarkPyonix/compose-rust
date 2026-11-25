@@ -18,6 +18,10 @@ When the build cannot use a renderer, its message names the repository's build s
 
 `compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
 
+### `TextFieldHandle` gives a live text field a new text
+
+A `TextField` takes its `text` when its node is made, so an application could not reset or clear a field already on screen except by giving it a new `key`, which made a new node. `use_text_field_handle()` returns a handle that `TextField!(..., text_handle = &handle)` binds to the field; `handle.set_text(text)` (or `set_text_with_selection`) puts one `SetText` for that node on the next batch, the empty text included, with the last text asked for before the batch. The field stays uncontrolled: the Renderer keeps the caret where it still fits and waits for an input method's composition to end first (FR-5, #1075).
+
 ### A memory report for a blank window on Linux and Windows
 
 `compose-rust/tests/fixtures/blank-window` is one 800 by 600 dp window with one empty box, so what its process holds is what the renderer, its graphics surface and the window cost. A development CI dispatch with the `memory_report` suite builds it against the Kotlin/Native renderer of the same commit and starts it three times on ubuntu-latest (under Xvfb) and on windows-latest. It reads PSS on Linux and the private working set on Windows, 10 and 60 seconds after each start, and puts the median of the three in the job summary, with every sample kept as an artifact. The report fails only when the window does not come up or nothing could be read, never on a number. No default suite runs it, and nothing it measures gates a merge (#59).
