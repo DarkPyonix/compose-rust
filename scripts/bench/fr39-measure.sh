@@ -87,6 +87,9 @@ usage() {
     exit 2
 }
 
+# The scenarios a parity log lists as violations, space separated.
+parity_violations() { sed -n "s/^violation \([^:]*\):.*/\1/p" "$1" | paste -sd " " -; }
+
 # ----- readings ----------------------------------------------------------------------------
 
 # The 1-minute load average, the same reading run.sh records per scenario.
@@ -305,6 +308,7 @@ machine_json() {
 }
 
 # conditions_json <load at start> <raw dir> <parity dir> <log dir> <started> <finished> <toolchain mode>
+#                 [scenarios parity.sh listed as violations, space separated]
 conditions_json() {
     local at_start="$1" raw_dir="$2" parity_dir="$3" log_dir="$4" started="$5" finished="$6"
     local rustc_version cargo_version
@@ -342,6 +346,7 @@ conditions_json() {
         --arg lock "$lock_sha" --arg profile_release "$profile_release" \
         --arg not_measured "$not_measured" \
         --arg slots "$slots_dir" \
+        --arg parity_violations "${8:-}" \
         '. + {
             date: $date,
             finished: $finished,
@@ -357,6 +362,7 @@ conditions_json() {
             build_slots: {directory: $slots, held: 3},
             raw_dir: $raw_dir, parity_dir: $parity_dir, log_dir: $log_dir,
             cargo_lock_sha256: $lock,
+            parity_record_violations: ($parity_violations | split(" ") | map(select(. != ""))),
             not_measured: $not_measured
         }'
 }
@@ -372,6 +378,8 @@ augment_record() {
         | ($f.runs | map(.warmup) | unique) as $warmup
         | ($f.comparisons | map(select(.valid | not) | .name)) as $invalid
         | ($f.comparisons | map(select(.p50_ratio < 1 or .p99_ratio < 1) | .name)) as $slower
+        | ($f.record_violations // [] | map(.scenario)) as $violations
+        | ($f.target_met and ($violations | length) == 0) as $met
         | .fr39.conditions = ($c[0] + {
             iterations: (if ($iterations | length) == 1 then $iterations[0] else $iterations end),
             warmup: (if ($warmup | length) == 1 then $warmup[0] else $warmup end)
@@ -382,20 +390,23 @@ augment_record() {
             idle_throughout: (($loads | length) > 0 and ($loads | max) < $c[0].load_average.default_limit)
           }
         | .fr39.verdict = {
-            met: $f.target_met,
+            met: $met,
             geometric_mean_p50_multiple: $f.geometric_mean_p50_ratio,
             geometric_mean_p99_multiple: $f.geometric_mean_p99_ratio,
             target_p50_multiple: 10,
             target_p99_multiple: 5,
             invalid_scenarios: $invalid,
             slower_than_baseline: $slower,
-            line: ("target " + (if $f.target_met then "met" else "not met" end)
+            record_violations: $violations,
+            line: ("target " + (if $met then "met" else "not met" end)
                 + ": geometric mean of p50 multiples "
                 + ($f.geometric_mean_p50_ratio * 100 | round / 100 | tostring)
                 + " (target 10), of p99 multiples "
                 + ($f.geometric_mean_p99_ratio * 100 | round / 100 | tostring)
                 + " (target 5); " + ($invalid | length | tostring) + " invalid, "
-                + ($slower | length | tostring) + " slower than the baseline")
+                + ($slower | length | tostring) + " slower than the baseline"
+                + (if ($violations | length) == 0 then "" else "; record violations"
+                   + " (more records or bytes than the baseline): " + ($violations | join(", ")) end))
           }
     ' "$file" > "$tmp"
     mv "$tmp" "$file"
@@ -435,7 +446,8 @@ validate_record() {
           ["fr39","conditions","build","profile"],
           ["fr39","conditions","cargo_lock_sha256"], ["fr39","conditions","not_measured"],
           ["fr39","verdict","met"], ["fr39","verdict","geometric_mean_p50_multiple"],
-          ["fr39","verdict","geometric_mean_p99_multiple"], ["fr39","verdict","line"] ] as $required
+          ["fr39","verdict","geometric_mean_p99_multiple"], ["fr39","verdict","line"],
+          ["fr39","verdict","record_violations"] ] as $required
         | . as $doc
         | ($required[] | select(. as $p | $doc | getpath($p) == null) | join(".")),
           (if ($doc.fr39.runs | length) == 0 then "fr39.runs is empty" else empty end),
@@ -460,7 +472,9 @@ print_summary() {
     say "Times are one whole interaction (Host plus the model apply), in microseconds."
     jq -r '.fr39.comparisons[] | [.name, .baseline_p50_ns, .candidate_p50_ns, .p50_ratio,
             .baseline_p99_ns, .candidate_p99_ns, .p99_ratio,
-            (if .valid then "ok" else "INVALID: " + .reason end)] | @tsv' "$file" |
+            (if (.valid | not) then "INVALID: " + .reason
+             elif .record_violation then "VIOLATION: more records or bytes than the baseline"
+             else "ok" end)] | @tsv' "$file" |
         awk -F'\t' '
             BEGIN {
                 printf "%-18s %12s %12s %8s %12s %12s %8s  %s\n", "scenario", "baseline p50",
@@ -472,6 +486,15 @@ print_summary() {
             }'
     say ""
     say "$(jq -r '.fr39.verdict.line' "$file")"
+    local violations
+    violations="$(jq -r '.fr39.record_violations // [] | .[] | "\(.scenario): "
+        + "\(.candidate_records) records against \(.baseline_records) (+\(.excess_records)), "
+        + "\(.candidate_bytes) bytes against \(.baseline_bytes) (+\(.excess_bytes))"' "$file")"
+    if [[ -n "$violations" ]]; then
+        loud "These scenarios broke the rule that the candidate sends no more records or bytes" \
+            "than the baseline. Their timings are recorded, and the target is not met:" \
+            "${violations//$'\n'/; }"
+    fi
     if [[ "$(jq -r '.fr39.conditions.load_average.idle_throughout' "$file")" != true ]]; then
         loud "The load average reached $(jq -r '.fr39.conditions.load_average.max_during_run' "$file") during the run, not under $default_load_limit throughout." \
             "The run is recorded with that fact. The verdict is read from a run on an idle machine."
@@ -734,12 +757,16 @@ case "$mode" in
         bash "$bench/parity.sh" 2>&1 | tee "$dir/parity.log"
         status="${PIPESTATUS[0]}"
         set -e
-        if [[ "$status" != 0 ]]; then
+        if [[ "$status" != 0 && "$status" != 3 ]]; then
             fail "parity.sh failed (exit $status); its output is above and in $dir/parity.log" \
                 "The measurement would stop at the same place. Fix this before the freeze."
         fi
         say ""
         say "Prepared: the bench is built and both paths build the same trees."
+        violations="$(parity_violations "$dir/parity.log")"
+        [[ -z "$violations" ]] ||
+            loud "Sending more records or bytes than the baseline: $violations" \
+                "The measurement goes on with these recorded as violations; the target is not met."
         say "During the freeze, run: scripts/bench/fr39-measure.sh"
         ;;
 
@@ -778,19 +805,20 @@ case "$mode" in
             fi
         fi
 
-        # Parity first: a run whose trees differ, or whose slot table path sends more, is
-        # not a comparison, and there is no point timing it.
+        # Parity first: a run whose trees differ is not a comparison, and there is no point
+        # timing it. Exit 3 is equal trees with more records or bytes: recorded, not fatal.
         before_parity="$(ls -1 "$scratch" 2>/dev/null | grep '^parity-' || true)"
         set +e
         bash "$bench/parity.sh" 2>&1 | tee "$log_dir/parity.log"
         status="${PIPESTATUS[0]}"
         set -e
-        if [[ "$status" != 0 ]]; then
+        if [[ "$status" != 0 && "$status" != 3 ]]; then
             fail "parity.sh failed (exit $status); nothing was measured" \
                 "Its output is above and in $log_dir/parity.log."
         fi
         parity_dir="$(comm -13 <(echo "$before_parity") <(ls -1 "$scratch" | grep '^parity-' || true) | tail -1)"
         parity_dir="${parity_dir:+$scratch/$parity_dir}"
+        violations="$(parity_violations "$log_dir/parity.log")"
 
         # The build just ran on this machine, and the load average remembers it for a
         # minute or two. Measuring before it settles would time the build's tail.
@@ -823,7 +851,7 @@ case "$mode" in
         fi
 
         conditions_json "$at_start" "$raw_dir" "${parity_dir:-not found}" "$log_dir" \
-            "$started" "$finished" read > "$log_dir/conditions.json"
+            "$started" "$finished" read "$violations" > "$log_dir/conditions.json"
         augment_record "$record" "$log_dir/conditions.json"
         validate_record "$record" || fail "the record is missing fields; see above"
         cp "$log_dir/parity.log" "$raw_dir/measure-parity.log"
