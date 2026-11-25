@@ -2044,3 +2044,37 @@ fn fr38_after_line_decoration_round_trips_on_the_wire() {
         )]
     );
 }
+
+/// Whether Tab inserts spaces or a literal tab travels as a boolean on property 227.
+#[test]
+fn fr38_insert_spaces_keeps_its_tag_and_round_trips() {
+    assert_eq!(PropertyKind::InsertSpaces as u16, 227);
+    assert_eq!(
+        PropertyKind::from_name("insert_spaces"),
+        Ok(PropertyKind::InsertSpaces)
+    );
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::InsertSpaces,
+            value: PropertyValue::Bool(false),
+        })
+        .unwrap();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::InsertSpaces,
+            value: PropertyValue::Bool(true),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![
+            Record::Prop(2, PropertyKind::InsertSpaces, Value::Bool(false)),
+            Record::Prop(2, PropertyKind::InsertSpaces, Value::Bool(true)),
+        ]
+    );
+}
