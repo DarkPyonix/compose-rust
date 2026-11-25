@@ -1796,6 +1796,7 @@ class NodeTable {
                 PropertyKind.GutterMinWidthDp,
                 PropertyKind.GutterPaddingDp,
                 PropertyKind.TextInsetDp,
+                PropertyKind.FoldColumnWidthDp,
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,

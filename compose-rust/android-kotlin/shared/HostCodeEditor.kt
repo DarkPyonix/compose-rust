@@ -94,6 +94,7 @@ internal fun HostCodeEditor(
         node.property(PropertyKind.WordWrap),
         node.bytes(PropertyKind.ContentPaddingDp),
         node.property(PropertyKind.FixedGutterColumns),
+        node.property(PropertyKind.FoldColumnWidthDp),
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
@@ -288,6 +289,7 @@ internal fun codeEditorLook(
         contentPaddingTop = padding?.first?.dp ?: 0.dp,
         contentPaddingBottom = padding?.second?.dp ?: 0.dp,
         fixedGutterColumns = node.flag(PropertyKind.FixedGutterColumns, default = false),
+        foldColumnWidth = node.lengthOrNull(PropertyKind.FoldColumnWidthDp),
         currentLineGutter = colors?.currentLineGutter?.let { theme.color(it) } ?: Color.Unspecified,
     )
 }
