@@ -2,6 +2,7 @@
 //! this file alone, and `appstreamcli validate` is what decides whether it is accepted.
 
 use crate::metadata::AppMetadata;
+use crate::templates;
 
 /// The file name Flathub expects under `share/metainfo`.
 pub fn metainfo_file_name(meta: &AppMetadata) -> String {
@@ -14,33 +15,45 @@ pub fn appdata_file_name(meta: &AppMetadata) -> String {
     format!("{}.appdata.xml", meta.id)
 }
 
-/// The metainfo XML document.
+/// The metainfo XML document: the fork's `app.metainfo.xml.in` filled from `meta`, then
+/// what the template does not have. The links, keywords, screenshots and branding go
+/// before the content rating; more description paragraphs after the first; the content
+/// rating's attributes and the release notes inside the elements the template leaves empty.
 pub fn metainfo(meta: &AppMetadata) -> String {
-    let mut x = String::new();
-    x.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    x.push_str("<component type=\"desktop-application\">\n");
-    element(&mut x, 1, "id", &meta.id);
-    element(&mut x, 1, "metadata_license", &meta.metadata_license);
-    element(&mut x, 1, "project_license", &meta.license);
-    element(&mut x, 1, "name", &meta.name);
-    element(&mut x, 1, "summary", &meta.summary);
-    x.push_str(&format!(
-        "  <developer id=\"{}\">\n",
-        escape(&meta.developer_id)
-    ));
-    element(&mut x, 2, "name", &meta.developer_name);
-    x.push_str("  </developer>\n");
+    metainfo_with(templates::METAINFO, meta)
+}
 
-    x.push_str("  <description>\n");
-    for paragraph in &meta.description {
-        element(&mut x, 2, "p", paragraph);
+/// [`metainfo`] from a given template, so a test can show the output follows it.
+pub fn metainfo_with(template: &str, meta: &AppMetadata) -> String {
+    let first = meta
+        .description
+        .first()
+        .map(String::as_str)
+        .unwrap_or(meta.summary.as_str());
+    let mut x = templates::render(
+        template,
+        &[
+            ("identifier", &escape(&meta.id)),
+            ("metadata_license", &escape(&meta.metadata_license)),
+            ("license", &escape(&meta.license)),
+            ("name", &escape(&meta.name)),
+            ("summary", &escape(&meta.summary)),
+            ("developer_id", &escape(&meta.developer_id)),
+            ("publisher", &escape(&meta.developer_name)),
+            ("description", &escape(first)),
+            ("executable", &escape(&meta.exec)),
+            ("version", &escape(&meta.version)),
+            ("date", &escape(&meta.date)),
+        ],
+    );
+
+    let mut more = String::new();
+    for paragraph in meta.description.iter().skip(1) {
+        element(&mut more, 2, "p", paragraph);
     }
-    x.push_str("  </description>\n");
+    insert_before(&mut x, "  </description>\n", &more);
 
-    x.push_str(&format!(
-        "  <launchable type=\"desktop-id\">{}.desktop</launchable>\n",
-        escape(&meta.id)
-    ));
+    let mut extra = String::new();
     for (kind, url) in [
         ("homepage", Some(&meta.homepage)),
         ("bugtracker", meta.bugtracker.as_ref()),
@@ -48,89 +61,101 @@ pub fn metainfo(meta: &AppMetadata) -> String {
         ("donation", meta.donation.as_ref()),
     ] {
         if let Some(url) = url {
-            x.push_str(&format!("  <url type=\"{kind}\">{}</url>\n", escape(url)));
+            extra.push_str(&format!("  <url type=\"{kind}\">{}</url>\n", escape(url)));
         }
     }
-
     if !meta.keywords.is_empty() {
-        x.push_str("  <keywords>\n");
+        extra.push_str("  <keywords>\n");
         for keyword in &meta.keywords {
-            element(&mut x, 2, "keyword", keyword);
+            element(&mut extra, 2, "keyword", keyword);
         }
-        x.push_str("  </keywords>\n");
+        extra.push_str("  </keywords>\n");
     }
-
     if !meta.screenshots.is_empty() {
-        x.push_str("  <screenshots>\n");
+        extra.push_str("  <screenshots>\n");
         for (index, shot) in meta.screenshots.iter().enumerate() {
             if index == 0 {
-                x.push_str("    <screenshot type=\"default\">\n");
+                extra.push_str("    <screenshot type=\"default\">\n");
             } else {
-                x.push_str("    <screenshot>\n");
+                extra.push_str("    <screenshot>\n");
             }
-            element(&mut x, 3, "image", &shot.url);
+            element(&mut extra, 3, "image", &shot.url);
             if let Some(caption) = &shot.caption {
-                element(&mut x, 3, "caption", caption);
+                element(&mut extra, 3, "caption", caption);
             }
-            x.push_str("    </screenshot>\n");
+            extra.push_str("    </screenshot>\n");
         }
-        x.push_str("  </screenshots>\n");
+        extra.push_str("  </screenshots>\n");
     }
-
     if meta.brand_light.is_some() || meta.brand_dark.is_some() {
-        x.push_str("  <branding>\n");
+        extra.push_str("  <branding>\n");
         for (scheme, colour) in [
             ("light", meta.brand_light.as_ref()),
             ("dark", meta.brand_dark.as_ref()),
         ] {
             if let Some(colour) = colour {
-                x.push_str(&format!(
+                extra.push_str(&format!(
                     "    <color type=\"primary\" scheme_preference=\"{scheme}\">{}</color>\n",
                     escape(colour)
                 ));
             }
         }
-        x.push_str("  </branding>\n");
+        extra.push_str("  </branding>\n");
     }
+    insert_before(&mut x, "  <content_rating ", &extra);
 
-    if meta.content_rating.is_empty() {
-        x.push_str("  <content_rating type=\"oars-1.1\"/>\n");
-    } else {
-        x.push_str("  <content_rating type=\"oars-1.1\">\n");
+    if !meta.content_rating.is_empty() {
+        let mut children = String::new();
         for (attribute, value) in &meta.content_rating {
-            x.push_str(&format!(
+            children.push_str(&format!(
                 "    <content_attribute id=\"{}\">{}</content_attribute>\n",
                 escape(attribute),
                 escape(value)
             ));
         }
-        x.push_str("  </content_rating>\n");
+        fill_empty(
+            &mut x,
+            "  <content_rating ",
+            "  </content_rating>\n",
+            &children,
+        );
     }
-
-    x.push_str("  <provides>\n");
-    element(&mut x, 2, "binary", &meta.exec);
-    x.push_str("  </provides>\n");
-
-    x.push_str("  <releases>\n");
-    let release = format!(
-        "    <release version=\"{}\" date=\"{}\"",
-        escape(&meta.version),
-        escape(&meta.date)
-    );
-    if meta.release_notes.is_empty() {
-        x.push_str(&release);
-        x.push_str("/>\n");
-    } else {
-        x.push_str(&release);
-        x.push_str(">\n      <description>\n");
+    if !meta.release_notes.is_empty() {
+        let mut children = String::from("      <description>\n");
         for note in &meta.release_notes {
-            element(&mut x, 4, "p", note);
+            element(&mut children, 4, "p", note);
         }
-        x.push_str("      </description>\n    </release>\n");
+        children.push_str("      </description>\n");
+        fill_empty(&mut x, "    <release ", "    </release>\n", &children);
     }
-    x.push_str("  </releases>\n");
-    x.push_str("</component>\n");
     x
+}
+
+/// Puts `text` before the line that starts with `anchor`. The anchor is the template's, so
+/// a template without it is out of step with this program.
+fn insert_before(doc: &mut String, anchor: &str, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let at = doc
+        .find(anchor)
+        .unwrap_or_else(|| panic!("the metainfo template has no {anchor:?}"));
+    doc.insert_str(at, text);
+}
+
+/// Opens the empty element on the line starting with `anchor` (`<name .../>`) and puts
+/// `children` and `close` after it.
+fn fill_empty(doc: &mut String, anchor: &str, close: &str, children: &str) {
+    let start = doc
+        .find(anchor)
+        .unwrap_or_else(|| panic!("the metainfo template has no {anchor:?}"));
+    let end = start + doc[start..].find('\n').expect("a template line ends");
+    let line = &doc[start..end];
+    let open = line
+        .strip_suffix("/>")
+        .unwrap_or_else(|| panic!("the metainfo template's {anchor:?} is not empty"));
+    let replacement = format!("{open}>\n{children}{}", close.trim_end_matches('\n'));
+    doc.replace_range(start..end, &replacement);
 }
 
 fn element(x: &mut String, depth: usize, name: &str, text: &str) {
