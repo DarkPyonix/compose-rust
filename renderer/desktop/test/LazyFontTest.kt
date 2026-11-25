@@ -316,6 +316,6 @@ class LazyFontTest {
         const val SUBSET_ADVANCE = 1500
         const val FULL_ADVANCE = 1000
         const val HANGUL_GA = 0xAC00
-        const val HANGUL_TTOM = 0xB618
+        const val HANGUL_TTOM = 0xB620
     }
 }
