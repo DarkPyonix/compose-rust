@@ -152,6 +152,8 @@ rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true
 installed="$work/gh/init.d/dxc-maven-central-mirror.gradle"
 grep -q "def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'" "$installed" 2>/dev/null
 check $? "on a GitHub runner build-compose.sh installs the Google Maven Central mirror into init.d"
+awk '/MAVEN_CENTRAL_MIRROR" != off/{on=1} on && /export COMPOSE_MAVEN_MIRROR="\$MAVEN_CENTRAL_MIRROR"/{found=1} on && /^fi/{on=0} END{exit !found}' "$repo/renderer/scripts/build-compose.sh"
+check $? "build-compose.sh names the mirror to the fork's own repository lists (COMPOSE_MAVEN_MIRROR) only when it installs it"
 rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true DXC_MAVEN_CENTRAL_MIRROR=https://mirror.example/m2/
 grep -q "def mirror = 'https://mirror.example/m2/'" "$installed" 2>/dev/null
 check $? "DXC_MAVEN_CENTRAL_MIRROR names another mirror"
