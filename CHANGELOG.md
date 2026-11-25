@@ -6,6 +6,10 @@
 
 The renderer now builds with the Compose fork's `1.11.1-ext.6` (tag `v1.11.1-ext.6`) for Compose, the window modules and skiko-awt alike. On Windows a toast's answer (a press on it, or the permission) now asks for the frame that delivers it through a callback the renderer registers with the fork, instead of the fork calling a compose-rust symbol by name; nothing changes for an application. The fork's other window changes since ext.5 (the CSS cursor keywords, the caption strip height by title bar mode, UI Automation patterns, native views on Windows and Linux, the GDI route as the Windows default) reach applications as the renderer adopts them.
 
+### The renderer builds from the fork's merge of #314
+
+The Compose fork pin moves past the `v1.11.1-ext.6` tag to the merge of fork #314, which still publishes as `1.11.1-ext.6`. With it the fork's own repository lists read the Maven Central mirror CI names in `COMPOSE_MAVEN_MIRROR` before Central, so the fork build no longer stops on Central's 429 in a script plugin's `buildscript` block (trains 13 and 14). The window code it carries also draws every step of a Windows drag in one order on the composition route, places macOS accessibility frames from the top of the content, and keeps a macOS window's GPU memory down while it is idle.
+
 ### A Linux window redraws when the display scale changes
 
 The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
