@@ -38,6 +38,7 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
@@ -73,6 +74,7 @@ pub use crate::{
 };
 pub use crate::{MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so
 // without this `ui` would list the functions and none of the macros.
@@ -582,7 +584,7 @@ pub struct Modifier {
     observe_size_every_dp: bool,
     motion: Option<MotionRole>,
     material: Option<MaterialRole>,
-    weight: Option<f32>,
+    weight: Option<(f32, bool)>,
     width: Option<f32>,
     height: Option<f32>,
     padding: Option<f32>,
@@ -689,7 +691,14 @@ impl Modifier {
 
     /// A share of the space left in a `Row` or `Column`.
     pub const fn weight(mut self, weight: f32) -> Self {
-        self.weight = Some(weight);
+        self.weight = Some((weight, true));
+        self
+    }
+
+    /// A share of the space left in a `Row` or `Column`, without forcing a shorter child
+    /// to expand to fill its share (Compose `Modifier.weight(w, fill = false)`).
+    pub const fn weight_unfilled(mut self, weight: f32) -> Self {
+        self.weight = Some((weight, false));
         self
     }
 
@@ -1380,7 +1389,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(container, "observe_size_every_dp", every_dp);
     push(container, "motion", role(modifier.motion));
     push(container || scaffold, "material", role(modifier.material));
-    push(chip, "weight", float(modifier.weight));
+    // One slot, two names: whichever is not in use goes out unset, which clears nothing
+    // because only the name that wrote a slot may clear it.
+    let (weight_filled, weight_unfilled) = match modifier.weight {
+        Some((value, true)) => (float(Some(value)), OwnedAttr::None),
+        Some((value, false)) => (OwnedAttr::None, float(Some(value))),
+        None => (OwnedAttr::None, OwnedAttr::None),
+    };
+    push(chip, "weight", weight_filled);
+    push(chip, "weight_unfilled", weight_unfilled);
     push(chip, "width", float(modifier.width));
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));

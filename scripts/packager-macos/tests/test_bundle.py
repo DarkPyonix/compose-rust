@@ -5,6 +5,8 @@ build. What a compose-rust executable adds, a renderer library loaded from where
 build found it, is made with a stand-in library linked the same way.
 """
 
+import contextlib
+import io
 import plistlib
 import subprocess
 import sys
@@ -207,6 +209,23 @@ class Bundle(unittest.TestCase):
         )
         with self.assertRaisesRegex(metadata.PackagingError, "expected .* to be signed"):
             bundle.verify_pkg(out_pkg, expect_signed=True)
+
+
+class IconWarning(unittest.TestCase):
+    """Runs anywhere: the macOS tools are replaced, only where the warning goes is checked."""
+
+    def test_fr22_6_a_small_icon_warning_leaves_stdout_to_the_json_result(self):
+        # package-velopack.py prints its result as JSON on stdout, and CI parses it. A
+        # warning printed there made that JSON unreadable on macOS.
+        def tools(command, **_):
+            return mock.Mock(stdout="pixelWidth: 512\n" if command[:2] == ["sips", "-g"] else "")
+
+        out, err = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(bundle, "run", tools), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            bundle.make_icns(Path(scratch) / "icon.png", Path(scratch) / "AppIcon.icns")
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("512 pixels wide", err.getvalue())
 
 
 class PkgCommandTests(unittest.TestCase):

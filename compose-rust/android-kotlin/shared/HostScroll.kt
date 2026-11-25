@@ -820,8 +820,8 @@ private suspend fun apply(
  */
 private suspend fun placedBox(container: Node, target: Node?): Rect? {
     if (target == null) return null
-    container.placementWanted = true
-    target.placementWanted = true
+    container.watchPlacement()
+    target.watchPlacement()
     try {
         repeat(PLACEMENT_FRAMES) {
             val viewport = container.placement
@@ -838,9 +838,7 @@ private suspend fun placedBox(container: Node, target: Node?): Rect? {
         }
         return null
     } finally {
-        container.placementWanted = false
-        target.placementWanted = false
-        container.placement = null
-        target.placement = null
+        container.unwatchPlacement()
+        target.unwatchPlacement()
     }
 }

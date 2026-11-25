@@ -233,6 +233,118 @@ pub(crate) fn in_host_call() -> bool {
     HOST_CALL_DEPTH.with(std::cell::Cell::get) > 0
 }
 
+/// Host processing time above which a debug build writes a warning to standard error.
+///
+/// A 120 Hz display gives 8.33 ms for the whole frame, so a Host call that spends more
+/// than 1 ms on handler work, diffing and batch encoding leaves too little room for the
+/// Renderer to decode, lay out and draw.
+#[cfg(any(test, all(debug_assertions, not(target_family = "wasm"))))]
+const HOST_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// Reports a warning when a Host frame call exceeded [`HOST_FRAME_BUDGET`].
+///
+/// The warning is handed over as format arguments, not a `String`: a slow frame is still a
+/// frame, and building the text on the heap would make it allocate where a fast one does not.
+#[cfg(any(test, all(debug_assertions, not(target_family = "wasm"))))]
+fn warn_if_slow_host_frame(
+    operation: &str,
+    elapsed: std::time::Duration,
+    mut report: impl FnMut(std::fmt::Arguments<'_>),
+) {
+    if elapsed <= HOST_FRAME_BUDGET {
+        return;
+    }
+    let elapsed_ms = elapsed.as_secs_f64() * 1_000.0;
+    report(format_args!(
+        "compose-rust: Host {operation} took {elapsed_ms:.2} ms (budget is 1.00 ms)"
+    ));
+}
+
+#[cfg(all(debug_assertions, not(target_family = "wasm")))]
+thread_local! {
+    /// Prevents nested Host entry points (`dispatch_event` calling `dispatch`) from
+    /// timing and warning twice for the same frame call.
+    static FRAME_TIMING_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static FRAME_WARNING_SINK: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    static FRAME_ELAPSED_OVERRIDE: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(all(debug_assertions, not(target_family = "wasm")))]
+fn emit_slow_frame_warning(message: std::fmt::Arguments<'_>) {
+    #[cfg(test)]
+    {
+        let captured = FRAME_WARNING_SINK.with(|sink| {
+            if let Some(messages) = sink.borrow_mut().as_mut() {
+                messages.push(message.to_string());
+                true
+            } else {
+                false
+            }
+        });
+        if captured {
+            return;
+        }
+    }
+    // Write directly to standard error rather than through `eprintln!` so the test
+    // harness's heap-backed output capture does not retain warnings across thousands of
+    // frames in memory-stability tests.
+    let _ = std::io::Write::write_fmt(&mut std::io::stderr().lock(), format_args!("{message}\n"));
+}
+
+/// Times one Host frame entry point in debug builds on platforms with a monotonic clock,
+/// warning when it exceeds [`HOST_FRAME_BUDGET`]. Compiles to nothing in release builds
+/// and on wasm targets where `std::time::Instant::now` is unavailable.
+#[cfg(all(debug_assertions, not(target_family = "wasm")))]
+struct FrameTimingGuard {
+    active: Option<(&'static str, std::time::Instant)>,
+}
+
+#[cfg(all(debug_assertions, not(target_family = "wasm")))]
+impl FrameTimingGuard {
+    fn enter(operation: &'static str) -> Self {
+        let already_active = FRAME_TIMING_ACTIVE.with(|flag| flag.replace(true));
+        if already_active {
+            Self { active: None }
+        } else {
+            Self {
+                active: Some((operation, std::time::Instant::now())),
+            }
+        }
+    }
+}
+
+#[cfg(all(debug_assertions, not(target_family = "wasm")))]
+impl Drop for FrameTimingGuard {
+    fn drop(&mut self) {
+        let Some((operation, started)) = self.active.take() else {
+            return;
+        };
+        FRAME_TIMING_ACTIVE.with(|flag| flag.set(false));
+        #[cfg(test)]
+        let elapsed = FRAME_ELAPSED_OVERRIDE
+            .with(std::cell::Cell::get)
+            .unwrap_or_else(|| started.elapsed());
+        #[cfg(not(test))]
+        let elapsed = started.elapsed();
+        warn_if_slow_host_frame(operation, elapsed, emit_slow_frame_warning);
+    }
+}
+
+#[cfg(not(all(debug_assertions, not(target_family = "wasm"))))]
+struct FrameTimingGuard;
+
+#[cfg(not(all(debug_assertions, not(target_family = "wasm"))))]
+impl FrameTimingGuard {
+    fn enter(_operation: &'static str) -> Self {
+        Self
+    }
+}
+
 /// Marks the span of one Host call on this thread.
 struct HostCallGuard;
 
@@ -416,6 +528,7 @@ impl Host {
     }
 
     pub fn dispatch_event(&mut self, bytes: &[u8]) -> Result<(&[u8], i64), ProtocolError> {
+        let _timing = FrameTimingGuard::enter("dispatch_event");
         let event = decode_event(bytes)?;
         self.dispatch(event)
     }
@@ -743,6 +856,7 @@ impl Host {
     }
 
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
+        let _timing = FrameTimingGuard::enter("dispatch");
         let _call = HostCallGuard::enter();
         // These address the Host itself: no node, no handler, and an answer before
         // anything is looked up.
@@ -1044,6 +1158,7 @@ impl Host {
     }
 
     pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+        let _timing = FrameTimingGuard::enter("render_frame");
         let _call = HostCallGuard::enter();
         if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
             // The platform has the UI off screen and the Renderer called anyway, which it
@@ -2227,6 +2342,109 @@ mod tests {
                 .all(|line| line.contains("COMPOSE_RUST_UI_STACK_BYTES")),
             "{said:?}"
         );
+    }
+
+    #[test]
+    fn nfr9_dev_build_warns_when_host_frame_exceeds_one_ms() {
+        let mut warnings = Vec::new();
+        for within_budget in [
+            std::time::Duration::ZERO,
+            std::time::Duration::from_micros(999),
+            HOST_FRAME_BUDGET,
+        ] {
+            warn_if_slow_host_frame("render_frame", within_budget, |line| {
+                warnings.push(line.to_string())
+            });
+        }
+        assert!(
+            warnings.is_empty(),
+            "frames within the 1 ms budget should stay silent, got {warnings:?}"
+        );
+
+        warn_if_slow_host_frame(
+            "render_frame",
+            std::time::Duration::from_nanos(1_000_001),
+            |line| warnings.push(line.to_string()),
+        );
+        warn_if_slow_host_frame(
+            "dispatch_event",
+            std::time::Duration::from_micros(2_500),
+            |line| warnings.push(line.to_string()),
+        );
+        assert_eq!(
+            warnings.len(),
+            2,
+            "expected two slow-frame warnings: {warnings:?}"
+        );
+        assert!(
+            warnings[0].contains("render_frame") && warnings[0].contains("1.00 ms"),
+            "unexpected render_frame warning: {}",
+            warnings[0]
+        );
+        assert!(
+            warnings[1].contains("dispatch_event") && warnings[1].contains("2.50 ms"),
+            "unexpected dispatch_event warning: {}",
+            warnings[1]
+        );
+
+        // Verify the real Host::dispatch_event and Host::render_frame paths wire up the
+        // debug-build frame timer and stay silent at or below 1 ms.
+        let mut host = Host::new(crate::runtime::recomposer_for(draws_nothing));
+        host.rebuild().expect("initial rebuild");
+        let mut encoded = Vec::new();
+        crate::protocol::encode_event(
+            &HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: EventPayload::LifecycleStart,
+            },
+            &mut encoded,
+        )
+        .expect("encode event");
+
+        struct SinkReset;
+        impl Drop for SinkReset {
+            fn drop(&mut self) {
+                FRAME_WARNING_SINK.with(|sink| *sink.borrow_mut() = None);
+                FRAME_ELAPSED_OVERRIDE.with(|elapsed| elapsed.set(None));
+            }
+        }
+        let _reset = SinkReset;
+
+        FRAME_WARNING_SINK.with(|sink| *sink.borrow_mut() = Some(Vec::new()));
+        FRAME_ELAPSED_OVERRIDE.with(|elapsed| elapsed.set(Some(HOST_FRAME_BUDGET)));
+        host.dispatch_event(&encoded)
+            .expect("dispatch within budget");
+        host.render_frame(16_000_000).expect("render within budget");
+        let captured = FRAME_WARNING_SINK.with(|sink| sink.borrow_mut().take().unwrap());
+        assert!(
+            captured.is_empty(),
+            "Host calls at or below 1 ms should not warn, got {captured:?}"
+        );
+
+        FRAME_WARNING_SINK.with(|sink| *sink.borrow_mut() = Some(Vec::new()));
+        FRAME_ELAPSED_OVERRIDE
+            .with(|elapsed| elapsed.set(Some(std::time::Duration::from_micros(1_500))));
+        host.dispatch_event(&encoded).expect("slow dispatch");
+        host.render_frame(32_000_000).expect("slow render");
+        let captured = FRAME_WARNING_SINK.with(|sink| sink.borrow_mut().take().unwrap());
+        if cfg!(all(debug_assertions, not(target_family = "wasm"))) {
+            assert_eq!(
+                captured.len(),
+                2,
+                "expected warnings from both dispatch_event and render_frame, got {captured:?}"
+            );
+            assert!(
+                captured[0].contains("dispatch_event") && captured[0].contains("1.50 ms"),
+                "unexpected dispatch_event warning: {}",
+                captured[0]
+            );
+            assert!(
+                captured[1].contains("render_frame") && captured[1].contains("1.50 ms"),
+                "unexpected render_frame warning: {}",
+                captured[1]
+            );
+        }
     }
 
     #[test]

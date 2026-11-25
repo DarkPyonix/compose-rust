@@ -49,13 +49,14 @@ class WebFilesTest {
     @Test
     fun fr72_web_a_resave_writes_the_same_file(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
         if (!hasPrivateFileSystem()) {
-            println("WebFilesTest: this browser has no origin private file system; the resave test needs Chromium")
-            return@promise null
+            fail("this browser has no origin private file system; the resave test requires Chromium")
         }
         installAccessPickers("fr72-resave.txt").await<JsAny?>()
         try {
             val files = WebFiles()
+            files.pickerId = "com.example.notepad"
             val saved = handles(files.choose(spec(FileDialogKind.Save, name = "fr72-resave.txt")))
+            assertEquals("com_example_notepad", lastPickerId())
             assertEquals(FileDelivery.Handle, saved.delivery)
             assertEquals(listOf(HeldFile("fr72-resave.txt", false)), saved.files)
             val handle = saved.firstHandle
@@ -71,8 +72,17 @@ class WebFilesTest {
             assertEquals(FileCallOutcome.Written, files.write(opened.firstHandle, "세 번째".encodeToByteArray()))
             assertEquals("세 번째", privateFileText("fr72-resave.txt").await<JsString>().toString())
 
-            // A read longer than the limit is refused before anything is read.
-            assertEquals(IoStatus.TooLarge, status(files.read(handle, 3)))
+            // A read longer than the limit is refused before anything is read and reports the
+            // actual file length as four little-endian bytes.
+            val tooLarge = files.read(handle, 3) as? FileCallOutcome.Failed
+                ?: fail("expected TooLarge failure")
+            assertEquals(IoStatus.TooLarge, tooLarge.status)
+            assertEquals(4, tooLarge.data.size)
+            val reportedLength = (tooLarge.data[0].toInt() and 0xff) or
+                ((tooLarge.data[1].toInt() and 0xff) shl 8) or
+                ((tooLarge.data[2].toInt() and 0xff) shl 16) or
+                ((tooLarge.data[3].toInt() and 0xff) shl 24)
+            assertEquals("세 번째".encodeToByteArray().size, reportedLength)
         } finally {
             restorePage()
         }
@@ -217,9 +227,10 @@ private fun installAccessPickers(name: String): Promise<JsAny?> = js(
             click: HTMLInputElement.prototype.click,
             link: HTMLAnchorElement.prototype.click,
         };
-        window.showOpenFilePicker = async () => [file];
-        window.showSaveFilePicker = async () => file;
-        window.showDirectoryPicker = async () => root;
+        window.__fr72LastPickerId = '';
+        window.showOpenFilePicker = async (opts) => { window.__fr72LastPickerId = (opts && opts.id) || ''; return [file]; };
+        window.showSaveFilePicker = async (opts) => { window.__fr72LastPickerId = (opts && opts.id) || ''; return file; };
+        window.showDirectoryPicker = async (opts) => { window.__fr72LastPickerId = (opts && opts.id) || ''; return root; };
         return null;
     })()""",
 )
@@ -314,6 +325,8 @@ private fun cancelInput(): Unit = js(
 )
 
 private fun lastInputAccept(): String = js("(window.__fr72Accept || '')")
+
+private fun lastPickerId(): String = js("(window.__fr72LastPickerId || '')")
 
 private fun downloads(): JsString = js("(window.__fr72Downloads || []).join('|')")
 

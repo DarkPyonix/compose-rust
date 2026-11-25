@@ -5,6 +5,11 @@
 #
 #   compose-rust/benches/fr39/parity.sh
 #
+# Exits with compare's status: 0 when every scenario is clean, 1 when any scenario's trees
+# differ (nothing can be measured), and 3 when the trees all agree but some scenario sent
+# more records or bytes than the baseline. Each such scenario is printed on a line that
+# starts `violation <scenario>:`, and the measurement goes on with it recorded.
+#
 # This is the whole-sample half of the parity check. The other half, fixtures written both
 # ways in one test binary, needs the Dioxus layer and the slot table runtime linked
 # together, so it lives with the Dioxus layer in dioxus-compose.

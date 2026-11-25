@@ -6,6 +6,40 @@ the frozen scenarios in `scenarios`. `parity.sh` checks that both paths build th
 Renderer trees. `run.sh` measures every scenario and writes the comparison into
 `compose-rust/benches/baseline.json`.
 
+## The screens the candidate draws
+
+The candidate does not link the shipped samples. It draws the sample screens as they were
+when the scenarios were frozen, kept in `screens/` as one small crate per screen and
+written in today's function and call macro form. The runtime under them is this
+checkout's.
+
+The shipped calculator, todo, chat and minimal samples were redrawn after their design
+references on 2026-11-13. The todo sample's About button moved into a menu, and the
+minimal sample's Panels, Colour and Parts tabs went away. The frozen scenarios click those
+controls, and the pinned Dioxus path still draws the old screens, so a comparison against
+today's samples could neither run nor compare like with like. With the old screens on
+both sides, what is measured is the authoring path and the runtime, not the look of
+today's samples. No scenario changed.
+
+| Screen | Taken from | Redrawn by | Where the Dioxus path decided |
+| --- | --- | --- | --- |
+| `screens/calculator` | `samples/calculator` at `fea50dc5` | `c4da9e5f`, `67c730b5` | nowhere |
+| `screens/chat` | `samples/chat` at `fea50dc5` | `8d963582`, `51390409` | the assistant's canned replies for "hello", "stream" and the detailed length take the rsx! words |
+| `screens/minimal` | `samples/minimal` at `fea50dc5` | `3712197e` | nowhere |
+| `screens/todo` | `samples/todo` at `fea50dc5` | `e92b33a6` | the in-place edit field shows the row's title as its placeholder and starts empty |
+
+Each fixture was checked against the rsx! screen at the pinned revision
+(dioxus-compose `dd1af76b`, `samples/native-widgets/<name>`), and where the October
+compose-rust screen built a different tree, the rsx! screen decided. Each file's header
+says where it came from and what was decided.
+
+Change nothing in `screens/` that changes the tree a screen builds. A run counts only when
+both paths build the same tree after every step. `scripts/tests/fr39-bench-screens.test.sh`
+checks that the candidate links these screens and not the shipped samples, that every file
+says where it came from, and that no widget is written as a builder chain. The
+`fr39_screen_*` tests in `candidate/src/main.rs` run each scenario once on the candidate
+and fail at the first step whose control is not on screen.
+
 ## Measuring in one command
 
 ```sh
@@ -24,8 +58,10 @@ It refuses to start unless the machine is idle. Idle means two things:
 Then it takes all three slots for the whole run, so no build starts beside it. The slots
 are freed when the run ends. It also stops if `/Volumes/macMini` has less than 15G free.
 
-Inside the slots, it runs `parity.sh` and stops there if the trees differ or the slot
-table path sends more records or bytes. Next it waits for the load from the build to
+Inside the slots, it runs `parity.sh` and stops there if the trees differ. A scenario
+whose slot table path sends more records or bytes over the same trees does not stop the
+run: it is listed as a violation in the summary and in the record (`record_violations`),
+and the verdict is not met. Next it waits for the load from the build to
 settle. Then it runs `run.sh` with its own defaults: 50 measured passes after 5 warm-ups,
 per scenario and per path. The builds use `CARGO_BUILD_JOBS=2`, the release profile, and
 this workspace's own `target/`.
@@ -95,7 +131,10 @@ freeze, not during it. After that, the freeze run is about 20 to 25 minutes.
 
 The workspace's `Cargo.lock` is committed, from the first builder run on 2026-11-21, so the
 session that verifies builds the same dependency versions. If a run changes it, commit the
-new one together with `baseline.json`.
+new one together with `baseline.json`. Moving the candidate from the shipped samples to
+`screens/` changed the workspace's members. The committed lock still lists the shipped
+samples until the first build after that change rewrites it; committing that lock is the
+next builder run's job (issue #23).
 
 After the model correction below, `--prepare` has to run again before any measurement:
 the parity run that came before it stopped at the first scenario.

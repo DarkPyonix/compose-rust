@@ -14,8 +14,7 @@
 #                              compiled on x86-64, because Kotlin/Native has no arm64 host.
 #   windows-x64                the Kotlin/Native renderer as the static kit an MSVC link
 #                              needs (windows-static.yml), so a Windows application is one
-#                              executable as well. The GraalVM native image is still built
-#                              and smoke tested below, and is not released.
+#                              executable as well.
 #   ios                        the Kotlin/Native archive as an XCFramework.
 #
 # The crate stays an ordinary crate that builds with no renderer present, and each
@@ -110,7 +109,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|compose-rust/tests/fixtures/(consumer|consumer-mixed-runtime|multi-window)/|scripts/(install-nik|check-windows-consumer)\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|compose-rust/tests/fixtures/(consumer|consumer-mixed-runtime|multi-window|hidpi)/|scripts/(install-nik|check-windows-consumer)\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access|hidpi-windows-check)\.sh|\.github/scripts/set-display-scale\.c|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -204,107 +203,6 @@ jobs:
           path: |
             ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz
             ${{ runner.temp }}/promoted/compose-rust-renderer-${{ github.ref_name }}-ios.tar.gz.sha256
-          retention-days: 7
-
-  # Runs on every push to develop and main, and nightly. Nobody here owns a Windows
-  # machine, so this job *is* the Windows verification: if it goes red, Windows is
-  # broken. It proves build, startup, render, clean close and exit 0. It cannot prove
-  # mouse input, because a hosted runner has no one to click (see SPEC PR-8).
-  fork-desktop:
-    # The desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: changed
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
-    name: Build the Compose fork's desktop modules
-    uses: ./.github/workflows/fork-desktop-modules.yml
-
-  windows:
-    needs: [changed, fork-desktop]
-    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.promoted != 'true'
-    name: Build and smoke test the renderer (Windows, x64)
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install upstream GraalVM 25
-        # Upstream GraalVM supports AWT on Windows and Liberica NIK is a macOS requirement.
-        #
-        # NIK would be the better answer and is not ready. It carries the JDK's desktop
-        # libraries as static archives, which is why a macOS distribution is four files and
-        # this one is sixteen, and linking them in here got as far as producing an image
-        # that could not start: AWT's Toolkit still calls System.loadLibrary("awt") at run
-        # time, and an archive inside the image does not answer that call. It has to be
-        # registered as a library the image already contains, which GraalVM does for AWT on
-        # macOS and does not do here.
-        #
-        # That work is on feat/windows-nik-static-awt. It is not on this branch because
-        # every attempt at it costs a CI run to observe and four of them left the Windows
-        # renderer unbuildable in the meantime.
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: 'true'
-
-      - name: Take the Compose fork's desktop modules
-        uses: actions/download-artifact@v4
-        with:
-          name: compose-fork-desktop
-          path: ${{ runner.temp }}/compose-fork-desktop
-
-      - name: Put them where the renderer's build looks
-        shell: bash
-        run: |
-          mkdir -p ~/.m2/repository/org/jetbrains
-          cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
-
-      - name: Build the Windows renderer
-        id: renderer-build
-        shell: powershell
-        run: .\renderer\desktop\scripts\build-native-windows.ps1
-
-      - name: Non-interactive Windows smoke test
-        # This proves startup, rendering long enough to open, clean close, and return 0.
-        # It does not prove mouse input because a hosted runner cannot perform the required click.
-        shell: powershell
-        run: .\renderer\desktop\scripts\smoke-test-windows.ps1
-
-      - name: The linked image carries no toolkit
-        # Run whatever the smoke test said, so a run shows every way it fails.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: bash scripts/tests/renderer/windows-image-has-no-awt.test.sh renderer/build/native-image/dist/bin
-
-      - name: The image's ways into the toolkit
-        # The check is Python, and Windows' Python is python.exe only.
-        if: ${{ !cancelled() && steps.renderer-build.outcome == 'success' }}
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/python3"
-          cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
-          PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
-
-      # A run artifact: it belongs to this run, lasts a fortnight, and is not published
-      # anywhere. The release carries the Kotlin/Native kit for windows-x64, not this.
-      #
-      # It exists because a renderer built from the current schema was otherwise
-      # unobtainable between releases. Anyone working on Windows had the choice of
-      # installing GraalVM and Visual Studio Build Tools, or using the last release's
-      # renderer and watching it fail the schema handshake, which is what an empty window
-      # on Windows turned out to be.
-      - name: Keep the distribution as an artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: renderer-windows-x64
-          path: renderer/build/native-image/dist
-          retention-days: 14
-
-      - name: Upload the renderer
-        uses: actions/upload-artifact@v4
-        with:
-          name: compose-rust-renderer-windows-x64
-          path: renderer/build/native-image/dist/
           retention-days: 7
 
   # The renderers macOS and Linux ship: Kotlin/Native as a static archive, built and packaged
@@ -418,6 +316,85 @@ jobs:
     if: needs.changed.outputs.renderer == 'true' && !inputs.windows_kit_built && needs.changed.outputs.promoted != 'true'
     uses: ./.github/workflows/windows-static.yml
 
+  # Whether that renderer's window is sharp at every display scale: the renderer checks its own
+  # marker scene against the screen at 100%, 125%, 150% and 200%, built with and without the
+  # application manifest, and once more while the scale goes from 200% to 125% and back.
+  # .github/scripts/hidpi-windows-check.sh says what each line it prints measures.
+  windows-hidpi:
+    needs: [changed, windows-static]
+    # Skipped is fine: ci.yml built the kit for this run already.
+    if: ${{ !cancelled() && needs.changed.outputs.renderer == 'true' && (needs.windows-static.result == 'success' || needs.windows-static.result == 'skipped') }}
+    name: HiDPI sharpness at four display scales and a change of scale (Windows, x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Receive the renderer kit
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Enter the Visual Studio developer environment
+        # The linker the application is linked with, and cl.exe for the display scale tool.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Build the HiDPI fixture with and without the manifest, and the display scale tool
+        run: |
+          set -euo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          fixture=compose-rust/tests/fixtures/hidpi
+          cargo build --release --manifest-path "$fixture/Cargo.toml"
+          # Its own target directory, so the second build does not write over the first.
+          CARGO_TARGET_DIR="$fixture/target/no-manifest" \
+            cargo build --release --no-default-features --manifest-path "$fixture/Cargo.toml"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$tools"
+          source="$(cygpath -w "$PWD/.github/scripts/set-display-scale.c")"
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$source")
+          ls -la "$fixture/target/release/hidpi.exe" "$fixture/target/no-manifest/release/hidpi.exe" "$tools/set-display-scale.exe"
+
+      - name: The window draws in device pixels at every scale and follows a change of scale
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          set -o pipefail
+          fixture=compose-rust/tests/fixtures/hidpi
+          ./.github/scripts/hidpi-windows-check.sh "$(cygpath -u "$RUNNER_TEMP")/hidpi" \
+            "$(cygpath -u "$RUNNER_TEMP")/tools/set-display-scale.exe" \
+            "$fixture/target/release/hidpi.exe" "$fixture/target/no-manifest/release/hidpi.exe" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hidpi-windows-kn
+          path: ${{ runner.temp }}/hidpi/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and
   # runs the *desktop* C smoke host against the simulator archive, which is what makes
@@ -525,7 +502,7 @@ jobs:
   # never be made to work.
   release:
     name: Attach the renderer to the GitHub release
-    needs: [changed, windows, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
+    needs: [changed, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
     # Every job above has to have succeeded, as before. The one exception is a release
     # whose renderers were promoted from renderer-dev: then the build jobs did not run, and
     # what has to have succeeded is the promotion and the single-executable check of the
