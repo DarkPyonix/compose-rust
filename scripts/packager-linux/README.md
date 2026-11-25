@@ -28,8 +28,10 @@ Actions).
 
 ### APPIMAGE_SIGNING_KEY
 
-The armoured private key of the AppImage signing key (see below). While it is missing, the
-`Sample apps` workflow builds AppImages unsigned and warns that it did.
+The armoured private key of the AppImage signing key (see below), for an AppImage built
+with `appimage.sh --sign-key`. No workflow reads it today: the sample releases
+(`test-samples.yml`) ship Velopack's self-updating AppImage, made by vpk, which this key
+does not sign.
 
 ## AppImage signing key
 
@@ -47,4 +49,5 @@ gpg --armor --export <fingerprint>               # the public key, to publish
 
 Fingerprint: `<to be filled in by the owner>`
 
-Until the key exists, AppImages are built unsigned and only for testing.
+Until the key exists, AppImages built here are unsigned and only for testing. The sample
+releases' AppImages are Velopack's and are not signed with this key either.
