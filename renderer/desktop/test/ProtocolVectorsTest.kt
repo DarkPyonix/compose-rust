@@ -13,6 +13,7 @@ import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.protocol.FileDelivery
 import dev.darkpyonix.composerust.protocol.FileDialogKind
 import dev.darkpyonix.composerust.protocol.FileOp
+import dev.darkpyonix.composerust.protocol.FormatOp
 import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -156,6 +157,9 @@ class ProtocolVectorsTest {
                 is Mutation.EditCodeGroup -> mutation.nodeId !in created
                 is Mutation.InsertSnippet -> mutation.nodeId !in created
                 is Mutation.SetSelections -> mutation.nodeId !in created
+                // The vector's rich text field exists and turned `RichText` on first.
+                is Mutation.FormatText -> mutation.nodeId !in created
+                is Mutation.SetRichText -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -480,7 +484,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1811 + 24, bytes.size, "the two events are the last in the vector")
+        assertEquals(1811 + 24 + 36 + 171, bytes.size, "the two rich text events follow the two platform view events")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -1023,7 +1027,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1663, 1683).toList(), out.array().copyOf(length).toList())
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1047,7 +1051,7 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
         assertEquals(bytes.copyOfRange(1759, 1779).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
@@ -1244,7 +1248,7 @@ class ProtocolVectorsTest {
             )
         }
         // The platform view events follow the density report, two records of 32 and 24 bytes.
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
     }
 
     /**
@@ -1259,7 +1263,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1443, 1467)))
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1383,6 +1387,62 @@ class ProtocolVectorsTest {
             ),
         )
         assertEquals(emptyList<String>(), errors)
+    }
+
+    /**
+     * The rich text records in the vectors: a field that turned `RichText` on, two formatting
+     * commands and a document with a selection, then the formatting at a selection and the
+     * document back. The text is Korean and the runs are in bytes, so a reader that counts
+     * characters, or reads a record at the wrong length, reads other numbers.
+     */
+    @Test
+    fun fr26_1_the_rich_text_records_in_the_vectors_match_the_rust_bytes() {
+        val text = "\uC81C\uBAA9\n\uAD75\uAC8C \uBCF4\uD1B5\n\uD56D\uBAA9"
+        assertEquals(27, text.toByteArray(Charsets.UTF_8).size)
+        val literal = (2L shl 32) or 0xFFCC3300L
+        val characters = ByteBuffer.allocate(72).order(ByteOrder.LITTLE_ENDIAN).also { buffer ->
+            for ((start, flags, paint) in listOf(Triple(7, 1, 0L), Triple(14, 2, literal), Triple(21, 12, 0L))) {
+                buffer.putInt(start).putInt(6).putInt(flags).putLong(paint).putInt(0)
+            }
+        }.array()
+        val paragraphs = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN).also { buffer ->
+            // Title; then a quoted, indented numbered subheading.
+            buffer.putInt(0).putShort(2).putShort(0).putShort(0).putShort(0).putInt(0)
+            buffer.putInt(21).putShort(4).putShort(3).putShort(2).putShort(1).putInt(0)
+        }.array()
+
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(26, WidgetKind.TextField) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.RichText, PropertyValue.Bool(true)) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.OnTextFormat, PropertyValue.Integer(34L)) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.OnRichTextChanged, PropertyValue.Integer(35L)) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.FormatText(26, FormatOp.Bold, 2, null),
+                Mutation.FormatText(26, FormatOp.Color, 0, Paint.Literal(0xFF3366CC.toInt())),
+            ),
+            mutations.filterIsInstance<Mutation.FormatText>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetRichText(26, text, characters, paragraphs, 7, 13)),
+            mutations.filterIsInstance<Mutation.SetRichText>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val out = ByteBuffer.allocate(256)
+            val length = Protocol.encodeEvent(event, out)
+            return out.array().copyOf(length)
+        }
+        // Bold on all of it, italic on part, strikethrough on all; a Heading in a numbered
+        // list indented twice and quoted in part; the colour all of it shares.
+        val format = encoded(HostEvent.TextFormatAtSelection(26, 34L, 1 or (2 shl 2) or (1 shl 6), 3, 3, 2, 2, literal))
+        assertEquals(36, format.size)
+        assertEquals(bytes.copyOfRange(1835, 1871).toList(), format.toList())
+        val document = encoded(HostEvent.RichTextChanged(26, 35L, text, characters, paragraphs))
+        assertEquals(171, document.size)
+        assertEquals(bytes.copyOfRange(1871, 1871 + 171).toList(), document.toList())
+        assertEquals(1871 + 171, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

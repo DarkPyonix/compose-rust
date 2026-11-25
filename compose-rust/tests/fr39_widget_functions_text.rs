@@ -205,6 +205,9 @@ mod functions {
             None::<fn(MotionFinished)>,
             false,
             false,
+            None::<&RichTextState>,
+            None::<fn(compose_rust::TextFormat)>,
+            None::<fn(compose_rust::RichDocument)>,
         );
         let focus = use_focus_handle();
         TextField(
@@ -237,6 +240,9 @@ mod functions {
             Some(|_: MotionFinished| {}),
             true,
             true,
+            None::<&RichTextState>,
+            None::<fn(compose_rust::TextFormat)>,
+            None::<fn(compose_rust::RichDocument)>,
         );
     }
 

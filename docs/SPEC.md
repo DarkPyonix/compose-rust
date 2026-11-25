@@ -2294,6 +2294,36 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 - 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**증명됨**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간의 그리기 및 링크 클릭은 `fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click`, 스팬이 없는 `Text`는 `fr26_a_text_with_no_spans_keeps_its_record_size_and_path`가 확인합니다]
 - 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다. [**증명됨**: `fr26_a_background_paints_behind_its_own_run_and_nowhere_else`, `fr26_a_run_with_a_colour_and_a_background_draws_both`, `fr26_a_run_carries_its_colour_and_its_background_apart`, `fr26_the_runs_in_the_vector_decode_to_the_same_values`, `fr26_a_run_without_a_background_paints_nothing_behind_it`]
 
+#### 26.1 편집할 수 있는 서식: 서식 있는 `TextField` (`Draft`, #638) [leader, 2026-11-22]
+
+FR-26의 스팬은 `Text`만 말합니다. 메모 앱의 서식 시트(iOS 26 메모 참조)는 문서 전체가 아니라 선택한 곳에 서식을 겁니다. 문단마다 제목, 머리말, 부머리말, 본문을 고르고, 선택한 구간에 굵게, 기울임, 밑줄, 취소선과 글자색을 걸고, 글머리 기호, 대시, 번호 목록과 들여쓰기, 인용을 겁니다. 이 항목은 편집 중인 `TextField`가 그 서식을 갖게 하는 것입니다.
+
+- **서식 구간은 Renderer가 소유합니다. 텍스트를 소유하는 것과 같은 이유입니다(D5, FR-5).** Host는 편집 중인 문서의 구간 목록을 보내지 않습니다. Host는 *선택에 대한 명령*을 보내고 *그 결과의 문서*를 듣습니다. Host가 구간을 소유하면 글자 하나를 칠 때마다 구간의 위치 조정이 Host를 왕복하고, 그것은 입력 지연을 늘립니다(NFR-9).
+- **필드마다 켭니다.** 속성 `RichText`(220, Bool, `TextField`)입니다. 켜지 않은 필드는 지금과 같은 레코드와 같은 경로이고, 구간 장부도 생기지 않습니다.
+- **선택에 거는 명령**: 새 명령 `FormatText`(명령 태그 42, 20바이트: 머리 4, `node_id: u32`, `op: u16`, `value: u16`, `paint: u64`)입니다. `op`은 닫힌 열거형 `FormatOp`이고 값은 `Bold=1`, `Italic=2`, `Underline=3`, `Strikethrough=4`(이 넷의 `value`는 0 끔, 1 켬, 2 뒤집기), `Color=5`(`paint`, 0은 지움), `Paragraph=6`(`value`는 문단 역할), `List=7`(`value`는 목록 종류), `Indent=8`, `Outdent=9`, `Quote=10`(뒤집기)입니다. 모르는 값은 `ProtocolError`입니다.
+  - 선택이 비어 있으면 구간 명령(1에서 5)은 다음에 칠 글자의 서식을 정합니다. 메모 앱이 그렇게 합니다.
+  - 문단 명령(6에서 10)은 선택이 닿는 모든 문단에 걸립니다.
+  - IME 조합 중에 온 명령은 조합이 확정될 때까지 기다립니다. `SetText`가 이미 가진 규칙입니다(FR-5).
+- **크기가 아니라 역할입니다.** 문단 역할 `ParagraphRole`은 `Body=1`, `Title=2`, `Heading=3`, `Subheading=4`, `Monostyled=5`이고 디자인 시스템의 `TypeRole`로 그려집니다. 목록 종류 `ListKind`는 `None=0`, `Bulleted=1`, `Dashed=2`, `Numbered=3`이고, 표시는 디자인 시스템이 그립니다. 인용도 디자인 시스템이 그립니다. 들여쓰기 단계는 0에서 8입니다.
+- **Host가 듣는 것**:
+  - 이벤트 `TextFormatAtSelection`(이벤트 태그 68, 핸들러 속성 `OnTextFormat` 221): 선택의 서식 상태입니다. 굵게, 기울임, 밑줄, 취소선을 각각 2비트(전부, 섞임, 없음)로 담은 `u32`, 글자색 `Paint`, 문단 역할, 목록 종류, 들여쓰기, 인용입니다. 선택이나 그 서식이 바뀔 때, 한 프레임에 많아야 한 번 보냅니다. 서식 시트의 토글이 이것으로 켜지고 꺼집니다.
+  - 이벤트 `RichTextChanged`(이벤트 태그 69, 핸들러 속성 `OnRichTextChanged` 222): 텍스트와 구간 레코드와 문단 레코드입니다. `TextChanged`와 같이 디바운스하고, `TextChanged`도 지금처럼 따로 옵니다. 저장할 사본이 이것입니다.
+- **저장한 문서 불러오기**: 명령 `SetRichText`(명령 태그 43, `node_id`, 텍스트, 구간 레코드)입니다. `SetText`와 같은 규칙(조합이 끝나기를 기다림, 준 선택을 지킴)입니다.
+- **레코드**(PR-4 고정 배치, FR-16의 바이트처럼 레코드 영역 뒤): 글자 구간 24바이트 `(start: u32, len: u32, flags: u32, paint: u64, reserved: u32)`, 문단 16바이트 `(start: u32, role: u16, list: u16, indent: u16, quote: u16, reserved: u32)`입니다. 범위 밖이거나 겹치는 구간은 `ProtocolError`이고 필드는 자기 텍스트를 지킵니다.
+- **Host API**: `TextField!(rich = true, on_format = ..., on_rich_change = ...)`, 선택에 거는 `format_text(node, Format::Bold(Toggle::Flip))` 같은 호출, 그리고 `RichDocument`와 그 `to_markdown()`, `from_markdown()`입니다. 마크다운은 FR-26처럼 Host 쪽의 저장 형식 도우미이고, 경계에는 레코드만 건넙니다.
+- **그리기**: 안정 Compose API만 씁니다(NFR-6). `BasicTextField(TextFieldValue)`에 Renderer가 들고 있는 구간 목록을 편집마다 옮기고, `VisualTransformation`으로 서식을 그립니다. 목록 표시와 인용 막대는 레이아웃을 읽어 문단 뒤에 그리므로 오프셋 대응은 그대로입니다. 데스크톱, iOS, Android, Web이 같은 인터프리터를 씁니다.
+
+수용 기준:
+
+1. 선택에 굵게를 켜면 그 구간만 굵게 그려집니다. 그 안에서 친 글자는 굵고, 바로 뒤에 이어 친 글자도 그 서식을 잇습니다. 선택 없이 켜면 다음에 칠 글자만 굵습니다.
+2. 굵은 구간 안의 한글 조합은 굵게 확정되고, 서식 명령이 조합을 끊지 않습니다(명령은 확정을 기다립니다).
+3. 문단 역할과 목록 종류는 선택이 닿는 모든 문단에 걸립니다. 번호 목록은 문단을 넣으면 번호를 다시 매깁니다. 들여쓰기와 내어쓰기는 0에서 8 사이에 머뭅니다.
+4. 굵은 글자와 보통 글자에 걸친 선택에서 `TextFormatAtSelection`은 굵게를 섞임으로 알립니다.
+5. `RichTextChanged`의 구간을 `SetRichText`로 되돌리면 같은 그림이 됩니다. 지원하는 범위의 마크다운이 왕복합니다.
+6. 레코드가 PR-4 벡터로 양쪽에서 같은 바이트로 왕복하고, 잘못된 구간은 `ProtocolError`입니다.
+7. `rich`가 없는 필드의 레코드와 경계 호출 수는 이 변경 전과 같습니다.
+8. `samples/notepad`가 서식 시트(제목, 머리말, 부머리말, 본문, B/I/U/S, 글자색, 목록 세 종류, 들여쓰기와 내어쓰기, 인용)로 선택에 서식을 걸고, 저장한 뒤 다시 열면 같은 서식입니다.
+
 ### FR-27 파일 드래그 앤 드롭 (`Draft`)
 
 > **검증 기록(#58).** `fr27_two_paths_arrive_as_one_event`, `fr27_files_let_go_where_no_target_is_reach_nothing`, `fr27_an_unreadable_path_is_dropped_and_the_rest_arrive`로 각 동작을 확인했습니다. Windows 이벤트 경로는 `fr27_windows_window_file_events_reach_the_target_under_them`이 확인합니다. 세 데스크톱에서 실제 파일을 떨어뜨리는 확인은 남았습니다.
