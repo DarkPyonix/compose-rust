@@ -19,7 +19,13 @@ timeout_s="${DXC_FRAME_SOAK_TIMEOUT:-300}"
 
 mkdir -p "$out"
 log="$out/$label.log"
+# What the application prints goes to a file of its own. Written into the same file as the
+# phase lines below, a Windows application wrote at its own place in it rather than at the
+# end, and its "phase end" overwrote the start of the "phase start" line written here
+# (train-15 run 45565915308), so a soak that passed read as one with no start.
+app_log="$out/$label.app.log"
 : > "$log"
+: > "$app_log"
 
 sample_memory() {
     local os_pid="$1"
@@ -82,7 +88,7 @@ wait_for_phase() {
     local app_pid="$1" phase="$2" max_tries="$3"
     local line=""
     for _ in $(seq "$max_tries"); do
-        line="$(grep -m1 "frame-soak: phase $phase " "$log" 2>/dev/null || true)"
+        line="$(grep -m1 "frame-soak: phase $phase " "$app_log" 2>/dev/null || true)"
         if [[ -n "$line" ]]; then
             echo "$line"
             return 0
@@ -98,7 +104,7 @@ field_of() {
     sed -nE "s/.* ${key}=([0-9]+).*/\1/p" <<<"$line" | head -1
 }
 
-"$app" "--frame-soak=$frames" >> "$log" 2>&1 &
+"$app" "--frame-soak=$frames" >> "$app_log" 2>&1 &
 app_pid=$!
 
 cleanup() {

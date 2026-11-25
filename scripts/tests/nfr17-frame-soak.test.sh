@@ -114,6 +114,12 @@ DXC_FRAME_SOAK_TIMEOUT=30 "$run_script" "$tmp/fake-app" "$tmp/out" stub ||
 [[ -f "$tmp/out/stub.log" ]] || fail "frame-soak-run.sh produced no stub.log"
 out="$("$check_script" "$tmp/out/stub.log" 2.0 2000 2>&1)" ||
     fail "checker rejected stub runner output: $out"
+# The application's own lines are kept apart from the phase lines the runner writes. In one
+# file, a Windows application wrote at its own place and overwrote the runner's start line.
+grep -q 'frame-soak: phase start pid=' "$tmp/out/stub.app.log" ||
+    fail "the application's output did not go to stub.app.log"
+! grep -q 'frame-soak: phase start pid=' "$tmp/out/stub.log" ||
+    fail "the application wrote into the runner's phase log"
 
 # 7. Runner supports macOS, Linux and Windows memory sampling.
 grep -Fq 'footprint' "$run_script" || fail "frame-soak-run.sh has no macOS footprint sampler"
