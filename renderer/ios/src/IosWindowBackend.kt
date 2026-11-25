@@ -144,8 +144,8 @@ internal class IosSceneWindow(
  * node id and `RestoreKey` in an `NSUserActivity`.
  */
 internal class IosWindowBackend(
-    private val initialWindow: UIWindow? = null,
-    private val initialSession: UISceneSession? = null,
+    private var initialWindow: UIWindow? = null,
+    private var initialSession: UISceneSession? = null,
     private val multipleScenesSupported: () -> Boolean = {
         UIApplication.sharedApplication.supportsMultipleScenes
     },
@@ -260,12 +260,43 @@ internal class IosWindowBackend(
         return sceneWindow
     }
 
+    /** Binds the initial launch window before the first `Window` node claims it. */
+    fun attachInitialWindow(window: UIWindow, session: UISceneSession? = null) {
+        initialWindow = window
+        initialSession = session
+    }
+
+    /** Every currently connected `UIWindow`, for system chrome updates across all scenes. */
+    fun allWindows(): List<UIWindow> {
+        val result = ArrayList<UIWindow>()
+        for (entry in windows.values) {
+            entry.window?.let { result += it }
+        }
+        val initial = initialWindow
+        if (initial != null && initial !in result) {
+            result += initial
+        }
+        return result
+    }
+
     /** Looks up the tracked scene window for a `Window` node id. */
     fun windowFor(nodeId: Int): IosSceneWindow? = windows[nodeId]
+
+    /** Looks up the tracked scene window for a `UISceneSession` (e.g. on `didDiscardSceneSessions`). */
+    fun windowForSession(session: UISceneSession): IosSceneWindow? =
+        windows.values.firstOrNull {
+            it.session === session || it.session?.persistentIdentifier == session.persistentIdentifier
+        }
 
     companion object {
         const val WINDOW_ACTIVITY_TYPE = "dev.darkpyonix.composerust.window"
         const val KEY_NODE_ID = "nodeId"
         const val KEY_RESTORE_KEY = "restoreKey"
+
+        /** Builds the `NSUserActivity` that carries a `TearOffKey` into a new scene session. */
+        fun tearOffUserActivity(restoreKey: String): NSUserActivity =
+            NSUserActivity(activityType = WINDOW_ACTIVITY_TYPE).apply {
+                userInfo = mapOf(KEY_RESTORE_KEY to restoreKey)
+            }
     }
 }
