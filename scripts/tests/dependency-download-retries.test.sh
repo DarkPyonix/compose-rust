@@ -88,6 +88,11 @@ run 0 ""
 [ "$status" -eq 0 ] && [ "$runs" -eq 1 ] && grep -q "BUILD SUCCESSFUL" "$work/out"
 check $? "a passing build runs once and its output still reaches the log (status $status, runs $runs)"
 
+run 2 "WARN  https://repo1.maven.org/maven2: Failed to download https://repo1.maven.org/maven2/x.pom.sha512: java.io.IOException: Unexpected response code for https://repo1.maven.org/maven2/x.pom.sha512. Expected: 200, actual: 429
+ERROR: Unable to resolve dependency org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.10"
+[ "$status" -eq 0 ] && [ "$runs" -eq 3 ] && [ "$waits" = "60 120" ]
+check $? "an Amper 429 waits like a Gradle one (status $status, runs $runs, waited: $waits)"
+
 # The Maven Central mirror: on a GitHub runner build-compose.sh installs the init script into
 # the Gradle user home before it builds anything, and installs nothing elsewhere. The bogus
 # target stops it right after that, so nothing is fetched or built.
@@ -186,6 +191,8 @@ grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin task :web:buildWasmJsAp
 check $? "test.yml builds the wasmJs app bundle through the retry wrapper"
 grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin build -p \$\{\{ matrix\.platform \}\}' "$test_yml"
 check $? "test.yml runs the Amper build (wasmJs and the other platforms) through the retry wrapper"
+grep -Eq '\./scripts/retry-resolution\.sh \./kotlin task :web:buildWasmJsAppWasmJsDebug' "$repo/scripts/build-sample-pages.sh"
+check $? "build-sample-pages.sh builds the wasm module through the retry wrapper"
 grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin test -p \$\{\{ matrix\.platform \}\}' "$test_yml"
 check $? "test.yml runs the Amper tests through the retry wrapper"
 grep -q 'DXC_RETRY_LOG: ${{ runner.temp }}/' "$test_yml"
