@@ -28,7 +28,8 @@ backoff_429="${DXC_RETRY_429_BACKOFF:-60}"
 
 # What Gradle and Amper print when a dependency or plugin could not be fetched.
 pattern='Could not resolve all (artifacts|files|dependencies|task dependencies)|Could not resolve [^ ]+:[^ ]+|Could not find [^ ]+:[^ ]+:|Could not (GET|HEAD|download) |Plugin \[id: .*\] was not found|Unable to (resolve|download)|Read timed out|Connect(ion)? timed out|Connection reset|Remote host terminated the handshake|Received status code (429|5[0-9][0-9])|Too Many Requests'
-rate_limited='status code 429|Too Many Requests'
+# Amper says it as "Expected: 200, actual: 429".
+rate_limited='status code 429|Too Many Requests|actual: 429'
 
 mkdir -p "$(dirname "$log")"
 attempt=1

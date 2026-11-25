@@ -221,6 +221,9 @@ GH
         "$fake/renderer/build/tasks/_web_dist"
     cp scripts/build-sample-pages.sh "$fake/scripts/"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$fake/renderer/kotlin"
+    # The script builds the module through the retry wrapper, which runs the stub above.
+    mkdir -p "$fake/renderer/scripts"
+    cp renderer/scripts/retry-resolution.sh "$fake/renderer/scripts/"
     cat > "$fake/renderer/web/scripts/build-host.sh" <<'HOST'
 #!/usr/bin/env bash
 sample="${@: -1}"

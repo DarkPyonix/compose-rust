@@ -13,7 +13,9 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
@@ -33,9 +35,18 @@ import dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.runtime.LocalWindowActions
 import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.WindowActions
 import dev.darkpyonix.composerust.runtime.Zoom
 import java.lang.System
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.ImageInfo
+import org.thisisthepy.compose.window.CaptionAction
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.SystemTheme
@@ -49,6 +60,12 @@ import org.thisisthepy.compose.window.linux.CURSOR_CROSSHAIR
 import org.thisisthepy.compose.window.linux.CURSOR_HAND
 import org.thisisthepy.compose.window.linux.CURSOR_TEXT
 import org.thisisthepy.compose.window.linux.X11Window
+import x11.PropModeReplace
+import x11.XChangeProperty
+import x11.XFlush
+import x11.XInternAtom
+import x11.glXGetCurrentDisplay
+import x11.glXGetCurrentDrawable
 
 /**
  * The Compose half of the window this renderer opens on X11: the scene, what is typed into it
@@ -208,6 +225,13 @@ internal class LinuxWindow private constructor(
              * like anyway.
              */
             override fun setPointerIcon(pointerIcon: PointerIcon) {
+                // A CSS `cursor` keyword: the fork's closest X cursor font glyph.
+                val keyword = (pointerIcon as? dev.darkpyonix.composerust.foundation.CursorKeywordIcon)
+                    ?.let { org.thisisthepy.compose.window.CursorShape.fromWire(it.keyword) }
+                if (keyword != null) {
+                    x11.setCursorShape(keyword)
+                    return
+                }
                 x11.setCursor(
                     when (pointerIcon) {
                         PointerIcon.Hand -> CURSOR_HAND
@@ -406,6 +430,17 @@ internal class LinuxWindow private constructor(
                     writeText = x11::writeClipboardText,
                 )
             }
+            val actions = remember(x11) {
+                if (x11.caption().buttonsDrawnByScene) {
+                    WindowActions(
+                        minimise = { x11.performCaptionAction(CaptionAction.Minimize) },
+                        maximise = { x11.performCaptionAction(CaptionAction.ToggleMaximize) },
+                        close = { x11.performCaptionAction(CaptionAction.Close) },
+                    )
+                } else {
+                    null
+                }
+            }
             val drawnMenu = remember { DrawnOsMenuPresenter() }
             DrawnOsMenuHost(drawnMenu) {
                 CompositionLocalProvider(
@@ -414,6 +449,7 @@ internal class LinuxWindow private constructor(
                     LocalSystemDarkObserver provides { resolvedDark() },
                     LocalClipboard provides clipboard,
                     LocalClipboardManager provides clipboardManager,
+                    LocalWindowActions provides actions,
                     // A node the application made a drag region (`WindowDrag(true)`) moves the
                     // window from the press it is holding: the window manager takes the pointer
                     // with _NET_WM_MOVERESIZE, so snapping and edge tiling are the manager's.
@@ -423,6 +459,17 @@ internal class LinuxWindow private constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Publishes [picture] as this X11 window's `_NET_WM_ICON` property so taskbars and
+     * window switchers show the application's icon.
+     */
+    internal fun setIcon(picture: ImageBitmap): Boolean {
+        if (closed) return false
+        val pixels = linuxIconPixels(picture) ?: return false
+        val data = netWmIconData(pixels.rgba, pixels.width, pixels.height) ?: return false
+        return applyNetWmIcon(x11, data)
     }
 
     /**
@@ -694,4 +741,69 @@ internal class LinuxWindowClipboardManager(
     override fun setClip(clipEntry: ClipEntry?) {
         writeText(clipEntry?.getPlainText().orEmpty())
     }
+}
+
+/** RGBA premultiplied pixels read from a Compose [ImageBitmap] for `_NET_WM_ICON`. */
+internal class LinuxIconPixels(val rgba: ByteArray, val width: Int, val height: Int)
+
+/** Reads [picture] as premultiplied RGBA bytes, or null if Skia cannot read it in that form. */
+internal fun linuxIconPixels(picture: ImageBitmap): LinuxIconPixels? {
+    val bitmap = picture.asSkiaBitmap()
+    if (bitmap.width <= 0 || bitmap.height <= 0) return null
+    val info = ImageInfo(bitmap.width, bitmap.height, ColorType.RGBA_8888, ColorAlphaType.PREMUL)
+    val rgba = bitmap.readPixels(info, info.minRowBytes) ?: return null
+    return LinuxIconPixels(rgba, bitmap.width, bitmap.height)
+}
+
+/**
+ * Encodes premultiplied RGBA pixels into the EWMH `_NET_WM_ICON` format: width, height,
+ * then one 32-bit straight ARGB value per pixel stored in native `unsigned long` words.
+ */
+internal fun netWmIconData(rgba: ByteArray, width: Int, height: Int): ULongArray? {
+    if (width <= 0 || height <= 0) return null
+    val pixels = width.toLong() * height.toLong()
+    if (pixels <= 0L || pixels * 4L > rgba.size.toLong()) return null
+    val count = pixels.toInt()
+    val data = ULongArray(count + 2)
+    data[0] = width.toULong()
+    data[1] = height.toULong()
+    for (index in 0 until count) {
+        val base = index * 4
+        var r = rgba[base].toInt() and 0xFF
+        var g = rgba[base + 1].toInt() and 0xFF
+        var b = rgba[base + 2].toInt() and 0xFF
+        val a = rgba[base + 3].toInt() and 0xFF
+        if (a != 0 && a != 255) {
+            r = ((r * 255 + a / 2) / a).coerceAtMost(255)
+            g = ((g * 255 + a / 2) / a).coerceAtMost(255)
+            b = ((b * 255 + a / 2) / a).coerceAtMost(255)
+        }
+        data[index + 2] = (a.toULong() shl 24) or (r.toULong() shl 16) or (g.toULong() shl 8) or b.toULong()
+    }
+    return data
+}
+
+/** Writes [data] to the X11 window's `_NET_WM_ICON` property via its active GLX drawable. */
+internal fun applyNetWmIcon(x11: X11Window, data: ULongArray): Boolean {
+    if (data.size < 3 || !x11.makeCurrent()) return false
+    val display = glXGetCurrentDisplay() ?: return false
+    val drawable = glXGetCurrentDrawable()
+    if (drawable == 0uL) return false
+    val atom = XInternAtom(display, "_NET_WM_ICON", 0)
+    val cardinal = XInternAtom(display, "CARDINAL", 0)
+    if (atom == 0uL || cardinal == 0uL) return false
+    data.usePinned { pinned ->
+        XChangeProperty(
+            display,
+            drawable,
+            atom,
+            cardinal,
+            32,
+            PropModeReplace,
+            pinned.addressOf(0).reinterpret(),
+            data.size,
+        )
+    }
+    XFlush(display)
+    return true
 }

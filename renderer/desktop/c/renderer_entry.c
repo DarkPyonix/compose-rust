@@ -23,6 +23,9 @@
 #include <windowsx.h>
 #include <wchar.h>
 #define PATH_MAX (32768 * 4)
+// The fork's toasts, linked from extended/window/windows-shared (win32_window.h).
+void dxc_notify_set_wake(void (*wake)(void));
+void compose_rust_renderer_request_frame(void);
 #else
 #include <dlfcn.h>
 #include <libgen.h>
@@ -246,6 +249,9 @@ static void *renderer_thread(void *arg) {
     } else {
 #ifdef _WIN32
         InterlockedExchangePointer((PVOID volatile *)&renderer_isolate, isolate);
+        // The fork's toasts (win32_notifications.c) name no renderer symbol: they call what
+        // is registered here when an answer arrives, so the frame that delivers it is drawn.
+        dxc_notify_set_wake(compose_rust_renderer_request_frame);
 #else
         atomic_store(&renderer_isolate, isolate);
 #endif
@@ -782,6 +788,10 @@ void dxc_native_window_begin_drag_at(int32_t edge, float x, float y) {
 #ifndef _WIN32
 void dxc_native_window_configure_app_caption(int32_t enabled) {
     (void)enabled;
+}
+
+void dxc_native_set_cursor_id(int32_t idc) {
+    (void)idc;
 }
 
 int32_t dxc_native_window_set_color_scheme(int32_t scheme) {

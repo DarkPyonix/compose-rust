@@ -9,9 +9,12 @@ on:
         # about two hours), measure (the resize timings, which test_windows_resize reports only
         # when asked), owner_checks (the owner-checks sample alone, on the desktop, uploaded as
         # owner-checks-<os> downloads), memory_report (the blank window's memory on Linux and
-        # Windows, reported only and never part of all), or a comma list of these and job
-        # names. scripts/ci-suites.sh says which jobs each runs.
-        description: 'all, fast, measure, owner_checks, memory_report, or suites and job names separated by commas'
+        # Windows, reported only and never part of all), publish_schema_renderer (builds the
+        # renderers for this commit's schema and uploads them to the renderer-dev release, on
+        # develop only, never part of all; dispatch it alone, since it builds its own Windows
+        # kit and renderers under the same artifact names the other jobs use), or a comma list
+        # of these and job names. scripts/ci-suites.sh says which jobs each runs.
+        description: 'all, fast, measure, owner_checks, memory_report, publish_schema_renderer, or suites and job names separated by commas'
         type: string
         default: all
 
@@ -44,6 +47,7 @@ jobs:
       test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
       test_samples: ${{ steps.choose.outputs.test_samples }}
       test_memory_report: ${{ steps.choose.outputs.test_memory_report }}
+      publish_schema_renderer: ${{ steps.choose.outputs.publish_schema_renderer }}
       measure: ${{ steps.choose.outputs.measure }}
       samples: ${{ steps.choose.outputs.samples }}
       samples_desktop_only: ${{ steps.choose.outputs.samples_desktop_only }}
@@ -148,4 +152,12 @@ jobs:
     if: needs.plan.outputs.test_memory_report == 'true'
     needs: [plan, windows_static_kit]
     uses: ./.github/workflows/test-memory-report.yml
+    secrets: inherit
+  # The renderers for this commit's schema, uploaded to the renderer-dev release. It
+  # publishes, so only a dispatch that names it runs it; all does not. It builds every
+  # renderer itself, so it takes nothing from windows_static_kit.
+  publish_schema_renderer:
+    if: needs.plan.outputs.publish_schema_renderer == 'true'
+    needs: plan
+    uses: ./.github/workflows/publish-schema-renderer.yml
     secrets: inherit
