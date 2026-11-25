@@ -1998,7 +1998,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 1. 네 데스크톱 릴리스 행은 각 샘플에 해당 플랫폼 형식의 아티팩트를 만들고 체크섬을 기록합니다.
 2. 각 번들의 실행 파일은 빌드 머신의 렌더러 절대 경로를 참조하지 않으며, 번들 안에 렌더러와 동반 파일이 있습니다.
-3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다. 잘못된 입력은 어떤 파일도 쓰기 전에 거부하고, 빠진 스토어 사실(`[linux.store] license`, `homepage`, `[bundle] identifier`, `--exec`, `--version` 등)은 설정해야 할 키 이름을 알려 줍니다(fr22_6_3_bad_values_are_refused_before_any_file_is_written, fr22_6_3_missing_store_facts_name_the_key_to_set).
+3. 번들의 이름, 식별자, 설명은 샘플 설정과 일치하고 아이콘이 포함됩니다. 잘못된 입력은 어떤 파일도 쓰기 전에 거부하고, 빠진 스토어 사실(`[linux.store] license`, `homepage`, `[bundle] identifier`, `--exec`, `--version` 등)은 설정해야 할 키 이름을 알려 줍니다(fr22_6_3_bad_values_are_refused_before_any_file_is_written, fr22_6_3_missing_store_facts_name_the_key_to_set). Velopack이 만드는 직접 배포 패키지에서는 vpk가 쓰는 자리가 있습니다. Linux `.AppImage`의 desktop 항목 `Comment`는 vpk가 제목과 버전으로 쓰므로, 그 형식에서는 이름(`Name`)과 아이콘(`Icon`)을 확인하고 설명은 같은 샘플의 `.deb`, `.rpm`, Flatpak의 메타데이터로 확인합니다. `Setup.exe`와 `.msi`는 내용물 대신 형식(Windows 실행 파일, Windows Installer 데이터베이스)을 확인하고, 그 안에 들어가는 앱은 전체 `.nupkg`의 `.nuspec`(id, 제목, 버전, 주 실행 파일, 채널)과 `lib/app/`의 실행 파일로 확인합니다. 샘플마다 Velopack 채널은 `<sample>-<target>`이어서, 한 릴리스에 모든 샘플과 대상의 갱신 피드(`releases.<sample>-<target>.json`)가 겹치지 않고 함께 놓입니다. 스토어 `.pkg`의 앱에는 Velopack 갱신기가 없습니다(스토어가 갱신합니다).
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
 5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
