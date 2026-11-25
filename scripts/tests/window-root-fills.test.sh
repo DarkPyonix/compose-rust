@@ -36,9 +36,14 @@ fi
 
 for entry in macos/src/MacosRenderer.kt macos/src/MacosMultiWindow.kt linux/src/LinuxRenderer.kt \
     windows/src/WindowsRenderer.kt windows/src/WindowsMultiWindow.kt \
-    desktop/src/NativeWindowShell.kt desktop/src/Win32Window.kt; do
+    desktop/src/NativeWindowShell.kt desktop/src/SingleWindowBackend.kt; do
     grep -q 'WindowContent(' "$repo_root/renderer/$entry" || fail "renderer/$entry no longer draws through WindowContent"
 done
+
+# The GraalVM Windows window draws through SingleWindowHostContent, which is WindowContent
+# for the one window, or for the active window of several (checked above in its own file).
+grep -qE '(SingleWindowHostContent|[^A-Za-z]WindowContent)\(' "$repo_root/renderer/desktop/src/Win32Window.kt" ||
+    fail "renderer/desktop/src/Win32Window.kt no longer draws through WindowContent"
 
 [[ $status -eq 0 ]] && echo "every window's root fills the window: ok"
 exit $status

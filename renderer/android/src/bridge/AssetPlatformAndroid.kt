@@ -78,9 +78,12 @@ internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
         val paint = android.graphics.Paint().apply { this.typeface = typeface }
         Asset.Font(
             family = FontFamily(font),
-            face = Asset.Font.Face(font, declared.weight, declared.italic) { codePoint ->
-                paint.hasGlyph(String(Character.toChars(codePoint)))
-            },
+            face = Asset.Font.Face(
+                font,
+                declared.weight,
+                declared.italic,
+                hasGlyph = { codePoint -> paint.hasGlyph(String(Character.toChars(codePoint))) },
+            ),
         )
     } catch (error: RuntimeException) {
         // An unreadable font is the application's mistake and is reported as one.

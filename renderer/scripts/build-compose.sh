@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.5
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.6
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -50,10 +50,15 @@ set -euo pipefail
 # that makes the wheel and the trackpad scroll on the Kotlin/Native macOS window, where nothing
 # scrolled before (fork #240). Everything the window pin below held past the ext.4 tag (fork
 # #232, #235, #239, #236, #234, #237) is in the tag as well, and so is the AT-SPI readback tool
-# matching roles by number (fork #241, a test tool). compose-fork.changes lists what this commit
+# matching roles by number (fork #241, a test tool).
+# It is now the commit the fork's v1.11.1-ext.6 tag goes on (the merge of fork #300), which
+# publishes as 1.11.1-ext.6. Past ext.5 the Compose sources change in the desktop paragraph line
+# height (fork #284), web absolute alignment (fork #285), the JS DOM API (fork #288) and the
+# mingwX64 targets of animation-graphics and material-navigation, which are dropped because no
+# one used them (fork #286; the renderer uses neither). compose-fork.changes lists what this commit
 # must hold at every path it changes, and scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
+REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
@@ -125,26 +130,34 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # per view per frame while scrolling than a full `setFrame:` (fork #247), and the scene's
 # accessibility honours `DeclaredElementRoles` (fork #248). Both are Kotlin the window build
 # already compiles.
-WINDOW_REVISION="98002181bd6e0c719ca4fbc7bcfccd7b34a8209a"
+# At ext.6 it is the Compose pin's commit again. Past ext.5 the windows carry the 36 CSS cursor
+# keywords (`CursorShape`, fork #282), the Windows caption strip as tall as its title bar style
+# asks (`Win32Chrome.NORMAL_CAPTION_HEIGHT` and `dxc_native_window_configure_caption_height`,
+# fork #281), the toasts calling what `dxc_notify_set_wake` registered instead of a renderer
+# symbol (fork #296; the renderer registers its frame request in renderer_entry.c and
+# Win32Notifications.kt), UI Automation patterns (fork #261), Windows and Linux native views
+# (fork #262, #268), the GDI route as the Windows default with a composition wait per drag step
+# (fork #259, #277) and the GraalVM vertical resize sync (fork #273).
+WINDOW_REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
 # Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so it is the Compose
-# pin's commit, the one the v1.11.1-ext.5 tag goes on, as the window pin is.
+# pin's commit, the one the v1.11.1-ext.6 tag goes on, as the window pin is.
 # The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="146d920bf428db556f4a6e7e09f9bfd86ec67777"
+MINGW_REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.5"
-MATERIAL3_AS="1.11.1-ext.5"
+COMPOSE_AS="1.11.1-ext.6"
+MATERIAL3_AS="1.11.1-ext.6"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
 # scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
 # fork's version line. Since 1.11.1-ext.4 its module metadata declares its own capability only
 # (fork #167); ext.3's also declared JetBrains' skiko-awt, which publish-skiko-awt.sh drops.
-SKIKO_AWT_AS="1.11.1-ext.5"
+SKIKO_AWT_AS="1.11.1-ext.6"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -168,6 +181,12 @@ if [[ -n "$MAVEN_CENTRAL_MIRROR" && "$MAVEN_CENTRAL_MIRROR" != off ]]; then
     sed "s#@MIRROR@#$MAVEN_CENTRAL_MIRROR#" "$SCRIPT_DIR/maven-central-mirror.gradle" \
         > "$init_d/dxc-maven-central-mirror.gradle"
     echo "==> Gradle reads Maven Central through $MAVEN_CENTRAL_MIRROR first"
+    # The init script cannot reach a buildscript block of a script the fork applies with
+    # `apply from:` (buildSrc/shared.gradle takes the Kotlin Gradle plugin that way), and
+    # Central's 429 there ended the build (run 45546405467). The fork's repos.gradle asks the
+    # mirror this names before Central in every list it builds, that one included; a fork
+    # commit from before it ignores the variable.
+    export COMPOSE_MAVEN_MIRROR="$MAVEN_CENTRAL_MIRROR"
 fi
 
 die() {

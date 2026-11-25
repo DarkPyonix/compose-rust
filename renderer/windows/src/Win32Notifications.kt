@@ -5,6 +5,7 @@ package dev.darkpyonix.composerust.ui.platform
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
 import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.alloc
@@ -14,6 +15,7 @@ import kotlinx.cinterop.get
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.readBytes
+import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.value
 
 // The toasts of the Compose fork's `extended/window/windows-shared/c/win32_notifications.c`,
@@ -22,6 +24,14 @@ import kotlinx.cinterop.value
 
 @SymbolName("dxc_notify_start")
 private external fun notifyStart(): Int
+
+// The toasts name no renderer symbol: they call what is registered here, from their own
+// threads, when an answer arrives, so the frame that delivers it is drawn.
+@SymbolName("dxc_notify_set_wake")
+private external fun notifySetWake(wake: CPointer<CFunction<() -> Unit>>?)
+
+/** Thread-safe: requests coalesce into one frame. */
+private fun wakeForAnswer() = RendererApi.requestFrame()
 
 @SymbolName("dxc_notify_request_permission")
 private external fun notifyRequestPermission()
@@ -77,6 +87,7 @@ internal class Win32Notifications : NotificationPlatform {
 
     override fun start(reports: NotificationReports) {
         this.reports = reports
+        notifySetWake(staticCFunction(::wakeForAnswer))
         val state = notifyStart()
         if (state != FINDING_OUT) reports.permission(permissionOf(state))
     }

@@ -242,17 +242,20 @@ pub(crate) fn in_host_call() -> bool {
 const HOST_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(1);
 
 /// Reports a warning when a Host frame call exceeded [`HOST_FRAME_BUDGET`].
+///
+/// The warning is handed over as format arguments, not a `String`: a slow frame is still a
+/// frame, and building the text on the heap would make it allocate where a fast one does not.
 #[cfg(any(test, all(debug_assertions, not(target_family = "wasm"))))]
 fn warn_if_slow_host_frame(
     operation: &str,
     elapsed: std::time::Duration,
-    mut report: impl FnMut(String),
+    mut report: impl FnMut(std::fmt::Arguments<'_>),
 ) {
     if elapsed <= HOST_FRAME_BUDGET {
         return;
     }
     let elapsed_ms = elapsed.as_secs_f64() * 1_000.0;
-    report(format!(
+    report(format_args!(
         "compose-rust: Host {operation} took {elapsed_ms:.2} ms (budget is 1.00 ms)"
     ));
 }
@@ -272,12 +275,12 @@ thread_local! {
 }
 
 #[cfg(all(debug_assertions, not(target_family = "wasm")))]
-fn emit_slow_frame_warning(message: String) {
+fn emit_slow_frame_warning(message: std::fmt::Arguments<'_>) {
     #[cfg(test)]
     {
         let captured = FRAME_WARNING_SINK.with(|sink| {
             if let Some(messages) = sink.borrow_mut().as_mut() {
-                messages.push(message.clone());
+                messages.push(message.to_string());
                 true
             } else {
                 false
@@ -2349,7 +2352,9 @@ mod tests {
             std::time::Duration::from_micros(999),
             HOST_FRAME_BUDGET,
         ] {
-            warn_if_slow_host_frame("render_frame", within_budget, |line| warnings.push(line));
+            warn_if_slow_host_frame("render_frame", within_budget, |line| {
+                warnings.push(line.to_string())
+            });
         }
         assert!(
             warnings.is_empty(),
@@ -2359,12 +2364,12 @@ mod tests {
         warn_if_slow_host_frame(
             "render_frame",
             std::time::Duration::from_nanos(1_000_001),
-            |line| warnings.push(line),
+            |line| warnings.push(line.to_string()),
         );
         warn_if_slow_host_frame(
             "dispatch_event",
             std::time::Duration::from_micros(2_500),
-            |line| warnings.push(line),
+            |line| warnings.push(line.to_string()),
         );
         assert_eq!(
             warnings.len(),

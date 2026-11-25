@@ -504,7 +504,7 @@ private fun DrawnSurface(
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
-    val foldColumn = foldColumnWidthPx(model, look, rowPx)
+    val foldColumn = density.foldColumnWidthPx(model, look, rowPx)
     val gutterWidth = (
         density.numberColumnPx(look, rows.lineCount.toString().length, digitWidth) +
             markColumn + foldColumn + density.changeColumnPx(model, look)
@@ -1109,8 +1109,7 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
                 state.moved()
                 callbacks.onOutput()
             } else {
-                val line = document.line(caret.line)
-                val indent = if (line.takeWhile { it == ' ' || it == '\t' }.contains('\t')) {
+                val indent = if (!look.insertSpaces) {
                     "\t"
                 } else {
                     " ".repeat(look.tabWidth - caret.column % look.tabWidth)

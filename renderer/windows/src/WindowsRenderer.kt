@@ -41,6 +41,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
     // application start when it passed.
     if (runFr53WindowsChecksIfAsked() == false) return RendererApi.RUN_FAILED
+    // Asked for by the build that proves the window draws in device pixels at every display
+    // scale (`HiDpiCheck.kt`). It is the whole run: its window is the check's, not the
+    // application's, so the application does not start after it.
+    runFr82WindowsChecksIfAsked()?.let { passed -> return if (passed) RendererApi.RUN_OK else RendererApi.RUN_FAILED }
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.
@@ -49,6 +53,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
         modifier.nativeFileDrop(node, dispatcher)
     }
+    // Where the application's zoom level is kept between runs, before the first
+    // composition reads it.
+    dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
     val host = ComposeRustHost(connection())
     host.start()
 
@@ -92,12 +99,14 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     colorScheme.follow(host.table.theme)
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
+    // Whatever the chrome, a `WindowDrag(true)` node moves the window and the
+    // system's light or dark setting is followed while the window is open.
     if (systemChrome) {
         window.setContent {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
             }
-            WindowContent(host)
+            WindowsPlatformLocals(window) { WindowContent(host) }
         }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
@@ -112,15 +121,16 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             }
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
-                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
             ) {
-                WindowContent(
-                    host,
-                    caption = dev.darkpyonix.composerust.runtime.WindowCaption(
-                        height = WINDOWS_CAPTION_HEIGHT,
-                        fullSize = fullSize,
-                    ),
-                )
+                WindowsPlatformLocals(window) {
+                    WindowContent(
+                        host,
+                        caption = dev.darkpyonix.composerust.runtime.WindowCaption(
+                            height = WINDOWS_CAPTION_HEIGHT,
+                            fullSize = fullSize,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -139,3 +149,24 @@ private const val DEFAULT_HEIGHT = 360
 
 /** Windows 11's caption height, the same number win32_window.c lays the caption out with. */
 private val WINDOWS_CAPTION_HEIGHT = 32.dp
+
+/**
+ * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
+ * moves [window] (through [windowsWindowDrag]), and the system's dark setting is
+ * followed while the window is open.
+ */
+@androidx.compose.runtime.Composable
+internal fun WindowsPlatformLocals(window: Win32Window, content: @androidx.compose.runtime.Composable () -> Unit) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { windowsWindowDrag(window) },
+        dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides { rememberWin32SystemDark().value },
+    ) {
+        content()
+    }
+}
+
+/**
+ * What a press on a `WindowDrag(true)` node does to its window: the system's own move, from
+ * the press. A check replaces it to see which window a press reached without moving one.
+ */
+internal var windowsWindowDrag: (Win32Window) -> Unit = { it.beginDrag() }

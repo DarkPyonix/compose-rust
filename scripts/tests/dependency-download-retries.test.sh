@@ -88,12 +88,61 @@ run 0 ""
 [ "$status" -eq 0 ] && [ "$runs" -eq 1 ] && grep -q "BUILD SUCCESSFUL" "$work/out"
 check $? "a passing build runs once and its output still reaches the log (status $status, runs $runs)"
 
+run 2 "WARN  https://repo1.maven.org/maven2: Failed to download https://repo1.maven.org/maven2/x.pom.sha512: java.io.IOException: Unexpected response code for https://repo1.maven.org/maven2/x.pom.sha512. Expected: 200, actual: 429
+ERROR: Unable to resolve dependency org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.10"
+[ "$status" -eq 0 ] && [ "$runs" -eq 3 ] && [ "$waits" = "60 120" ]
+check $? "an Amper 429 waits like a Gradle one (status $status, runs $runs, waited: $waits)"
+
 # The Maven Central mirror: on a GitHub runner build-compose.sh installs the init script into
 # the Gradle user home before it builds anything, and installs nothing elsewhere. The bogus
 # target stops it right after that, so nothing is fetched or built.
 mirror_init="$repo/renderer/scripts/maven-central-mirror.gradle"
 grep -q "@MIRROR@" "$mirror_init" && grep -q "repo.maven.apache.org" "$mirror_init"
 check $? "maven-central-mirror.gradle points Maven Central at @MIRROR@ and keeps Central behind it"
+# Where Central goes: Gradle gives up on a 429 rather than asking the next repository, so
+# Central behind the mirror has to come after every other repository. Run 45488752618 lost
+# the fork build to it: the plugin portal's develocity-gradle-plugin and Google's
+# com.android.settings.gradle.plugin are not on the mirror, and Central, asked before the
+# portal and Google, answered 429. A real Gradle applies the init script to a probe and prints
+# each repository list; nothing is resolved. Gradle comes from DXC_GRADLE or PATH.
+gradle_bin="${DXC_GRADLE:-$(command -v gradle || true)}"
+if [ -n "$gradle_bin" ]; then
+    probe="$work/mirror-probe"
+    mkdir -p "$probe"
+    sed "s#@MIRROR@#https://mirror.example/m2/#" "$mirror_init" > "$work/mirror-init.gradle"
+    cat > "$probe/settings.gradle" <<'GRADLE'
+pluginManagement { repositories { mavenCentral(); google(); gradlePluginPortal() } }
+buildscript { repositories { mavenLocal(); mavenCentral(); google(); gradlePluginPortal() } }
+rootProject.name = 'mirror-probe'
+def show(String label, repos) {
+    println(label + ': ' + repos.collect { it instanceof MavenArtifactRepository ? it.url.toString().replaceAll('/+$', '') : it.name }.join(' '))
+}
+show('pluginManagement', settings.pluginManagement.repositories)
+show('settings-buildscript', settings.buildscript.repositories)
+gradle.beforeProject { p ->
+    p.repositories { mavenLocal(); mavenCentral(); google(); gradlePluginPortal(); maven { url = 'https://repo1.maven.org/maven2/' } }
+}
+gradle.afterProject { p -> show('project', p.repositories) }
+GRADLE
+    "$gradle_bin" -q --offline --no-daemon --gradle-user-home "$work/probe-home" \
+        -I "$work/mirror-init.gradle" -p "$probe" help > "$work/probe.out" 2>&1
+    probe_status=$?
+    line() { grep "^$1: " "$work/probe.out" | sed "s/^$1: //" | sed 's#file:[^ ]*#local#g'; }
+    central=https://repo.maven.apache.org/maven2
+    m=https://mirror.example/m2
+    google=https://dl.google.com/dl/android/maven2
+    portal=https://plugins.gradle.org/m2
+    [ "$probe_status" -eq 0 ] && [ "$(line pluginManagement)" = "$m $google $portal $central" ]
+    check $? "plugin repositories read the mirror first and Central last ($(line pluginManagement); status $probe_status)"
+    [ "$(line settings-buildscript)" = "local $m $google $portal $central" ]
+    check $? "the settings classpath asks Google and the plugin portal before Central ($(line settings-buildscript))"
+    [ "$(line project)" = "local $m $google $portal $m $central" ]
+    check $? "a project's repositories keep their order with Central once, at the end ($(line project))"
+    [ "$probe_status" -eq 0 ] || sed 's/^/    /' "$work/probe.out"
+else
+    echo "skip - no Gradle on PATH or in DXC_GRADLE, so the repository order is not run"
+fi
+
 compose_at() { # env... -> runs build-compose.sh up to its argument check
     env -u GITHUB_ACTIONS -u DXC_MAVEN_CENTRAL_MIRROR "$@" GRADLE_USER_HOME="$work/gh" \
         DXC_COMPOSE_BUILD="$work/compose-build" \
@@ -103,6 +152,8 @@ rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true
 installed="$work/gh/init.d/dxc-maven-central-mirror.gradle"
 grep -q "def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'" "$installed" 2>/dev/null
 check $? "on a GitHub runner build-compose.sh installs the Google Maven Central mirror into init.d"
+awk '/MAVEN_CENTRAL_MIRROR" != off/{on=1} on && /export COMPOSE_MAVEN_MIRROR="\$MAVEN_CENTRAL_MIRROR"/{found=1} on && /^fi/{on=0} END{exit !found}' "$repo/renderer/scripts/build-compose.sh"
+check $? "build-compose.sh names the mirror to the fork's own repository lists (COMPOSE_MAVEN_MIRROR) only when it installs it"
 rm -rf "$work/gh"; compose_at GITHUB_ACTIONS=true DXC_MAVEN_CENTRAL_MIRROR=https://mirror.example/m2/
 grep -q "def mirror = 'https://mirror.example/m2/'" "$installed" 2>/dev/null
 check $? "DXC_MAVEN_CENTRAL_MIRROR names another mirror"
@@ -142,6 +193,8 @@ grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin task :web:buildWasmJsAp
 check $? "test.yml builds the wasmJs app bundle through the retry wrapper"
 grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin build -p \$\{\{ matrix\.platform \}\}' "$test_yml"
 check $? "test.yml runs the Amper build (wasmJs and the other platforms) through the retry wrapper"
+grep -Eq '\./scripts/retry-resolution\.sh \./kotlin task :web:buildWasmJsAppWasmJsDebug' "$repo/scripts/build-sample-pages.sh"
+check $? "build-sample-pages.sh builds the wasm module through the retry wrapper"
 grep -Eq 'run: \./scripts/retry-resolution\.sh \./kotlin test -p \$\{\{ matrix\.platform \}\}' "$test_yml"
 check $? "test.yml runs the Amper tests through the retry wrapper"
 grep -q 'DXC_RETRY_LOG: ${{ runner.temp }}/' "$test_yml"
