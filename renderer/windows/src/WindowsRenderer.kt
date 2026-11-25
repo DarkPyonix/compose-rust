@@ -115,7 +115,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { colorScheme.follow(it) }
             }
-            WindowsPlatformLocals(window) { WindowContent(host) }
+            WindowsPlatformLocals(window, host, asked?.icon ?: 0) { WindowContent(host) }
         }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
@@ -131,7 +131,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             ) {
-                WindowsPlatformLocals(window) {
+                WindowsPlatformLocals(window, host, asked?.icon ?: 0) {
                     WindowContent(
                         host,
                         caption = dev.darkpyonix.composerust.runtime.WindowCaption(
@@ -161,11 +161,18 @@ private val WINDOWS_CAPTION_HEIGHT = 32.dp
 
 /**
  * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
- * moves [window] (through [windowsWindowDrag]), and the system's dark setting is
- * followed while the window is open.
+ * moves [window] (through [windowsWindowDrag]), the system's dark setting is
+ * followed while the window is open, and the window wears icon asset [icon] once it
+ * has arrived (0 for none).
  */
 @androidx.compose.runtime.Composable
-internal fun WindowsPlatformLocals(window: Win32Window, content: @androidx.compose.runtime.Composable () -> Unit) {
+internal fun WindowsPlatformLocals(
+    window: Win32Window,
+    host: ComposeRustHost,
+    icon: Int,
+    content: @androidx.compose.runtime.Composable () -> Unit,
+) {
+    WindowsIconEffect(host, window, icon)
     androidx.compose.runtime.CompositionLocalProvider(
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { windowsWindowDrag(window) },
         dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides { rememberWin32SystemDark().value },
