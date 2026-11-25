@@ -1021,7 +1021,7 @@ fn bar_menu(
             Button!(
                 "",
                 move || opener.set(true),
-                icon = IconRole::More,
+                icon = IconRole::Tune,
                 variant = ButtonVariant::Text,
                 accessible_name = "More"
             );
@@ -3115,7 +3115,7 @@ mod tests {
         );
         assert_eq!(
             screen.mock.integer(actions[0], PropertyKind::Icon),
-            Some(i64::from(u16::from(IconRole::More)))
+            Some(i64::from(u16::from(IconRole::Tune)))
         );
     }
 

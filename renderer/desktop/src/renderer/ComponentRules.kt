@@ -465,6 +465,9 @@ internal object Material3Rules : ComponentRules {
         padding = theme.space(SpaceRole.Lg),
         borderWidth = 0.dp,
         borderColor = Color.Transparent,
+        // Material's drag handle keeps 22 dp above and below its bar, more than the sheet's
+        // padding, so the first line of the content does not sit level with the handle.
+        handleGap = 22.dp,
     )
 
     /** A snackbar: the inverse surface, low and to the leading side, with four seconds. */

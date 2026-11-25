@@ -64,10 +64,22 @@ The quick way: every app, every path, every edge, all three rates
   and zips the logs and frames into probe-logs.zip. Send that file, and look at
   probe-logs\contact-sheet.png: every frame a verdict is about is there to see.
 
-  Then check by hand, in each app (hand-check.exe and graalvm\bin\hand-check.exe), in the
-  first text field: type a few letters, press Ctrl+A (all of it is selected), Ctrl+C, click
-  at the end and press Ctrl+V (the text appears again). Say for each app whether all three
-  worked.
+  graalvm\bin\hand-check.exe is not hand-check: compose-rust links only the Kotlin/Native
+  renderer on Windows, so hand-check cannot link the GraalVM image. It is the C smoke host
+  (renderer/desktop/c/smoke_host.c) linked to that image, which draws hand-check's marker scene
+  under DXC_RESIZE_MARKER=1, as run-probe-v2 sets it. CI keeps it as the
+  hand-check-windows-graalvm artifact: unpack that into a graalvm folder beside this file.
+  Started by itself it shows the smoke host's own small tree, a label and a button.
+
+  In CI the GraalVM window is reported and does not gate (compose-rust#687). It is not the
+  window a release ships (the Kotlin/Native one is), and today it prints none of the CPU resize
+  path lines the gate looks for and shows an occasional one-frame gap in a drag. The CI jobs
+  print the verdicts, keep the frames and count the drags that showed a fault, and fail only
+  when the probe did not run or the control passes. They turn strict when that is fixed.
+
+  Then check by hand, in hand-check.exe, in the first text field: type a few letters, press
+  Ctrl+A (all of it is selected), Ctrl+C, click at the end and press Ctrl+V (the text appears
+  again). Say whether all three worked. The GraalVM smoke host has no text field to check.
 
 Memory, both apps
   Every probe log has three lines from outside the app, the same way for both renderers:

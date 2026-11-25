@@ -6,7 +6,7 @@ use crate::fonts::FontRefs;
 use crate::rich_text::{RichDocument, TextFormat};
 use crate::schema::{OverflowWrap, Paint, TextAlign, TextOverflow, TypeRole, WordBreak};
 use crate::spans::TextSpans;
-use crate::ui::{FocusHandle, Modifier, RichTextState};
+use crate::ui::{FocusHandle, Modifier, RichTextState, TextFieldHandle};
 use crate::{KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use compose_rust_macros::Composable;
 
@@ -100,6 +100,11 @@ pub fn Text(
 /// keeps the field from acting. `focus_handle` binds a handle whose `request()` puts
 /// keyboard focus here.
 ///
+/// The field is uncontrolled: `text` is the text it starts with, and a different `text` on a
+/// later run does not change a field already on screen. `text_handle` binds a
+/// [`TextFieldHandle`] whose `set_text` gives the live field a new text, the empty one
+/// included.
+///
 /// `bare` draws the field without the design system's frame: no fill, line, underline,
 /// corner clip, inner padding, minimum height or focus line. It is for a field inside a
 /// box that already draws its own frame. `read_only` keeps the field focusable and
@@ -145,6 +150,9 @@ pub fn TextField<'a>(
     #[default(None::<&::compose_rust::ui::FocusHandle>)] focus_handle: impl Into<
         Option<&'a FocusHandle>,
     >,
+    #[default(None::<&::compose_rust::ui::TextFieldHandle>)] text_handle: impl Into<
+        Option<&'a TextFieldHandle>,
+    >,
     #[default(None::<fn(::compose_rust::MotionFinished)>)] on_motion_finished: Option<
         impl FnMut(MotionFinished) + 'static,
     >,
@@ -181,6 +189,7 @@ pub fn TextField<'a>(
         word_break,
         overflow_wrap,
         focus_handle,
+        text_handle,
     );
     set_some!(
         scope;

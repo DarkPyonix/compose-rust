@@ -47,13 +47,15 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     installNativeWindowHooks(backdropSupported = false)
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
+    var closed = false
+    val singleWindow = SingleWindowSession(host, onExit = { closed = true })
+    singleWindow.attach()
     val asked = host.table.window
     val options = nativeWindowOptions(host, backdropSupported = false)
     val window = ForkX11Window()
     window.resizable = options.resizable
     window.backdrop = false
     val heard = ArrayList<WindowEvent>()
-    var closed = false
     // Set once the scene's semantics exist; a reader's request is answered from them.
     var semanticsRef: NativeSemantics? = null
     val listener = object : WindowListener {
@@ -90,6 +92,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     )
     if (!opened) {
         System.err.println("compose-rust: X11 or a GLX visual is unavailable")
+        singleWindow.shutdown()
         host.shutdown()
         return
     }
@@ -138,13 +141,26 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     }
     val actions = if (framed) null else nativeWindowActions()
     scene.setContent {
-        NativeWindowContent(
-            host,
-            caption,
-            actions,
-            drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
-            overlay = { if (!framed && options.resizable) NativeResizeEdges() },
-        )
+        val drawnMenu = androidx.compose.runtime.remember {
+            dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter()
+        }
+        val contextMenu = androidx.compose.runtime.remember(drawnMenu) {
+            OsMenuContextMenuRepresentation(drawnMenu)
+        }
+        dev.darkpyonix.composerust.foundation.DrawnOsMenuHost(drawnMenu) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.foundation.LocalContextMenuRepresentation provides contextMenu,
+            ) {
+                NativeWindowContent(
+                    host,
+                    caption,
+                    actions,
+                    drag = { if (!framed) NativeCaptionDrag(linuxCaptionHeight, actions) },
+                    overlay = { if (!framed && options.resizable) NativeResizeEdges() },
+                    session = singleWindow,
+                )
+            }
+        }
     }
     val autoStarted = System.nanoTime()
     var iconSettled = false
@@ -260,6 +276,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
         scene.forgetPointer()
         scene.close()
         context.close()
+        singleWindow.shutdown()
         host.shutdown()
     }
 }

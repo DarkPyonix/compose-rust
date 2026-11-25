@@ -350,7 +350,9 @@ report() {
 
 binary="$(build default "")"
 [[ -x "$binary" ]] || fail "the build produced no $binary"
-[[ "$os" == Windows ]] || ls "$scratch/cache/renderer"/v"$crate_version"/* >/dev/null 2>&1 ||
+# The build keeps an unpacked renderer under the schema it was built from, not under the
+# crate version, so that is where the artifact has to have landed.
+[[ "$os" == Windows ]] || ls "$scratch/cache/renderer"/schema-*/* >/dev/null 2>&1 ||
     fail "the build did not unpack the artifact into $scratch/cache/renderer" \
         "It found a renderer somewhere else, so this did not test the artifact."
 check_libraries "$binary"

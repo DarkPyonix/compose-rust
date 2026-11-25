@@ -2,9 +2,56 @@
 
 ## Unreleased
 
+### Compose fork moved to 1.11.1-ext.6
+
+The renderer now builds with the Compose fork's `1.11.1-ext.6` (tag `v1.11.1-ext.6`) for Compose, the window modules and skiko-awt alike. On Windows a toast's answer (a press on it, or the permission) now asks for the frame that delivers it through a callback the renderer registers with the fork, instead of the fork calling a compose-rust symbol by name; nothing changes for an application. The fork's other window changes since ext.5 (the CSS cursor keywords, the caption strip height by title bar mode, UI Automation patterns, native views on Windows and Linux, the GDI route as the Windows default) reach applications as the renderer adopts them.
+
+### A Linux window redraws when the display scale changes
+
+The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
+
+### Build failures no longer send a crate user to a script only a checkout has
+
+When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
+
+### `release_asset(id)` lets go of a registered font or picture
+
+`compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
+
+### `TextFieldHandle` gives a live text field a new text
+
+A `TextField` takes its `text` when its node is made, so an application could not reset or clear a field already on screen except by giving it a new `key`, which made a new node. `use_text_field_handle()` returns a handle that `TextField!(..., text_handle = &handle)` binds to the field; `handle.set_text(text)` (or `set_text_with_selection`) puts one `SetText` for that node on the next batch, the empty text included, with the last text asked for before the batch. The field stays uncontrolled: the Renderer keeps the caret where it still fits and waits for an input method's composition to end first (FR-5, #1075).
+
+### A memory report for a blank window on Linux and Windows
+
+`compose-rust/tests/fixtures/blank-window` is one 800 by 600 dp window with one empty box, so what its process holds is what the renderer, its graphics surface and the window cost. A development CI dispatch with the `memory_report` suite builds it against the Kotlin/Native renderer of the same commit and starts it three times on ubuntu-latest (under Xvfb) and on windows-latest. It reads PSS on Linux and the private working set on Windows, 10 and 60 seconds after each start, and puts the median of the three in the job summary, with every sample kept as an artifact. The report fails only when the window does not come up or nothing could be read, never on a number. No default suite runs it, and nothing it measures gates a merge (#59).
+
+### CI reads the `.msi` back and requires the DPI check of the Windows App Certification Kit
+
+The Windows job that packs with Velopack now builds the `.msi` twice, with `--instLocation PerUser` and `PerMachine`, and `scripts/tests/msi-info.ps1` opens each one's Property table and checks the product name, the manufacturer, the codes and that the version is the one packed. The two jobs that run `appcert.exe` on the `.msix` and `.msixbundle` (`package-windows.yml`, `package-windows-host.yml`) both require `DPIAwarenessValidation` to pass, and FR-22.6 no longer calls that check manual. The Store submission and the Store's update of an installed bundle still wait for a Partner Center account ([#3](https://github.com/DarkPyonix/compose-rust/issues/3)).
+
+### A button that names no kind sends no kind
+
+A `Button` that names no `kind` sends no `ButtonKind` record. It sent one with the value 0, which the renderer reads as no kind at all, so every plain button cost the Host one record for nothing. A button that drops a kind it had still sends the 0 once, which returns it to the standard button. Nothing changes on screen, and the schema and its hash do not move.
+
+### Compose from fork test compares the fork with its own baseline
+
+The workflow no longer builds Compose a second time from JetBrains' sources and the three patches. It compares the fork's publication with a stored baseline of the fork line, one digest per published module (`renderer/scripts/compose-baseline/`), and fails on any module that differs unless the fork changed that module's sources since the baseline's revision. `.github/scripts/refresh-compose-baseline.sh <run id>` refreshes the baseline when the pin moves ([#361](https://github.com/DarkPyonix/compose-rust/issues/361)).
+
+### The macOS renderer's Kotlin heap stops near what is in use
+
+The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % full after a collection, where the default is 50 %. An application that opened eight screens four times held 69 to 87 MB of heap pages for about 20 MB of objects; it now holds about 53 MB. On Ember (1440x900, median of three runs) the process footprint after those screens goes from 182 to 200 MB down to 158 to 168 MB, and from 129 MB to 118 MB after five idle minutes. The cost is about a quarter more process CPU while screens are being opened, on the collector's own thread (#939, NFR-3).
+
+### The build finds its renderer by schema hash
+
+A git dependency on a revision after a release builds. The crate's version stays the same between two releases while its schema moves on, and the build used to fetch the release for that version, whose renderer was built from the older schema, and then stop at the schema check with nothing else to try. The build now reads the schema hash of the release's renderer, and when it is not the crate's, fetches the renderer published for the crate's schema from the `renderer-dev` release (`compose-rust-renderer-schema-<hash>-<target>.tar.gz`, verified against its `.sha256` like any other). When neither matches, the build stops and names the crate's schema hash, each renderer's hash and both addresses. A released version costs no extra request. The cache is keyed by schema hash and target (`renderer/schema-<hash>/<target>`) instead of by version, so two revisions of one version never share an entry; an entry an earlier build left under the version is used only when its renderer says it was built from the same schema. A renderer that says it was built from the crate's schema is no longer refused for the version written in its `renderer.version`. `COMPOSE_RUST_RENDERER_URL` moves both addresses to a mirror; it is optional, and a build without it uses GitHub as before ([#293](https://github.com/DarkPyonix/compose-rust/issues/293)).
+
+### Rich text in a text field (wire)
+
 ### Rich text in a text field (wire and Rust API)
 
 A `TextField` can keep character and paragraph formatting that the Renderer owns: `TextField!(rich = &state, on_format = ..., on_rich_change = ...)` turns it on, `RichTextState::format(Format::Bold(Toggle::Flip))` formats the selection, and the field reports the formatting at the selection and its document. This adds the properties 220 to 222, the commands `FormatText` and `SetRichText`, the events `TextFormatAtSelection` and `RichTextChanged`, and the enums `FormatOp`, `ParagraphRole` and `ListKind`, so the schema hash moves; a `TextField` without `rich` sends the records it always did. The Renderer only stores the new requests for now. See [#638](https://github.com/DarkPyonix/compose-rust/issues/638).
+
 
 ### Widgets are functions and call macros, not builder chains
 
@@ -22,6 +69,36 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 ### The event types are non-exhaustive
 
 `HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
+
+### `SemanticsState` is non-exhaustive
+
+`SemanticsState` is `#[non_exhaustive]`, so a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that builds one with a struct literal, with or without `..Default::default()`, or destructures one without `..`. Start from `SemanticsState::default()` or from the constructor named after a field, and chain the new `with_` method of each further field: `SemanticsState { checked: Some(true), ..SemanticsState::mixed() }` becomes `SemanticsState::mixed().with_checked(true)`. There is one per public field (`with_checked`, `with_mixed`, `with_selected`, `with_expanded`, `with_disabled`, `with_focused`, `with_hidden`, `with_click_action`, `with_focus_action`, `with_has_popup`). The fields stay public, so reading one and assigning to a `let mut` state still work. The wire format and the schema hash do not change ([#767](https://github.com/DarkPyonix/compose-rust/issues/767)).
+
+### A switch can lift its thumb and draw a line around its track
+
+`Switch!` takes `thumb_elevation`, a soft shadow under the thumb in dp, and `track_border`, a `(width, paint)` line around the track in both states. Leaving either out draws the switch as before in every design system: none of them shadows the thumb, and each keeps its own border. These add properties 212 and 213, so the schema hash moves and a renderer built before this change refuses the Host ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
+
+### `ScrollState` knows how large its viewport is
+
+`ScrollState::viewport_size()` is the visible length of a `ScrollColumn` or `ScrollRow` along the axis it scrolls on, in dp, so a "scroll one page" control moves by it instead of guessing from the window. The state now reads the renderer's `ScrollChanged` report, in pixels divided by the window's density and zoom step, instead of `RangeRequested`. `offset()` and `max_offset()` return the same values as before, and all three are `0.0` until the first report. The `RangeRequested` report is still on the wire for a host that asks for it ([#818](https://github.com/DarkPyonix/compose-rust/issues/818)).
+
+### A page that measures nodes is answered when the window is resized
+
+A Host that lays its own page out, as an HTML view does, answers a window size by asking the renderer to measure the nodes on the page before the call returns. The size was sent from inside the layout pass that measured the window, where Compose refuses to start the layout a node measurement is, so every resize logged protocol error 3, "measure request N could not be measured: performMeasureAndLayout called during measure layout", and each such node came back unmeasured. The window's size, and the size class of a node that asked with `observe_size`, are now sent once that pass is over, in the same frame and before it is drawn (FR-20, FR-28). A `CodeEditor` first put on screen inside a split pane or a lazy list is attached during a measure pass too, so what it has to say at that moment is sent just after the pass; everything it says later, a key's echo included, is sent at once as before (FR-38).
+### A `CodeEditor`'s two scroll reports arrive together
+
+A `CodeEditor` with both an `OnCodeScrolled` and an `OnScrollChanged` handler now sends `ScrollChanged` straight after `CodeScrolled` for the same move, in the same frame, and `ScrollChanged.y_px` equals `CodeScrolled`'s offset. Before, `ScrollChanged` for a move could reach the Host a frame after `CodeScrolled`, or in the same frame with the offset of the frame before. `CodeScrolled` is sent when it always was. Such an editor sends at most one `ScrollChanged` in a frame even when it moves along its lines and down the page in that frame, so a report that does not come with a `CodeScrolled` (a move along the lines, a new range, coming to rest) is sent when the frame is composed, which can be one frame later than before. An animated `ScrollTo` on a `CodeEditor` now moves down the page towards the offset asked for. It moved the other way. An editor with one of the two handlers, and every other scroll container, reports as before ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).
+### A Checkbox can be mixed, take an outline colour, and round its corners under Material 3
+
+`Checkbox!` takes `indeterminate = true` for a box that stands for a set of which only some are checked. It wins over `checked`: the box is filled as a checked box is, with a dash in the check colour instead of the check, assistive technology hears it as mixed, and a press or Space asks for `true`. It travels as the `Indeterminate` property (tag 216, a boolean, only on a `Checkbox`), sent only while it is true. `outline_color` is the box's border in every state (`OutlineColor`, tag 217, a `Paint`, only on a `Checkbox`), drawn even where the design system draws none. A Checkbox's corners now follow `Modifier::corner_radius`, `corner_radii` or `shape_role` under Material 3 as well, with no colour or size given. For `Modifier::semantics`, `SemanticsState::mixed()` gives the checked field its fourth value, 3, which reads as mixed, and `SemanticsState` gains a public `mixed` field. The schema hash changes ([#767](https://github.com/DarkPyonix/compose-rust/issues/767)).
+
+### A bottom sheet's content starts below its handle
+
+A sheet's first line no longer sits level with its drag handle. Material 3 keeps 22 dp above and below the handle, as Compose's `BottomSheetDefaults.DragHandle` does, and every other design system keeps its own sheet padding there. A sheet with `handle(false)` keeps no space for one. No schema change ([#914](https://github.com/DarkPyonix/compose-rust/issues/914)).
+
+### Window breakpoints the application chooses
+
+`current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
 
 ## v0.0.12
 

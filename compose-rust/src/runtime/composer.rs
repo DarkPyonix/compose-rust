@@ -191,6 +191,19 @@ pub(crate) enum EventCallback {
     RichText(Rc<RefCell<dyn FnMut(crate::rich_text::RichDocument)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
+    /// Where a scroll container is, for the `ScrollState` bound to it.
+    Scroll(Rc<RefCell<dyn FnMut(ScrollReport)>>),
+}
+
+/// Where a scroll container is, as the Renderer reports it: physical pixels on both axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScrollReport {
+    pub(crate) x_px: f64,
+    pub(crate) y_px: f64,
+    pub(crate) max_x_px: f64,
+    pub(crate) max_y_px: f64,
+    pub(crate) viewport_width_px: f64,
+    pub(crate) viewport_height_px: f64,
 }
 
 pub(crate) struct HandlerEntry {
@@ -281,6 +294,10 @@ pub(crate) struct Composer {
     /// The rich text states with commands waiting, each once. A state whose field is not on
     /// screen stays here until it is.
     rich_requests: Vec<Rc<crate::ui::rich::RichTarget>>,
+    /// The text field handle the field being composed asked to be bound to its node.
+    text_binding: Option<Rc<crate::ui::text_handle::TextFieldTarget>>,
+    /// The text field handles given a text since the last batch, each once.
+    text_requests: Vec<Rc<crate::ui::text_handle::TextFieldTarget>>,
 }
 
 impl Composer {
@@ -323,6 +340,8 @@ impl Composer {
             focus_requests: Vec::new(),
             rich_binding: None,
             rich_requests: Vec::new(),
+            text_binding: None,
+            text_requests: Vec::new(),
         }
     }
 
@@ -1187,6 +1206,9 @@ impl Composer {
                 self.request_rich(target);
             }
         }
+        if let Some(target) = self.text_binding.take() {
+            target.node.set(node);
+        }
         node
     }
 
@@ -1255,6 +1277,62 @@ impl Composer {
         }
         target.requested.set(true);
         self.focus_requests.push(target);
+    }
+
+    /// Binds a text field handle to the node the next `update_node` creates or updates,
+    /// which is the node of the field that asked.
+    pub(crate) fn bind_text_to_next_node(
+        &mut self,
+        target: Rc<crate::ui::text_handle::TextFieldTarget>,
+    ) {
+        if self.composing() {
+            self.text_binding = Some(target);
+        }
+    }
+
+    /// Keeps `text` for the handle's field, to be written once with the next batch. A later
+    /// call before then replaces it. A handle whose field is not on screen asks for nothing.
+    pub(crate) fn request_set_text(
+        &mut self,
+        target: Rc<crate::ui::text_handle::TextFieldTarget>,
+        text: &str,
+        selection: Option<crate::schema::Selection>,
+    ) {
+        let node = target.node.get();
+        if node == 0 || !self.writer.is_placed(node) {
+            return;
+        }
+        {
+            let mut kept = target.text.borrow_mut();
+            kept.clear();
+            kept.push_str(text);
+        }
+        target.selection.set(selection);
+        if !target.queued.replace(true) {
+            self.text_requests.push(target);
+        }
+    }
+
+    /// Writes the texts given since the last batch, one `SetText` per field, for the
+    /// fields that are still on screen.
+    pub(crate) fn flush_text_requests(&mut self) {
+        if self.text_requests.is_empty() {
+            return;
+        }
+        let mut requests = std::mem::take(&mut self.text_requests);
+        for target in requests.drain(..) {
+            target.queued.set(false);
+            let node = target.node.get();
+            if node != 0 && self.writer.is_placed(node) {
+                let text = target.text.borrow();
+                self.writer
+                    .batch_mut()
+                    .set_text_node(node, &text, target.selection.get());
+            }
+        }
+        if self.text_requests.is_empty() {
+            self.text_requests = requests;
+        }
     }
 
     /// Writes the focus requests made since the last batch, each once, for the nodes

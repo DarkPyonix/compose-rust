@@ -69,6 +69,8 @@ mod macros {
             track_color = PRIMARY,
             thumb_color = OUTLINE,
             size = (52.0, 32.0),
+            thumb_elevation = 2.0,
+            track_border = (1.0, ERROR),
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
         Checkbox!(
@@ -80,6 +82,8 @@ mod macros {
             container_color = PRIMARY,
             check_color = OUTLINE,
             size = 20.0,
+            indeterminate = true,
+            outline_color = ERROR,
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
         RadioButton!(
@@ -389,6 +393,8 @@ mod functions {
             PRIMARY,
             OUTLINE,
             (52.0, 32.0),
+            2.0,
+            (1.0, ERROR),
             Some(|_: MotionFinished| {}),
         );
         Checkbox(
@@ -400,6 +406,8 @@ mod functions {
             PRIMARY,
             OUTLINE,
             20.0,
+            true,
+            ERROR,
             Some(|_: MotionFinished| {}),
         );
         RadioButton(
