@@ -125,6 +125,8 @@ const ANIMATION_HEADER_LEN: usize = 52;
 const KEYFRAME_HEAD_LEN: usize = 24;
 /// One transform function: its kind and six numbers.
 const TRANSFORM_FUNCTION_LEN: usize = 28;
+/// A `Transform3D` keyframe's value: sixteen `f32`, column-major like the modifier's.
+const MATRIX3D_VALUE_LEN: usize = 64;
 const KEYFRAME_FROM_PRESENTED: u16 = 1;
 const ENVELOPE_LEN: usize = 12;
 /// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
@@ -2882,6 +2884,7 @@ impl BatchEncoder {
                         KeyframeValue::Transform(functions) => {
                             4 + TRANSFORM_FUNCTION_LEN * functions.len()
                         }
+                        KeyframeValue::Matrix3D(_) => MATRIX3D_VALUE_LEN,
                     }
             })
             .sum();
@@ -2920,6 +2923,10 @@ impl BatchEncoder {
                     [x1.to_bits(), y1.to_bits(), x2.to_bits(), y2.to_bits()],
                 ),
                 Timing::Steps { count, position } => (3, position as u8, [count, 0, 0, 0]),
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                } => (4, 0, [stiffness.to_bits(), damping_ratio.to_bits(), 0, 0]),
             };
             self.records.push(kind);
             self.records.push(position);
@@ -2944,6 +2951,11 @@ impl BatchEncoder {
                         for value in function.values {
                             self.put_u32(value.to_bits());
                         }
+                    }
+                }
+                KeyframeValue::Matrix3D(m) => {
+                    for value in m {
+                        self.put_u32(value.to_bits());
                     }
                 }
             }
@@ -3644,6 +3656,11 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
     {
         return Err(bad);
     }
+    // A 3D matrix animation turns about its base modifier's origin. An origin here as well
+    // would leave two answers to which one wins, so the record must not carry one.
+    if property == AnimatedProperty::Transform3D && (origin_x != 0.0 || origin_y != 0.0) {
+        return Err(bad);
+    }
     let mut keyframes = Vec::with_capacity(keyframe_count);
     let mut at = ANIMATION_HEADER_LEN;
     for index in 0..keyframe_count {
@@ -3681,6 +3698,24 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                     return Err(bad);
                 }
                 Timing::Steps { count, position }
+            }
+            4 => {
+                // A spring is its stiffness and damping ratio; the last two numbers and
+                // the step position have no meaning for it and must be zero.
+                let (stiffness, damping_ratio) = (float(at + 8)?, float(at + 12)?);
+                let positive = |value: f32| value.is_finite() && value > 0.0;
+                if !positive(stiffness)
+                    || !positive(damping_ratio)
+                    || read_u32(record, at + 16)? != 0
+                    || read_u32(record, at + 20)? != 0
+                    || raw_position != 0
+                {
+                    return Err(bad);
+                }
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                }
             }
             _ => return Err(bad),
         };
@@ -3731,6 +3766,16 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                     KeyframeValue::Transform(std::borrow::Cow::Owned(functions)),
                     4 + TRANSFORM_FUNCTION_LEN * count,
                 )
+            }
+            AnimatedProperty::Transform3D => {
+                let mut m = [0.0_f32; 16];
+                for (slot, value) in m.iter_mut().enumerate() {
+                    *value = float(value_at + 4 * slot)?;
+                }
+                if !m.iter().all(|value| value.is_finite()) {
+                    return Err(bad);
+                }
+                (KeyframeValue::Matrix3D(m), MATRIX3D_VALUE_LEN)
             }
         };
         keyframes.push(Keyframe {
