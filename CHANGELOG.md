@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### `TextFieldHandle` gives a live text field a new text
+
+A `TextField` takes its `text` when its node is made, so an application could not reset or clear a field already on screen except by giving it a new `key`, which made a new node. `use_text_field_handle()` returns a handle that `TextField!(..., text_handle = &handle)` binds to the field; `handle.set_text(text)` (or `set_text_with_selection`) puts one `SetText` for that node on the next batch, the empty text included, with the last text asked for before the batch. The field stays uncontrolled: the Renderer keeps the caret where it still fits and waits for an input method's composition to end first (FR-5, #1075).
+
 ### Build failures no longer send a crate user to a script only a checkout has
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
