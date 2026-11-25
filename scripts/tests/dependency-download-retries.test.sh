@@ -93,6 +93,18 @@ ERROR: Unable to resolve dependency org.jetbrains.kotlin:kotlin-compiler-embedda
 [ "$status" -eq 0 ] && [ "$runs" -eq 3 ] && [ "$waits" = "60 120" ]
 check $? "an Amper 429 waits like a Gradle one (status $status, runs $runs, waited: $waits)"
 
+run 2 "curl: (22) The requested URL returned error: 429"
+[ "$status" -eq 0 ] && [ "$runs" -eq 3 ] && [ "$waits" = "60 120" ]
+check $? "a curl download answered 429 waits like a Gradle one (status $status, runs $runs, waited: $waits)"
+
+run 1 "curl: (22) The requested URL returned error: 503"
+[ "$status" -eq 0 ] && [ "$runs" -eq 2 ]
+check $? "a curl download answered 5xx is retried (status $status, runs $runs)"
+
+run 1 "curl: (22) The requested URL returned error: 404"
+[ "$status" -ne 0 ] && [ "$runs" -eq 1 ]
+check $? "a curl download answered 404 is not retried (status $status, runs $runs)"
+
 # The Maven Central mirror: on a GitHub runner build-compose.sh installs the init script into
 # the Gradle user home before it builds anything, and installs nothing elsewhere. The bogus
 # target stops it right after that, so nothing is fetched or built.
