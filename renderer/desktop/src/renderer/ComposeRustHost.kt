@@ -212,6 +212,13 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.clipboardReads.drain()
         table.fileCalls.drain()
         table.storage.drain()
+        // Fonts the last frame found letters for and has no bytes of. Asked here and not
+        // where the letter was found, inside a composition or a measure call, because the
+        // Host answers each with a batch that registers the font. The text set in it is
+        // composed again when it arrives.
+        table.assets.drainWanted { assetId ->
+            dispatch(HostEvent.AssetWanted(nodeId = 0, handlerId = 0, assetId = assetId))
+        }
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -543,6 +550,9 @@ private fun ComposeRustTree(
     SideEffect { host.table.fileCalls.wake = frames::request }
     // A storage answer from the browser is delivered at the top of the frame it asks for.
     SideEffect { host.table.storage.wake = frames::request }
+    // A font the Host has not sent is asked for at the top of the frame after the one that
+    // found a letter for it.
+    SideEffect { host.table.assets.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares the system's clipboard, so one window serves it: the one that opened last, and
     // when it goes, the one before it. A window of several draws its own node

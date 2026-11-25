@@ -484,7 +484,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1811 + 24 + 36 + 171, bytes.size, "the two rich text events follow the two platform view events")
+        assertEquals(1811 + 24 + 36 + 171 + 20, bytes.size, "the two rich text events and then the font request follow the two platform view events")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -1150,7 +1150,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1663, 1683).toList(), out.array().copyOf(length).toList())
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1174,7 +1174,7 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
         assertEquals(bytes.copyOfRange(1759, 1779).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
@@ -1185,6 +1185,35 @@ class ProtocolVectorsTest {
         assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
         assertEquals(20, window.getInt(4))
         assertEquals(1.25f, window.getFloat(16))
+    }
+
+    /**
+     * A `LazyAsset` font candidate decodes as it was written, kind 4 with its id, and the
+     * request for its bytes encodes to the 20 bytes the Host decodes: the header, then the
+     * id. It is the vector's last record, under event tag 71.
+     */
+    @Test
+    fun fr10_lazy_asset_font_ref_round_trips() {
+        val list = listOf(
+            dev.darkpyonix.composerust.protocol.FontRef.Asset(3),
+            dev.darkpyonix.composerust.protocol.FontRef.LazyAsset(9),
+        )
+        val blob = fontBlob(list)
+        assertEquals(4, ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN).getInt(16), "the second record's kind")
+        assertEquals(list, dev.darkpyonix.composerust.protocol.FontRefRecords.decodeBlob(blob))
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.AssetWanted(0, 0L, 42), out)
+        assertEquals(20, length)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
+        // The last record, after the two rich text events.
+        assertEquals(bytes.copyOfRange(2042, 2062).toList(), out.array().copyOf(length).toList())
+        assertEquals(71, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(42, out.getInt(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -1371,7 +1400,7 @@ class ProtocolVectorsTest {
             )
         }
         // The platform view events follow the density report, two records of 32 and 24 bytes.
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
     }
 
     /**
@@ -1386,7 +1415,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1443, 1467)))
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

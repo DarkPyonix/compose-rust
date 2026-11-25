@@ -28,6 +28,9 @@ pub const FONT_REF_ASSET: u32 = 1;
 pub const FONT_REF_SYSTEM: u32 = 2;
 /// A generic family. `value` is its `GenericFamily` tag.
 pub const FONT_REF_GENERIC: u32 = 3;
+/// A font asset whose bytes the Host has not sent, set aside with
+/// [`lazy_asset`](crate::lazy_asset). `value` is its id.
+pub const FONT_REF_LAZY_ASSET: u32 = 4;
 
 /// The most candidates one list may hold. A CSS list longer than this is a page that
 /// names fonts it does not expect to find, and the ninth would never be reached.
@@ -42,6 +45,11 @@ pub enum FontRef {
     System(String),
     /// A family CSS names without naming a font.
     Generic(GenericFamily),
+    /// A font set aside with [`lazy_asset`](crate::lazy_asset), by id. The Renderer asks
+    /// for its bytes the first time a letter no candidate before it has reaches it, and
+    /// until they arrive draws that letter as a missing glyph rather than in a face of
+    /// the machine's own. Once the bytes are there it is the same as [`FontRef::Asset`].
+    LazyAsset(u32),
 }
 
 /// A list of candidates, ready to travel.
@@ -130,6 +138,7 @@ fn write_records(refs: &[FontRef], out: &mut Vec<u8>, names_base: u32) {
                 (FONT_REF_SYSTEM, at, name.len() as u32)
             }
             FontRef::Generic(family) => (FONT_REF_GENERIC, u32::from(u16::from(*family)), 0),
+            FontRef::LazyAsset(id) => (FONT_REF_LAZY_ASSET, *id, 0),
         };
         out.extend_from_slice(&kind.to_le_bytes());
         out.extend_from_slice(&value.to_le_bytes());
@@ -158,6 +167,7 @@ pub(crate) fn decode_record(bytes: &[u8], at: usize) -> Option<FontRef> {
             .ok()
             .and_then(|tag| GenericFamily::try_from(tag).ok())
             .map(FontRef::Generic),
+        FONT_REF_LAZY_ASSET => Some(FontRef::LazyAsset(value)),
         _ => None,
     }
 }
@@ -174,6 +184,13 @@ pub const FONT_STACK_MAGIC: [u8; 4] = *b"CRFS";
 /// The layout of a stack after the magic. Version 1 is a family count, then for each family
 /// a face count and that many face ids, every number a little endian `u32`.
 pub const FONT_STACK_VERSION: u32 = 1;
+
+/// The layout of a stack with a family whose bytes wait on the Host: version 1 with one
+/// more word before each family's face count, [`FONT_REF_ASSET`] for a family of
+/// registered faces and [`FONT_REF_LAZY_ASSET`] for one set aside with
+/// [`lazy_asset`](crate::lazy_asset). A stack with no such family is written as version 1,
+/// so its bytes, and the id they register under, are what they always were.
+pub const FONT_STACK_LAZY_VERSION: u32 = 2;
 
 /// The most families one stack may hold, for the same reason a font list stops at eight.
 pub const MAX_FONT_STACK_FAMILIES: usize = 8;
@@ -210,6 +227,8 @@ pub const MAX_FONT_STACK_FACES: usize = 18;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FontStack {
     families: Vec<Vec<u32>>,
+    /// Whether each family's faces were set aside with `lazy_asset`, by family.
+    lazy: Vec<bool>,
 }
 
 impl FontStack {
@@ -220,10 +239,33 @@ impl FontStack {
     /// Adds one family, tried after every family added before it. An empty family is left
     /// out, and so is anything past [`MAX_FONT_STACK_FAMILIES`] families or
     /// [`MAX_FONT_STACK_FACES`] faces.
-    pub fn family(mut self, faces: impl IntoIterator<Item = u32>) -> Self {
+    pub fn family(self, faces: impl IntoIterator<Item = u32>) -> Self {
+        self.push(faces, false)
+    }
+
+    /// Adds one family whose faces were set aside with [`lazy_asset`](crate::lazy_asset),
+    /// tried after every family added before it, with the same limits as
+    /// [`FontStack::family`].
+    ///
+    /// The Renderer asks for the faces' bytes the first time a letter no family before it
+    /// has reaches it, and until they arrive draws that letter as a missing glyph rather
+    /// than in a face of the machine's own. Faces already registered with
+    /// [`asset`](crate::asset) are there from the start.
+    ///
+    /// ```ignore
+    /// let subset = asset(AssetKind::Font, PRETENDARD_KSX1001);
+    /// let full = lazy_asset(AssetKind::Font, PRETENDARD_REGULAR);
+    /// let stack = FontStack::new().family([subset]).lazy_family([full]).register();
+    /// ```
+    pub fn lazy_family(self, faces: impl IntoIterator<Item = u32>) -> Self {
+        self.push(faces, true)
+    }
+
+    fn push(mut self, faces: impl IntoIterator<Item = u32>, lazy: bool) -> Self {
         let faces: Vec<u32> = faces.into_iter().take(MAX_FONT_STACK_FACES).collect();
         if !faces.is_empty() && self.families.len() < MAX_FONT_STACK_FAMILIES {
             self.families.push(faces);
+            self.lazy.push(lazy);
         }
         self
     }
@@ -233,14 +275,35 @@ impl FontStack {
         &self.families
     }
 
+    /// Whether family `index` was added with [`FontStack::lazy_family`]. False past the
+    /// last family.
+    pub fn is_lazy(&self, index: usize) -> bool {
+        self.lazy.get(index).copied().unwrap_or(false)
+    }
+
     /// The asset bytes: the magic, the version, then the families.
     pub fn to_bytes(&self) -> Vec<u8> {
         let faces: usize = self.families.iter().map(Vec::len).sum();
-        let mut out = Vec::with_capacity(12 + 4 * (self.families.len() + faces));
+        let lazy = self.lazy.iter().any(|is| *is);
+        let words = if lazy { 2 } else { 1 };
+        let mut out = Vec::with_capacity(12 + 4 * (words * self.families.len() + faces));
         out.extend_from_slice(&FONT_STACK_MAGIC);
-        out.extend_from_slice(&FONT_STACK_VERSION.to_le_bytes());
+        let version = if lazy {
+            FONT_STACK_LAZY_VERSION
+        } else {
+            FONT_STACK_VERSION
+        };
+        out.extend_from_slice(&version.to_le_bytes());
         out.extend_from_slice(&(self.families.len() as u32).to_le_bytes());
-        for family in &self.families {
+        for (index, family) in self.families.iter().enumerate() {
+            if lazy {
+                let kind = if self.is_lazy(index) {
+                    FONT_REF_LAZY_ASSET
+                } else {
+                    FONT_REF_ASSET
+                };
+                out.extend_from_slice(&kind.to_le_bytes());
+            }
             out.extend_from_slice(&(family.len() as u32).to_le_bytes());
             for face in family {
                 out.extend_from_slice(&face.to_le_bytes());
@@ -255,16 +318,32 @@ impl FontStack {
             let slice = bytes.get(at..at + 4)?;
             Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
         };
-        if bytes.get(..4)? != FONT_STACK_MAGIC || word(4)? != FONT_STACK_VERSION {
+        if bytes.get(..4)? != FONT_STACK_MAGIC {
             return None;
         }
+        let with_kinds = match word(4)? {
+            FONT_STACK_VERSION => false,
+            FONT_STACK_LAZY_VERSION => true,
+            _ => return None,
+        };
         let count = word(8)? as usize;
         if count > MAX_FONT_STACK_FAMILIES {
             return None;
         }
         let mut at = 12;
         let mut families = Vec::with_capacity(count);
+        let mut lazy = Vec::with_capacity(count);
         for _ in 0..count {
+            if with_kinds {
+                lazy.push(match word(at)? {
+                    FONT_REF_ASSET => false,
+                    FONT_REF_LAZY_ASSET => true,
+                    _ => return None,
+                });
+                at += 4;
+            } else {
+                lazy.push(false);
+            }
             let faces = word(at)? as usize;
             if faces == 0 || faces > MAX_FONT_STACK_FACES {
                 return None;
@@ -277,7 +356,12 @@ impl FontStack {
             }
             families.push(family);
         }
-        (at == bytes.len()).then_some(Self { families })
+        // A version 2 stack with no lazy family is not what `to_bytes` writes, and reading
+        // it back would give a stack that writes different bytes.
+        if with_kinds && !lazy.iter().any(|is| *is) {
+            return None;
+        }
+        (at == bytes.len()).then_some(Self { families, lazy })
     }
 
     /// Registers the stack and returns the id a theme or a font list names it by.
