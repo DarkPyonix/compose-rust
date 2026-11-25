@@ -120,6 +120,35 @@ internal object Material3Rules : ComponentRules {
             ButtonVariant.Text -> base.copy(
                 pressedContainer = stateLayer(Color.Transparent, theme.color(ColorRole.Primary)),
             )
+
+            // The two neutral tiers carry no accent anywhere, pressed or not: the state
+            // layer is the tier's own ink rather than the primary colour.
+            ButtonVariant.Neutral -> base.copy(
+                container = theme.color(ColorRole.SurfaceVariant),
+                pressedContainer = stateLayer(
+                    theme.color(ColorRole.SurfaceVariant),
+                    theme.color(ColorRole.OnSurfaceVariant),
+                ),
+                content = theme.color(ColorRole.OnSurfaceVariant),
+                pressedElevation = 1.dp,
+            )
+
+            // One state layer of the body ink over the digit tier. Material has no second
+            // neutral container token that differs from SurfaceVariant in both schemes
+            // (OutlineVariant equals it in the dark one), so the step is drawn the way
+            // Material draws any step above a container.
+            ButtonVariant.NeutralSecondary -> base.copy(
+                container = stateLayer(
+                    theme.color(ColorRole.SurfaceVariant),
+                    theme.color(ColorRole.OnSurface),
+                ),
+                pressedContainer = stateLayer(
+                    stateLayer(theme.color(ColorRole.SurfaceVariant), theme.color(ColorRole.OnSurface)),
+                    theme.color(ColorRole.OnSurface),
+                ),
+                content = theme.color(ColorRole.OnSurface),
+                pressedElevation = 1.dp,
+            )
         }
     }
 
@@ -407,6 +436,10 @@ internal object Material3Rules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             // Material's bars sit flush against the content and are separated by tone.
             separator = null,
+            // A destination's count is the quiet ink beside its label, and the selected
+            // row's mark is the same tonal fill that ink is paired with.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 80.dp,
             railWidth = 80.dp,
             drawerWidth = 280.dp,
@@ -672,8 +705,28 @@ internal object CupertinoRules : ComponentRules {
 
             // A plain button: content colour only, no container even when pressed.
             ButtonVariant.Text -> base
+
+            // Calculator keys: grey without a trace of the accent. The fill is black or
+            // white at low opacity, the way the system's own fill colours are, so the key
+            // stays a step off whatever it sits on. The second tier is the same fill one
+            // step deeper, which is lighter than a digit in dark and darker in light.
+            ButtonVariant.Neutral -> base.copy(
+                container = neutralFill(theme.dark, NEUTRAL_ALPHA),
+                pressedContainer = neutralFill(theme.dark, NEUTRAL_PRESSED_ALPHA),
+                content = theme.color(ColorRole.OnSurface),
+            )
+
+            ButtonVariant.NeutralSecondary -> base.copy(
+                container = neutralFill(theme.dark, NEUTRAL_SECONDARY_ALPHA),
+                pressedContainer = neutralFill(theme.dark, NEUTRAL_SECONDARY_PRESSED_ALPHA),
+                content = theme.color(ColorRole.OnSurface),
+            )
         }
     }
+
+    /** Black at [alpha] in light, white at [alpha] in dark. */
+    private fun neutralFill(dark: Boolean, alpha: Float): Color =
+        if (dark) Color.White.copy(alpha = alpha) else Color.Black.copy(alpha = alpha)
 
     /**
      * HIG containers: grouped content sits on a slightly different surface rather than
@@ -976,6 +1029,10 @@ internal object CupertinoRules : ComponentRules {
             indicatorExtent = NavigationExtent.Destination,
             // A tab bar and a sidebar are both divided from the content by a hairline.
             separator = theme.color(ColorRole.OutlineVariant),
+            // A sidebar's trailing count is the secondary label colour, on the grey row
+            // fill as much as off it.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 50.dp,
             railWidth = 76.dp,
             drawerWidth = 260.dp,
@@ -1126,6 +1183,16 @@ internal object CupertinoRules : ComponentRules {
     private const val SPREAD = 2f
 
     /**
+     * The neutral key fills: a digit, and the function key one step deeper beside it. The
+     * steps are far enough apart to read as two greys on the calculator and both are far
+     * enough off the page that a key never disappears into it.
+     */
+    private const val NEUTRAL_ALPHA = 0.10f
+    private const val NEUTRAL_PRESSED_ALPHA = 0.18f
+    private const val NEUTRAL_SECONDARY_ALPHA = 0.22f
+    private const val NEUTRAL_SECONDARY_PRESSED_ALPHA = 0.30f
+
+    /**
      * A filter pill: a capsule on the quiet system fill, which takes the accent when
      * chosen. No line and no tick: the fill is the whole of the difference, and pressing
      * dims it rather than rippling.
@@ -1253,6 +1320,30 @@ internal object FluentRules : ComponentRules {
                 borderColor = Color.Transparent,
                 pressedBorderColor = Color.Transparent,
                 topHighlight = null,
+            )
+
+            // The calculator's digit: a standard button whose fill is a step brighter than
+            // the standard fill, so the digits stand out from the function keys beside
+            // them. Where the standard fill is already white, it has no brighter step, and
+            // the function key takes the step instead (see below).
+            ButtonVariant.Neutral -> base.copy(
+                container = if (theme.dark) {
+                    lerp(theme.color(ColorRole.Surface), Color.White, NEUTRAL_LIFT)
+                } else {
+                    theme.color(ColorRole.Surface)
+                },
+            )
+
+            // The calculator's function key: the standard fill, quieter than a digit. In
+            // light, where a digit cannot be brighter than a white standard fill, this one
+            // settles a step towards the page instead, which is the secondary control fill
+            // the Windows 11 calculator uses there.
+            ButtonVariant.NeutralSecondary -> base.copy(
+                container = if (theme.dark) {
+                    theme.color(ColorRole.Surface)
+                } else {
+                    lerp(theme.color(ColorRole.Surface), theme.color(ColorRole.Background), NEUTRAL_SETTLE)
+                },
             )
         }
     }
@@ -1546,6 +1637,10 @@ internal object FluentRules : ComponentRules {
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.LeadingEdgeBar,
             separator = theme.color(ColorRole.OutlineVariant),
+            // The selected row is marked by a bar at its edge rather than a fill, so its
+            // count reads in the same secondary ink as any other row's.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 56.dp,
             railWidth = 48.dp,
             drawerWidth = 320.dp,
@@ -1682,6 +1777,12 @@ internal object FluentRules : ComponentRules {
     private const val SCRIM_ALPHA = 0.3f
     private const val DISABLED_ALPHA = 0.38f
     private const val PRESS_SHADE = 0.12f
+
+    /** How far a digit key's fill is lifted towards white above the standard fill in dark. */
+    private const val NEUTRAL_LIFT = 0.06f
+
+    /** How far a function key's fill settles from a white standard fill towards the page. */
+    private const val NEUTRAL_SETTLE = 0.5f
 
     /**
      * A tag button: a shallow 4dp corner with the control stroke, which fills with the
@@ -1901,6 +2002,18 @@ internal object GnomeRules : ComponentRules {
                 container = Color.Transparent,
                 pressedContainer = neutral,
             )
+
+            // The calculator's digit is the standard button as it stands.
+            ButtonVariant.Neutral -> base
+
+            // The function key beside it: the same grey one step towards the ink.
+            ButtonVariant.NeutralSecondary -> {
+                val deeper = lerp(neutral, onNeutral, NEUTRAL_STEP)
+                base.copy(
+                    container = deeper,
+                    pressedContainer = lerp(deeper, onNeutral, PRESS_MIX),
+                )
+            }
         }
     }
 
@@ -2079,6 +2192,10 @@ internal object GnomeRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = theme.color(ColorRole.OutlineVariant),
+            // The selected row is a faint tint of the accent, light enough that the
+            // secondary ink still reads on it.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 60.dp,
             railWidth = 68.dp,
             drawerWidth = 240.dp,
@@ -2236,6 +2353,9 @@ internal object GnomeRules : ComponentRules {
 
     private const val SCRIM_ALPHA = 0.45f
     private const val PRESS_MIX = 0.1f
+
+    /** How far a calculator's function key sits from its digit, towards the ink. */
+    private const val NEUTRAL_STEP = 0.08f
     private const val PRESS_SHADE = 0.16f
     private const val SHADOW_SCALE = 0.5f
 
@@ -2463,6 +2583,22 @@ internal object BreezeRules : ComponentRules {
                 borderColor = Color.Transparent,
                 pressedBorderColor = Color.Transparent,
             )
+
+            // The calculator's digit is the standard button, except that pressing it keeps
+            // its own line: the accent a pressed standard button outlines itself in is
+            // exactly what this tier does not carry.
+            ButtonVariant.Neutral -> base.copy(pressedBorderColor = line)
+
+            // The function key beside it: a neutral fill one step deeper than the
+            // variant surface, inside the same line.
+            ButtonVariant.NeutralSecondary -> {
+                val deeper = lerp(theme.color(ColorRole.SurfaceVariant), onStandard, NEUTRAL_STEP)
+                base.copy(
+                    container = deeper,
+                    pressedContainer = lerp(deeper, onStandard, PRESS_MIX),
+                    pressedBorderColor = line,
+                )
+            }
         }
     }
 
@@ -2641,6 +2777,10 @@ internal object BreezeRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = theme.color(ColorRole.Outline),
+            // The selected row is filled with the accent, so its count takes the ink made
+            // to read on the accent, as its label does.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnPrimary),
             barHeight = 48.dp,
             railWidth = 56.dp,
             drawerWidth = 220.dp,
@@ -2787,6 +2927,9 @@ internal object BreezeRules : ComponentRules {
 
     private const val SCRIM_ALPHA = 0.5f
     private const val PRESS_MIX = 0.12f
+
+    /** How far a calculator's function key sits from its digit, towards the ink. */
+    private const val NEUTRAL_STEP = 0.08f
     private const val PRESS_SHADE = 0.1f
     private const val BORDER_SHADE = 0.22f
     private const val SHADOW_SCALE = 0.75f
@@ -3039,6 +3182,10 @@ internal object DeepinRules : ComponentRules {
                 pressedContainer = tonal,
                 content = accent,
             )
+
+            // The calculator keys. Deepin's calculator draws digits and function keys in
+            // the same grey, so both tiers are the plain grey fill a tonal button is.
+            ButtonVariant.Neutral, ButtonVariant.NeutralSecondary -> base
         }
     }
 
@@ -3210,6 +3357,10 @@ internal object DeepinRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = null,
+            // The selected row is filled with the accent, so its count takes the ink made
+            // to read on the accent, as its label does.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnPrimary),
             barHeight = 68.dp,
             railWidth = 72.dp,
             drawerWidth = 200.dp,
@@ -3581,6 +3732,24 @@ internal object LiquidGlassRules : ComponentRules {
 
             // A plain button: content colour only, no container even when pressed.
             ButtonVariant.Text -> base
+
+            // Calculator keys: the translucent neutral fill the tinted button gave up, with
+            // body ink and no accent anywhere. Translucent for the reason above: a stored
+            // grey takes the colour of whatever it lands on, while black or white at low
+            // opacity stays a step off the page, a panel and a bar alike. The second tier
+            // is the same fill a step deeper, lighter than a digit in dark and darker in
+            // light, as the platform's calculator draws its function keys.
+            ButtonVariant.Neutral -> base.copy(
+                container = tintedFill(theme.dark, NEUTRAL_ALPHA),
+                pressedContainer = tintedFill(theme.dark, NEUTRAL_PRESSED_ALPHA),
+                content = theme.color(ColorRole.OnSurface),
+            )
+
+            ButtonVariant.NeutralSecondary -> base.copy(
+                container = tintedFill(theme.dark, NEUTRAL_SECONDARY_ALPHA),
+                pressedContainer = tintedFill(theme.dark, NEUTRAL_SECONDARY_PRESSED_ALPHA),
+                content = theme.color(ColorRole.OnSurface),
+            )
         }
     }
 
@@ -4019,6 +4188,10 @@ internal object LiquidGlassRules : ComponentRules {
             indicatorKind = NavigationIndicator.Pill,
             indicatorExtent = NavigationExtent.Destination,
             separator = null,
+            // A sidebar's trailing count is the secondary label colour, which the faint
+            // fill of the selected row leaves readable.
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 56.dp,
             railWidth = 76.dp,
             // Measured off the application this is drawn from rather than rounded to a
@@ -4366,6 +4539,16 @@ internal object LiquidGlassRules : ComponentRules {
     private const val AMBIENT_ALPHA = 0.08f
     private const val SPOT_ALPHA = 0.12f
     private const val SPREAD = 2f
+
+    /**
+     * The neutral key fills: a digit, and the function key one step deeper beside it. The
+     * steps are far enough apart to read as two greys on the calculator and both are far
+     * enough off the page that a key never disappears into it.
+     */
+    private const val NEUTRAL_ALPHA = 0.10f
+    private const val NEUTRAL_PRESSED_ALPHA = 0.18f
+    private const val NEUTRAL_SECONDARY_ALPHA = 0.22f
+    private const val NEUTRAL_SECONDARY_PRESSED_ALPHA = 0.30f
 
     /**
      * A capsule with a hairline glass edge, which takes the accent when chosen, a little

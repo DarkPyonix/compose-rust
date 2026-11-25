@@ -20,6 +20,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
@@ -360,6 +361,7 @@ fun RenderNode(
             ),
         )
         .testTag(nodeTestTag(nodeId))
+        .hostCursor(node)
         .accessibility(
             node,
             dispatcher,

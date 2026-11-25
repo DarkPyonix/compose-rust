@@ -49,6 +49,17 @@ private external fun configureWindow(
 @CFunction("dxc_native_window_configure_app_caption")
 private external fun configureAppCaption(enabled: Int)
 
+/** The pointer as the system cursor IDC_* [idc] (`CursorShape.win32Idc`), hidden for 0. */
+@CFunction("dxc_native_set_cursor_id")
+private external fun setCursorId(idc: Int)
+
+/**
+ * How tall, in dip, the next window's caption strip is, so its hit test moves the window and
+ * answers for the buttons across the strip that is drawn. 0 for the platform's 32.
+ */
+@CFunction("dxc_native_window_configure_caption_height")
+private external fun configureCaptionHeight(dip: Int)
+
 /**
  * Draws the window's caption and frame light or dark: 0 follows the system, 1 is light,
  * 2 is dark.
@@ -75,11 +86,6 @@ private external fun isZoomed(window: Pointer?): Int
 @CFunction("dxc_native_text_scale_percent")
 private external fun textScalePercent(): Int
 
-/**
- * Windows 11's caption height, the number win32_caption.h hit-tests. Not the devshell's
- * windowsCaptionHeight: that file names AWT, which this image does not carry.
- */
-private val WIN32_CAPTION_HEIGHT = androidx.compose.ui.unit.Dp(32f)
 
 /**
  * Draws the application into a window of our own, and holds it there until it closes.
@@ -98,6 +104,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // direct call on one thread and the Host keeps its state there.
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
+    var exitRequested = false
+    val singleWindow = SingleWindowSession(host, onExit = { exitRequested = true })
+    singleWindow.attach()
     val asked = host.table.window
     // Who draws the caption, as the Kotlin/Native renderer decides it: with Chrome.System the
     // system's, otherwise the caption strip is the content's and the buttons are drawn below.
@@ -111,6 +120,17 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         0,
     )
     configureAppCaption(if (fullSize) 1 else 0)
+    // The strip the content draws and the strip the window hit tests are one height: the title
+    // bar mode's, as the platform's design system measures it.
+    val captionHeight = if (systemChrome) {
+        androidx.compose.ui.unit.Dp(0f)
+    } else {
+        dev.darkpyonix.composerust.design.platformCaptionHeight(
+            dev.darkpyonix.composerust.design.HostPlatform.Windows,
+            asked?.titleBar ?: dev.darkpyonix.composerust.protocol.TitleBar.Normal,
+        )
+    }
+    configureCaptionHeight(kotlin.math.round(captionHeight.value).toInt())
     val window = openWin32Window(
         asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         if (asked != null && asked.width > 0) asked.width else 520,
@@ -121,6 +141,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             "compose-rust: this machine has no Direct3D 12 adapter. Where there is no graphics " +
                 "card at all, set DXC_D3D12_WARP=1 to draw with the software one.",
         )
+        singleWindow.shutdown()
         host.shutdown()
         return
     }
@@ -169,7 +190,13 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
-        platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
+        platformContext = NativePlatformContext(
+            { size },
+            textInput,
+            semantics,
+            window::setCursor,
+            setCursorShape = { shape -> setCursorId(shape.win32Idc) },
+        ),
     )
     // The application's own tree, drawn by the same interpreter the toolkit path uses.
     // Nothing in it knows which of the two it is running on, which is the point.
@@ -184,7 +211,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     val caption = if (systemChrome) {
         dev.darkpyonix.composerust.runtime.WindowCaption.None
     } else {
-        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = fullSize)
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = captionHeight, fullSize = fullSize)
     }
     // The right-click menu is the system's popup, holding what Compose's menu holds: a text
     // field's Cut, Copy, Paste and Select All as the field allows them, and whatever an
@@ -215,7 +242,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { beginNativeWindowDrag(0) },
         ) {
-            dev.darkpyonix.composerust.runtime.WindowContent(host, caption = caption)
+            SingleWindowHostContent(singleWindow, caption = caption)
         }
     }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
@@ -261,7 +288,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         // already waited for the screen inside `Present`, and waiting again on top of
         // that would halve the rate of anything that animates.
         var busy = true
-        while (!window.closed()) {
+        while (!window.closed() && !exitRequested) {
             if (autoExitMillis != null && (System.nanoTime() - started) / 1_000_000 >= autoExitMillis) {
                 break
             }
@@ -324,6 +351,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         scene.forgetPointer()
         scene.close()
         context.close()
+        singleWindow.shutdown()
         host.shutdown()
     }
 }

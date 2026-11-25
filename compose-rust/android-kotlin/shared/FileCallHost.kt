@@ -25,8 +25,29 @@ sealed interface FileCallOutcome {
      */
     class Files(val delivery: FileDelivery, val firstHandle: Int, val files: List<HeldFile>) : FileCallOutcome
 
-    /** It did not happen, for the reason [status] gives. Never [IoStatus.Ok]. */
-    class Failed(val status: IoStatus) : FileCallOutcome
+    /**
+     * It did not happen, for the reason [status] gives. Never [IoStatus.Ok].
+     *
+     * For [IoStatus.TooLarge], [data] carries the actual file length as four little-endian
+     * bytes when the platform knows it.
+     */
+    class Failed(val status: IoStatus, val data: ByteArray = ByteArray(0)) : FileCallOutcome
+
+    companion object {
+        /** Encodes [length] as four little-endian bytes for an [IoStatus.TooLarge] answer. */
+        fun encodeLengthLe(length: Long): ByteArray {
+            val clamped = length.coerceIn(0L, 0xFFFF_FFFFL)
+            return byteArrayOf(
+                (clamped and 0xffL).toByte(),
+                ((clamped ushr 8) and 0xffL).toByte(),
+                ((clamped ushr 16) and 0xffL).toByte(),
+                ((clamped ushr 24) and 0xffL).toByte(),
+            )
+        }
+
+        /** A read whose file is [length] bytes, more than the answer limit. */
+        fun tooLarge(length: Long): Failed = Failed(IoStatus.TooLarge, encodeLengthLe(length))
+    }
 }
 
 /** The sizes file answers are held to. */
@@ -204,18 +225,20 @@ class FileCallCenter(
         wake()
     }
 
-    private fun failed(request: Int, status: IoStatus): HostEvent =
-        HostEvent.IoAnswer(0, 0, request, status, ByteArray(0))
+    private fun failed(request: Int, status: IoStatus, data: ByteArray = ByteArray(0)): HostEvent =
+        HostEvent.IoAnswer(0, 0, request, status, data)
 
     /** The one event an outcome becomes for [call]. */
     private fun answer(call: Mutation.FileCall, outcome: FileCallOutcome): HostEvent = when (outcome) {
         is FileCallOutcome.Failed -> failed(
             call.request,
             if (outcome.status == IoStatus.Ok) IoStatus.Failed else outcome.status,
+            outcome.data,
         )
         is FileCallOutcome.Bytes -> when {
             call.op != FileOp.Read -> failed(call.request, IoStatus.Failed)
-            outcome.data.size.toLong() > readLimit() -> failed(call.request, IoStatus.TooLarge)
+            outcome.data.size.toLong() > readLimit() ->
+                failed(call.request, IoStatus.TooLarge, FileCallOutcome.encodeLengthLe(outcome.data.size.toLong()))
             else -> HostEvent.IoAnswer(0, 0, call.request, IoStatus.Ok, outcome.data)
         }
         FileCallOutcome.Written ->

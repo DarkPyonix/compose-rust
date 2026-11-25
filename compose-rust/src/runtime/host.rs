@@ -189,9 +189,12 @@ impl Recomposer {
         effects::apply_effects();
         drain_graveyard();
         effects::poll_woken();
-        // Focus asked for by the handlers, the composition or its effects goes out last,
-        // once every node it may name has been placed.
+        // A text given to a field and focus asked for by the handlers, the composition or
+        // its effects go out last, once every node they may name has been placed.
+        with_composer(Composer::flush_text_requests);
         with_composer(Composer::flush_focus_requests);
+        // Formatting asked of rich text fields goes out with it, for the same reason.
+        with_composer(Composer::flush_rich_requests);
         // Whatever was written during this round, by the composition, an effect or a
         // future, is the next frame's.
         let pending = with_composer(|composer| {
@@ -440,6 +443,21 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             width_dp: *width_dp,
             height_dp: *height_dp,
         }),
+        (EventCallback::TextFormat(handler), EventPayload::TextFormatAtSelection(format)) => {
+            (*handler.borrow_mut())(*format)
+        }
+        (
+            EventCallback::RichText(handler),
+            EventPayload::RichTextChanged {
+                text,
+                characters,
+                paragraphs,
+            },
+        ) => {
+            let document = crate::rich_text::RichDocument::from_wire(text, characters, paragraphs)
+                .map_err(ProtocolError::InvalidRichText)?;
+            (*handler.borrow_mut())(document)
+        }
         (
             EventCallback::Scroll(handler),
             EventPayload::ScrollChanged {

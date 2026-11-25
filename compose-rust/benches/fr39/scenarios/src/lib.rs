@@ -411,10 +411,8 @@ impl Model {
                             ..Node::default()
                         },
                     );
-                    if new {
-                        if let Some(root) = self.nodes.get_mut(&0) {
-                            root.children.push(*node);
-                        }
+                    if new && let Some(root) = self.nodes.get_mut(&0) {
+                        root.children.push(*node);
                     }
                 }
                 Record::SetProp {
@@ -492,10 +490,10 @@ impl Model {
 
     fn detach(&mut self, node: u32) {
         let parent = self.nodes.get(&node).and_then(|entry| entry.parent);
-        if let Some(parent) = parent {
-            if let Some(entry) = self.nodes.get_mut(&parent) {
-                entry.children.retain(|child| *child != node);
-            }
+        if let Some(parent) = parent
+            && let Some(entry) = self.nodes.get_mut(&parent)
+        {
+            entry.children.retain(|child| *child != node);
         }
         if let Some(entry) = self.nodes.get_mut(&node) {
             entry.parent = None;
@@ -854,16 +852,53 @@ pub struct Comparison {
     pub candidate_mutations: usize,
     pub baseline_bytes: usize,
     pub candidate_bytes: usize,
+    /// Set when the trees are equal but the candidate sent more records or more bytes.
+    #[serde(default)]
+    pub record_violation: Option<RecordViolation>,
+}
+
+/// Equal trees, but more records or bytes than the baseline: the timings still compare the
+/// same work, so the run goes on, and the verdict cannot be met.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecordViolation {
+    pub scenario: String,
+    pub candidate_records: usize,
+    pub baseline_records: usize,
+    pub excess_records: usize,
+    pub candidate_bytes: usize,
+    pub baseline_bytes: usize,
+    pub excess_bytes: usize,
+}
+
+impl std::fmt::Display for RecordViolation {
+    /// One line that starts with `violation <scenario>:`, which the scripts read back.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "violation {}: breaks the rule that the candidate sends no more records or bytes \
+             than the baseline: {} records against the baseline's {} (+{}), {} bytes against \
+             the baseline's {} (+{})",
+            self.scenario,
+            self.candidate_records,
+            self.baseline_records,
+            self.excess_records,
+            self.candidate_bytes,
+            self.baseline_bytes,
+            self.excess_bytes
+        )
+    }
 }
 
 /// Compares one scenario's two runs by whole-interaction time.
 ///
-/// Invalid when the trees differ after any step, or when the candidate sent more records
-/// or more bytes than the baseline. An invalid comparison has no ratio worth reading, and
-/// the summary does not count it as passing.
+/// Invalid when the trees differ after any step: the two paths did not do the same work,
+/// so no ratio is worth reading. A candidate that built the same trees but sent more
+/// records or bytes is valid and carries a [`RecordViolation`] instead. Neither counts as
+/// passing in the verdict.
 pub fn compare(baseline: &ScenarioRun, candidate: &ScenarioRun) -> Comparison {
     let mut reasons = Vec::new();
-    if baseline.step_trees != candidate.step_trees {
+    let trees_differ = baseline.step_trees != candidate.step_trees;
+    if trees_differ {
         let step = baseline
             .step_trees
             .iter()
@@ -888,10 +923,25 @@ pub fn compare(baseline: &ScenarioRun, candidate: &ScenarioRun) -> Comparison {
     let b99 = quantile(&baseline.frame_ns, 0.99);
     let c50 = quantile(&candidate.frame_ns, 0.50);
     let c99 = quantile(&candidate.frame_ns, 0.99);
+    // With equal trees the only reasons left are the counts, which make a violation and
+    // not an invalid run. With differing trees the message stays whole.
+    let excess = !trees_differ && !reasons.is_empty();
+    if excess {
+        reasons.clear();
+    }
     Comparison {
         name: baseline.name.clone(),
-        valid: reasons.is_empty(),
+        valid: !trees_differ,
         reason: reasons.join("; "),
+        record_violation: excess.then(|| RecordViolation {
+            scenario: baseline.name.clone(),
+            candidate_records: candidate.mutations,
+            baseline_records: baseline.mutations,
+            excess_records: candidate.mutations.saturating_sub(baseline.mutations),
+            candidate_bytes: candidate.bytes,
+            baseline_bytes: baseline.bytes,
+            excess_bytes: candidate.bytes.saturating_sub(baseline.bytes),
+        }),
         baseline_p50_ns: b50,
         baseline_p99_ns: b99,
         baseline_max_ns: baseline.frame_ns.iter().copied().max().unwrap_or(0),
@@ -920,13 +970,16 @@ pub fn geometric_mean(ratios: &[f64]) -> f64 {
 }
 
 /// The target: p50 ratios' geometric mean at least 10, p99 ratios' at least 5, every
-/// comparison valid, and no scenario slower than the baseline at p50 or p99.
+/// comparison valid and without a record violation, and no scenario slower than the
+/// baseline at p50 or p99.
 pub fn verdict(comparisons: &[Comparison]) -> (bool, f64, f64) {
     let p50: Vec<f64> = comparisons.iter().map(|c| c.p50_ratio).collect();
     let p99: Vec<f64> = comparisons.iter().map(|c| c.p99_ratio).collect();
     let g50 = geometric_mean(&p50);
     let g99 = geometric_mean(&p99);
-    let all_valid = comparisons.iter().all(|c| c.valid);
+    let all_valid = comparisons
+        .iter()
+        .all(|c| c.valid && c.record_violation.is_none());
     let none_slower = comparisons
         .iter()
         .all(|c| c.p50_ratio >= 1.0 && c.p99_ratio >= 1.0);
@@ -1238,7 +1291,7 @@ mod tests {
         model.apply(&batch(vec![Record::Remove { node: 1 }]));
         assert_eq!(model.dump(), "Root\n");
         assert!(
-            model.nodes.get(&3).is_none(),
+            !model.nodes.contains_key(&3),
             "the removed root's subtree is gone"
         );
     }
@@ -1339,5 +1392,57 @@ mod tests {
         assert_eq!(run.mutations, 2);
         assert_eq!(run.bytes, 2 * 16);
         assert_eq!(run.step_trees.len(), 2);
+    }
+
+    /// A run of `tab_switching` fast enough to meet the timing target on its own.
+    fn timed(frame_ns: u64, mutations: usize, bytes: usize, trees: &[u64]) -> ScenarioRun {
+        ScenarioRun {
+            name: "tab_switching".to_owned(),
+            frame_ns: vec![frame_ns],
+            mutations,
+            bytes,
+            step_trees: trees.to_vec(),
+            ..ScenarioRun::default()
+        }
+    }
+
+    // More records or bytes over the same trees is recorded with both counts and lets the
+    // run go on, and the verdict is not met even though every timing would meet it.
+    #[test]
+    fn fr39_compare_reports_a_count_excess_as_a_violation_not_a_void_run() {
+        let baseline = timed(1000, 3386, 79727, &[1, 2]);
+        let candidate = timed(10, 3401, 80339, &[1, 2]);
+        let c = compare(&baseline, &candidate);
+        assert!(c.valid);
+        assert_eq!(c.reason, "");
+        let violation = c.record_violation.clone().expect("a violation is recorded");
+        assert_eq!(
+            violation.to_string(),
+            "violation tab_switching: breaks the rule that the candidate sends no more \
+             records or bytes than the baseline: 3401 records against the baseline's 3386 \
+             (+15), 80339 bytes against the baseline's 79727 (+612)"
+        );
+        assert!(!verdict(&[c]).0);
+        let clean = compare(&baseline, &timed(10, 3386, 79727, &[1, 2]));
+        assert!(clean.valid && clean.record_violation.is_none());
+        assert!(verdict(&[clean]).0);
+    }
+
+    // Different trees mean different work: the run is void, with the message it always had,
+    // and a count excess in the same scenario does not turn it into a mere violation.
+    #[test]
+    fn fr39_compare_still_voids_a_run_whose_trees_differ() {
+        let baseline = timed(1000, 3386, 79727, &[1, 2]);
+        let c = compare(&baseline, &timed(10, 3386, 79727, &[1, 3]));
+        assert!(!c.valid && c.record_violation.is_none());
+        assert_eq!(c.reason, "the Renderer trees differ after step 1");
+        let both = compare(&baseline, &timed(10, 3401, 79727, &[1, 3]));
+        assert!(!both.valid && both.record_violation.is_none());
+        assert_eq!(
+            both.reason,
+            "the Renderer trees differ after step 1; the candidate sent 3401 records against \
+             the baseline's 3386"
+        );
+        assert!(!verdict(&[both]).0);
     }
 }

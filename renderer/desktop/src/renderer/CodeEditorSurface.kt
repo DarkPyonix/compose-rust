@@ -241,8 +241,12 @@ class CodeEditorLook(
      * be folded and no line is changed, so the text starts at the same place in every file.
      */
     val fixedGutterColumns: Boolean = false,
+    /** Width of the fold column when shown, or null to default to one row height (`rowPx`). */
+    val foldColumnWidth: Dp? = null,
     /** The gutter on the caret's row, or Unspecified where the gutter keeps its own colour there. */
     val currentLineGutter: Color = Color.Unspecified,
+    /** Whether pressing Tab inserts spaces to the next tab stop (true) or a literal tab (false). */
+    val insertSpaces: Boolean = true,
     /**
      * The OpenType features line numbers are set with. The node's features are for the text
      * (an editor turning a coding font's ligatures off), and the numbers keep the design
@@ -255,9 +259,13 @@ class CodeEditorLook(
 internal fun Density.contentPaddingPx(look: CodeEditorLook): Pair<Int, Int> =
     look.contentPaddingTop.roundToPx() to look.contentPaddingBottom.roundToPx()
 
-/** The width of the fold column: a row's height where anything can be folded or the look keeps it, and none otherwise. */
-internal fun foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
-    if (model.folds.isNotEmpty() || look.fixedGutterColumns) rowPx else 0
+/** The width of the fold column: [CodeEditorLook.foldColumnWidth] or a row's height where anything can be folded or the look keeps it, and none otherwise. */
+internal fun Density.foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
+    if (model.folds.isNotEmpty() || look.fixedGutterColumns) {
+        look.foldColumnWidth?.roundToPx() ?: rowPx
+    } else {
+        0
+    }
 
 /** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
 data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
@@ -1455,7 +1463,7 @@ private fun FieldSurface(
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
     val markColumnPx = if (hasMarks) rowPx else 0
-    val foldColumnPx = foldColumnWidthPx(model, look, rowPx)
+    val foldColumnPx = density.foldColumnWidthPx(model, look, rowPx)
     // The room above the first line and below the last. The document is drawn this much
     // lower than the scroll offset says, so the room scrolls away with the first line.
     val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
@@ -2052,7 +2060,7 @@ private fun handleKey(
                 callbacks.onOutput()
                 return true
             }
-            insertIndentation(window, look.tabWidth)
+            insertIndentation(window, look.tabWidth, look.insertSpaces)
             return true
         }
     }
@@ -2108,19 +2116,20 @@ private fun isTyping(event: KeyEvent): Boolean = when (event.key) {
 }
 
 /**
- * Indents at the caret: a tab where the line is already indented with tabs, and spaces to
- * the next stop otherwise, so a file keeps the indentation it was written with.
+ * Indents at the caret: spaces to the next tab stop when [insertSpaces] is true, or a
+ * literal tab character when [insertSpaces] is false.
  */
-private fun insertIndentation(window: FieldWindow, tabWidth: Int) {
+private fun insertIndentation(window: FieldWindow, tabWidth: Int, insertSpaces: Boolean) {
     val selection = window.state.selection
-    val text = window.state.text
-    var lineStart = selection.min
-    while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
-    var indentEnd = lineStart
-    while (indentEnd < text.length && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) indentEnd += 1
-    val usesTabs = (lineStart until indentEnd).any { text[it] == '\t' }
-    val column = selection.min - lineStart
-    val indent = if (usesTabs) "\t" else " ".repeat(tabWidth - column % tabWidth)
+    val indent = if (!insertSpaces) {
+        "\t"
+    } else {
+        val text = window.state.text
+        var lineStart = selection.min
+        while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
+        val column = selection.min - lineStart
+        " ".repeat(tabWidth - column % tabWidth)
+    }
     window.state.edit {
         replace(selection.min, selection.max, indent)
         this.selection = TextRange(selection.min + indent.length)
