@@ -38,6 +38,7 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
@@ -73,6 +74,7 @@ pub use crate::{
 };
 pub use crate::{MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so
 // without this `ui` would list the functions and none of the macros.
