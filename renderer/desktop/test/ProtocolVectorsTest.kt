@@ -1060,6 +1060,34 @@ class ProtocolVectorsTest {
         assertEquals(1.25f, window.getFloat(16))
     }
 
+    /**
+     * A `LazyAsset` font candidate decodes as it was written, kind 4 with its id, and the
+     * request for its bytes encodes to the 20 bytes the Host decodes: the header, then the
+     * id. It is the vector's last record, under event tag 71.
+     */
+    @Test
+    fun fr10_lazy_asset_font_ref_round_trips() {
+        val list = listOf(
+            dev.darkpyonix.composerust.protocol.FontRef.Asset(3),
+            dev.darkpyonix.composerust.protocol.FontRef.LazyAsset(9),
+        )
+        val blob = fontBlob(list)
+        assertEquals(4, ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN).getInt(16), "the second record's kind")
+        assertEquals(list, dev.darkpyonix.composerust.protocol.FontRefRecords.decodeBlob(blob))
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.AssetWanted(0, 0L, 42), out)
+        assertEquals(20, length)
+        assertEquals(1759 + 20 + 32 + 24 + 20, bytes.size)
+        assertEquals(bytes.copyOfRange(1835, 1855).toList(), out.array().copyOf(length).toList())
+        assertEquals(71, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(42, out.getInt(16))
+    }
+
     /** The pointer event encodes to the 72 bytes the Host decodes. */
     @Test
     fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
