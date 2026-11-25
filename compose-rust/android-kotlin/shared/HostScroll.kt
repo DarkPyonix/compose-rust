@@ -221,6 +221,13 @@ internal class ScrollReports {
 
     private val pending = LinkedHashSet<ScrollPort>()
 
+    /**
+     * The containers the running [flush] has still to report. A report's answer can remove a
+     * container that comes later in the same flush, and one that is gone must not be
+     * reported: its handler is already forgotten by the Host, which refuses the event.
+     */
+    private val flushing = LinkedHashSet<ScrollPort>()
+
     /** Where the last [flush] sent its reports, for the ones a composition sends after it. */
     private var dispatch: ((HostEvent) -> Unit)? = null
 
@@ -234,6 +241,7 @@ internal class ScrollReports {
 
     fun forget(port: ScrollPort) {
         pending.remove(port)
+        flushing.remove(port)
     }
 
     fun clear() {
@@ -246,7 +254,18 @@ internal class ScrollReports {
         if (pending.isEmpty()) return
         val ports = pending.toList()
         pending.clear()
+        flushing.addAll(ports)
+        try {
+            flushEach(ports, dispatch)
+        } finally {
+            flushing.clear()
+        }
+    }
+
+    private fun flushEach(ports: List<ScrollPort>, dispatch: (HostEvent) -> Unit) {
         for (port in ports) {
+            // Removed by the answer to a report sent earlier in this flush.
+            if (!flushing.remove(port)) continue
             val handler = port.handlerId ?: continue
             // A request still on its way in: the report waits for what it does, and the
             // container says so again once it has acted.
