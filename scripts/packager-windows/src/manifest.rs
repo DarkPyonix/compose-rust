@@ -330,8 +330,11 @@ mod tests {
 
     #[test]
     fn fr22_6_11_the_manifest_is_the_same_from_a_crlf_checkout() {
-        // Git on a Windows runner checks the template out with CRLF line ends.
-        let crlf = templates::APPX_MANIFEST.replace('\n', "\r\n");
+        // Git on a Windows runner checks the template out with CRLF line ends. Made from LF
+        // first, because on that runner the compiled-in template already is CRLF.
+        let crlf = templates::APPX_MANIFEST
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n");
         assert_eq!(
             render_with(&crlf, &meta(), version(), Arch::X64, "Ember.exe"),
             render_with(
