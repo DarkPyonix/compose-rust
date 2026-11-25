@@ -828,6 +828,7 @@ object ScrollWire {
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
             EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
             EventPayloadType::Density => output.push_str(", val scale: kotlin.Float"),
+            EventPayloadType::AssetWanted => output.push_str(", val assetId: Int"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -1712,6 +1713,7 @@ object Protocol {
             | EventPayloadType::ReducedMotion
             | EventPayloadType::ColorScheme
             | EventPayloadType::Density
+            | EventPayloadType::AssetWanted
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1763,6 +1765,8 @@ object Protocol {
             EventPayloadType::ColorScheme => 20,
             // One float after the header.
             EventPayloadType::Density => 20,
+            // One word after the header.
+            EventPayloadType::AssetWanted => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1998,6 +2002,14 @@ object Protocol {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> out.putFloat(event.scale)",
+                    event.name
+                )
+                .unwrap();
+            }
+            EventPayloadType::AssetWanted => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putInt(event.assetId)",
                     event.name
                 )
                 .unwrap();
@@ -4850,6 +4862,13 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 301,
             payload: EventPayload::NativeViewFocus { focused: true },
         },
+        // The Renderer asking for the bytes of a font set aside on the Host, addressed to
+        // the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::AssetWanted { asset_id: 42 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4904,7 +4923,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Fifty-two independently decodable event records concatenated in schema order",
+    "description": "Fifty-three independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4957,7 +4976,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "SelectionsChanged", "offset": 1683, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
       {{ "type": "DensityChanged", "offset": 1759, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
       {{ "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
+      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }},
+      {{ "type": "AssetWanted", "offset": 1835, "length": 20, "nodeId": 0, "handlerId": 0, "assetId": 42 }}
     ]
   }}
 }}
@@ -5690,8 +5710,8 @@ object CodeEditorRecords {
 fn write_font_refs(output: &mut String) {
     use crate::font_features::{FONT_FEATURE_LEN, MAX_FONT_FEATURES};
     use crate::fonts::{
-        FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LEN, FONT_REF_LENGTH_AT,
-        FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
+        FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LAZY_ASSET, FONT_REF_LEN,
+        FONT_REF_LENGTH_AT, FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
     };
     use crate::spans::{
         SPAN_FEATURE_COUNT_AT, SPAN_FEATURE_ENTRY_LEN, SPAN_FEATURE_OFFSET_AT,
@@ -5712,6 +5732,13 @@ sealed interface FontRef {
 
     /** A family CSS names without naming a font. */
     data class Generic(val family: GenericFamily) : FontRef
+
+    /**
+     * A font asset the Host has not sent yet. Its bytes are asked for the first time a
+     * letter no candidate before it has reaches it; until they arrive that letter is drawn
+     * as a missing glyph. Once they are here it is the same as [Asset].
+     */
+    data class LazyAsset(val assetId: Int) : FontRef
 }
 
 /** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
@@ -5731,6 +5758,7 @@ object FontRefRecords {
         ("ASSET", FONT_REF_ASSET),
         ("SYSTEM", FONT_REF_SYSTEM),
         ("GENERIC", FONT_REF_GENERIC),
+        ("LAZY_ASSET", FONT_REF_LAZY_ASSET),
     ] {
         writeln!(output, "    private const val {name} = {value}").unwrap();
     }
@@ -5768,6 +5796,7 @@ object FontRefRecords {
                         FontRef.System(name.decodeToString())
                     }
                     GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    LAZY_ASSET -> FontRef.LazyAsset(value)
                     else -> return null
                 }
             }

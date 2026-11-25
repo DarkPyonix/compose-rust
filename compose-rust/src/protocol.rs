@@ -512,6 +512,9 @@ pub enum ProtocolError {
     /// into another. Compose keeps one composition per window and has no
     /// way to hand a node from one to the next.
     MisplacedWindow,
+    /// The Renderer asked for the bytes of an asset id the Host never handed out, or let
+    /// go of without setting the bytes aside: there is nothing to send it.
+    UnknownAsset(u32),
 }
 
 /// One event the Renderer sent the Host: the node it happened on, the handler that hears
@@ -641,6 +644,9 @@ const EVENT_CODE_POINTER: u16 = 66;
 // 67 is every selection of a code editor: the version, then the selections' reference.
 const EVENT_SELECTIONS_CHANGED: u16 = 67;
 const SELECTIONS_CHANGED_LEN: usize = 28;
+// 68 to 70 are numbered for events that are not here yet. 71 is a font the Renderer needs
+// the bytes of: its id, one `u32` after the header.
+const EVENT_ASSET_WANTED: u16 = 71;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -868,6 +874,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
             crate::schema::EventPayload::DensityChanged { scale }
         }
+        EVENT_ASSET_WANTED if record_len == 20 => crate::schema::EventPayload::AssetWanted {
+            asset_id: read_u32(bytes, 16)?,
+        },
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
             start_line: read_u32(bytes, 20)?,
@@ -1281,6 +1290,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_REDUCED_MOTION_CHANGED
         | EVENT_COLOR_SCHEME_CHANGED
         | EVENT_DENSITY_CHANGED
+        | EVENT_ASSET_WANTED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1553,6 +1563,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&scale.to_bits().to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::AssetWanted { asset_id } = event.payload {
+        output.extend_from_slice(&EVENT_ASSET_WANTED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&asset_id.to_le_bytes());
         return Ok(());
     }
     match event.payload {
@@ -2068,6 +2086,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ReducedMotionChanged(_)
         | crate::schema::EventPayload::ColorSchemeChanged(_)
         | crate::schema::EventPayload::DensityChanged { .. }
+        | crate::schema::EventPayload::AssetWanted { .. }
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
