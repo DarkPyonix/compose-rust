@@ -112,6 +112,10 @@ A sheet's first line no longer sits level with its drag handle. Material 3 keeps
 
 `current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
 
+### The renderer builds from the fork's merge of #314
+
+The Compose fork pin moves past the `v1.11.1-ext.6` tag to the merge of fork #314, which still publishes as `1.11.1-ext.6`. With it the fork's own repository lists read the Maven Central mirror CI names in `COMPOSE_MAVEN_MIRROR` before Central, so the fork build no longer stops on Central's 429 in a script plugin's `buildscript` block (trains 13 and 14). The window code it carries also draws every step of a Windows drag in one order on the composition route, places macOS accessibility frames from the top of the content, and keeps a macOS window's GPU memory down while it is idle.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues
