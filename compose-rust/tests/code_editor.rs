@@ -847,6 +847,7 @@ fn fr38_editor_look_and_scroll_keep_their_assigned_tags() {
     assert_eq!(PropertyKind::GutterMinWidthDp as u16, 179);
     assert_eq!(PropertyKind::GutterPaddingDp as u16, 180);
     assert_eq!(PropertyKind::TextInsetDp as u16, 181);
+    assert_eq!(PropertyKind::FoldColumnWidthDp as u16, 226);
     assert_eq!(PropertyKind::CodeEditorColors as u16, 182);
     assert_eq!(PropertyKind::OnCodeMetrics as u16, 183);
     assert_eq!(PropertyKind::OnCodeScrolled as u16, 184);
@@ -856,6 +857,10 @@ fn fr38_editor_look_and_scroll_keep_their_assigned_tags() {
     assert_eq!(
         PropertyKind::from_name("gutter_min_width_dp"),
         Ok(PropertyKind::GutterMinWidthDp)
+    );
+    assert_eq!(
+        PropertyKind::from_name("fold_column_width_dp"),
+        Ok(PropertyKind::FoldColumnWidthDp)
     );
     assert_eq!(
         PropertyKind::from_name("code_editor_colors"),
@@ -2037,5 +2042,39 @@ fn fr38_after_line_decoration_round_trips_on_the_wire() {
             PropertyKind::Decorations,
             Value::Bytes(list.as_bytes().to_vec())
         )]
+    );
+}
+
+/// Whether Tab inserts spaces or a literal tab travels as a boolean on property 227.
+#[test]
+fn fr38_insert_spaces_keeps_its_tag_and_round_trips() {
+    assert_eq!(PropertyKind::InsertSpaces as u16, 227);
+    assert_eq!(
+        PropertyKind::from_name("insert_spaces"),
+        Ok(PropertyKind::InsertSpaces)
+    );
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::InsertSpaces,
+            value: PropertyValue::Bool(false),
+        })
+        .unwrap();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::InsertSpaces,
+            value: PropertyValue::Bool(true),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![
+            Record::Prop(2, PropertyKind::InsertSpaces, Value::Bool(false)),
+            Record::Prop(2, PropertyKind::InsertSpaces, Value::Bool(true)),
+        ]
     );
 }

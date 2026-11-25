@@ -1,0 +1,13 @@
+# The Compose fork's packaging templates, copied here at one commit.
+# Change a template in the fork, then move this pin:
+#   python3 scripts/check-packaging-templates.py --bump <revision>
+fork https://github.com/thisisthepy/compose-multiplatform-core-extended.git
+revision 96ae925f7fb6a730d7af31c2c29c856f35778d25
+path extended/packaging
+file metadata-map.md 46ff720bc9745c285aaaeffa47c0ee60e12f937a
+file templates/AppxManifest.xml.in b5f750f219d2e4304b9f7725adeea00ce873e358
+file templates/Info.plist.in 9053691deb45e089c1e367798057eb8c8f69ee90
+file templates/app.desktop.in 9beda3d58b840b36b50ea9116ab5180c81332f41
+file templates/app.metainfo.xml.in b02c1f175f66d78170f02f591cb5572976850fb6
+file templates/application.manifest.in dd710128e60e64015a59572c7eb43760caa8b2c7
+file templates/flatpak-manifest.json.in b29d1b01b49d519cb2298b83219237df51eff97a

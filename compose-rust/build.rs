@@ -1043,15 +1043,20 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import dev.darkpyonix.composerust.foundation.LocalNativeViewWindow
+import dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.ui.platform.AndroidActivityWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNativeViewWindow
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
+import dev.darkpyonix.composerust.ui.platform.AndroidOsMenuPresenter
+import dev.darkpyonix.composerust.ui.platform.AndroidWindowBackend
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
 import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
@@ -1066,6 +1071,9 @@ class MainActivity : ComponentActivity() {{
         }}
 
     private var nativeViews: AndroidNativeViewWindow? = null
+    private var activityWindow: AndroidActivityWindow? = null
+    private var windowNodeId: Int = 0
+    private var osMenus: AndroidOsMenuPresenter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {{
         // The window draws under the system's strips with nothing of the system's own
@@ -1086,18 +1094,47 @@ class MainActivity : ComponentActivity() {{
         }}
         AndroidNotifications.handle(intent)
         val host = ComposeRustRuntime.host()
+        val requestedNodeId = savedInstanceState?.getInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
+            ?: intent.getIntExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, 0)
+        val restoreKey = intent.getStringExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY) ?: ""
+        val boundWindow = ComposeRustRuntime.attachActivity(this, requestedNodeId, restoreKey)
+        activityWindow = boundWindow
+        windowNodeId = boundWindow?.nodeId ?: requestedNodeId
+        // Back closes a window of its own (one the renderer opened, a torn-off one, or one
+        // revived from recents) by asking the application. Such a window is the root of its
+        // own document task, so the task root cannot tell it apart from the first window;
+        // the intent can, because only the renderer's own launches carry these extras, and
+        // the intent survives recreation and process death.
+        val launchedAsWindow = intent.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID) ||
+            intent.hasExtra(AndroidWindowBackend.EXTRA_WINDOW_RESTORE_KEY)
+        if (windowNodeId != 0 && launchedAsWindow) {{
+            onBackPressedDispatcher.addCallback(
+                this,
+                object : OnBackPressedCallback(true) {{
+                    override fun handleOnBackPressed() {{
+                        activityWindow?.backPressed()
+                    }}
+                }},
+            )
+        }}
         ComposeRustRuntime.attached()
         val root = FrameLayout(this)
         val view = ComposeView(this)
         val slotWindow = AndroidNativeViewWindow(root)
+        val menuPresenter = AndroidOsMenuPresenter(root)
         nativeViews = slotWindow
+        osMenus = menuPresenter
+        val renderedNodeId = windowNodeId
         view.setContent {{
             // The whole window. Where the system bars are is the renderer's to decide:
             // a bar that opens the tree grows up into the status bar and a navigation
             // grows down into the gesture bar, and whatever is left over is kept off the
             // page there.
-            CompositionLocalProvider(LocalNativeViewWindow provides slotWindow) {{
-                ComposeRustContent(host, Modifier.fillMaxSize())
+            CompositionLocalProvider(
+                LocalNativeViewWindow provides slotWindow,
+                LocalOsMenuPresenter provides menuPresenter,
+            ) {{
+                ComposeRustContent(host, Modifier.fillMaxSize(), windowNodeId = renderedNodeId)
             }}
         }}
         root.addView(
@@ -1108,6 +1145,18 @@ class MainActivity : ComponentActivity() {{
             ),
         )
         setContentView(root)
+    }}
+
+    override fun onSaveInstanceState(outState: Bundle) {{
+        super.onSaveInstanceState(outState)
+        if (windowNodeId != 0) {{
+            outState.putInt(AndroidWindowBackend.EXTRA_WINDOW_NODE_ID, windowNodeId)
+        }}
+    }}
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {{
+        super.onWindowFocusChanged(hasFocus)
+        activityWindow?.focusChanged(hasFocus)
     }}
 
     override fun onStart() {{
@@ -1127,6 +1176,12 @@ class MainActivity : ComponentActivity() {{
     }}
 
     override fun onDestroy() {{
+        if (isFinishing && !isChangingConfigurations) {{
+            activityWindow?.closedBySystem()
+        }}
+        activityWindow = null
+        osMenus?.close()
+        osMenus = null
         nativeViews?.close()
         nativeViews = null
         // The process may stay without an Activity, and a worker's notification still has
