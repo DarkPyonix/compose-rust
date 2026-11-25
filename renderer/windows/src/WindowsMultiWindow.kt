@@ -32,6 +32,8 @@ internal fun runMultiWindow(host: ComposeRustHost): Int {
     val windows = Win32System.windows
     val loop = MultiWindowLoop(host) { windows.postQuit(0) }
     loop.attach()
+    // A file dialog for node 0 in an application of several windows goes to the first open one.
+    installedWindowsFileDialogs?.rootWindow = { loop.backend.handles.firstOrNull() }
     if (loop.backend.openCount == 0 && host.roots.isNotEmpty()) {
         // Windows were asked for and none opened. Told to the application as WindowUnavailable
         // where it listens, and to the person here, as a window on its own says it.
@@ -76,7 +78,10 @@ internal class MultiWindowLoop(
 ) {
     private val driver = FrameDispatcher()
     private val frames = CoroutineScope(driver + SupervisorJob())
-    val backend = WindowsWindowBackend { config, window -> windowContent(host, config, window) }
+    val backend = WindowsWindowBackend { config, window ->
+        val content = windowContent(host, config, window)
+        ServedBy(requests, content)
+    }
 
     /** Which node of a window is under a point of its content, answered from where the scenes laid the nodes out. */
     val dropTargets = DropTargets { windowId, x, y -> backend.dropTargetAt(windowId, x, y) }
@@ -114,10 +119,12 @@ internal class MultiWindowLoop(
             // A pump with no window does not wait, and a loop that kept the policy
             // `KeepRunning` with none open would spin.
             Win32Loop.pump(0.0)
+            deliverWindowsFileDialogs()
             platform.windows.Sleep(IDLE_MILLIS)
             return false
         }
         Win32Loop.pump(if (rest) FRAME_SECONDS else 0.0)
+        deliverWindowsFileDialogs()
         return backend.turn()
     }
 
@@ -162,6 +169,17 @@ private fun windowContent(
             }
         }
     }
+}
+
+/**
+ * A window's content given the frame requests this loop serves. The content asks for a frame
+ * through them whenever an answer from another thread is waiting (a file dialog that ended, a
+ * notification, a clipboard read), and the answer is handed to the Host in that frame. Left to
+ * the default, a loop serving a source of its own, as the checks do, never heard those asks:
+ * a file dialog's request waited for a frame that never came and was never shown.
+ */
+private fun ServedBy(requests: FrameRequestSource, content: @Composable () -> Unit): @Composable () -> Unit = {
+    CompositionLocalProvider(LocalFrameRequests provides requests, content = content)
 }
 
 @Composable
