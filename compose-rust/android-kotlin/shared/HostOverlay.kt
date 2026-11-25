@@ -50,9 +50,12 @@ import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PopoverAlign
 import dev.darkpyonix.composerust.protocol.PopoverPlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.SemanticsRole
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.declaredSemanticsRole
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.isDeclaredSelected
@@ -234,27 +237,36 @@ internal fun HostDialog(
         },
         onEscape,
     ) {
-        ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        val menuEntries = menuEntriesIn(node, node.children, table)
+        val menuKeys = if (menuEntries != null) {
+            rememberMenuKeyboard(menuEntries, table)
+        } else {
+            null
+        }
+        ModalOverlayFocus(node.id, surfaceRequester, onEscape, focusSurface = menuKeys == null)
         // The scrim covers the whole window; the dialog is centred in what the keyboard
         // leaves, so a field inside it is not under the keyboard.
         val keyboard = overlayKeyboardInset()
-        Box(
-            Modifier
-                .fillMaxSize()
-                // A scrim that dims the window dims a platform view too: it is covered.
-                .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
-                .background(scrim)
-                .testTag(dialogTestTag(node.id)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
-                Column(
-                    modifier
-                        .modalOverlaySurface(node.id, surfaceRequester)
-                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
-                ) {
-                    node.children.forEach { childId ->
-                        key(childId) { RenderNode(childId, table, dispatcher) }
+        CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    // A scrim that dims the window dims a platform view too: it is covered.
+                    .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
+                    .background(scrim)
+                    .testTag(dialogTestTag(node.id)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
+                    Column(
+                        modifier
+                            .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
+                            .modalOverlaySurface(node.id, surfaceRequester)
+                            .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
+                    ) {
+                        node.children.forEach { childId ->
+                            key(childId) { RenderNode(childId, table, dispatcher) }
+                        }
                     }
                 }
             }
@@ -371,29 +383,48 @@ internal class MenuKeyboard(private val table: NodeTable) {
     /** The entry that has focus now, set by a move made here or by focus arriving another way. */
     private var current: Int? = null
 
+    /**
+     * The entry focused via keyboard navigation (ArrowDown, ArrowUp, Home, End), observed by
+     * Compose so the focused row draws its keyboard-focus highlight. Stays null when a menu
+     * opens by pointer so no ring appears until the user moves with the keyboard.
+     */
+    var focusedByKeyboard: Int? by mutableStateOf(null)
+        private set
+
     private fun requester(id: Int) = requesters.getOrPut(id) { FocusRequester() }
 
     /** The modifier an entry is drawn with, so focus can be sent to it and seen arriving. */
     fun entry(id: Int): Modifier = Modifier
         .focusRequester(requester(id))
-        .onFocusChanged { if (it.hasFocus) current = id }
+        .onFocusChanged {
+            if (it.hasFocus) {
+                current = id
+            } else if (focusedByKeyboard == id) {
+                focusedByKeyboard = null
+            }
+        }
 
-    private fun focus(id: Int): Boolean {
+    fun isKeyboardFocused(id: Int): Boolean = focusedByKeyboard == id
+
+    private fun focus(id: Int, fromKeyboard: Boolean = false): Boolean {
         val taken = try {
             requester(id).requestFocus()
         } catch (_: IllegalStateException) {
             false
         }
-        if (taken) current = id
+        if (taken) {
+            current = id
+            if (fromKeyboard) focusedByKeyboard = id
+        }
         return taken
     }
 
     /** Focuses the first entry that takes it, starting at [from] and stepping by [step]. */
-    private fun focusFrom(from: Int, step: Int): Boolean {
+    private fun focusFrom(from: Int, step: Int, fromKeyboard: Boolean = false): Boolean {
         val count = entries.size
         if (count == 0) return false
         for (i in 0 until count) {
-            if (focus(entries[(from + step * i).mod(count)])) return true
+            if (focus(entries[(from + step * i).mod(count)], fromKeyboard)) return true
         }
         return false
     }
@@ -417,10 +448,10 @@ internal class MenuKeyboard(private val table: NodeTable) {
         if (count == 0) return false
         val at = current?.let { entries.indexOf(it) }?.takeIf { it >= 0 }
         when (event.key) {
-            Key.DirectionDown -> focusFrom(if (at == null) 0 else at + 1, 1)
-            Key.DirectionUp -> focusFrom(if (at == null) count - 1 else at - 1, -1)
-            Key.MoveHome -> focusFrom(0, 1)
-            Key.MoveEnd -> focusFrom(count - 1, -1)
+            Key.DirectionDown -> focusFrom(if (at == null) 0 else at + 1, 1, fromKeyboard = true)
+            Key.DirectionUp -> focusFrom(if (at == null) count - 1 else at - 1, -1, fromKeyboard = true)
+            Key.MoveHome -> focusFrom(0, 1, fromKeyboard = true)
+            Key.MoveEnd -> focusFrom(count - 1, -1, fromKeyboard = true)
             else -> return false
         }
         // Taken even when no other entry could take focus, so the key does not fall
@@ -456,6 +487,50 @@ internal fun Modifier.menuKeys(keys: MenuKeyboard): Modifier = onKeyEvent { keys
  * inside layout containers receive their focus requesters when drawn.
  */
 internal val LocalMenuKeyboard = staticCompositionLocalOf<MenuKeyboard?> { null }
+
+/**
+ * The entries of an overlay (popover, sheet, or dialog) whose content is a menu, in tree order,
+ * or null when the overlay is not a menu.
+ *
+ * An overlay is a menu when it or a node in its content declares [SemanticsRole.Menu], or when
+ * its content holds nodes that declare [SemanticsRole.MenuItem]. When items are marked with
+ * [SemanticsRole.MenuItem], those nodes are the entries. Otherwise the direct children of the
+ * node that declared [SemanticsRole.Menu] are the entries, as in a `Menu` widget.
+ */
+internal fun menuEntriesIn(
+    container: Node,
+    content: List<Int>,
+    table: NodeTable,
+): List<Int>? {
+    val menuItems = mutableListOf<Int>()
+    var menuContainer: Node? = if (container.declaredSemanticsRole() == SemanticsRole.Menu) container else null
+
+    fun walk(id: Int) {
+        val current = table.node(id) ?: return
+        when (current.declaredSemanticsRole()) {
+            SemanticsRole.MenuItem -> {
+                menuItems += id
+                return
+            }
+            SemanticsRole.Menu -> if (menuContainer == null) menuContainer = current
+            else -> {}
+        }
+        // Do not descend into a nested overlay's own content.
+        if (current.widget == WidgetKind.Popover ||
+            current.widget == WidgetKind.Menu ||
+            current.widget == WidgetKind.Dialog ||
+            current.widget == WidgetKind.Sheet
+        ) {
+            return
+        }
+        for (childId in current.children) walk(childId)
+    }
+
+    for (childId in content) walk(childId)
+    if (menuItems.isNotEmpty()) return menuItems
+    val found = menuContainer ?: return null
+    return if (found.id == container.id) content else found.children
+}
 
 /**
  * Whether what is being drawn is inside a menu's popup.

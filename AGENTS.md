@@ -105,8 +105,9 @@ A new version is what reaches `main`, so a release goes through `main` and nowhe
    Publish to crates.io. The tag is the release: a tag on `develop` would publish a commit
    that never reached `main`.
    The one exception is the `renderer-dev` tag, which holds development renderer assets
-   (owner, 2026-10-25). CI only uploads assets to its release; it never moves that tag or
-   creates another.
+   (owner, 2026-10-25). CI only uploads assets to its release, and the schema-renderer
+   pruning (SPEC 5.3.8) may delete that release's old assets; it never touches another
+   release, never moves that tag and never creates another.
 5. Never delete or move a published tag or release. A crates.io version can be yanked but
    never replaced, so a broken release is fixed by the next version.
 

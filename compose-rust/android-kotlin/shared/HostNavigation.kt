@@ -1060,7 +1060,12 @@ internal fun ResolvedTheme.navigationFor(node: Node?, sizeClass: WindowSizeClass
                 rules.navigation(WindowSizeClass.Expanded, this)
                     .copy(presentation = NavigationPresentation.PutAway)
             }
-        CompactNavigation.None -> answer.copy(presentation = NavigationPresentation.Hidden)
+        CompactNavigation.None -> answer.copy(
+            presentation = NavigationPresentation.Hidden,
+            pageGradientStart = null,
+            pageGradientEnd = null,
+            pageCornerGlow = null,
+        )
     }
 }
 

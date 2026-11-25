@@ -30,6 +30,17 @@ faults() { # file
     fi
 }
 
+# The shell job runs setup-check.test.sh, whose real run of scripts/setup-check.sh fails
+# without rustfmt and clippy. A minimal install of the pinned version has neither, so the
+# job has to name them; the runner's own stable used to supply them unasked.
+shell_job_faults() { # file
+    local job
+    job="$(awk '/^  shell:/{on=1; next} on && /^  [A-Za-z_-]+:/{exit} on' "$1")"
+    if ! grep -qE 'rustup toolchain install "\$RUST_TOOLCHAIN".*--component rustfmt,clippy' <<< "$job"; then
+        echo "the shell job installs \$RUST_TOOLCHAIN without rustfmt and clippy"
+    fi
+}
+
 got="$(faults "$workflow")"
 if [[ -z "$got" ]]; then ok "test.yml installs the one version RUST_TOOLCHAIN names"; else fail "test.yml: $got"; fi
 
@@ -56,6 +67,20 @@ expect_fault "a step that makes stable the default" "names its own toolchain" \
 expect_fault "a workflow that never installs the version" "no step installs" \
 'env:
   RUST_TOOLCHAIN: "1.100.0"'
+
+got="$(shell_job_faults "$workflow")"
+if [[ -z "$got" ]]; then ok "the shell job installs rustfmt and clippy for setup-check.test.sh"; else fail "test.yml: $got"; fi
+printf '%s\n' 'jobs:
+  shell:
+    steps:
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+  next:
+      - run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy' > "$scratch/w.yml"
+if shell_job_faults "$scratch/w.yml" | grep -q "without rustfmt and clippy"; then
+    ok "a shell job without the components"
+else
+    fail "a shell job without the components was not reported"
+fi
 
 [[ $failures -eq 0 ]] || { echo "$failures failed"; exit 1; }
 echo "all passed"

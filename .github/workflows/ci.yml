@@ -7,9 +7,14 @@ on:
         # all (the default, what a release check runs, every job that gates a merge), fast (the
         # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
         # about two hours), measure (the resize timings, which test_windows_resize reports only
-        # when asked), or a comma list of these and job names. scripts/ci-suites.sh says which
-        # jobs each runs.
-        description: 'all, fast, measure, or suites and job names separated by commas'
+        # when asked), owner_checks (the owner-checks sample alone, on the desktop, uploaded as
+        # owner-checks-<os> downloads), memory_report (the blank window's memory on Linux and
+        # Windows, reported only and never part of all), publish_schema_renderer (builds the
+        # renderers for this commit's schema and uploads them to the renderer-dev release, on
+        # develop only, never part of all; dispatch it alone, since it builds its own Windows
+        # kit and renderers under the same artifact names the other jobs use), or a comma list
+        # of these and job names. scripts/ci-suites.sh says which jobs each runs.
+        description: 'all, fast, measure, owner_checks, memory_report, publish_schema_renderer, or suites and job names separated by commas'
         type: string
         default: all
 
@@ -41,7 +46,11 @@ jobs:
       packager_macos: ${{ steps.choose.outputs.packager_macos }}
       test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
       test_samples: ${{ steps.choose.outputs.test_samples }}
+      test_memory_report: ${{ steps.choose.outputs.test_memory_report }}
+      publish_schema_renderer: ${{ steps.choose.outputs.publish_schema_renderer }}
       measure: ${{ steps.choose.outputs.measure }}
+      samples: ${{ steps.choose.outputs.samples }}
+      samples_desktop_only: ${{ steps.choose.outputs.samples_desktop_only }}
     steps:
       - uses: actions/checkout@v4
       - id: choose
@@ -58,7 +67,7 @@ jobs:
     needs: plan
     uses: ./.github/workflows/test-graalvm-renderer.yml
     secrets: inherit
-  # The Windows static renderer is the longest job of a run, and five jobs below need it.
+  # The Windows static renderer is the longest job of a run, and six jobs below need it.
   # It is built here once, and they take it from this run instead of each building the same
   # commit again; the application checks against it run beside them.
   windows_static_kit:
@@ -134,4 +143,21 @@ jobs:
     uses: ./.github/workflows/test-samples.yml
     with:
       windows_kit_built: true
+      samples: ${{ needs.plan.outputs.samples }}
+      desktop_only: ${{ needs.plan.outputs.samples_desktop_only == 'true' }}
+    secrets: inherit
+  # The blank window's memory on Linux and Windows, which reports and gates nothing. Only a
+  # dispatch that names memory_report (or this job) runs it; all does not.
+  test_memory_report:
+    if: needs.plan.outputs.test_memory_report == 'true'
+    needs: [plan, windows_static_kit]
+    uses: ./.github/workflows/test-memory-report.yml
+    secrets: inherit
+  # The renderers for this commit's schema, uploaded to the renderer-dev release. It
+  # publishes, so only a dispatch that names it runs it; all does not. It builds every
+  # renderer itself, so it takes nothing from windows_static_kit.
+  publish_schema_renderer:
+    if: needs.plan.outputs.publish_schema_renderer == 'true'
+    needs: plan
+    uses: ./.github/workflows/publish-schema-renderer.yml
     secrets: inherit

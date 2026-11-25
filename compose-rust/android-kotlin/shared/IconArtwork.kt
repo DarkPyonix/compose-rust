@@ -489,4 +489,19 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
         ),
         dots = emptyList(),
     )
+
+    IconRole.Delete -> IconGeometry(
+        strokes = listOf(
+            // The lid, a line wider than the bin.
+            listOf(Offset(0.16f, 0.26f), Offset(0.84f, 0.26f)),
+            // The handle on top of the lid.
+            listOf(Offset(0.38f, 0.26f), Offset(0.38f, 0.14f), Offset(0.62f, 0.14f), Offset(0.62f, 0.26f)),
+            // The bin, narrowing slightly toward the bottom.
+            listOf(Offset(0.24f, 0.26f), Offset(0.28f, 0.86f), Offset(0.72f, 0.86f), Offset(0.76f, 0.26f)),
+            // Two ribs down the front.
+            listOf(Offset(0.42f, 0.40f), Offset(0.43f, 0.72f)),
+            listOf(Offset(0.58f, 0.40f), Offset(0.57f, 0.72f)),
+        ),
+        dots = emptyList(),
+    )
 }

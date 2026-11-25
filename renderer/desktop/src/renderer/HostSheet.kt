@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.layout
 import dev.darkpyonix.composerust.ui.floatProp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -272,20 +273,33 @@ internal fun HostSheet(
         ?.coerceAtMost(1f)
 
     val explicitSheetPad = theme.overlay?.sheetPadding
-    val sheetPadding = if (node.setsOwnPadding()) {
-        Modifier
-    } else if (explicitSheetPad != null && explicitSheetPad > 0) {
-        Modifier.padding(explicitSheetPad.dp)
-    } else {
-        Modifier.padding(style.padding)
+    val contentPadding = if (explicitSheetPad != null && explicitSheetPad > 0) explicitSheetPad.dp else style.padding
+    // The application can turn the handle off; the drag is the surface's, so the sheet drags
+    // the same either way.
+    val handle = style.handle?.takeIf { !isCentered && node.flag(PropertyKind.SheetHandle, default = true) }
+    val ownPadding = node.setsOwnPadding()
+    val sheetPadding = when {
+        ownPadding -> Modifier
+        // The space above the handle is the handle's own, so the sheet's top padding is not
+        // stacked on it as well.
+        handle != null -> Modifier.padding(start = contentPadding, end = contentPadding, bottom = contentPadding)
+        else -> Modifier.padding(contentPadding)
     }
+    val handleGap = style.handleGap ?: contentPadding
 
     platformModalOverlayWindow(close, onEscape) {
         val focusManager = LocalFocusManager.current
-        ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        val menuEntries = menuEntriesIn(node, node.children, table)
+        val menuKeys = if (menuEntries != null) {
+            rememberMenuKeyboard(menuEntries, table)
+        } else {
+            null
+        }
+        ModalOverlayFocus(node.id, surfaceRequester, onEscape, focusSurface = menuKeys == null)
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
         val keyboard = overlayKeyboardInset()
+        CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
         Box(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
@@ -449,6 +463,7 @@ internal fun HostSheet(
                     .then(aboveKeyboard)
                     .testTag(sheetTestTag(node.id))
                     .then(focusTrap)
+                    .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
                     .modalOverlaySurface(node.id, surfaceRequester)
                     .then(sized)
                     .then(dragModifier)
@@ -464,20 +479,23 @@ internal fun HostSheet(
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
                 Column(modifier.fillMaxWidth().then(sheetPadding).padding(bottom = clearBottom)) {
-                    // The application can turn the handle off; the drag above is the
-                    // surface's, so the sheet drags the same either way.
-                    if (!isCentered && node.flag(PropertyKind.SheetHandle, default = true)) {
-                        style.handle?.let { handle ->
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Box(
-                                    Modifier
-                                        .testTag(sheetHandleTestTag(node.id))
-                                        .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
-                                        .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
-                                        .clip(theme.shape(ShapeRole.Full))
-                                        .background(handle),
-                                )
-                            }
+                    // The content starts a gap below the handle rather than level with
+                    // it. Padding the Host set itself already holds the space above.
+                    if (handle != null) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (ownPadding) 0.dp else handleGap, bottom = handleGap),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .testTag(sheetHandleTestTag(node.id))
+                                    .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
+                                    .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
+                                    .clip(theme.shape(ShapeRole.Full))
+                                    .background(handle),
+                            )
                         }
                     }
                     if (maxHeight == null && !isCentered) {
@@ -508,6 +526,7 @@ internal fun HostSheet(
                     }
                 }
             }
+        }
         }
     }
 }

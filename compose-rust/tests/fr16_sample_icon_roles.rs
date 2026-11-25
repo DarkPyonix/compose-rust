@@ -27,6 +27,7 @@ fn fr16_sample_icon_roles_have_stable_tags_and_reach_buttons() {
         IconRole::CompactOverlay,
         IconRole::Calculator,
         IconRole::Refresh,
+        IconRole::Delete,
     ];
     for (index, role) in roles.into_iter().enumerate() {
         let tag = u16::try_from(index + 22).expect("tag fits");

@@ -200,6 +200,11 @@ def marks():
         "social": ((240, 230, 210), (58, 74, 92), [
             disc(26, 32, 11), disc(40, 32, 11),
         ]),
+        # Not a clone of anything: a list of checks a person ticks by hand, so a tick in a
+        # box, on a slate that stays clear of every other sample's colour.
+        "owner-checks": ((52, 73, 94), white, [
+            frame(16, 16, 48, 48, 4), stroke(23, 33, 30, 40, 5), stroke(30, 40, 42, 25, 5),
+        ]),
     }
 
 

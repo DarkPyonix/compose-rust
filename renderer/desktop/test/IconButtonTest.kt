@@ -185,6 +185,7 @@ class IconButtonTest {
             IconRole.Language,
             IconRole.CompactOverlay,
             IconRole.Calculator,
+            IconRole.Delete,
         )
         for (system in DesignSystem.entries) {
             val empty = pixels(system, icon = null, text = "")

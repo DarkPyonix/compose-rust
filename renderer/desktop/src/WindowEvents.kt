@@ -9,6 +9,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import org.thisisthepy.compose.window.TextScale
@@ -96,21 +97,22 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
             sendPointerEvent(
                 eventType = PointerEventType.Move,
                 position = pos,
-                buttons = PointerButtons(isPrimaryPressed = event.buttons and 1 != 0),
+                buttons = pointerButtonsOf(event.buttons),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
         WindowEvent.POINTER_DOWN -> {
             val pos = Offset(event.x, event.y)
             lastPointerPositions[this] = pos
+            val button = pressedButton(event)
+            val mask = if (event.buttons != 0) event.buttons else 1
             sendPointerEvent(
                 eventType = PointerEventType.Press,
                 position = pos,
-                button = pressedButton(event),
-                buttons = PointerButtons(
-                    isPrimaryPressed = !event.isSecondary,
-                    isSecondaryPressed = event.isSecondary,
-                ),
+                button = button,
+                buttons = pointerButtonsOf(mask),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
@@ -122,6 +124,7 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
                 position = pos,
                 button = pressedButton(event),
                 buttons = PointerButtons(isPrimaryPressed = false),
+                keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
             )
         }
 
@@ -131,17 +134,50 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
             eventType = PointerEventType.Scroll,
             position = lastPointerPositions[this] ?: Offset.Zero,
             scrollDelta = Offset(event.x, event.y),
+            keyboardModifiers = keyboardModifiersOf(event.modifiers, win32),
         )
     }
     return keyConsumed
 }
 
 
-private val WindowEvent.isSecondary: Boolean
-    get() = buttons and WindowEvent.SECONDARY_BUTTON != 0
+/**
+ * The keyboard modifiers a window recorded with a pointer event. The Windows window
+ * records them as 1 Shift, 2 Ctrl, 4 Alt, 8 Win, as it does for keys; the X11 window and AppKit
+ * as AppKit's flag bits (Shift 1 shl 17, Control 18, Option 19, Command 20).
+ */
+internal fun keyboardModifiersOf(modifiers: Int, win32: Boolean): PointerKeyboardModifiers =
+    if (win32) {
+        PointerKeyboardModifiers(
+            isShiftPressed = modifiers and 1 != 0,
+            isCtrlPressed = modifiers and 2 != 0,
+            isAltPressed = modifiers and 4 != 0,
+            isMetaPressed = modifiers and 8 != 0,
+        )
+    } else {
+        PointerKeyboardModifiers(
+            isShiftPressed = modifiers and (1 shl 17) != 0,
+            isCtrlPressed = modifiers and (1 shl 18) != 0,
+            isAltPressed = modifiers and (1 shl 19) != 0,
+            isMetaPressed = modifiers and (1 shl 20) != 0,
+        )
+    }
 
-private fun pressedButton(event: WindowEvent): PointerButton =
-    if (event.isSecondary) PointerButton.Secondary else PointerButton.Primary
+internal fun pointerButtonsOf(mask: Int): PointerButtons = PointerButtons(
+    isPrimaryPressed = mask and 1 != 0,
+    isSecondaryPressed = mask and WindowEvent.SECONDARY_BUTTON != 0,
+    isTertiaryPressed = mask and 4 != 0,
+    isBackPressed = mask and 8 != 0,
+    isForwardPressed = mask and 16 != 0,
+)
+
+private fun pressedButton(event: WindowEvent): PointerButton = when {
+    event.buttons and WindowEvent.SECONDARY_BUTTON != 0 -> PointerButton.Secondary
+    event.buttons and 4 != 0 -> PointerButton.Tertiary
+    event.buttons and 8 != 0 -> PointerButton.Back
+    event.buttons and 16 != 0 -> PointerButton.Forward
+    else -> PointerButton.Primary
+}
 
 internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     // The letters and digits, which are their own numbers in a virtual key. Without them
@@ -210,6 +246,34 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x7A -> Key.F11
     0x7B -> Key.F12
     0x5D -> Key.Menu
+    // The punctuation keys, named by where they sit on a US layout (VK_OEM_*), as the HID
+    // usage names them too. What they type on another layout arrives as text.
+    0xBA -> Key.Semicolon
+    0xBB -> Key.Equals
+    0xBC -> Key.Comma
+    0xBD -> Key.Minus
+    0xBE -> Key.Period
+    0xBF -> Key.Slash
+    0xC0 -> Key.Grave
+    0xDB -> Key.LeftBracket
+    0xDC -> Key.Backslash
+    0xDD -> Key.RightBracket
+    0xDE -> Key.Apostrophe
+    0x2D -> Key.Insert
+    0x14 -> Key.CapsLock
+    // WM_KEYDOWN names a modifier without its side (VK_SHIFT, VK_CONTROL, VK_MENU); the left
+    // one stands for it. The sided codes are mapped for a window that hands them over.
+    0x10 -> Key.ShiftLeft
+    0x11 -> Key.CtrlLeft
+    0x12 -> Key.AltLeft
+    0xA0 -> Key.ShiftLeft
+    0xA1 -> Key.ShiftRight
+    0xA2 -> Key.CtrlLeft
+    0xA3 -> Key.CtrlRight
+    0xA4 -> Key.AltLeft
+    0xA5 -> Key.AltRight
+    0x5B -> Key.MetaLeft
+    0x5C -> Key.MetaRight
     else -> Key.Unknown
 }
 

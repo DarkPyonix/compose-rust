@@ -63,6 +63,36 @@ jobs:
       - name: Pack, install from the .dmg and update the ad hoc signed app
         run: ./scripts/tests/fr22-velopack.test.sh macos
 
+      - name: Build and verify Mac App Store .pkg
+        run: |
+          set -euo pipefail
+          COMPOSE_RUST_APP_VERSION=1.0.0 cargo build --release -p packager-linux-demo
+          out_dir="$RUNNER_TEMP/mas-pkg"
+          rm -rf "$out_dir"
+          mkdir -p "$out_dir"
+          scripts/packager-macos/package-macos app \
+            --manifest-dir scripts/packager-linux/demo \
+            --executable target/release/update-demo \
+            --version 1.0.0 \
+            --out "$out_dir"
+          app_path="$out_dir/UpdateDemo.app"
+          pkg_path="$out_dir/UpdateDemo-1.0.0.pkg"
+          scripts/packager-macos/package-macos pkg \
+            --app "$app_path" \
+            --out "$pkg_path" \
+            --verify
+          payload="$(pkgutil --payload-files "$pkg_path")"
+          echo "$payload"
+          grep -q "UpdateDemo.app/Contents/Info.plist" <<<"$payload"
+          grep -q "UpdateDemo.app/Contents/MacOS/packager-linux-demo" <<<"$payload"
+          grep -q "UpdateDemo.app/Contents/Resources/AppIcon.icns" <<<"$payload"
+          sig="$(pkgutil --check-signature "$pkg_path" 2>&1 || true)"
+          echo "$sig"
+          grep -qiE "signed|no signature|not signed" <<<"$sig"
+          shasum -a 256 "$pkg_path" > "${pkg_path}.sha256"
+          cat "${pkg_path}.sha256"
+          shasum -a 256 -c "${pkg_path}.sha256"
+
   velopack-linux:
     name: Velopack packaging and self-update (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -128,3 +158,25 @@ jobs:
 
       - name: Pack, install with Setup.exe and take a delta update
         run: ./scripts/tests/fr22-velopack.test.sh windows
+
+      - name: Build and check .msi package (PerUser and PerMachine)
+        # FR-22.6 criteria 5 and 10: vpk pack --msi writes the file, and its Property
+        # table is read back (scripts/tests/msi-info.ps1) for name, manufacturer and
+        # version. PerUser is what Velopack's Setup.exe does too; PerMachine is the
+        # optional one. Neither is installed here; a hand install stays manual.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'msi-stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          cargo build --release -p packager-linux-demo
+          Copy-Item 'target\release\update-demo.exe' (Join-Path $stage 'update-demo.exe')
+          foreach ($scope in 'PerUser', 'PerMachine') {
+            $out = Join-Path $env:RUNNER_TEMP "msi-out-$scope"
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            vpk pack --packId ComposeRustDemo --packVersion 1.0.0 --packDir $stage --mainExe update-demo.exe --outputDir $out --msi --instLocation $scope
+            if ($LASTEXITCODE -ne 0) { throw "vpk pack --msi --instLocation $scope failed" }
+            $msi = Get-ChildItem -Path $out -Filter '*.msi' | Select-Object -First 1
+            if (-not $msi) { throw "vpk pack --msi --instLocation $scope did not produce an .msi file" }
+            ./scripts/tests/msi-info.ps1 -Path $msi.FullName -Version 1.0.0 -ExpectedScope $scope
+          }

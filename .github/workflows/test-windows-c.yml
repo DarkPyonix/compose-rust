@@ -49,6 +49,9 @@ jobs:
             & cl.exe /nologo /c /O2 /std:c11 "/Fo:obj\$name.obj" $path
             if ($LASTEXITCODE -ne 0) { $failed += $path }
           }
+          $dcomp = Join-Path $env:WINDOW_C "win32_dcomp.cpp"
+          & cl.exe /nologo /c /O2 /std:c++17 /GR- /EHs-c- "/Fo:obj\win32_dcomp.obj" $dcomp
+          if ($LASTEXITCODE -ne 0) { $failed += $dcomp }
           if ($failed.Count -gt 0) {
             Write-Error "MSVC could not compile: $($failed -join ', ')"
             exit 1

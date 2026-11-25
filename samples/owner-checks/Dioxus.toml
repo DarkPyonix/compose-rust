@@ -1,0 +1,21 @@
+# dx project configuration for the Owner-checks sample.
+#
+# The samples are ordinary dx projects on purpose. Someone reading one should see the
+# layout they would get from `dx new`, not a special arrangement that only works inside
+# this repository, because the point of a sample is to be copied.
+#
+# The identifier has no hyphen because Android takes it as a package name, which allows
+# none.
+
+[application]
+name = "Owner-checks"
+asset_dir = "assets"
+
+[bundle]
+identifier = "dev.darkpyonix.composerust.samples.ownerchecks"
+publisher = "DarkPyonix"
+short_description = "The hand checks before a release, one screen each."
+long_description = "Notifications, a platform view inside the window, a caption strip the application draws, five controls for a screen reader and two fields for an input method, each with what to do and what must be seen."
+
+[macos]
+bundle_name = "Owner-checks"
