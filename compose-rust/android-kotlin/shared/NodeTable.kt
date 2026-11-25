@@ -1780,6 +1780,7 @@ class NodeTable {
                 PropertyKind.Decorations,
                 PropertyKind.SyntaxSpans,
                 PropertyKind.TabWidth,
+                PropertyKind.InsertSpaces,
                 PropertyKind.OnEditRejected,
                 PropertyKind.OnHover,
                 PropertyKind.OnSave,

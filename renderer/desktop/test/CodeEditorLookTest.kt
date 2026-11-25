@@ -1,16 +1,22 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
@@ -19,8 +25,11 @@ import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.foundation.code.CODE_EDITOR_FIELD_TAG
 import dev.darkpyonix.composerust.foundation.code.CodeEditorLook
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
+import dev.darkpyonix.composerust.foundation.code.CodeEditorPath
 import dev.darkpyonix.composerust.foundation.code.UnderlineShape
 import dev.darkpyonix.composerust.foundation.code.foldColumnWidthPx
+import dev.darkpyonix.composerust.foundation.code.defaultCodeEditorPath
+import dev.darkpyonix.composerust.foundation.code.installDrawnCodeEditor
 import dev.darkpyonix.composerust.foundation.code.numberColumnPx
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.FoldRecord
@@ -664,5 +673,93 @@ class CodeEditorLookTest {
         val decoded = mutableListOf<Mutation>()
         Protocol.decode(batch, decoded::add)
         assertEquals(listOf<Mutation>(Mutation.SetScrollOffset(EDITOR, 1234.5)), decoded)
+    }
+
+    /**
+     * Pressing Tab inserts spaces to the next tab stop when `insert_spaces` is true or
+     * absent, and a literal tab character when `insert_spaces` is false.
+     */
+    @Test
+    fun fr38_insert_spaces_controls_tab_indentation() {
+        assertTrue(NodeTable.supportsProperty(WidgetKind.CodeEditor, PropertyKind.InsertSpaces))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.TextField, PropertyKind.InsertSpaces))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.Text, PropertyKind.InsertSpaces))
+
+        installDrawnCodeEditor()
+        try {
+            for (path in listOf(CodeEditorPath.Windowed, CodeEditorPath.Drawn)) {
+                defaultCodeEditorPath = path
+                // Absent InsertSpaces defaults to inserting spaces to the next tab stop.
+                runComposeUiTest {
+                    val connection = FakeHostConnection(
+                        page("", 300f, 120f, PropertyKind.TabWidth to PropertyValue.Integer(4)),
+                    )
+                    val host = show(connection, 1f)
+                    assertEquals(emptyList(), connection.protocolErrors(), "$path")
+                    val target = if (path == CodeEditorPath.Drawn) {
+                        onNodeWithTag(nodeTestTag(EDITOR)).also { it.performMouseInput { click(Offset(width - 4f, 4f)) } }
+                    } else {
+                        onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true).also { it.requestFocus() }
+                    }
+                    waitForIdle()
+                    target.performKeyInput { pressKey(Key.Tab) }
+                    waitForIdle()
+                    assertEquals("    ", host().table.node(EDITOR)!!.code!!.document.text(), "$path: default")
+                }
+
+                // Explicit InsertSpaces = true inserts spaces to the next tab stop.
+                runComposeUiTest {
+                    val connection = FakeHostConnection(
+                        page(
+                            "a",
+                            300f,
+                            120f,
+                            PropertyKind.TabWidth to PropertyValue.Integer(4),
+                            PropertyKind.InsertSpaces to PropertyValue.Bool(true),
+                        ),
+                    )
+                    val host = show(connection, 1f)
+                    assertEquals(emptyList(), connection.protocolErrors(), "$path")
+                    val target = if (path == CodeEditorPath.Drawn) {
+                        onNodeWithTag(nodeTestTag(EDITOR)).also { it.performMouseInput { click(Offset(width - 4f, 4f)) } }
+                    } else {
+                        onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true).also { it.requestFocus() }
+                    }
+                    waitForIdle()
+                    connection.scheduleFrame(listOf(Mutation.SetSelection(EDITOR, 0, 0, 1, 0, 1)))
+                    host().renderFrame(0L)
+                    waitForIdle()
+                    target.performKeyInput { pressKey(Key.Tab) }
+                    waitForIdle()
+                    assertEquals("a   ", host().table.node(EDITOR)!!.code!!.document.text(), "$path: insertSpaces=true")
+                }
+
+                // Explicit InsertSpaces = false inserts a literal tab character.
+                runComposeUiTest {
+                    val connection = FakeHostConnection(
+                        page(
+                            "",
+                            300f,
+                            120f,
+                            PropertyKind.TabWidth to PropertyValue.Integer(4),
+                            PropertyKind.InsertSpaces to PropertyValue.Bool(false),
+                        ),
+                    )
+                    val host = show(connection, 1f)
+                    assertEquals(emptyList(), connection.protocolErrors(), "$path")
+                    val target = if (path == CodeEditorPath.Drawn) {
+                        onNodeWithTag(nodeTestTag(EDITOR)).also { it.performMouseInput { click(Offset(width - 4f, 4f)) } }
+                    } else {
+                        onNodeWithTag(CODE_EDITOR_FIELD_TAG, useUnmergedTree = true).also { it.requestFocus() }
+                    }
+                    waitForIdle()
+                    target.performKeyInput { pressKey(Key.Tab) }
+                    waitForIdle()
+                    assertEquals("\t", host().table.node(EDITOR)!!.code!!.document.text(), "$path: insertSpaces=false")
+                }
+            }
+        } finally {
+            defaultCodeEditorPath = CodeEditorPath.Windowed
+        }
     }
 }
