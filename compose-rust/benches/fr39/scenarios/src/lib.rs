@@ -411,10 +411,8 @@ impl Model {
                             ..Node::default()
                         },
                     );
-                    if new {
-                        if let Some(root) = self.nodes.get_mut(&0) {
-                            root.children.push(*node);
-                        }
+                    if new && let Some(root) = self.nodes.get_mut(&0) {
+                        root.children.push(*node);
                     }
                 }
                 Record::SetProp {
@@ -492,10 +490,10 @@ impl Model {
 
     fn detach(&mut self, node: u32) {
         let parent = self.nodes.get(&node).and_then(|entry| entry.parent);
-        if let Some(parent) = parent {
-            if let Some(entry) = self.nodes.get_mut(&parent) {
-                entry.children.retain(|child| *child != node);
-            }
+        if let Some(parent) = parent
+            && let Some(entry) = self.nodes.get_mut(&parent)
+        {
+            entry.children.retain(|child| *child != node);
         }
         if let Some(entry) = self.nodes.get_mut(&node) {
             entry.parent = None;
@@ -1238,7 +1236,7 @@ mod tests {
         model.apply(&batch(vec![Record::Remove { node: 1 }]));
         assert_eq!(model.dump(), "Root\n");
         assert!(
-            model.nodes.get(&3).is_none(),
+            !model.nodes.contains_key(&3),
             "the removed root's subtree is gone"
         );
     }
