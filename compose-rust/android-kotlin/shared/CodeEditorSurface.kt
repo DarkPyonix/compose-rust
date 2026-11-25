@@ -241,6 +241,8 @@ class CodeEditorLook(
      * be folded and no line is changed, so the text starts at the same place in every file.
      */
     val fixedGutterColumns: Boolean = false,
+    /** Width of the fold column when shown, or null to default to one row height (`rowPx`). */
+    val foldColumnWidth: Dp? = null,
     /** The gutter on the caret's row, or Unspecified where the gutter keeps its own colour there. */
     val currentLineGutter: Color = Color.Unspecified,
 )
@@ -249,9 +251,13 @@ class CodeEditorLook(
 internal fun Density.contentPaddingPx(look: CodeEditorLook): Pair<Int, Int> =
     look.contentPaddingTop.roundToPx() to look.contentPaddingBottom.roundToPx()
 
-/** The width of the fold column: a row's height where anything can be folded or the look keeps it, and none otherwise. */
-internal fun foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
-    if (model.folds.isNotEmpty() || look.fixedGutterColumns) rowPx else 0
+/** The width of the fold column: [CodeEditorLook.foldColumnWidth] or a row's height where anything can be folded or the look keeps it, and none otherwise. */
+internal fun Density.foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
+    if (model.folds.isNotEmpty() || look.fixedGutterColumns) {
+        look.foldColumnWidth?.roundToPx() ?: rowPx
+    } else {
+        0
+    }
 
 /** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
 data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
@@ -1449,7 +1455,7 @@ private fun FieldSurface(
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
     val markColumnPx = if (hasMarks) rowPx else 0
-    val foldColumnPx = foldColumnWidthPx(model, look, rowPx)
+    val foldColumnPx = density.foldColumnWidthPx(model, look, rowPx)
     // The room above the first line and below the last. The document is drawn this much
     // lower than the scroll offset says, so the room scrolls away with the first line.
     val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
