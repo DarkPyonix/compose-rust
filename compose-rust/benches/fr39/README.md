@@ -58,8 +58,10 @@ It refuses to start unless the machine is idle. Idle means two things:
 Then it takes all three slots for the whole run, so no build starts beside it. The slots
 are freed when the run ends. It also stops if `/Volumes/macMini` has less than 15G free.
 
-Inside the slots, it runs `parity.sh` and stops there if the trees differ or the slot
-table path sends more records or bytes. Next it waits for the load from the build to
+Inside the slots, it runs `parity.sh` and stops there if the trees differ. A scenario
+whose slot table path sends more records or bytes over the same trees does not stop the
+run: it is listed as a violation in the summary and in the record (`record_violations`),
+and the verdict is not met. Next it waits for the load from the build to
 settle. Then it runs `run.sh` with its own defaults: 50 measured passes after 5 warm-ups,
 per scenario and per path. The builds use `CARGO_BUILD_JOBS=2`, the release profile, and
 this workspace's own `target/`.
