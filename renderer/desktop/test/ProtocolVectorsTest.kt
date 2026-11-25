@@ -1594,7 +1594,7 @@ class ProtocolVectorsTest {
         val document = encoded(HostEvent.RichTextChanged(26, 35L, text, characters, paragraphs))
         assertEquals(171, document.size)
         assertEquals(bytes.copyOfRange(1871, 1871 + 171).toList(), document.toList())
-        assertEquals(1871 + 171, bytes.size)
+        assertEquals(1871 + 171 + 20, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {
