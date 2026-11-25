@@ -13,6 +13,7 @@ pub mod assets;
 pub mod manifest;
 pub mod metadata;
 pub mod sdk;
+pub mod templates;
 pub mod version;
 
 use std::ffi::OsStr;
