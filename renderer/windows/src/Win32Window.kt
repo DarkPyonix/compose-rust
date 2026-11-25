@@ -292,6 +292,7 @@ internal class Win32Window private constructor(
         // The window's own turn, before anything is read from it. This thread is the one
         // Windows delivers to, so the messages of this frame arrive here or not at all.
         Win32Loop.pump(if (busy) 0.0 else FRAME_SECONDS)
+        deliverWindowsFileDialogs()
         work.runPending()
         if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
         if (ResizeMetrics.due()) {
