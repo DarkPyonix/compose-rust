@@ -2,7 +2,6 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
@@ -78,6 +77,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // the content, which draws the title and the three buttons in it.
     val systemChrome = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.System
     val fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize
+    // The title bar mode's caption height, drawn by the content and hit tested by
+    // the window alike.
+    val captionHeight = windowsCaptionHeight(
+        asked?.chrome ?: dev.darkpyonix.composerust.protocol.Chrome.Modern,
+        asked?.titleBar ?: dev.darkpyonix.composerust.protocol.TitleBar.Normal,
+    )
     val window = Win32Window.open(
         title = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else DEFAULT_WIDTH,
@@ -87,6 +92,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         minHeight = asked?.minHeight?.takeIf { it > 0 } ?: 0,
         systemChrome = systemChrome,
         appCaption = fullSize,
+        captionHeight = captionHeight,
     )
     if (window == null) {
         java.lang.System.err.println(
@@ -135,7 +141,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                     WindowContent(
                         host,
                         caption = dev.darkpyonix.composerust.runtime.WindowCaption(
-                            height = WINDOWS_CAPTION_HEIGHT,
+                            height = captionHeight,
                             fullSize = fullSize,
                         ),
                     )
@@ -155,9 +161,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 /** What a window that did not say is opened at, in the units the scene measures in. */
 private const val DEFAULT_WIDTH = 520
 private const val DEFAULT_HEIGHT = 360
-
-/** Windows 11's caption height, the same number win32_window.c lays the caption out with. */
-private val WINDOWS_CAPTION_HEIGHT = 32.dp
 
 /**
  * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
