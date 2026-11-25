@@ -1285,6 +1285,7 @@ pub(crate) struct TextFieldScope {
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
+    text_handle: Option<super::TextFieldHandle>,
     bare: bool,
     read_only: bool,
     done: bool,
@@ -1321,6 +1322,7 @@ pub(crate) fn TextField() -> TextFieldScope {
         on_composition_change: None,
         on_motion_finished: None,
         focus_handle: None,
+        text_handle: None,
         bare: false,
         read_only: false,
         done: false,
@@ -1476,6 +1478,12 @@ impl TextFieldScope {
         self
     }
 
+    /// Binds `handle` to this field, so `handle.set_text(..)` gives it a new text.
+    pub(crate) fn text_handle(mut self, handle: &super::TextFieldHandle) -> Self {
+        self.text_handle = Some(handle.clone());
+        self
+    }
+
     /// Runs once when the field's size motion comes to rest, with the size it settled at
     /// in dp. The field needs `Modifier::motion` for its size to move; without it nothing
     /// is reported. A run interrupted by a newer size is not reported, only the one that
@@ -1547,6 +1555,7 @@ impl TextFieldScope {
         }
         motion_input(self.on_motion_finished.take(), &mut listeners);
         super::focus::bind_focus_handle(self.focus_handle.take());
+        super::text_handle::bind_text_field_handle(self.text_handle.take());
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,
