@@ -104,6 +104,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // direct call on one thread and the Host keeps its state there.
     val host = dev.darkpyonix.composerust.runtime.ComposeRustHost(NativeHostConnection())
     host.start()
+    var exitRequested = false
+    val singleWindow = SingleWindowSession(host, onExit = { exitRequested = true })
+    singleWindow.attach()
     val asked = host.table.window
     // Who draws the caption, as the Kotlin/Native renderer decides it: with Chrome.System the
     // system's, otherwise the caption strip is the content's and the buttons are drawn below.
@@ -138,6 +141,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             "compose-rust: this machine has no Direct3D 12 adapter. Where there is no graphics " +
                 "card at all, set DXC_D3D12_WARP=1 to draw with the software one.",
         )
+        singleWindow.shutdown()
         host.shutdown()
         return
     }
@@ -238,7 +242,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { beginNativeWindowDrag(0) },
         ) {
-            dev.darkpyonix.composerust.runtime.WindowContent(host, caption = caption)
+            SingleWindowHostContent(singleWindow, caption = caption)
         }
     }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
@@ -284,7 +288,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         // already waited for the screen inside `Present`, and waiting again on top of
         // that would halve the rate of anything that animates.
         var busy = true
-        while (!window.closed()) {
+        while (!window.closed() && !exitRequested) {
             if (autoExitMillis != null && (System.nanoTime() - started) / 1_000_000 >= autoExitMillis) {
                 break
             }
@@ -347,6 +351,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         scene.forgetPointer()
         scene.close()
         context.close()
+        singleWindow.shutdown()
         host.shutdown()
     }
 }

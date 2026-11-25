@@ -1,10 +1,13 @@
 """Info.plist for an application bundle."""
 
+import dataclasses
+import plistlib
 import unittest
 
 from support import CARGO, DIOXUS, project
 
-from dxc_packager import metadata, plist
+from dxc_packager import metadata, plist, templates
+from test_bundle import ICON
 from dxc_packager.metadata import PackagingError
 
 
@@ -44,6 +47,38 @@ class InfoPlist(unittest.TestCase):
         )
         with self.assertRaisesRegex(PackagingError, "KEY=VALUE"):
             plist.parse_extra(["nothing"])
+
+    def test_fr22_6_11_the_plist_is_the_forks_template_filled_then_added_to(self):
+        # Every key the template has is there with the template's value, filled from the
+        # metadata; the packager only adds keys the template does not have.
+        icon_meta = meta(icon=ICON)
+        template = plistlib.loads(templates.render("Info.plist.in", {
+            "name": "Demo App", "executable": "sample-demo", "identifier": "dev.example.demo",
+            "version": "1.4.2", "build": "1.4.2",
+            "category_mac": "public.app-category.developer-tools", "min_macos": "13.0",
+        }, templates.xml_escape).encode())
+        info = plist.info_plist(icon_meta, extra={"NSAppTransportSecurity": {"NSAllowsLocalNetworking": True}})
+        for key, value in template.items():
+            self.assertEqual(info.get(key), value, key)
+        self.assertEqual(set(info) - set(template), {"NSHumanReadableCopyright", "NSAppTransportSecurity"})
+
+    def test_fr22_6_11_a_bundle_without_a_category_gets_the_templates_default(self):
+        info = plist.info_plist(dataclasses.replace(meta(), category=None))
+        self.assertEqual(info["LSApplicationCategoryType"], "public.app-category.utilities")
+
+    def test_fr22_6_11_text_is_escaped_into_the_template(self):
+        info = plist.info_plist(meta(name="Tom & <Jerry>", display_name="Tom & <Jerry>"))
+        self.assertEqual(info["CFBundleName"], "Tom & <Jerry>")
+        self.assertEqual(info["CFBundleDisplayName"], "Tom & <Jerry>")
+
+    def test_fr22_6_11_a_display_name_other_than_the_name_is_refused(self):
+        # The template names the bundle and its display after {{name}}.
+        with self.assertRaisesRegex(PackagingError, "display name"):
+            plist.info_plist(meta(display_name="Other"))
+
+    def test_fr22_6_11_an_unfilled_placeholder_is_an_error(self):
+        with self.assertRaisesRegex(templates.TemplateError, "build"):
+            templates.render("Info.plist.in", {"name": "x"}, templates.xml_escape)
 
     def test_fr22_6_3_plist_serialises_as_xml(self):
         data = plist.dumps(plist.info_plist(meta()))

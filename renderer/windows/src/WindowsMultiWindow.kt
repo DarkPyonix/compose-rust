@@ -77,7 +77,10 @@ internal class MultiWindowLoop(
 ) {
     private val driver = FrameDispatcher()
     private val frames = CoroutineScope(driver + SupervisorJob())
-    val backend = WindowsWindowBackend { config, window -> windowContent(host, config, window) }
+    val backend = WindowsWindowBackend { config, window ->
+        val content = windowContent(host, config, window)
+        ServedBy(requests, content)
+    }
 
     /** Which node of a window is under a point of its content, answered from where the scenes laid the nodes out. */
     val dropTargets = DropTargets { windowId, x, y -> backend.dropTargetAt(windowId, x, y) }
@@ -165,6 +168,17 @@ private fun windowContent(
             }
         }
     }
+}
+
+/**
+ * A window's content given the frame requests this loop serves. The content asks for a frame
+ * through them whenever an answer from another thread is waiting (a file dialog that ended, a
+ * notification, a clipboard read), and the answer is handed to the Host in that frame. Left to
+ * the default, a loop serving a source of its own, as the checks do, never heard those asks:
+ * a file dialog's request waited for a frame that never came and was never shown.
+ */
+private fun ServedBy(requests: FrameRequestSource, content: @Composable () -> Unit): @Composable () -> Unit = {
+    CompositionLocalProvider(LocalFrameRequests provides requests, content = content)
 }
 
 @Composable
