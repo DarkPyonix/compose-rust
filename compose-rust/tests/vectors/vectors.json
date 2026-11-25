@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "11478748037128086155",
+  "schemaHashUnsigned": "327326763861914240",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -40,7 +40,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Fifty-four independently decodable event records concatenated in schema order",
+    "description": "Fifty-five independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -95,7 +95,8 @@
       { "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 },
       { "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true },
       { "type": "TextFormatAtSelection", "offset": 1835, "length": 36, "nodeId": 26, "handlerId": 34, "bold": "All", "italic": "Mixed", "underline": "None", "strikethrough": "All", "colorMixed": false, "color": "ffcc3300", "role": "Heading", "list": "Numbered", "indent": 2, "quote": "Mixed" },
-      { "type": "RichTextChanged", "offset": 1871, "length": 171, "nodeId": 26, "handlerId": 35, "text": "제목\n굵게 보통\n항목", "characters": [[7, 6, "bold"], [14, 6, "italic", "ffcc3300"], [21, 6, "underline strikethrough"]], "paragraphs": [[0, "Title", "None", 0, false], [21, "Subheading", "Numbered", 2, true]] }
+      { "type": "RichTextChanged", "offset": 1871, "length": 171, "nodeId": 26, "handlerId": 35, "text": "제목\n굵게 보통\n항목", "characters": [[7, 6, "bold"], [14, 6, "italic", "ffcc3300"], [21, 6, "underline strikethrough"]], "paragraphs": [[0, "Title", "None", 0, false], [21, "Subheading", "Numbered", 2, true]] },
+      { "type": "AssetWanted", "offset": 2042, "length": 20, "nodeId": 0, "handlerId": 0, "assetId": 42 }
     ]
   }
 }

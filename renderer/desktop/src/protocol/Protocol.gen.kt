@@ -1049,6 +1049,13 @@ sealed interface FontRef {
 
     /** A family CSS names without naming a font. */
     data class Generic(val family: GenericFamily) : FontRef
+
+    /**
+     * A font asset the Host has not sent yet. Its bytes are asked for the first time a
+     * letter no candidate before it has reaches it; until they arrive that letter is drawn
+     * as a missing glyph. Once they are here it is the same as [Asset].
+     */
+    data class LazyAsset(val assetId: Int) : FontRef
 }
 
 /** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
@@ -1061,6 +1068,7 @@ object FontRefRecords {
     private const val ASSET = 1
     private const val SYSTEM = 2
     private const val GENERIC = 3
+    private const val LAZY_ASSET = 4
 
     /**
      * The [count] candidates whose records start at [at] in [buffer], each name read from
@@ -1094,6 +1102,7 @@ object FontRefRecords {
                         FontRef.System(name.decodeToString())
                     }
                     GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    LAZY_ASSET -> FontRef.LazyAsset(value)
                     else -> return null
                 }
             }
@@ -2006,13 +2015,14 @@ sealed interface HostEvent {
         override fun toString(): String =
             "RichTextChanged(nodeId=$nodeId, handlerId=$handlerId, textLength=${text.length}, characters=${characters.size / 24}, paragraphs=${paragraphs.size / 16})"
     }
+    data class AssetWanted(override val nodeId: Int, override val handlerId: Long, val assetId: Int) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6967996036581465461L
+    const val SCHEMA_HASH: Long = 327326763861914240L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2748,6 +2758,7 @@ object Protocol {
                 is HostEvent.DensityChanged -> null
                 is HostEvent.TextFormatAtSelection -> null
                 is HostEvent.RichTextChanged -> event.text.toByteArray(StandardCharsets.UTF_8) + event.characters + event.paragraphs
+                is HostEvent.AssetWanted -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2812,6 +2823,7 @@ object Protocol {
                 is HostEvent.DensityChanged -> 20
                 is HostEvent.TextFormatAtSelection -> 36
                 is HostEvent.RichTextChanged -> 40
+                is HostEvent.AssetWanted -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2880,6 +2892,7 @@ object Protocol {
                 is HostEvent.DensityChanged -> 53
                 is HostEvent.TextFormatAtSelection -> 68
                 is HostEvent.RichTextChanged -> 69
+                is HostEvent.AssetWanted -> 71
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -3184,6 +3197,7 @@ object Protocol {
                     out.putInt(recordLength + textLength + event.characters.size)
                     out.putInt(event.paragraphs.size)
                 }
+                is HostEvent.AssetWanted -> out.putInt(event.assetId)
             }
             if (text != null) out.put(text)
             return out.position() - start
