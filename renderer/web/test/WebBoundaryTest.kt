@@ -33,13 +33,13 @@ import kotlinx.coroutines.promise
  * renderer/web/scripts/build-host.sh
  * cd renderer && ./kotlin test -p wasmJs
  * ```
- * Without that module the tests report what is missing and pass, because the renderer is
- * worked on without the other side being built.
+ * If the Host module is missing beside the test page, these tests fail rather than silently
+ * passing without exercising the shared-memory boundary.
  */
 class WebBoundaryTest {
     @Test
     fun pr6_the_two_modules_share_one_memory_and_the_batch_is_read_in_place(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         val table = NodeTable()
         val mutations = mutableListOf<Mutation>()
         connection.init { mutation ->
@@ -68,7 +68,7 @@ class WebBoundaryTest {
      */
     @Test
     fun pr6_a_click_reaches_the_host_and_its_state_change_comes_back(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -105,7 +105,7 @@ class WebBoundaryTest {
      */
     @Test
     fun pr6_an_event_larger_than_the_lent_buffer_arrives_whole(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -143,7 +143,7 @@ class WebBoundaryTest {
      */
     @Test
     fun pr6_an_event_past_the_ceiling_is_refused(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         val lent = hostLendEventBuffer(8 * 1024)
         assertTrue(lent >= RUST_REGION_BASE, "the Host lent at $lent, outside its region")
         assertTrue(
@@ -173,7 +173,7 @@ class WebBoundaryTest {
      */
     @Test
     fun nfr7_a_refused_event_is_named_in_the_error(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         connection.init { }
         val report = HostEvent.ProtocolError(
             nodeId = 0,
@@ -210,7 +210,7 @@ class WebBoundaryTest {
      */
     @Test
     fun pr6_the_direct_call_cost_is_measured_and_recorded(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
-        val connection = hostOrNull() ?: return@promise null
+        val connection = requireHost()
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -300,14 +300,13 @@ class WebBoundaryTest {
         )
     }
 
-    /** The Host, or null with a printed reason, because a page may be served without one. */
-    private suspend fun hostOrNull(): WebHostConnection? {
+    /** The Host, failing loudly when the test page was served without `compose_rust_host.wasm`. */
+    private suspend fun requireHost(): WebHostConnection {
         if (compileHostForTest(HOST_WASM).await<JsNumber>().toInt() == 0) {
-            println(
-                "pr6 skipped: no $HOST_WASM beside the test page. Run " +
+            fail(
+                "missing $HOST_WASM beside the test page. Run " +
                     "renderer/web/scripts/build-host.sh first.",
             )
-            return null
         }
         return assertNotNull(
             WebHostConnection.install(),
