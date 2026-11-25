@@ -26,6 +26,7 @@ install-notes.txt), but once it is open nothing else differs.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -135,7 +136,8 @@ def make_icns(source, destination):
     if width < 1024:
         print(
             f"warning: {source} is {width} pixels wide and is scaled up to the 1024 pixels "
-            f"a Retina Dock and Finder draw it at; give a 1024 pixel icon to keep it sharp."
+            f"a Retina Dock and Finder draw it at; give a 1024 pixel icon to keep it sharp.",
+            file=sys.stderr,
         )
     with tempfile.TemporaryDirectory() as scratch:
         iconset = Path(scratch) / "AppIcon.iconset"
