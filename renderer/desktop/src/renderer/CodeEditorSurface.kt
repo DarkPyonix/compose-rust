@@ -245,6 +245,8 @@ class CodeEditorLook(
     val foldColumnWidth: Dp? = null,
     /** The gutter on the caret's row, or Unspecified where the gutter keeps its own colour there. */
     val currentLineGutter: Color = Color.Unspecified,
+    /** Whether pressing Tab inserts spaces to the next tab stop (true) or a literal tab (false). */
+    val insertSpaces: Boolean = true,
 )
 
 /** The room above the first line and below the last, in whole pixels. */
@@ -2052,7 +2054,7 @@ private fun handleKey(
                 callbacks.onOutput()
                 return true
             }
-            insertIndentation(window, look.tabWidth)
+            insertIndentation(window, look.tabWidth, look.insertSpaces)
             return true
         }
     }
@@ -2108,19 +2110,20 @@ private fun isTyping(event: KeyEvent): Boolean = when (event.key) {
 }
 
 /**
- * Indents at the caret: a tab where the line is already indented with tabs, and spaces to
- * the next stop otherwise, so a file keeps the indentation it was written with.
+ * Indents at the caret: spaces to the next tab stop when [insertSpaces] is true, or a
+ * literal tab character when [insertSpaces] is false.
  */
-private fun insertIndentation(window: FieldWindow, tabWidth: Int) {
+private fun insertIndentation(window: FieldWindow, tabWidth: Int, insertSpaces: Boolean) {
     val selection = window.state.selection
-    val text = window.state.text
-    var lineStart = selection.min
-    while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
-    var indentEnd = lineStart
-    while (indentEnd < text.length && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) indentEnd += 1
-    val usesTabs = (lineStart until indentEnd).any { text[it] == '\t' }
-    val column = selection.min - lineStart
-    val indent = if (usesTabs) "\t" else " ".repeat(tabWidth - column % tabWidth)
+    val indent = if (!insertSpaces) {
+        "\t"
+    } else {
+        val text = window.state.text
+        var lineStart = selection.min
+        while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
+        val column = selection.min - lineStart
+        " ".repeat(tabWidth - column % tabWidth)
+    }
     window.state.edit {
         replace(selection.min, selection.max, indent)
         this.selection = TextRange(selection.min + indent.length)
