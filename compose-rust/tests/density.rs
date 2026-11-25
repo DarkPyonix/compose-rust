@@ -43,7 +43,7 @@ fn fr43_density_event_round_trips() {
     assert_eq!(schema.payload, EventPayloadType::Density);
     assert_eq!(
         EVENT_SCHEMA.last().map(|event| event.name),
-        Some("DensityChanged"),
+        Some("RichTextChanged"),
         "the event table is append only"
     );
     assert_eq!(
@@ -66,7 +66,7 @@ fn fr43_density_event_round_trips() {
     }
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24 + 36 + 171);
     assert_eq!(decode_event(&events[1759..1779]), Ok(density_changed(2.0)));
     let mut encoded = Vec::new();
     encode_event(&density_changed(2.0), &mut encoded).unwrap();

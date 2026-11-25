@@ -697,6 +697,46 @@ sealed interface Mutation {
     }
 
     /**
+     * Applies one formatting command to the selection of the rich text field [nodeId].
+     * [value] is what the operation takes: 0 off, 1 on or 2 flip for the four character
+     * styles and for Quote, a ParagraphRole or ListKind tag for those two, else 0. [paint] is
+     * only for Color, where none clears the colour.
+     */
+    data class FormatText(
+        val nodeId: Int,
+        val op: FormatOp,
+        val value: Int,
+        val paint: Paint?,
+    ) : Mutation
+
+    /**
+     * Replaces the document of the rich text field [nodeId]. [characters] is 24-byte records
+     * (start, length, style flags, colour paint word and a reserved word) and [paragraphs]
+     * 16-byte records (start, role, list kind, indent, quote and a reserved word), every
+     * offset a byte offset into [text]. A selection of -1 and -1 leaves the field's own.
+     * The records are as sent: the field checks them against the text.
+     */
+    data class SetRichText(
+        val nodeId: Int,
+        val text: String,
+        val characters: ByteArray,
+        val paragraphs: ByteArray,
+        val selectionStart: Int,
+        val selectionEnd: Int,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetRichText && nodeId == other.nodeId && text == other.text &&
+                    characters.contentEquals(other.characters) &&
+                    paragraphs.contentEquals(other.paragraphs) &&
+                    selectionStart == other.selectionStart && selectionEnd == other.selectionEnd)
+
+        override fun hashCode(): Int =
+            (((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 +
+                paragraphs.contentHashCode()) * 31 + selectionStart * 31 + selectionEnd
+    }
+
+    /**
      * Replaces a range of the code editor [nodeId]'s document, as it stood at
      * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
      * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
@@ -931,8 +971,29 @@ object ScrollWire {
             EventPayloadType::CodePointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
             ),
+            // The wire words of the selection's formatting. `flags` holds two bits for each
+            // of bold, italic, underline and strikethrough from the lowest bit (0 none, 1 all,
+            // 2 mixed) and bit 8 for a mixed colour. `role` is 0 where the roles differ, else a
+            // ParagraphRole tag; `list` and `indent` are 0xFFFF where they differ, else a
+            // ListKind tag and 0 to 8; `quote` is 0 none, 1 all, 2 mixed; `paint` is the
+            // shared colour's paint word, 0 for none or mixed.
+            EventPayloadType::TextFormat => output.push_str(
+                ", val flags: Int, val role: Int, val list: Int, val indent: Int, val quote: Int, val paint: Long",
+            ),
+            // The text, then the character run and paragraph records as `SetRichText` carries
+            // them.
+            EventPayloadType::RichText => output.push_str(
+                ", val text: String, val characters: ByteArray, val paragraphs: ByteArray",
+            ),
         }
-        if event.payload == EventPayloadType::CodeSelections {
+        if event.payload == EventPayloadType::RichText {
+            writeln!(
+                output,
+                ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    text == other.text && characters.contentEquals(other.characters) &&\n                    paragraphs.contentEquals(other.paragraphs))\n\n        override fun hashCode(): Int =\n            ((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 + paragraphs.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(nodeId=$nodeId, handlerId=$handlerId, textLength=${{text.length}}, characters=${{characters.size / 24}}, paragraphs=${{paragraphs.size / 16}})\"\n    }}",
+                name = event.name
+            )
+            .unwrap();
+        } else if event.payload == EventPayloadType::CodeSelections {
             writeln!(
                 output,
                 ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    version == other.version && selections.contentEquals(other.selections))\n\n        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${{selections.toList()}})\"\n    }}",
@@ -1020,6 +1081,8 @@ object Protocol {
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
+    private const val TAG_FORMAT_TEXT = 42
+    private const val TAG_SET_RICH_TEXT = 43
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1344,6 +1407,26 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_FORMAT_TEXT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.FormatText(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            op = formatOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            value = readU16(batch, base, available, offset + 10),
+                            paint = optionalPaint(readU64(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
+                    TAG_SET_RICH_TEXT -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.SetRichText(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            text = readString(batch, base, available, offset + 8),
+                            characters = readBytes(batch, base, available, offset + 16),
+                            paragraphs = readBytes(batch, base, available, offset + 24),
+                            selectionStart = readU32(batch, base, available, offset + 32).toInt(),
+                            selectionEnd = readU32(batch, base, available, offset + 36).toInt(),
+                        )
                     }
                     TAG_SET_SELECTIONS -> {
                         requireRecordLength(length, 20, offset)
@@ -1688,7 +1771,17 @@ object Protocol {
                 )
                 .unwrap();
             }
+            // The three arrays one after the other behind the record, the text first.
+            EventPayloadType::RichText => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8) + event.characters + event.paragraphs",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::None
+            | EventPayloadType::TextFormat
             | EventPayloadType::ScrollChanged
             | EventPayloadType::NativeViewParent
             | EventPayloadType::CodeCaretRect
@@ -1822,6 +1915,10 @@ object Protocol {
             EventPayloadType::CodeEditGroupResult => 36,
             // The version, then the selections' reference.
             EventPayloadType::CodeSelections => 28,
+            // Five words and the paint.
+            EventPayloadType::TextFormat => 36,
+            // The text's, the characters' and the paragraphs' references.
+            EventPayloadType::RichText => 40,
         };
         writeln!(
             output,
@@ -2046,6 +2143,34 @@ object Protocol {
                     output.push_str("                    out.putInt(event.line)\n");
                     output.push_str("                    out.putInt(event.column)\n");
                 }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::TextFormat => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.flags)\n");
+                for field in ["role", "list", "indent", "quote"] {
+                    writeln!(
+                        output,
+                        "                    out.putShort(event.{field}.toShort())"
+                    )
+                    .unwrap();
+                }
+                output.push_str("                    out.putLong(event.paint)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::RichText => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str(
+                    "                    val textLength = event.text.toByteArray(StandardCharsets.UTF_8).size\n",
+                );
+                output.push_str("                    out.putInt(recordLength)\n");
+                output.push_str("                    out.putInt(textLength)\n");
+                output.push_str("                    out.putInt(recordLength + textLength)\n");
+                output.push_str("                    out.putInt(event.characters.size)\n");
+                output.push_str(
+                    "                    out.putInt(recordLength + textLength + event.characters.size)\n",
+                );
+                output.push_str("                    out.putInt(event.paragraphs.size)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeSelections => {
@@ -3231,6 +3356,67 @@ fn code_fold_vector() -> crate::code::Folds {
     crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
 }
 
+/// The rich text the mutation vector's `SetRichText` and the event vector's
+/// `RichTextChanged` carry: a Title, a paragraph with a bold run, a space, and an italic
+/// coloured run, and a last paragraph that is a quoted, indented numbered subheading with
+/// a run both underlined and struck through. The text is Korean, so a byte offset taken for
+/// a character offset lands inside a character.
+pub fn rich_text_vector() -> crate::rich_text::RichDocument {
+    use crate::rich_text::{CharacterRun, ParagraphFormat, RichDocument};
+    use crate::schema::{Color, ListKind, ParagraphRole};
+    RichDocument {
+        text: "제목\n굵게 보통\n항목".to_owned(),
+        characters: vec![
+            CharacterRun {
+                bold: true,
+                ..CharacterRun::new(7, 6)
+            },
+            CharacterRun {
+                italic: true,
+                color: Some(Paint::Literal(Color(0xFFCC_3300))),
+                ..CharacterRun::new(14, 6)
+            },
+            CharacterRun {
+                underline: true,
+                strikethrough: true,
+                ..CharacterRun::new(21, 6)
+            },
+        ],
+        paragraphs: vec![
+            ParagraphFormat {
+                role: ParagraphRole::Title,
+                ..ParagraphFormat::body(0)
+            },
+            ParagraphFormat {
+                start: 21,
+                role: ParagraphRole::Subheading,
+                list: ListKind::Numbered,
+                indent: 2,
+                quote: true,
+            },
+        ],
+    }
+}
+
+/// The formatting the event vector's `TextFormatAtSelection` carries: every kind of answer a
+/// style or a paragraph field can give.
+pub fn text_format_vector() -> crate::rich_text::TextFormat {
+    use crate::rich_text::{TextFormat, Tri};
+    use crate::schema::{Color, ListKind, ParagraphRole};
+    TextFormat {
+        bold: Tri::All,
+        italic: Tri::Mixed,
+        underline: Tri::None,
+        strikethrough: Tri::All,
+        color: Some(Paint::Literal(Color(0xFFCC_3300))),
+        color_mixed: false,
+        role: Some(ParagraphRole::Heading),
+        list: Some(ListKind::Numbered),
+        indent: Some(2),
+        quote: Tri::Mixed,
+    }
+}
+
 /// The selections of the mutation vector's `SetSelections`.
 pub const CODE_SELECTIONS_VECTOR: &[(u32, u32, u32, u32)] =
     &[(0, 3, 0, 7), (1, 12, 1, 8), (2, 0, 2, 0)];
@@ -3506,6 +3692,9 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let edit_group = code_edit_group_vector()?;
     let view_zones = code_view_zone_vector();
     let code_selections = code_selections_vector();
+    let rich_text = rich_text_vector();
+    let rich_characters = rich_text.encode_characters();
+    let rich_paragraphs = rich_text.encode_paragraphs();
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -4436,6 +4625,46 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 25,
             focus: true,
         },
+        // A rich text field with its two listeners, a bold flip, a colour and a document
+        // with a selection. After every older record, so none of them moves.
+        Mutation::Create {
+            node_id: 26,
+            widget: WidgetKind::TextField,
+        },
+        Mutation::SetProp {
+            node_id: 26,
+            property: PropertyKind::RichText,
+            value: PropertyValue::Bool(true),
+        },
+        Mutation::SetProp {
+            node_id: 26,
+            property: PropertyKind::OnTextFormat,
+            value: PropertyValue::Integer(34),
+        },
+        Mutation::SetProp {
+            node_id: 26,
+            property: PropertyKind::OnRichTextChanged,
+            value: PropertyValue::Integer(35),
+        },
+        Mutation::FormatText {
+            node_id: 26,
+            op: crate::schema::FormatOp::Bold,
+            value: 2,
+            paint: None,
+        },
+        Mutation::FormatText {
+            node_id: 26,
+            op: crate::schema::FormatOp::Color,
+            value: 0,
+            paint: Some(Paint::Literal(crate::schema::Color(0xFF33_66CC))),
+        },
+        Mutation::SetRichText {
+            node_id: 26,
+            text: &rich_text.text,
+            characters: &rich_characters,
+            paragraphs: &rich_paragraphs,
+            selection: Some(Selection { start: 7, end: 13 }),
+        },
         // A spring segment and a 3D matrix animation, after every older record so none of
         // them moves. Node 2 again, which the vector never creates.
         Mutation::StartAnimation(vector_spring_animation()),
@@ -4510,6 +4739,9 @@ pub fn generate_background_brush_vector() -> Result<Vec<u8>, ProtocolError> {
 
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
     let selections = code_selections_vector();
+    let rich_text = rich_text_vector();
+    let rich_characters = rich_text.encode_characters();
+    let rich_paragraphs = rich_text.encode_paragraphs();
     let events = [
         HostEvent {
             node_id: 7,
@@ -4962,6 +5194,22 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 301,
             payload: EventPayload::NativeViewFocus { focused: true },
         },
+        // The formatting at a rich field's selection, and then its document, which is the
+        // one the mutation vector loads.
+        HostEvent {
+            node_id: 26,
+            handler_id: 34,
+            payload: EventPayload::TextFormatAtSelection(text_format_vector()),
+        },
+        HostEvent {
+            node_id: 26,
+            handler_id: 35,
+            payload: EventPayload::RichTextChanged {
+                text: &rich_text.text,
+                characters: &rich_characters,
+                paragraphs: &rich_paragraphs,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4981,14 +5229,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 153,
+    "recordCount": 160,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv", "", "새 문서.txt"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv", "", "새 문서.txt", "제목\n굵게 보통\n항목"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{
@@ -5016,7 +5264,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Fifty-two independently decodable event records concatenated in schema order",
+    "description": "Fifty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -5069,7 +5317,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "SelectionsChanged", "offset": 1683, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
       {{ "type": "DensityChanged", "offset": 1759, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
       {{ "type": "NativeViewParent", "offset": 1779, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
+      {{ "type": "NativeViewFocus", "offset": 1811, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }},
+      {{ "type": "TextFormatAtSelection", "offset": 1835, "length": 36, "nodeId": 26, "handlerId": 34, "bold": "All", "italic": "Mixed", "underline": "None", "strikethrough": "All", "colorMixed": false, "color": "ffcc3300", "role": "Heading", "list": "Numbered", "indent": 2, "quote": "Mixed" }},
+      {{ "type": "RichTextChanged", "offset": 1871, "length": 171, "nodeId": 26, "handlerId": 35, "text": "제목\n굵게 보통\n항목", "characters": [[7, 6, "bold"], [14, 6, "italic", "ffcc3300"], [21, 6, "underline strikethrough"]], "paragraphs": [[0, "Title", "None", 0, false], [21, "Subheading", "Numbered", 2, true]] }}
     ]
   }}
 }}
