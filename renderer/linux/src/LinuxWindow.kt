@@ -208,6 +208,13 @@ internal class LinuxWindow private constructor(
              * like anyway.
              */
             override fun setPointerIcon(pointerIcon: PointerIcon) {
+                // A CSS `cursor` keyword: the fork's closest X cursor font glyph.
+                val keyword = (pointerIcon as? dev.darkpyonix.composerust.foundation.CursorKeywordIcon)
+                    ?.let { org.thisisthepy.compose.window.CursorShape.fromWire(it.keyword) }
+                if (keyword != null) {
+                    x11.setCursorShape(keyword)
+                    return
+                }
                 x11.setCursor(
                     when (pointerIcon) {
                         PointerIcon.Hand -> CURSOR_HAND
