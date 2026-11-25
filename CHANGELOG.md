@@ -6,6 +6,10 @@
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
 
+### A scroll container removed in the middle of a frame's reports no longer reports
+
+A frame's scroll reports go out one after another, and the Host's answer to one could remove a container whose report came later in the same frame. That container still reported with the handler the Host had just forgotten, the Host refused it, and the desktop renderer printed `dispatch_event returned -1` (protocol error 100). Ember saw it at its editor window's first frame. A container removed during the reports now sends nothing (FR-80, #1077).
+
 ### `release_asset(id)` lets go of a registered font or picture
 
 `compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
