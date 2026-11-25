@@ -176,6 +176,13 @@ internal class Win32Window private constructor(
              */
             override fun setPointerIcon(pointerIcon: PointerIcon) {
                 this@Win32Window.select()
+                // A CSS `cursor` keyword: the fork's closest IDC_* shape for it.
+                val keyword = (pointerIcon as? dev.darkpyonix.composerust.foundation.CursorKeywordIcon)
+                    ?.let { org.thisisthepy.compose.window.CursorShape.fromWire(it.keyword) }
+                if (keyword != null) {
+                    Win32Loop.setCursorShape(keyword)
+                    return
+                }
                 Win32Loop.setCursor(
                     when (pointerIcon) {
                         PointerIcon.Hand -> Win32Cursor.HAND
