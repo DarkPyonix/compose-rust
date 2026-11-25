@@ -15,6 +15,7 @@ import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -28,6 +29,7 @@ import kotlinx.cinterop.UIntVar
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.toLong
 import kotlinx.cinterop.value
 import kotlin.time.TimeSource
 import kotlinx.cinterop.COpaquePointer
@@ -73,6 +75,10 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     // the window's own menu on, and an application that draws its own keeps it off.
     "fr33_1_windows_focused_field_turns_the_system_edit_menu_on",
     "fr33_1_windows_drawn_menu_leaves_the_system_edit_menu_off",
+    // The window's hooks into the system, which every window has whatever its chrome (#1003).
+    "fr19_9_windows_window_drag_moves_its_window_with_every_chrome",
+    "fr44_windows_system_dark_change_reaches_the_app_without_a_restart",
+    "fr43_windows_zoom_level_is_kept_in_appdata",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -101,6 +107,9 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::wheelTurnedForwardScrollsTowardTheTop,
         ::focusedFieldTurnsTheSystemEditMenuOn,
         ::drawnMenuLeavesTheSystemEditMenuOff,
+        ::windowDragMovesItsWindowWithEveryChrome,
+        ::systemDarkChangeReachesTheAppWithoutARestart,
+        ::zoomLevelIsKeptInAppdata,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -126,6 +135,116 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/**
+ * A press on a `WindowDrag(true)` node moves the window it is in, with the system's
+ * caption as much as with one the content draws. One window of each chrome, each filled by a
+ * drag region; a press in each reaches that window's drag and no other.
+ */
+private fun windowDragMovesItsWindowWithEveryChrome() {
+    val pressed = ArrayList<Long>()
+    val before = windowsWindowDrag
+    windowsWindowDrag = { window -> pressed.add(window.handle.toLong()) }
+    fun region(window: Int, id: Int): List<Mutation> = listOf(
+        Mutation.Create(id, WidgetKind.Box),
+        Mutation.SetModifier(id, 0, ProtocolModifier.FillMaxWidth),
+        Mutation.SetModifier(id, 1, ProtocolModifier.FillMaxHeight),
+        Mutation.SetModifier(id, 2, ProtocolModifier.WindowDrag(true)),
+        Mutation.Insert(window, id, APPEND),
+    )
+    val size = PropertyKind.WindowSize to PropertyValue.Bytes(floats(480f, 320f))
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME, size) + region(1, 10) +
+            windowNode(2, size) + region(2, 20),
+    )
+    try {
+        for (node in listOf(1, 2)) {
+            val window = checkNotNull(h.backend.find(node)) { "no window for node $node" }
+            h.forMillis(200)
+            val scale = window.pixelsPerPoint
+            val x = (240f * scale).toInt()
+            val y = (200f * scale).toInt()
+            pressed.clear()
+            postButton(window.handle, down = true, x = x, y = y)
+            h.until("a press in window $node to reach its drag") { pressed.isNotEmpty() }
+            postButton(window.handle, down = false, x = x, y = y)
+            h.forMillis(100)
+            check(pressed.all { it == window.handle.toLong() }) {
+                "a press in window $node moved another window"
+            }
+        }
+    } finally {
+        windowsWindowDrag = before
+        h.close()
+    }
+}
+
+/**
+ * Windows turning dark while the application runs reaches it as a ColorSchemeChanged,
+ * and turning light again as one more, with no restart. The setting is the check's own
+ * (win32SystemDarkSource), so the machine's is left as it is.
+ */
+private fun systemDarkChangeReachesTheAppWithoutARestart() {
+    var dark = false
+    val before = win32SystemDarkSource
+    win32SystemDarkSource = { dark }
+    val h = Fr53Harness(
+        listOf(setWindow(), Mutation.SetTheme(theme(ColorScheme.FollowSystem))) +
+            windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME),
+    )
+    try {
+        fun schemes() = h.connection.events.filterIsInstance<HostEvent.ColorSchemeChanged>().map { it.scheme }
+        h.until("the scheme at start") { schemes().isNotEmpty() }
+        check(schemes().last() == SystemColorScheme.Light) { "the scheme at start was ${schemes().last()}, not Light" }
+        val atStart = schemes().size
+        dark = true
+        h.until("the dark setting to reach the app", timeoutMillis = 4 * SYSTEM_DARK_POLL_MILLIS) {
+            schemes().size > atStart && schemes().last() == SystemColorScheme.Dark
+        }
+        val afterDark = schemes().size
+        dark = false
+        h.until("the light setting to reach the app", timeoutMillis = 4 * SYSTEM_DARK_POLL_MILLIS) {
+            schemes().size > afterDark && schemes().last() == SystemColorScheme.Light
+        }
+    } finally {
+        win32SystemDarkSource = before
+        h.close()
+    }
+}
+
+/**
+ * The application's zoom level is kept in `%APPDATA%\<executable>\zoom-level`. With
+ * APPDATA pointed at a folder of the check's own, a level saved by one store is the level the
+ * next store loads, and the file holds it as a number. A window whose application set no
+ * level opens at the saved one.
+ */
+private fun zoomLevelIsKeptInAppdata() {
+    val temp = checkNotNull(System.getenv("TEMP")) { "no TEMP to put the check's APPDATA in" }
+    val appdata = "$temp\\compose-rust-fr43-${platform.windows.GetCurrentProcessId()}"
+    val before = System.getenv("APPDATA")
+    check(platform.windows.SetEnvironmentVariableW("APPDATA", appdata) != 0) { "APPDATA could not be set" }
+    val beforeStore = dev.darkpyonix.composerust.runtime.platformZoomLevelStore
+    try {
+        val first = windowsZoomLevelStore()
+        check(first.load() == null) { "a fresh APPDATA already held a level" }
+        first.save(2)
+        check(windowsZoomLevelStore().load() == 2) { "the level saved was not the level loaded" }
+
+        dev.darkpyonix.composerust.runtime.platformZoomLevelStore = ::windowsZoomLevelStore
+        val h = Fr53Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME))
+        try {
+            fun level() = h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().lastOrNull { it.nodeId == 1 }?.level
+            h.until("the window to report its zoom") { level() != null }
+            check(level() == 2) { "the window opened at level ${level()}, not the saved 2" }
+        } finally {
+            h.close()
+        }
+    } finally {
+        dev.darkpyonix.composerust.runtime.platformZoomLevelStore = beforeStore
+        platform.windows.SetEnvironmentVariableW("APPDATA", before)
+    }
+}
 
 /** A text field holding [value] in window [windowId]. */
 private fun textFieldIn(windowId: Int, id: Int, value: String): List<Mutation> = listOf(
