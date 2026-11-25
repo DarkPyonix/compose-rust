@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, ThumbElevation, TrackBorder, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Indeterminate, OutlineColor, FoldColumnWidthDp, InsertSpaces, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -40,7 +40,7 @@ enum class Arrangement { Start, Center, End, SpaceBetween, SpaceAround, SpaceEve
 
 enum class Alignment { TopStart, TopCenter, TopEnd, CenterStart, Center, CenterEnd, BottomStart, BottomCenter, BottomEnd }
 
-enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator, Neutral, NeutralSecondary }
+enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }
 
 enum class ButtonKind { Standard, ActionKey }
 
@@ -76,7 +76,7 @@ enum class OverflowWrap { Normal, Anywhere, BreakWord }
 
 enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
 
-enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor, Transform3D }
+enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
 
@@ -86,7 +86,7 @@ enum class PlayState { Running, Paused }
 
 enum class ColorInterpolation { SrgbPremultiplied, Oklab }
 
-enum class TimingKind { Linear, CubicBezier, Steps, Spring }
+enum class TimingKind { Linear, CubicBezier, Steps }
 
 enum class StepPosition { JumpStart, JumpEnd, JumpNone, JumpBoth }
 
@@ -1341,6 +1341,7 @@ sealed interface Modifier {
     data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
     data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
     data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
+    data class WeightUnfilled(val value: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1352,13 +1353,6 @@ sealed interface Timing {
 
     /** CSS `steps(count, position)`. */
     data class Steps(val count: Int, val position: StepPosition) : Timing
-
-    /**
-     * Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and settles
-     * at 1, stretched so that the segment ends when it has settled. Overshoots below a
-     * damping ratio of 1. Both values are finite and positive.
-     */
-    data class Spring(val stiffness: kotlin.Float, val dampingRatio: kotlin.Float) : Timing
 }
 
 /**
@@ -1385,18 +1379,6 @@ sealed interface KeyframeValue {
 
     /** The same kinds in the same order in every keyframe of one animation. */
     data class Transform(val functions: List<TransformFunction>) : KeyframeValue
-
-    /**
-     * For `Transform3D`: sixteen values, column-major like the `Transform3D` modifier's
-     * (`m[4 * column + row]`). Compared by content, as a data class would.
-     */
-    class Matrix3D(val m: FloatArray) : KeyframeValue {
-        override fun equals(other: Any?): Boolean = other is Matrix3D && m.contentEquals(other.m)
-
-        override fun hashCode(): Int = m.contentHashCode()
-
-        override fun toString(): String = "Matrix3D(m=${m.contentToString()})"
-    }
 }
 
 data class Keyframe(
@@ -1951,7 +1933,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4601921068528975890L
+    const val SCHEMA_HASH: Long = 5367882572576466994L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2000,8 +1982,6 @@ object Protocol {
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
     private const val TRANSFORM_FUNCTION_LENGTH = 28
-    /** A `Transform3D` keyframe's value: sixteen `f32`. */
-    private const val MATRIX3D_VALUE_LENGTH = 64
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
 
@@ -3317,10 +3297,16 @@ object Protocol {
         209 -> PropertyKind.SpanFontFeatures
         210 -> PropertyKind.ContentPaddingDp
         211 -> PropertyKind.FixedGutterColumns
+        212 -> PropertyKind.ThumbElevation
+        213 -> PropertyKind.TrackBorder
         214 -> PropertyKind.SheetHandle
         215 -> PropertyKind.ReadOnly
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
+        216 -> PropertyKind.Indeterminate
+        217 -> PropertyKind.OutlineColor
+        226 -> PropertyKind.FoldColumnWidthDp
+        227 -> PropertyKind.InsertSpaces
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3432,7 +3418,6 @@ object Protocol {
         AnimatedProperty.Background -> 3
         AnimatedProperty.Transform -> 4
         AnimatedProperty.BorderColor -> 5
-        AnimatedProperty.Transform3D -> 6
     }
 
     private fun reducedMotionTag(value: ReducedMotion): Int = when (value) {
@@ -3694,8 +3679,6 @@ object Protocol {
         3 -> ButtonVariant.Outlined
         4 -> ButtonVariant.Text
         5 -> ButtonVariant.Operator
-        6 -> ButtonVariant.Neutral
-        7 -> ButtonVariant.NeutralSecondary
         else -> throw ProtocolException("unknown ButtonVariant tag $tag", offset)
     }
 
@@ -3865,7 +3848,6 @@ object Protocol {
         3 -> AnimatedProperty.Background
         4 -> AnimatedProperty.Transform
         5 -> AnimatedProperty.BorderColor
-        6 -> AnimatedProperty.Transform3D
         else -> throw ProtocolException("unknown AnimatedProperty tag $tag", offset)
     }
 
@@ -3901,7 +3883,6 @@ object Protocol {
         1 -> TimingKind.Linear
         2 -> TimingKind.CubicBezier
         3 -> TimingKind.Steps
-        4 -> TimingKind.Spring
         else -> throw ProtocolException("unknown TimingKind tag $tag", offset)
     }
 
@@ -4281,6 +4262,7 @@ object Protocol {
         43 -> 1
         44 -> 0
         45 -> 1
+        48 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4332,6 +4314,7 @@ object Protocol {
             43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            48 -> Modifier.WeightUnfilled(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
@@ -4552,11 +4535,6 @@ object Protocol {
         if (iterations.isNaN() || iterations < 0f) bad("iteration count $iterations", start + 36)
         if (!originX.isFinite() || !originY.isFinite()) bad("origin", start + 40)
         if (events and 0xf.inv() != 0) bad("event bits $events", start + 48)
-        // A 3D matrix animation turns about its base modifier's origin; one here as well
-        // would leave two answers to which one wins.
-        if (property == AnimatedProperty.Transform3D && (originX != 0f || originY != 0f)) {
-            bad("a Transform3D animation takes its origin from its modifier, not the record", start + 40)
-        }
         val keyframes = ArrayList<Keyframe>(keyframeCount)
         var at = start + ANIMATION_HEADER_LENGTH
         for (index in 0 until keyframeCount) {
@@ -4583,18 +4561,6 @@ object Protocol {
                     val least = if (position == StepPosition.JumpNone) 2L else 1L
                     if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
                     Timing.Steps(count.toInt(), position)
-                }
-                TimingKind.Spring -> {
-                    val stiffness = float(at + 8)
-                    val dampingRatio = float(at + 12)
-                    if (!(stiffness.isFinite() && stiffness > 0f) || !(dampingRatio.isFinite() && dampingRatio > 0f)) {
-                        bad("spring(stiffness $stiffness, damping ratio $dampingRatio)", at + 8)
-                    }
-                    if (readU32(batch, base, available, at + 16) != 0L || readU32(batch, base, available, at + 20) != 0L) {
-                        bad("a spring has two values and the last two numbers must be zero", at + 16)
-                    }
-                    if (readU8(batch, base, available, at + 5) != 0) bad("a spring has no step position", at + 5)
-                    Timing.Spring(stiffness, dampingRatio)
                 }
             }
             if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
@@ -4629,13 +4595,6 @@ object Protocol {
                     }
                     value = KeyframeValue.Transform(functions)
                     at = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * count
-                }
-                AnimatedProperty.Transform3D -> {
-                    if (valueAt + MATRIX3D_VALUE_LENGTH > end) bad("matrix runs past the record", valueAt)
-                    val m = FloatArray(16) { float(valueAt + 4 * it) }
-                    if (!m.all { it.isFinite() }) bad("matrix values", valueAt)
-                    value = KeyframeValue.Matrix3D(m)
-                    at = valueAt + MATRIX3D_VALUE_LENGTH
                 }
             }
             keyframes += Keyframe(keyframeOffset, timing, flags != 0, value)

@@ -46,6 +46,7 @@ pub mod native_view;
 pub mod notification;
 pub mod palette;
 pub mod picked_file;
+pub mod preview;
 pub mod protocol;
 pub mod runtime;
 pub mod schema;
@@ -67,7 +68,7 @@ pub use animation::{
     animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
     spring_settle_ms, start_animation, transition,
 };
-pub use asset::{AssetId, asset};
+pub use asset::{AssetId, asset, release_asset};
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
@@ -82,6 +83,7 @@ pub use code::{
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
+pub use compose_rust_macros::Preview;
 pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
@@ -98,6 +100,7 @@ pub use notification::{
 };
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
+pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,

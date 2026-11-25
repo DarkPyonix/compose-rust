@@ -36,8 +36,7 @@ check(ri >= 0, "a restore step with id fork-build exists")
 check(bi >= 0, "the fork build step exists")
 check(0 <= ri < bi, "the restore comes before the fork build")
 key = (re.search(r"\n\s+key:\s*(.*)", restore) or re.search("$", "")).group(0)
-for part in ["runner.os", "matrix.target", "hashFiles('renderer/scripts/build-compose.sh')",
-             "env.LEGACY_REF", "env.EQUIVALENT_REVISION"]:
+for part in ["runner.os", "matrix.target", "hashFiles('renderer/scripts/build-compose.sh')"]:
     check(part in key, f"the restore key contains {part}")
 check("path: ${{ env.FORK_REPO }}" in restore, "the restore puts the publication back at FORK_REPO")
 check("if: steps.fork-build.outputs.cache-hit != 'true'" in build, "the fork build is skipped on a cache hit")
@@ -69,14 +68,15 @@ def pin(label, rid, step_name, path, key_parts):
     check(f"steps.{rid}-run.outcome == 'success'" in cond, f"{label}: the save needs a successful build")
     return ri, bi
 
-pin("old build", "legacy-build", "Build Compose the old way", "${{ env.LEGACY_REPO }}",
-    ["runner.os", "matrix.target", "env.LEGACY_REF"])
+check("LEGACY_REF" not in text and "patches" not in text, "the old patched build is gone from the workflow")
+check("compose-baseline.py check" in text and "continue-on-error: true" in text and "steps.compare.outcome == 'failure'" in text,
+      "the baseline comparison runs before the renderer and fails the job at the end")
 lri, lbi = pin("Linux set", "linux-build", "Publish both Linux architectures for the renderer",
     "~/.m2/repository", ["runner.os", "-linux-", "hashFiles('renderer/scripts/build-compose.sh')"])
 pi, _ = find(lambda s: name(s) == "Put the fork's publication back")
 check(0 <= pi < lri, "the fork's publication is put back before the Linux set is restored over it")
 _, putback = find(lambda s: name(s) == "Put the fork's publication back")
-check("if:" not in putback, "the fork's publication is put back whether or not the old build ran")
+check("if:" not in putback, "the fork's publication is put back whether or not the build ran")
 sys.exit(1 if failures else 0)
 PY
 rc=$?

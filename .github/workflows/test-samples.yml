@@ -39,12 +39,22 @@
 #
 # What a release carries, per sample and target, named `<sample>-<target>.<ext>`:
 #   - every desktop target: `.tar.gz` of the executable;
-#   - macos-aarch64: a `.app` signed ad hoc (packager-macos, verified with
-#     `codesign --verify --deep --strict`) inside a `.dmg`;
-#   - linux-x64, linux-arm64: an `.AppImage` (packager-linux);
+#   - the direct-distribution packages, made by Velopack's vpk (scripts/package-velopack.py):
+#     on macos-aarch64 the `.app` with Velopack's updater, signed ad hoc by vpk,
+#     as a `.dmg` and an `.app.zip`; on Linux Velopack's self-updating `.AppImage`; on
+#     windows-x64 `.setup.exe` and `.msi`. Each sample has its own Velopack channel,
+#     `<sample>-<target>`, so its update feed `releases.<sample>-<target>.json` and its
+#     `.nupkg` files (vpk's names, which the feed refers to) sit beside the other samples'
+#     in one release. When samples-latest holds an older full package of the same channel,
+#     it is the base of a delta package;
+#   - macos-aarch64: a Mac App Store `.pkg` of the app without the updater
+#     (`package-macos pkg --verify`, which reads it with pkgutil);
+#   - linux-x64, linux-arm64: a `.deb` and an `.rpm` (packager-linux; `dpkg-deb --info`
+#     and `rpm -qp --info` are printed), and on linux-x64 a Flatpak bundle built by
+#     flatpak-builder from the Flathub manifest (Flathub builds the other architectures
+#     from the same manifest);
 #   - windows-x64: a `.zip` and an unsigned `.msix` (packager-windows, sideload channel).
-# Android ships an APK, iOS a simulator bundle, the web one archive of pages. Velopack
-# installers and updates are not part of this release yet (issues #3 and #4).
+# Android ships an APK, iOS a simulator bundle, the web one archive of pages.
 # Every desktop file is checked by .github/scripts/check-sample-bundles.py before upload.
 #
 # Tag and release naming:
@@ -240,6 +250,10 @@ jobs:
     # The Windows leg compiles eleven samples one after another and used up the two hours
     # with the renderer already built.
     timeout-minutes: 240
+    env:
+      # Velopack wants the vpk that packs a sample and the velopack crate in it at one
+      # version: the workspace's `velopack = "=1.2.161"`.
+      VPK_VERSION: '1.2.161'
     strategy:
       fail-fast: false
       matrix:
@@ -268,6 +282,17 @@ jobs:
         # The bundle check reads each sample's Dioxus.toml with tomllib (Python 3.11 and newer).
         with:
           python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        # vpk is a .NET tool.
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install vpk
+        shell: bash
+        run: |
+          dotnet tool install -g vpk --version "$VPK_VERSION"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
       - name: Take Git's coreutils out of the linker's way
         # Git for Windows carries a coreutils `link` in usr/bin, and a bash step finds it
@@ -299,7 +324,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config \
             libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev \
-            desktop-file-utils appstream gnupg
+            desktop-file-utils appstream gnupg squashfs-tools
 
       - name: Download the static renderer
         if: matrix.static && needs.resolve.outputs.released != 'true'
@@ -425,6 +450,17 @@ jobs:
             exit 1
           fi
 
+      - name: Every sample answers Velopack's hooks before opening a window
+        # Velopack's installer and updater start the program with --veloapp-install and the
+        # other hooks and wait for it to exit. Each sample is run with each hook and has to
+        # exit with 0 at once; one that opens its window instead runs into the time limit.
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffix=""; [[ "${{ runner.os }}" == Windows ]] && suffix=".exe"
+          python .github/scripts/check-sample-velopack-hooks.py \
+            --bin-dir target/release --built built.txt --exe-suffix "$suffix"
+
       - name: Package each sample
         # On every desktop platform a sample is one executable with the renderer inside it,
         # and that file is the whole archive.
@@ -451,9 +487,73 @@ jobs:
             tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
           done < built.txt
 
-      - name: Make each macOS sample an ad hoc signed application in a disk image
-        # A sample that fails here keeps its archive and loses only the .app and .dmg.
-        # Ad hoc signing needs no Apple account; Gatekeeper asks once on a downloaded copy.
+      - name: Pack each sample with Velopack
+        # The direct-distribution packages are Velopack's on every desktop system
+        # (scripts/package-velopack.md): the .dmg and .app.zip of an ad hoc signed .app with
+        # UpdateMac on macOS, the self-updating AppImage on Linux, Setup.exe and the .msi on
+        # Windows, each with the full .nupkg and the feed releases.<channel>.json.
+        #
+        # The channel is <sample>-<target>, so the feeds and packages of every sample and
+        # target can sit in one release; the installers are renamed like every other file
+        # (<sample>-<target>.<ext>), the .nupkg files keep vpk's names because the feed
+        # names them. When samples-latest holds an older full package of the channel, it is
+        # the base of a delta package. A sample that fails here loses only these formats,
+        # and the bundle check fails the run for them.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
+          suffix=""; extra=()
+          [[ "${{ runner.os }}" == Windows ]] && { suffix=".exe"; extra=(--msi); }
+          mkdir -p velopack
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            channel="$app-${{ matrix.target }}"
+            out="velopack/$app"; previous="velopack/previous-$app"
+            rm -rf "$out" "$previous"; mkdir -p "$previous"
+            delta=()
+            if gh release download samples-latest --repo "$GITHUB_REPOSITORY" --dir "$previous" \
+                 --pattern "*-$channel-full.nupkg" >/dev/null 2>&1; then
+              # The same version again (a rebuild) is no base for a delta.
+              find "$previous" -name "*-$version-$channel-full.nupkg" -delete
+              if compgen -G "$previous/*.nupkg" >/dev/null; then
+                delta=(--delta-dir "$previous")
+                echo "sample-$app: delta from $(ls "$previous")"
+              fi
+            fi
+            if python scripts/package-velopack.py --project "samples/$app" \
+                 --executable "target/release/sample-$app$suffix" --pack-version "$version" \
+                 --channel "$channel" ${delta[@]+"${delta[@]}"} ${extra[@]+"${extra[@]}"} \
+                 --output-dir "$out" > "$out.json"; then
+              python - "$out.json" "$app" "${{ matrix.target }}" <<'PY'
+          import json, shutil, sys
+          from pathlib import Path
+          made, app, target = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
+          # The installers take the release's names; the windows portable .zip is not
+          # shipped (the plain .zip is), and assets.<channel>.json is vpk's own record.
+          renamed = {"dmg": "dmg", "appimage": "AppImage", "setup_exe": "setup.exe", "msi": "msi"}
+          if made["os"] == "macos":
+              renamed["portable"] = "app.zip"
+          by_path = {str(Path(made[role])): ext for role, ext in renamed.items() if made.get(role)}
+          skip = {str(Path(made["portable"]))} if made["os"] == "windows" and made.get("portable") else set()
+          for path in map(Path, made["upload"]):
+              if str(path) in skip or path.name.startswith("assets."):
+                  continue
+              name = f"{app}-{target}.{by_path[str(path)]}" if str(path) in by_path else path.name
+              shutil.copyfile(path, Path("artifacts") / name)
+              print(f"  {name}")
+          PY
+            else
+              echo "::warning title=No Velopack package::sample-$app was not packed with Velopack for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
+      - name: Make each macOS sample a Mac App Store package
+        # The store's app, without Velopack's updater: the store updates what it installs.
+        # Unsigned here (no installer identity on the runner); pkgutil reads its payload and
+        # signature state. A sample that fails here loses only the .pkg.
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -471,11 +571,11 @@ jobs:
                && bundle="$(find "$out" -maxdepth 1 -name '*.app' | head -n 1)" \
                && [[ -n "$bundle" ]] \
                && codesign --verify --deep --strict --verbose=2 "$bundle" \
-               && uv run scripts/packager-macos/package-macos dmg --app "$bundle" \
-                  --out "artifacts/$app-${{ matrix.target }}.dmg"; then
-              ditto -c -k --keepParent "$bundle" "artifacts/$app-${{ matrix.target }}.app.zip"
+               && uv run scripts/packager-macos/package-macos pkg --app "$bundle" \
+                  --out "artifacts/$app-${{ matrix.target }}.pkg" --verify; then
+              echo "packaged $bundle"
             else
-              echo "::warning title=No application bundle::sample-$app was not packaged as a signed .app and .dmg for ${{ matrix.target }}"
+              echo "::warning title=No store package::sample-$app was not packaged as a .pkg for ${{ matrix.target }}"
             fi
           done < built.txt
 
@@ -506,53 +606,87 @@ jobs:
             fi
           done < built.txt
 
-      - name: Wrap each Linux sample as an AppImage
-        # The same staged directory, as one file. A sample that fails here keeps its
-        # archive and loses only the AppImage.
-        #
-        # Signed when the repository has a signing key.
+      - name: Package each Linux sample as a .deb and an .rpm
+        # The distributions' own formats, laid out by packager-linux from the sample's
+        # Dioxus.toml and built by dpkg-deb and rpmbuild. xz, not zstd, so the bundle check
+        # reads the .deb with Python's own tarfile. Name, version and description are
+        # printed with dpkg-deb --info and rpm -qp --info; the bundle check compares them
+        # with the sample's.
         if: runner.os == 'Linux'
         shell: bash
-        env:
-          SIGNING_KEY: ${{ secrets.APPIMAGE_SIGNING_KEY }}
-          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -uo pipefail
-          # The crate's version, so a dry run on a branch is named like the release.
+          sudo apt-get install -y --no-install-recommends rpm
           version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
-          sign=()
-          if [[ -n "$SIGNING_KEY" ]]; then
-            export GNUPGHOME="$PWD/.scratch/gnupg" && mkdir -p -m 700 "$GNUPGHOME"
-            gpg --batch --import <<<"$SIGNING_KEY"
-            sign=(--sign-key "$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')")
-          else
-            echo "::warning title=Unsigned AppImages::APPIMAGE_SIGNING_KEY is not set, so the AppImages are not signed"
-          fi
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           cargo build --release -p packager-linux
-          export PACKAGER_LINUX="$PWD/target/release/packager-linux"
+          packager="$PWD/target/release/packager-linux"
           while read -r app; do
             [[ -n "$app" ]] || continue
-            # scripts/make-sample-icons.py draws a 256 pixel icon beside the 64 pixel
-            # one the window wears; a sample that brings its own may have only the one.
             icons=(--icon "samples/$app/assets/icon.png")
             [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
-            # The packager names the file after the application and version
-            # (Self-care-1.2.3-x86_64.AppImage); the release names every file
-            # <sample>-<target>.<ext>, so it is renamed once it is made.
-            out="appimages/$app"
-            mkdir -p "$out"
-            if scripts/packager-linux/appimage.sh \
-                --dioxus-toml "samples/$app/Dioxus.toml" \
-                --overlay scripts/packager-linux/samples.toml \
-                --exec "sample-$app" "${icons[@]}" \
-                --payload "staging/$app" --version "$version" \
-                ${sign[@]+"${sign[@]}"} \
-                --out-dir "$out" \
-               && made="$(find "$out" -maxdepth 1 -name '*.AppImage' | head -n 1)" \
-               && [[ -n "$made" ]]; then
-              mv "$made" "artifacts/$app-${{ matrix.target }}.AppImage"
+            common=(--dioxus-toml "samples/$app/Dioxus.toml" --overlay scripts/packager-linux/samples.toml
+                    --exec "sample-$app" "${icons[@]}" --version "$version"
+                    --payload "staging/$app/sample-$app")
+            stage="debs/$app"; rm -rf "$stage"
+            if "$packager" deb "${common[@]}" --out "$stage" >/dev/null \
+               && dpkg-deb --root-owner-group -Zxz --build "$stage" "artifacts/$app-${{ matrix.target }}.deb" >/dev/null; then
+              dpkg-deb --info "artifacts/$app-${{ matrix.target }}.deb"
             else
-              echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
+              echo "::warning title=No .deb::sample-$app was not packaged as a .deb for ${{ matrix.target }}"
+            fi
+            topdir="$PWD/rpms/$app"; rm -rf "$topdir"
+            if "$packager" rpm "${common[@]}" --out "$topdir" >/dev/null \
+               && spec="$(find "$topdir/SPECS" -name '*.spec' | head -n 1)" && [[ -n "$spec" ]] \
+               && rpmbuild --define "_topdir $topdir" -bb "$spec" >/dev/null \
+               && made="$(find "$topdir/RPMS" -name '*.rpm' | head -n 1)" && [[ -n "$made" ]]; then
+              mv "$made" "artifacts/$app-${{ matrix.target }}.rpm"
+              rpm -qp --info "artifacts/$app-${{ matrix.target }}.rpm"
+            else
+              echo "::warning title=No .rpm::sample-$app was not packaged as an .rpm for ${{ matrix.target }}"
+            fi
+          done < built.txt
+
+      - name: Build each Linux sample as a Flatpak bundle
+        # The Flathub manifest (packager-linux flatpak.sh), built with Flathub's own builder
+        # from the sample's prebuilt archive, then exported as one .flatpak bundle. x64
+        # only: Flathub builds the other architectures from the same manifest.
+        if: runner.os == 'Linux' && matrix.target == 'linux-x64'
+        shell: bash
+        env:
+          FLATPAK_RUNTIME: "25.08"
+        run: |
+          set -uo pipefail
+          # Ubuntu 24.04 stops unprivileged user namespaces through AppArmor, and
+          # bubblewrap, which builds every sandbox, needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get install -y --no-install-recommends flatpak elfutils dbus-daemon patchelf
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install --noninteractive flathub org.flatpak.Builder \
+            "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME"
+          export FLATPAK_BUILDER="flatpak run --filesystem=$HOME/.local/share/flatpak --env=FLATPAK_USER_DIR=$HOME/.local/share/flatpak --command=flatpak-builder org.flatpak.Builder"
+          export PACKAGER_LINUX="$PWD/target/release/packager-linux"
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
+          while read -r app; do
+            [[ -n "$app" ]] || continue
+            [[ -f "artifacts/$app-${{ matrix.target }}.tar.gz" ]] || continue
+            id="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["bundle"]["identifier"])' "samples/$app/Dioxus.toml")"
+            icons=(--icon "samples/$app/assets/icon.png")
+            [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
+            out="$PWD/flatpaks/$app"; repo="$PWD/flatpaks/repo-$app"
+            rm -rf "$out" "$repo"; mkdir -p "$out"
+            cp "artifacts/$app-${{ matrix.target }}.tar.gz" "$out/"
+            # flatpak talks to its system helper over the session bus, which a runner has
+            # none of until one is started.
+            if dbus-run-session -- scripts/packager-linux/flatpak.sh \
+                 --dioxus-toml "samples/$app/Dioxus.toml" --overlay scripts/packager-linux/samples.toml \
+                 --exec "sample-$app" "${icons[@]}" --version "$version" \
+                 --prebuilt-path "$app-${{ matrix.target }}.tar.gz" \
+                 --out "$out" --build "$repo" \
+               && flatpak build-bundle "$repo" "artifacts/$app-${{ matrix.target }}.flatpak" "$id"; then
+              echo "built $id"
+            else
+              echo "::warning title=No Flatpak::sample-$app was not built as a Flatpak for ${{ matrix.target }}"
             fi
           done < built.txt
 
@@ -563,7 +697,7 @@ jobs:
           cd artifacts
           # find, not a glob list: no platform makes every file type, and a pattern that
           # matches nothing must not end the step under pipefail.
-          files="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.msix' -o -name '*.dmg' \) | sed 's#^\./##' | sort -u)"
+          files="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.msix' -o -name '*.dmg' -o -name '*.pkg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' -o -name '*.setup.exe' -o -name '*.msi' -o -name '*.nupkg' -o -name 'releases.*.json' -o -name 'RELEASES*' \) | sed 's#^\./##' | sort -u)"
           if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
           # shellcheck disable=SC2086
           "${sum[@]}" $files > "SHA256SUMS-${{ matrix.target }}"
@@ -574,8 +708,7 @@ jobs:
         # metadata and nothing else, the executable loads only the system's libraries and
         # nothing by a path on this machine, the name, identifier, description and
         # version are the sample's, the MSIX is unsigned, and the checksum list covers
-        # every file. A format a sample lost in packaging is a warning and goes in the
-        # release notes; a bundle that is wrong inside fails the run.
+        # every file. A missing format or a bundle that is wrong inside fails the run.
         shell: bash
         run: |
           set -euo pipefail
@@ -934,27 +1067,37 @@ jobs:
             echo
             echo 'Verify with `shasum -a 256 -c SHA256SUMS-<platform>`.'
             echo
-            echo "Linux also ships each sample as an AppImage. Make it executable and run it."
+            echo "The direct-download packages are made with Velopack, which installs and"
+            echo "updates them: the .dmg and .app.zip on macOS, the .AppImage on Linux, and"
+            echo "the .setup.exe and .msi on Windows. Each sample and platform has its own"
+            echo "update feed, releases.<sample>-<platform>.json, with the .nupkg packages it"
+            echo "names."
             echo
-            echo "macOS also ships each sample as a .app inside a .dmg (and the .app as a"
-            echo ".app.zip). The app is signed ad hoc, not by an Apple developer identity, so"
-            echo "Gatekeeper blocks the first launch of a downloaded copy: right-click the app"
-            echo "and choose Open, or run xattr -dr com.apple.quarantine <App>.app."
+            echo "Linux also ships each sample as a .deb and an .rpm (install with apt or dnf),"
+            echo "and on x64 a Flatpak bundle (flatpak install --user <file>.flatpak). The"
+            echo "AppImage runs once it is made executable."
+            echo
+            echo "On macOS the app in the .dmg is signed ad hoc, not by an Apple developer"
+            echo "identity, so Gatekeeper blocks the first launch of a downloaded copy:"
+            echo "right-click the app and choose Open, or run"
+            echo "xattr -dr com.apple.quarantine <App>.app. The .pkg is the Mac App Store"
+            echo "installer package, unsigned and without the updater; it is for store"
+            echo "submission."
             echo
             echo "Windows also ships a .zip and an unsigned .msix. Installing the MSIX needs"
             echo "Windows developer mode, or signing it again with a certificate the machine"
-            echo "trusts."
+            echo "trusts. The .setup.exe installs for the current user; the .msi installs for"
+            echo "the current user unless told to install for the machine."
             echo
             echo "Every desktop file is listed in SHA256SUMS-<platform>. Each bundle holds the"
-            echo "sample's one executable, its icon and its metadata, and nothing else."
-            echo
-            echo "No Velopack installers or auto-update yet."
+            echo "sample's one executable, its icon and its metadata, and nothing else but"
+            echo "Velopack's updater in the direct-download packages."
             echo
             echo "Built from $GITHUB_REPOSITORY at $(git rev-parse --short HEAD) ($TAG)."
             echo
             echo "Built in this release:"
             echo
-            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.dmg artifacts/*.zip artifacts/*.msix artifacts/*.apk; do
+            for archive in artifacts/*.tar.gz artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm artifacts/*.flatpak artifacts/*.dmg artifacts/*.pkg artifacts/*.zip artifacts/*.setup.exe artifacts/*.msi artifacts/*.msix artifacts/*.apk; do
               [ -e "$archive" ] || continue
               echo "- $(basename "$archive")"
             done

@@ -27,7 +27,7 @@ import kotlin.math.sqrt
  * the new release.
  */
 internal object Compose3DBinding {
-    const val COMPOSE_VERSION = "1.11.1-ext.5"
+    const val COMPOSE_VERSION = "1.11.1-ext.6"
 
     /** Pixels of camera depth for one unit of `cameraDistance`. */
     const val PIXELS_PER_CAMERA_UNIT = 72f

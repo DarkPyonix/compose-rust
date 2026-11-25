@@ -25,8 +25,17 @@ const LAST_OPTIONAL_PROPERTY: u16 = PropertyKind::Variant as u16;
 /// and got the Renderer's default instead. A list of runs has no such value. Empty and
 /// absent are the same state, so the first empty one is worth no record.
 const SPANS_BIT: u32 = 63;
-/// A count that is absent is not a count of 0, so only `None` is neutral for it.
-const COUNT_BIT: u32 = 62;
+/// A count that is absent is not a count of 0, so only `None` is neutral for it. Its own bit:
+/// sharing one with another property outside the range would let one clear the other's.
+const COUNT_BIT: u32 = 61;
+
+/// The bit that tracks whether a button currently carries a kind.
+///
+/// Outside the range for the same reason, and safe for the same one: a button kind is a
+/// role tag, its values start at 1, and the Renderer reads both 0 and nothing as the
+/// standard button. So a button that names no kind sends no record, and one that drops
+/// its kind sends the zero once.
+const BUTTON_KIND_BIT: u32 = 62;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
@@ -478,7 +487,7 @@ impl NodeWriter {
         };
 
         let slot_of = |name: &str| match name {
-            "weight" => Some(WEIGHT),
+            "weight" | "weight_unfilled" => Some(WEIGHT),
             "fill_max_width" => Some(FILL_MAX_WIDTH),
             "match_parent_size" => Some(MATCH_PARENT_SIZE),
             "fill_max_height" => Some(FILL_MAX_HEIGHT),
@@ -597,6 +606,7 @@ impl NodeWriter {
                 )))
             }
             "weight" => Some(Some((WEIGHT, Modifier::Weight(float(value)?)))),
+            "weight_unfilled" => Some(Some((WEIGHT, Modifier::WeightUnfilled(float(value)?)))),
             "width" => Some(Some((WIDTH, Modifier::Width(float(value)?)))),
             "height" => Some(Some((HEIGHT, Modifier::Height(float(value)?)))),
             "padding" => Some(Some((PADDING, Modifier::Padding(float(value)?)))),
@@ -1027,6 +1037,8 @@ impl NodeWriter {
             SPANS_BIT
         } else if property == PropertyKind::Count {
             COUNT_BIT
+        } else if property == PropertyKind::ButtonKind {
+            BUTTON_KIND_BIT
         } else {
             return true;
         };

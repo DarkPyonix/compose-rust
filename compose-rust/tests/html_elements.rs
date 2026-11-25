@@ -212,6 +212,7 @@ fn every_modifier() -> Vec<Modifier> {
             tint: None,
             press_easing: None,
         },
+        Modifier::WeightUnfilled(0.5),
     ]
 }
 

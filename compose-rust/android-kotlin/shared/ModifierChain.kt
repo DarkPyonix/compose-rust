@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.composed
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.remember
@@ -68,7 +69,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Outline
@@ -80,18 +80,15 @@ import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 import androidx.compose.ui.unit.dp
@@ -102,6 +99,7 @@ import dev.darkpyonix.composerust.design.glassLift
 import dev.darkpyonix.composerust.design.glassSurface
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.TableError
+import dev.darkpyonix.composerust.ui.node.blurredShadow
 
 /**
  * Rebuilds a Compose `Modifier` chain from the Host's modifier value list.
@@ -413,7 +411,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
 
             // Weight is parent data: it is applied by the Column or Row that owns this node,
             // not here. See `weightOf` and `Children` in RenderNode.kt.
-            is ProtocolModifier.Weight -> chain
+            is ProtocolModifier.Weight, is ProtocolModifier.WeightUnfilled -> chain
 
             // The elements an HTML and CSS screen is drawn with. The Host's layout engine has
             // already decided where every box goes and how big it is, so these place and
@@ -1040,35 +1038,16 @@ private fun Modifier.boxShadow(
             }
         }
     }
-    // CSS's blur radius is twice the standard deviation of the Gaussian it blurs with. The
-    // shape is drawn into a layer with room for the blur around it, and the layer is
-    // blurred as a whole.
-    val sigma = blur / 2f
-    val margin = ceil(3f * sigma)
-    val layer = obtainGraphicsLayer()
-    layer.record(
-        this,
-        layoutDirection,
-        IntSize(ceil(shadowWidth + 2f * margin).toInt(), ceil(shadowHeight + 2f * margin).toInt()),
-    ) {
-        translate(margin, margin) { drawPath(shapePath, brush) }
-    }
-    layer.renderEffect = BlurEffect(composeBlurRadius(sigma), composeBlurRadius(sigma), TileMode.Decal)
+    // CSS's blur radius is twice the standard deviation of the Gaussian it blurs with. How the
+    // shape is blurred is the platform's: one path with a blurring paint on the Skia
+    // renderers, a blurred layer on Android.
+    val drawShadow = blurredShadow(shapePath, brush, blur / 2f, shadowWidth, shadowHeight)
     onDrawBehind {
         clipPath(boxPath, ClipOp.Difference) {
-            translate(dx - spread - margin, dy - spread - margin) { drawLayer(layer) }
+            translate(dx - spread, dy - spread) { drawShadow() }
         }
     }
 }
-
-/**
- * The radius Compose's blur takes for a Gaussian of standard deviation [sigma].
- *
- * Compose turns a blur radius r into a deviation of 0.57735 r + 0.5, the conversion Skia
- * and Android both use, so this is that conversion run backwards. Below half a pixel there
- * is nothing to blur.
- */
-private fun composeBlurRadius(sigma: Float): Float = max(0f, (sigma - 0.5f) / 0.57735f)
 
 /**
  * A corner radius after a shadow's spread, as CSS Backgrounds 3 gives it: a radius of zero
@@ -1085,11 +1064,19 @@ private fun spreadRadius(radius: Float, spread: Float): Float = when {
     }
 }
 
+/** The weight this node asked its parent layout for, and whether it fills its share. */
+internal data class ChildWeight(val value: Float, val fill: Boolean)
+
 /** The weight this node asked its parent layout for, or null. */
-internal fun List<ProtocolModifier>.weightOf(): Float? =
-    lastOrNull { it is ProtocolModifier.Weight }
-        ?.let { (it as ProtocolModifier.Weight).value }
-        ?.takeIf { it > 0f }
+internal fun List<ProtocolModifier>.weightOf(): ChildWeight? =
+    lastOrNull { it is ProtocolModifier.Weight || it is ProtocolModifier.WeightUnfilled }
+        ?.let {
+            when (it) {
+                is ProtocolModifier.Weight -> if (it.value > 0f) ChildWeight(it.value, fill = true) else null
+                is ProtocolModifier.WeightUnfilled -> if (it.value > 0f) ChildWeight(it.value, fill = false) else null
+                else -> null
+            }
+        }
 
 /**
  * Makes a node a button: it takes keyboard focus, a click and Enter or Space run
@@ -1503,7 +1490,11 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
         val density = LocalDensity.current
         val reportedWidth = remember(nodeId) { arrayOfNulls<WindowSizeClass>(1) }
         val reportedHeight = remember(nodeId) { arrayOfNulls<WindowHeightClass>(1) }
-        onSizeChanged { size ->
+        // After the layout pass and not inside it, as onSizeChanged would be. A Host that
+        // answers by laying its page out asks this side to measure nodes before the call
+        // returns, and Compose refuses to measure one while a measure pass is running.
+        onGloballyPositioned { coordinates ->
+            val size = coordinates.size
             val widthDp = with(density) { size.width.toDp().value }
             val heightDp = with(density) { size.height.toDp().value }
             val sizeClass = windowSizeClassOf(widthDp)

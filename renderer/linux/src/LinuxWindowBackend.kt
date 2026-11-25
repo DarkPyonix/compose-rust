@@ -3,14 +3,12 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
-import dev.darkpyonix.composerust.protocol.Chrome
+import androidx.compose.ui.graphics.ImageBitmap
 import dev.darkpyonix.composerust.protocol.ColorScheme
-import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.runtime.Zoom
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.thisisthepy.compose.window.TitleBarStyle
-import org.thisisthepy.compose.window.WindowChrome
+import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.linux.X11Window
 import platform.posix.usleep
@@ -30,8 +28,16 @@ import platform.posix.usleep
 internal class LinuxWindowBackend(
     private val work: FrameDispatcher,
     private val makeZoom: () -> Zoom = { Zoom(nativeLinuxTextScale(), nativeLinuxZoomLevelStore()) },
-    private val content: (nodeId: Int) -> @Composable () -> Unit,
+    private val lookupIcon: (Int) -> ImageBitmap? = { null },
+    private val defaultIcon: Int = 0,
+    private val windowContent: (PlatformWindowConfig, LinuxWindow) -> @Composable () -> Unit,
 ) : WindowBackend {
+
+    constructor(
+        work: FrameDispatcher,
+        makeZoom: () -> Zoom = { Zoom(nativeLinuxTextScale(), nativeLinuxZoomLevelStore()) },
+        content: (nodeId: Int) -> @Composable () -> Unit,
+    ) : this(work, makeZoom, { null }, 0, { config, _ -> content(config.nodeId) })
 
     private val windows = ArrayList<LinuxPlatformWindow>()
 
@@ -66,8 +72,16 @@ internal class LinuxWindowBackend(
         window.colorScheme = config.colorScheme
         window.platformListener = listener
         window.setZoomLevel(config.zoomLevel ?: window.zoom.level)
-        window.setContent(content(config.nodeId))
-        val platform = LinuxPlatformWindow(this, window)
+        window.setContent(windowContent(config, window))
+        val iconAsset = if (config.icon != 0) config.icon else defaultIcon
+        val icon = if (iconAsset != 0) {
+            DockIcon(lookup = lookupIcon, apply = { picture -> window.setIcon(picture) }).also {
+                it.tryApply(iconAsset)
+            }
+        } else {
+            null
+        }
+        val platform = LinuxPlatformWindow(this, window, iconAsset, icon)
         windows += platform
         anyX11 = window.x11
         return platform
@@ -131,7 +145,10 @@ internal class LinuxWindowBackend(
         val woken = work.takeWake()
         work.runPending()
         for (window in windows.toList()) {
-            if (!window.closed) window.window.processTurn(woken)
+            if (!window.closed) {
+                window.tryApplyIcon()
+                window.window.processTurn(woken)
+            }
         }
     }
 
@@ -148,14 +165,8 @@ internal class LinuxWindowBackend(
         minWidth = config.minWidth.toInt(),
         minHeight = config.minHeight.toInt(),
         resizable = config.resizable,
-        chrome = when (config.chrome) {
-            Chrome.Modern, Chrome.FullSize -> WindowChrome.Modern
-            Chrome.System -> WindowChrome.System
-        },
-        titleBar = when (config.titleBar) {
-            TitleBar.Normal -> TitleBarStyle.Normal
-            TitleBar.Simple -> TitleBarStyle.Simple
-        },
+        chrome = linuxWindowChrome(config.chrome),
+        titleBar = linuxTitleBarStyle(config.titleBar),
         x = if (config.x != null && config.y != null) config.x.toInt() else null,
         y = if (config.x != null && config.y != null) config.y.toInt() else null,
     )
@@ -172,7 +183,14 @@ internal class LinuxWindowBackend(
 internal class LinuxPlatformWindow(
     private val backend: LinuxWindowBackend,
     internal val window: LinuxWindow,
+    private val iconAsset: Int = 0,
+    private val icon: DockIcon<ImageBitmap>? = null,
 ) : PlatformWindow {
+
+    internal fun tryApplyIcon() {
+        val target = icon ?: return
+        if (iconAsset != 0 && !target.applied) target.tryApply(iconAsset)
+    }
 
     internal var closed = false
         private set

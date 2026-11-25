@@ -135,6 +135,14 @@ impl Reference {
             _ => TypeRole::Caption,
         }
     }
+
+    /// Apple's circular keys need wider gaps so adjacent circles do not nearly touch.
+    fn key_space(self) -> SpaceRole {
+        match self {
+            Self::Apple => SpaceRole::Sm,
+            _ => SpaceRole::Xs,
+        }
+    }
 }
 
 /// Whether a key carries content rather than a command: the digits and the point.
@@ -214,16 +222,16 @@ fn pad_key(label: &'static str, modifier: Modifier, press: Press) {
 
 /// Rows of keys, each row sharing the height and each key sharing its row.
 #[Composable]
-fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, press: Press) {
+fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, space: SpaceRole, press: Press) {
     Column!(
         modifier = Modifier.weight(weight).fill_max_height(),
-        space_role = SpaceRole::Xs,
+        space_role = space,
         {
             for (index, row) in rows.iter().enumerate() {
                 key(format!("row-{index}"), || {
                     Row!(
                         modifier = Modifier.fill_max_width().weight(1.0),
-                        space_role = SpaceRole::Xs,
+                        space_role = space,
                         {
                             for label in row.iter().copied() {
                                 let press = Rc::clone(&press);
@@ -247,9 +255,10 @@ fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, press: Press) {
 /// stretching every key across it.
 #[Composable]
 fn keypad(reference: Reference, wide: bool, press: Press) {
+    let space = reference.key_space();
     Row!(
         modifier = Modifier.fill_max_width().fill_max_height(),
-        space_role = SpaceRole::Xs,
+        space_role = space,
         {
             if wide {
                 let functions = function_keys(reference.pad());
@@ -257,7 +266,7 @@ fn keypad(reference: Reference, wide: bool, press: Press) {
                     key(format!("functions-{index}"), || {
                         Column!(
                             modifier = Modifier.weight(1.0).fill_max_height(),
-                            space_role = SpaceRole::Xs,
+                            space_role = space,
                             {
                                 for label in column.iter().copied() {
                                     let press = Rc::clone(&press);
@@ -276,12 +285,14 @@ fn keypad(reference: Reference, wide: bool, press: Press) {
                 key_rows(
                     DESK_GRID.to_vec(),
                     DESK_GRID[0].len() as f32,
+                    space,
                     Rc::clone(&press),
                 );
             } else {
                 key_rows(
                     reference.pad().to_vec(),
                     reference.pad()[0].len() as f32,
+                    space,
                     Rc::clone(&press),
                 );
             }
@@ -454,12 +465,13 @@ struct Proportions {
     width: Option<f32>,
 }
 
-/// Holds the keys under `KEY_MAX_DP` in both directions.
+/// Holds the keys under `KEY_MAX_DP` in height and, on expanded windows, in width.
 ///
 /// The height is worked out from the window's, which is more than the instrument gets
 /// once the bar is drawn, so a key comes out a little under the cap rather than over it.
-/// The width outside a phone-shaped window is the narrowest the instrument can be in its
-/// size class, so it never overflows a window that is still in that class.
+/// Compact and medium windows keep the four-column reference pad filling the window width;
+/// expanded windows hold the desk-grid instrument to its share of the expanded minimum
+/// width so keys stop growing beside the tape.
 fn proportions(window: WindowSize, rows: usize, columns: usize) -> Proportions {
     let tallest = rows as f32 * KEY_MAX_DP;
     let keypad_share = if window.height_dp > tallest {
@@ -469,14 +481,12 @@ fn proportions(window: WindowSize, rows: usize, columns: usize) -> Proportions {
     };
 
     let widest = columns as f32 * KEY_MAX_DP;
-    let width = if window.is_compact() {
-        (window.width_dp > widest).then_some(widest)
-    } else if window.is_medium() {
-        Some(widest.min(WindowSizeClass::MEDIUM_MIN_WIDTH_DP))
-    } else {
+    let width = if window.is_expanded() {
         let room = WindowSizeClass::EXPANDED_MIN_WIDTH_DP * INSTRUMENT_SHARE
             / (INSTRUMENT_SHARE + TAPE_SHARE);
         Some(widest.min(room))
+    } else {
+        None
     };
     Proportions {
         keypad_share,
@@ -498,8 +508,9 @@ pub fn app() {
     let (display, status, memory_set) =
         calculator.with(|state| (state.display(), state.status(), state.memory_set()));
     let tape_beside = window.is_expanded();
-    // Anything wider than a phone takes the function keys out of the grid.
-    let wide = !window.is_compact();
+    // Only expanded windows take the function keys out of the four-column reference pad;
+    // compact and medium portrait windows keep the reference's own pad and fill the width.
+    let wide = window.is_expanded();
     let (rows, columns) = keypad_shape(reference, wide);
     let layout = proportions(window, rows, columns);
 
@@ -558,9 +569,10 @@ pub fn app() {
     Scaffold!(
         top_bar = Some(|| {
             TopAppBar!(modifier = Modifier.fill_max_width(), {
-                // Each reference's own bar. Windows has its navigation button and the
-                // mode's name; macOS has the sidebar the tape lives in; Deepin keeps its
-                // menu in the window's title bar and puts nothing above the reading area.
+                // Each reference's own bar. Windows has its navigation button, the mode's
+                // name and its keep-on-top button; macOS has the sidebar the tape lives in
+                // and its calculator mode button; Deepin keeps its menu in the window's
+                // title bar and puts nothing on the left above the reading area.
                 if reference == Reference::Windows {
                     Button!(
                         "",
@@ -569,6 +581,12 @@ pub fn app() {
                         variant = ButtonVariant::Text
                     );
                     Text!("Standard", type_role = TypeRole::Title);
+                    Button!(
+                        "",
+                        || {},
+                        icon = IconRole::CompactOverlay,
+                        variant = ButtonVariant::Text
+                    );
                 } else if reference == Reference::Apple && !tape_beside {
                     let open = tape_open;
                     Button!(
@@ -579,7 +597,14 @@ pub fn app() {
                     );
                 }
                 Spacer!(modifier = Modifier.weight(1.0));
-                if reference != Reference::Apple && !tape_beside {
+                if reference == Reference::Apple {
+                    Button!(
+                        "",
+                        || {},
+                        icon = IconRole::Calculator,
+                        variant = ButtonVariant::Text
+                    );
+                } else if !tape_beside {
                     let open = tape_open;
                     Button!(
                         "",
@@ -1014,41 +1039,142 @@ mod tests {
     }
 
     /// A phone keypad and a desk keypad are different keypads, not the same one scaled.
-    /// Narrow, the function keys share rows with the operators. Wide, they are columns of
-    /// their own beside a grid of digits and arithmetic, and the keys are the same keys.
+    /// Narrow (compact and medium), the function keys share rows with the operators.
+    /// Expanded, they are columns of their own beside a grid of digits and arithmetic, and
+    /// the keys are the same keys.
     #[test]
     fn fr22_wider_windows_take_the_function_keys_out_of_the_grid() {
         for system in SYSTEMS {
             let reference = Reference::of(system);
-            let narrow = Screen::with(system, 420.0, 780.0).key_groups();
-            assert_eq!(narrow, rows_of(reference.pad()), "{system:?}");
-            assert!(
-                narrow.iter().any(|row| {
-                    row.iter().any(|label| is_function_key(label))
-                        && row.iter().any(|label| is_operator(label))
-                }),
-                "{system:?}: narrow, a function key shares a row with an operator",
-            );
-
-            for width in [760.0, 1180.0] {
-                let wide = Screen::with(system, width, 780.0).key_groups();
-                assert_eq!(wide, wide_groups(reference), "{system:?} at {width}");
-                for group in &wide {
-                    let functions = group.iter().filter(|label| is_function_key(label)).count();
-                    assert!(
-                        functions == 0 || functions == group.len(),
-                        "{system:?} at {width}: {group:?} mixes function keys into the grid",
-                    );
-                }
-                let mut narrow_keys: Vec<&String> = narrow.iter().flatten().collect();
-                let mut wide_keys: Vec<&String> = wide.iter().flatten().collect();
-                narrow_keys.sort();
-                wide_keys.sort();
-                assert_eq!(
-                    narrow_keys, wide_keys,
-                    "{system:?}: the keys changed with the shape"
+            for width in [420.0, 760.0] {
+                let narrow = Screen::with(system, width, 780.0).key_groups();
+                assert_eq!(narrow, rows_of(reference.pad()), "{system:?} at {width}");
+                assert!(
+                    narrow.iter().any(|row| {
+                        row.iter().any(|label| is_function_key(label))
+                            && row.iter().any(|label| is_operator(label))
+                    }),
+                    "{system:?} at {width}: narrow, a function key shares a row with an operator",
                 );
             }
+
+            let narrow = Screen::with(system, 420.0, 780.0).key_groups();
+            let wide = Screen::with(system, 1180.0, 780.0).key_groups();
+            assert_eq!(wide, wide_groups(reference), "{system:?} at 1180");
+            for group in &wide {
+                let functions = group.iter().filter(|label| is_function_key(label)).count();
+                assert!(
+                    functions == 0 || functions == group.len(),
+                    "{system:?} at 1180: {group:?} mixes function keys into the grid",
+                );
+            }
+            let mut narrow_keys: Vec<&String> = narrow.iter().flatten().collect();
+            let mut wide_keys: Vec<&String> = wide.iter().flatten().collect();
+            narrow_keys.sort();
+            wide_keys.sort();
+            assert_eq!(
+                narrow_keys, wide_keys,
+                "{system:?}: the keys changed with the shape"
+            );
+        }
+    }
+
+    /// A portrait medium window such as Deepin at 688x1090 keeps the four-column reference
+    /// pad and fills the window width rather than switching to the five-column desk grid.
+    #[test]
+    fn fr22_deepin_portrait_medium_keeps_four_column_pad() {
+        let screen = Screen::with(DesignSystem::Deepin, 688.0, 1090.0);
+        let groups = screen.key_groups();
+        assert_eq!(
+            groups,
+            rows_of(DEEPIN_PAD),
+            "Deepin at 688x1090 should render the four-column DEEPIN_PAD",
+        );
+        assert_eq!(
+            groups[0],
+            vec![
+                "C".to_owned(),
+                "%".to_owned(),
+                BACKSPACE.to_owned(),
+                DIVIDE.to_owned(),
+            ],
+            "first row should be C, %, backspace, divide",
+        );
+        assert_ne!(
+            groups,
+            wide_groups(Reference::Deepin),
+            "Deepin at 688x1090 must not switch to the five-column DESK_GRID",
+        );
+        assert_eq!(
+            screen.instrument().width,
+            None,
+            "Deepin at 688x1090 should fill the window width cleanly",
+        );
+    }
+
+    /// Apple's top bar includes the trailing calculator mode button, matching the macOS
+    /// Calculator reference.
+    #[test]
+    fn fr22_apple_top_bar_includes_calculator_mode_button() {
+        for system in [DesignSystem::Cupertino, DesignSystem::LiquidGlass] {
+            let screen = Screen::with(system, 458.0, 810.0);
+            assert!(
+                screen.has_icon_button(IconRole::Calculator),
+                "{system:?} top bar should include IconRole::Calculator",
+            );
+        }
+        for system in [
+            DesignSystem::Fluent,
+            DesignSystem::Deepin,
+            DesignSystem::Material3,
+            DesignSystem::Gnome,
+            DesignSystem::Breeze,
+        ] {
+            let screen = Screen::with(system, 420.0, 780.0);
+            assert!(
+                !screen.has_icon_button(IconRole::Calculator),
+                "{system:?} should not show Apple's calculator mode button",
+            );
+        }
+    }
+
+    /// Windows' top bar places the keep-on-top button next to "Standard", matching the
+    /// Windows 11 Calculator reference.
+    #[test]
+    fn fr22_windows_top_bar_includes_compact_overlay_next_to_standard() {
+        let fluent = Screen::with(DesignSystem::Fluent, 380.0, 620.0);
+        assert!(
+            fluent.has_icon_button(IconRole::CompactOverlay),
+            "Fluent top bar should include IconRole::CompactOverlay",
+        );
+        let standard = fluent
+            .labelled("Standard")
+            .expect("Windows top bar should label Standard");
+        let bar = fluent.parents[&standard];
+        let siblings = &fluent.children[&bar];
+        let standard_at = siblings
+            .iter()
+            .position(|node| *node == standard)
+            .expect("Standard is not in its parent's children");
+        let next = siblings
+            .get(standard_at + 1)
+            .copied()
+            .expect("Windows top bar should place CompactOverlay next to Standard");
+        assert_eq!(
+            fluent.icons.get(&next).copied(),
+            Some(IconRole::CompactOverlay as u8),
+            "the control immediately after Standard should be CompactOverlay",
+        );
+
+        for system in SYSTEMS {
+            if system == DesignSystem::Fluent {
+                continue;
+            }
+            let screen = Screen::with(system, 420.0, 780.0);
+            assert!(
+                !screen.has_icon_button(IconRole::CompactOverlay),
+                "{system:?} should not show Windows' keep-on-top button",
+            );
         }
     }
 
@@ -1077,8 +1203,8 @@ mod tests {
         }
     }
 
-    /// Keys stop growing at finger size however large the window gets. Past that the room
-    /// goes to the reading area, and across it the instrument stops widening.
+    /// Keys stop growing at finger size in height however tall the window gets, and across
+    /// expanded windows the instrument stops widening beside the tape.
     ///
     /// The height bound is the keypad's share of the whole window, which is more than the
     /// keypad gets once the bar is drawn, so a key passing this is a key that is too big.
@@ -1088,7 +1214,7 @@ mod tests {
             let reference = Reference::of(system);
             for (width, height) in WINDOWS {
                 let screen = Screen::with(system, width, height);
-                let wide = width >= WindowSizeClass::MEDIUM_MIN_WIDTH_DP;
+                let wide = width >= WindowSizeClass::EXPANDED_MIN_WIDTH_DP;
                 let (rows, columns) = keypad_shape(reference, wide);
                 assert_eq!(
                     screen.keys().len(),
@@ -1105,21 +1231,21 @@ mod tests {
                     "{system:?} at {width}x{height}: keys are {key_height} dp tall",
                 );
 
-                let across = match instrument.width {
-                    Some(held) => held,
-                    None => {
-                        assert!(
-                            !wide,
-                            "{system:?} at {width}: a wide instrument is not held"
-                        );
-                        width
-                    }
-                };
-                let key_width = across / columns as f32;
-                assert!(
-                    key_width <= KEY_MAX_DP + 0.01,
-                    "{system:?} at {width}x{height}: keys are {key_width} dp wide",
-                );
+                if wide {
+                    let held = instrument.width.unwrap_or_else(|| {
+                        panic!("{system:?} at {width}: a wide instrument is not held")
+                    });
+                    let key_width = held / columns as f32;
+                    assert!(
+                        key_width <= KEY_MAX_DP + 0.01,
+                        "{system:?} at {width}x{height}: keys are {key_width} dp wide",
+                    );
+                } else {
+                    assert_eq!(
+                        instrument.width, None,
+                        "{system:?} at {width}x{height}: a non-expanded pad should fill the window",
+                    );
+                }
             }
         }
     }
