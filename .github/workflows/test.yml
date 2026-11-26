@@ -320,7 +320,7 @@ jobs:
             ~/.cache/JetBrains/Kotlin
             ~/.konan
             ~/.m2/repository
-          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin', 'renderer/scripts/build-compose.sh') }}
+          key: kotlin-${{ matrix.platform }}-${{ runner.os }}-${{ hashFiles('renderer/**/module.yaml', 'renderer/libs.versions.toml', 'renderer/kotlin') }}
           restore-keys: |
             kotlin-${{ matrix.platform }}-${{ runner.os }}-
 
@@ -336,16 +336,6 @@ jobs:
         # build-compose.sh pins.
         if: matrix.platform == 'jvm'
         run: ./renderer/scripts/publish-window.sh
-
-      - uses: actions/setup-java@v4
-        if: matrix.platform == 'wasmJs' && steps.cache-2.outputs.cache-hit != 'true'
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Publish the fork's web Compose modules
-        if: matrix.platform == 'wasmJs' && steps.cache-2.outputs.cache-hit != 'true'
-        run: ./renderer/scripts/build-compose.sh --target wasmJs
 
       - name: Build the web app bundle on its own first
         # The toolchain (Kotlin CLI 0.13.0-dev-4399) unpacks skiko's wasm runtime into one

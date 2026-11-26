@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Usage: ./scripts/build-sample-pages.sh [--debug] [output-directory]
-# First publish the pinned Compose modules with renderer/scripts/build-compose.sh --target wasmJs.
 #
 # One browser page per sample, plus an index that links them.
 #

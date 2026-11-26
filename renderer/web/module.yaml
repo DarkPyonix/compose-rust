@@ -10,11 +10,9 @@
 product: wasm-js/app
 
 repositories:
-  - mavenLocal
   - https://maven-central.storage-download.googleapis.com/maven2/
 
-# The fork's browser overlay exposes the state of a Checkbox, Switch and RadioButton.
-# Publish the pinned Wasm artifacts with `scripts/build-compose.sh --target wasmJs`.
+# The fork's published Wasm UI exposes the state of a Checkbox, Switch and RadioButton.
 apply:
   - ../compose.module-template.yaml
 

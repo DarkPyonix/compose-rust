@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Runs the web boundary tests against a real Host.
 # Usage: ./test-boundary.sh [--debug]
-# First publish the pinned Compose modules with renderer/scripts/build-compose.sh --target wasmJs.
 #
 # `./kotlin test -p wasmJs` on its own reports that the Host is missing and passes, because
 # the renderer is worked on without the other side being built. This builds the Host first,

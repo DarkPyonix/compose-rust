@@ -16,7 +16,7 @@
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
 # rewrites what the fork published.
 #
-# Usage: build-compose.sh [--target macosArm64|desktop|linux|linuxX64|linuxArm64|mingwX64|wasmJs] [--clean]
+# Usage: build-compose.sh [--target macosArm64|desktop|linux|linuxX64|linuxArm64|mingwX64] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
@@ -212,13 +212,13 @@ done
 # even when it is asked to build one. arm64 is cross compiled on an x86-64 machine, because
 # Kotlin/Native has no arm64 Linux host.
 case "$target" in
-    macosArm64|desktop|linuxX64|linuxArm64|wasmJs) publish_targets=("$target") ;;
+    macosArm64|desktop|linuxX64|linuxArm64) publish_targets=("$target") ;;
     linux) publish_targets=(linuxX64 linuxArm64) ;;
     mingwX64)
         publish_targets=(mingwX64)
         revision="$MINGW_REVISION"
         ;;
-    *) die "unknown target '$target'" "known: macosArm64, desktop, linux (both of the next two), linuxX64, linuxArm64, mingwX64, wasmJs" ;;
+    *) die "unknown target '$target'" "known: macosArm64, desktop, linux (both of the next two), linuxX64, linuxArm64, mingwX64" ;;
 esac
 
 revision="${revision:-$REVISION}"
@@ -283,4 +283,4 @@ python3 -I "$check"
 
 echo
 echo "published to $HOME/.m2/repository/org/thisisthepy/compose as $COMPOSE_AS"
-echo "the renderer reads mavenLocal first for these modules"
+echo "the renderer's macos, linux and desktop modules read mavenLocal first, so the next build links these"
