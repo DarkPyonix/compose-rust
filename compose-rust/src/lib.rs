@@ -67,7 +67,7 @@ pub mod zoom;
 pub use animation::{
     Animated, AnimationMoment, AnimationSpec, GraphicsLayer, animate_color_as_state,
     animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
-    start_animation, transition,
+    spring_settle_ms, start_animation, transition,
 };
 pub use asset::{AssetId, asset, release_asset};
 pub use boundary::{
