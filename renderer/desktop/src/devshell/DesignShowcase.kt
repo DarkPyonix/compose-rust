@@ -88,7 +88,7 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
         TypeRole.Mono to "mono 0O1lI",
     ).forEach { (role, sample) -> text(root, slot++, sample, role) }
 
-    // The four button variants, side by side.
+    // Every button variant, side by side.
     val buttons = id()
     records += Mutation.Create(buttons, WidgetKind.Row)
     records += Mutation.SetProp(buttons, PropertyKind.SpaceRole, PropertyValue.Integer(SpaceRole.Sm.ordinal + 1L))

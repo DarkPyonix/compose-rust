@@ -1070,6 +1070,11 @@ define_wire_enum!(BUTTON_VARIANT_SCHEMA, ButtonVariant {
     Outlined = 3,
     Text = 4,
     Operator = 5,
+    // Filled buttons that carry no accent anywhere: a neutral fill with body ink, and a
+    // second neutral step that stands apart from it beside it. Which one is lighter is the
+    // design system's answer.
+    Neutral = 6,
+    NeutralSecondary = 7,
 });
 
 // What a button is, independently from the visual emphasis its variant carries.
