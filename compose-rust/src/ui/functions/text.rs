@@ -3,9 +3,10 @@
 use super::{set, set_some};
 use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
+use crate::rich_text::{RichDocument, TextFormat};
 use crate::schema::{OverflowWrap, Paint, TextAlign, TextOverflow, TypeRole, WordBreak};
 use crate::spans::TextSpans;
-use crate::ui::{FocusHandle, Modifier, TextFieldHandle};
+use crate::ui::{FocusHandle, Modifier, RichTextState, TextFieldHandle};
 use crate::{KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use compose_rust_macros::Composable;
 
@@ -108,6 +109,12 @@ pub fn Text(
 /// corner clip, inner padding, minimum height or focus line. It is for a field inside a
 /// box that already draws its own frame. `read_only` keeps the field focusable and
 /// selectable, copying included, while rejecting edits and announcing it as read-only.
+///
+/// `rich` binds a [`RichTextState`](crate::ui::RichTextState) and turns on editable
+/// formatting: the Renderer keeps the character and paragraph formatting of the text,
+/// `state.format(..)` formats the selection, and `on_format` and `on_rich_change` hear the
+/// formatting at the selection and the document. Giving either handler turns formatting on
+/// too. A field with none of the three is the plain field it always was.
 #[Composable(widget)]
 pub fn TextField<'a>(
     text: impl Into<String>,
@@ -151,6 +158,13 @@ pub fn TextField<'a>(
     >,
     #[default(false)] bare: bool,
     #[default(false)] read_only: bool,
+    #[default(None::<&::compose_rust::ui::RichTextState>)] rich: impl Into<Option<&'a RichTextState>>,
+    #[default(None::<fn(::compose_rust::TextFormat)>)] on_format: Option<
+        impl FnMut(TextFormat) + 'static,
+    >,
+    #[default(None::<fn(::compose_rust::RichDocument)>)] on_rich_change: Option<
+        impl FnMut(RichDocument) + 'static,
+    >,
 ) {
     let mut scope = crate::ui::widgets::TextField()
         .modifier(modifier)
@@ -186,7 +200,12 @@ pub fn TextField<'a>(
         on_key_up,
         on_composition_change,
         on_motion_finished,
+        on_format,
+        on_rich_change,
     );
+    if let Some(state) = rich.into() {
+        scope = scope.rich(state);
+    }
     if bare {
         scope = scope.bare();
     }

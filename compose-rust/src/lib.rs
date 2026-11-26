@@ -130,6 +130,7 @@ pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
 };
+pub use ui::{RichTextState, remember_rich_text_state};
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};
 pub use windows::{

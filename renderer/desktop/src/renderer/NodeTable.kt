@@ -52,12 +52,39 @@ data class HostText(
 )
 
 /**
+ * The most the requests waiting on one rich text field may hold, in bytes: about 1 MiB.
+ *
+ * A request waits on its node until the field's rich text model takes it. Nothing takes
+ * them yet, and a field that is composing or off screen will not take them at once either,
+ * so without a limit a Host that keeps formatting or loading grows the queue for as long as
+ * the node lives. A request that does not fit behind the ones already waiting is dropped and
+ * said once, see [NodeTable.log]. A request that finds nothing waiting is always taken, so
+ * one document larger than this still loads.
+ */
+internal const val MAX_PENDING_RICH_BYTES: Long = 1024L * 1024L
+
+/** The length of a `FormatText` record. */
+private const val FORMAT_TEXT_BYTES: Long = 20L
+
+/** The length of a `SetRichText` record, without its text and its two arrays. */
+private const val SET_RICH_TEXT_BYTES: Long = 40L
+
+/**
  * Something the Host asked of a rich text field, in the order it was asked. The field's
  * rich text model takes them in turn; until then they wait on the node.
  */
 internal sealed interface RichRequest {
+    /**
+     * What the request holds while it waits, which is what counts towards
+     * [MAX_PENDING_RICH_BYTES]: its record, and for a document the text at two bytes a
+     * UTF-16 unit and the two arrays.
+     */
+    val bytes: Long
+
     /** One `FormatText`: the operation, the value it takes and, for a colour, the paint. */
-    data class Format(val op: FormatOp, val value: Int, val paint: Paint?) : RichRequest
+    data class Format(val op: FormatOp, val value: Int, val paint: Paint?) : RichRequest {
+        override val bytes: Long get() = FORMAT_TEXT_BYTES
+    }
 
     /**
      * One `SetRichText`: the document and the selection the Host gave, -1 and -1 for none.
@@ -69,7 +96,10 @@ internal sealed interface RichRequest {
         val paragraphs: ByteArray,
         val selectionStart: Int,
         val selectionEnd: Int,
-    ) : RichRequest
+    ) : RichRequest {
+        override val bytes: Long
+            get() = SET_RICH_TEXT_BYTES + 2L * text.length + characters.size + paragraphs.size
+    }
 }
 
 /**
@@ -93,11 +123,46 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     /** The handler that hears the document, or null. */
     internal val onRichTextChanged: Long? get() = handler(PropertyKind.OnRichTextChanged)
 
+    private val richQueue = ArrayList<RichRequest>()
+
     /**
      * What the Host asked of a rich text field and nothing has applied yet, oldest first.
-     * Only a field with `RichText` on gets any.
+     * Only a field with `RichText` on gets any. [queueRich] adds to it and
+     * [takePendingRich] empties it.
      */
-    internal val pendingRich = mutableListOf<RichRequest>()
+    internal val pendingRich: List<RichRequest> get() = richQueue
+
+    /** What [pendingRich] holds, in bytes, kept as requests come and go so it is never summed. */
+    internal var pendingRichBytes: Long = 0
+        private set
+
+    /** How many requests found no room since [pendingRich] was last taken. */
+    internal var droppedRich: Int = 0
+        private set
+
+    /**
+     * Adds [request] to the ones waiting, and answers whether it did. A request that does
+     * not fit in [MAX_PENDING_RICH_BYTES] behind the ones already waiting is dropped and
+     * counted. One that finds nothing waiting is taken whatever its size.
+     */
+    internal fun queueRich(request: RichRequest): Boolean {
+        if (richQueue.isNotEmpty() && pendingRichBytes + request.bytes > MAX_PENDING_RICH_BYTES) {
+            droppedRich++
+            return false
+        }
+        richQueue += request
+        pendingRichBytes += request.bytes
+        return true
+    }
+
+    /** Hands over the waiting requests, oldest first, and leaves room for new ones. */
+    internal fun takePendingRich(): List<RichRequest> {
+        val taken = richQueue.toList()
+        richQueue.clear()
+        pendingRichBytes = 0
+        droppedRich = 0
+        return taken
+    }
 
     /**
      * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
@@ -243,6 +308,13 @@ class NodeTable {
     private val codeNodes = LinkedHashMap<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
+
+    /**
+     * Where a request that was dropped for want of room is said. It is a line for whoever is
+     * developing the Host, not a protocol error: the Host did nothing the protocol forbids.
+     * Tests replace it to read what was said.
+     */
+    var log: (String) -> Unit = { line -> println(line) }
 
     /**
      * The theme each `Window` node overrides the application's with. A window with
@@ -506,10 +578,14 @@ class NodeTable {
             is Mutation.Move -> insert(mutation.parentId, mutation.nodeId, mutation.index)
             is Mutation.Remove -> remove(mutation.nodeId)
             is Mutation.SetText -> setText(mutation)
-            is Mutation.FormatText -> richNode(mutation.nodeId, "FormatText")?.pendingRich?.add(
+            is Mutation.FormatText -> queueRich(
+                mutation.nodeId,
+                "FormatText",
                 RichRequest.Format(mutation.op, mutation.value, mutation.paint),
             )
-            is Mutation.SetRichText -> richNode(mutation.nodeId, "SetRichText")?.pendingRich?.add(
+            is Mutation.SetRichText -> queueRich(
+                mutation.nodeId,
+                "SetRichText",
                 RichRequest.Load(
                     mutation.text,
                     mutation.characters,
@@ -938,6 +1014,22 @@ class NodeTable {
             return null
         }
         return node
+    }
+
+    /**
+     * Keeps [request] waiting on the rich text field [nodeId]. Where the field already
+     * holds [MAX_PENDING_RICH_BYTES] of them the request is dropped, and the first one
+     * dropped since the field last took its requests is said to [log]. The ones after it are
+     * dropped without a line each, so a Host that floods a field does not flood the log.
+     */
+    private fun queueRich(nodeId: Int, command: String, request: RichRequest) {
+        val node = richNode(nodeId, command) ?: return
+        if (node.queueRich(request) || node.droppedRich != 1) return
+        log(
+            "compose-rust: dropped $command for node $nodeId. Its field already keeps " +
+                "${node.pendingRichBytes} bytes of rich text requests waiting and the most is " +
+                "$MAX_PENDING_RICH_BYTES. Requests are dropped until the field takes them.",
+        )
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
