@@ -68,7 +68,7 @@ draws its own caption strip (`Chrome::FullSize`).
 | Notifications | A notification appears, is replaced under the same key, is withdrawn, comes back when pressed, and arrives from a worker thread while the window is minimised. The permission is shown, `Unsupported` included |
 | Native view | An AppKit text field placed with `NativeView` takes a Korean composition while the Compose field beside it stays empty. macOS only in 1.0; elsewhere the screen says so |
 | Caption strip | The bar runs under the window buttons, shows the safe area as numbers, moves the window from an empty part and from a marked box, and not from a marked chip |
-| Screen reader | Five controls with fixed names, in order: `Test button`, `Test switch`, `Test checkbox`, `Test slider`, `Test text field` |
+| Screen reader | `Test button`, `Test switch`, `Test checkbox`, `Test mixed checkbox`, `Test slider`, and `Test text field`, in order. The mixed checkbox is announced as mixed. |
 | Input method | A one-line and a multiline field, what each reported, and whether a composition is in progress |
 | About this build | The compose-rust version, the schema hash, and the commit when CI built it |
 

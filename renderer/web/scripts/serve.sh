@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Host and serves the page.
 # Usage: ./serve.sh [--port N] [--no-host] [--debug] [example]
+# First publish the pinned Compose modules with renderer/scripts/build-compose.sh --target wasmJs.
 #
 # Open http://127.0.0.1:<port>/ and the M0 screen is drawn by the Rust Host: the page
 # compiles the Host's module, the renderer's module is instantiated and creates the one

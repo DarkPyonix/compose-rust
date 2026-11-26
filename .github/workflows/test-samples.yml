@@ -910,8 +910,12 @@ jobs:
           path: |
             ~/.cache/JetBrains/Kotlin
             ~/.m2/repository
-          key: kotlin-web-${{ hashFiles('renderer/**/module.yaml') }}
+          key: kotlin-web-${{ hashFiles('renderer/**/module.yaml', 'renderer/scripts/build-compose.sh') }}
           restore-keys: kotlin-web-
+
+      - name: Publish the fork's web Compose modules
+        if: steps.cache-4.outputs.cache-hit != 'true'
+        run: ./renderer/scripts/build-compose.sh --target wasmJs
 
       - name: Build a page for every sample
         run: ./scripts/build-sample-pages.sh pages
