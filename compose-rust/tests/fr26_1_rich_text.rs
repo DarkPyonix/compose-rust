@@ -1,5 +1,5 @@
 //! Editable rich text in a `TextField`: the two commands, the two events, the records they
-//! carry and the Host API that queues the commands.
+//! carry, the markdown helper and the Host API that queues the commands.
 
 mod support;
 
@@ -526,6 +526,257 @@ fn fr26_1_a_plain_document_is_its_text_and_two_empty_lists() {
     // A paragraph may start right after a final line break, on the empty last paragraph.
     assert!(doc("a\n", vec![], vec![heading(2)]).validate().is_ok());
     assert!(doc("", vec![], vec![heading(0)]).validate().is_ok());
+}
+
+// ----- markdown --------------------------------------------------------------------------
+
+fn round_trips(document: &RichDocument) {
+    assert!(document.validate().is_ok(), "{document:?}");
+    let markdown = document.to_markdown();
+    let back = RichDocument::from_markdown(&markdown);
+    assert_eq!(&back, document, "through {markdown:?}");
+    assert!(back.validate().is_ok());
+}
+
+#[test]
+fn fr26_1_the_vector_document_round_trips_through_markdown() {
+    let document = vector_document();
+    round_trips(&document);
+    assert_eq!(
+        document.to_markdown(),
+        "# 제목\n**굵게** *<span style=\"color:#cc3300ff\">보통*</span>\n>     1. ### <u>~~항목</u>~~"
+    );
+}
+
+#[test]
+fn fr26_1_hangul_text_with_every_inline_mark_round_trips() {
+    let text = "한글 굵게 기울임 밑줄 취소선 평문";
+    let at = |word: &str| text.find(word).unwrap() as u32;
+    let run = |word: &str, f: fn(&mut CharacterRun)| {
+        let mut run = CharacterRun::new(at(word), word.len() as u32);
+        f(&mut run);
+        run
+    };
+    let document = doc(
+        text,
+        vec![
+            run("굵게", |r| r.bold = true),
+            run("기울임", |r| r.italic = true),
+            run("밑줄", |r| r.underline = true),
+            run("취소선", |r| r.strikethrough = true),
+        ],
+        vec![],
+    );
+    round_trips(&document);
+    assert_eq!(
+        document.to_markdown(),
+        "한글 **굵게** *기울임* <u>밑줄</u> ~~취소선~~ 평문"
+    );
+    // Marks that overlap, and one text with all four.
+    let all = doc(
+        "가나다",
+        vec![CharacterRun {
+            bold: true,
+            italic: true,
+            underline: true,
+            strikethrough: true,
+            ..CharacterRun::new(0, 9)
+        }],
+        vec![],
+    );
+    round_trips(&all);
+    // A bold stretch that ends where an italic one starts: `**` then `*` side by side.
+    let touching = doc(
+        "가나",
+        vec![
+            bold(0, 3),
+            CharacterRun {
+                italic: true,
+                ..CharacterRun::new(3, 3)
+            },
+        ],
+        vec![],
+    );
+    round_trips(&touching);
+}
+
+#[test]
+fn fr26_1_headings_lists_indent_and_quote_round_trip() {
+    let markdown = "# 제목\n## 머리말\n### 부머리말\n본문\n- 글머리\n* 대시\n1. 번호\n  - 안쪽\n    * 더 안쪽\n      1. 가장 안쪽\n> 인용\n>   - 인용 속 목록";
+    let document = RichDocument::from_markdown(markdown);
+    assert!(document.validate().is_ok());
+    let role = |start: usize| {
+        document
+            .paragraphs
+            .iter()
+            .find(|p| p.start as usize == start)
+            .copied()
+    };
+    let lines: Vec<&str> = document.text.split('\n').collect();
+    assert_eq!(lines.len(), 12);
+    let start_of = |line: usize| lines[..line].iter().map(|l| l.len() + 1).sum::<usize>();
+    assert_eq!(role(start_of(0)).unwrap().role, ParagraphRole::Title);
+    assert_eq!(role(start_of(1)).unwrap().role, ParagraphRole::Heading);
+    assert_eq!(role(start_of(2)).unwrap().role, ParagraphRole::Subheading);
+    assert!(
+        role(start_of(3)).is_none(),
+        "an ordinary paragraph has no record"
+    );
+    assert_eq!(role(start_of(4)).unwrap().list, ListKind::Bulleted);
+    assert_eq!(role(start_of(5)).unwrap().list, ListKind::Dashed);
+    assert_eq!(role(start_of(6)).unwrap().list, ListKind::Numbered);
+    // Nested indent: one level, two, three.
+    assert_eq!(
+        (7..10)
+            .map(|line| role(start_of(line)).unwrap().indent)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert!(role(start_of(10)).unwrap().quote);
+    let quoted_list = role(start_of(11)).unwrap();
+    assert!(quoted_list.quote);
+    assert_eq!(
+        (quoted_list.list, quoted_list.indent),
+        (ListKind::Bulleted, 1)
+    );
+    assert_eq!(document.to_markdown(), markdown);
+    round_trips(&document);
+}
+
+#[test]
+fn fr26_1_numbered_lists_are_renumbered_on_write() {
+    // Any number reads, and every list is written from 1.
+    let document = RichDocument::from_markdown(
+        "3. 하나\n7. 둘\n9. 셋\n- 점\n5. 다시\n  4. 안쪽\n  8. 안쪽 둘\n2. 바깥",
+    );
+    assert_eq!(
+        document.to_markdown(),
+        "1. 하나\n2. 둘\n3. 셋\n- 점\n1. 다시\n  1. 안쪽\n  2. 안쪽 둘\n2. 바깥"
+    );
+    // The numbers are not in the document, so they are not what a round trip keeps.
+    assert!(document.text.chars().all(|c| !c.is_ascii_digit()));
+}
+
+#[test]
+fn fr26_1_markup_characters_in_text_are_escaped_and_come_back() {
+    for text in [
+        "a*b*c ~~d~~ <u>e</u> f\\g `h`",
+        "# not a heading",
+        "> not a quote",
+        "- not a list",
+        "1. not numbered",
+        "12.5 apples",
+        " leading space",
+        "<span style=\"color:#ff0000ff\">not a span</span>",
+        "```",
+        "한글 * 한글",
+    ] {
+        round_trips(&RichDocument::plain(text));
+        // And with the same text as a list item and in bold.
+        let mut item = RichDocument::plain(text);
+        item.paragraphs.push(ParagraphFormat {
+            list: ListKind::Bulleted,
+            ..ParagraphFormat::body(0)
+        });
+        round_trips(&item);
+        let mut strong = RichDocument::plain(text);
+        strong.characters.push(bold(0, text.len() as u32));
+        round_trips(&strong);
+    }
+}
+
+#[test]
+fn fr26_1_monostyled_paragraphs_are_a_fenced_block() {
+    let markdown = "before\n```\nfn main() {\n  indented\n}\n```\nafter";
+    let document = RichDocument::from_markdown(markdown);
+    assert_eq!(document.text, "before\nfn main() {\nindented\n}\nafter");
+    assert_eq!(document.paragraphs.len(), 3);
+    assert!(
+        document
+            .paragraphs
+            .iter()
+            .all(|p| p.role == ParagraphRole::Monostyled)
+    );
+    assert_eq!(document.paragraphs[1].indent, 1);
+    assert_eq!(document.to_markdown(), markdown);
+    round_trips(&document);
+    // A block that is last closes itself, and an unclosed one reads to the end.
+    round_trips(&RichDocument::from_markdown("```\ncode"));
+    assert_eq!(
+        RichDocument::from_markdown("```\ncode").to_markdown(),
+        "```\ncode\n```"
+    );
+}
+
+#[test]
+fn fr26_1_colours_travel_as_literals_and_roles_and_brushes_are_dropped() {
+    let text = "빨강 역할 브러시";
+    let at = |word: &str| text.find(word).unwrap() as u32;
+    let coloured = |word: &str, paint| CharacterRun {
+        color: Some(paint),
+        ..CharacterRun::new(at(word), word.len() as u32)
+    };
+    let document = doc(
+        text,
+        vec![
+            coloured("빨강", Paint::Literal(Color(0x80FF_0000))),
+            coloured("역할", Paint::Role(ColorRole::Primary)),
+        ],
+        vec![],
+    );
+    round_trips(&document);
+    assert_eq!(
+        document.to_markdown(),
+        "<span style=\"color:#ff000080\">빨강</span> <span data-role=\"Primary\">역할</span> 브러시"
+    );
+    // Two colours side by side, and a colour that changes without a gap.
+    round_trips(&doc(
+        "가나",
+        vec![
+            CharacterRun {
+                color: Some(Paint::Literal(Color(0xFF00_FF00))),
+                ..CharacterRun::new(0, 3)
+            },
+            CharacterRun {
+                color: Some(Paint::Role(ColorRole::Error)),
+                ..CharacterRun::new(3, 3)
+            },
+        ],
+        vec![],
+    ));
+    // A brush has no name that outlives the Renderer, so it is left out.
+    let brush = doc(
+        "가나",
+        vec![CharacterRun {
+            color: Some(Paint::Asset(7)),
+            ..CharacterRun::new(0, 3)
+        }],
+        vec![],
+    );
+    assert_eq!(brush.to_markdown(), "가나");
+}
+
+#[test]
+fn fr26_1_empty_lines_and_edges_of_a_document() {
+    assert_eq!(RichDocument::from_markdown(""), RichDocument::plain(""));
+    assert_eq!(RichDocument::plain("").to_markdown(), "");
+    for text in ["a\n\nb", "\n", "a\n", "\n\n\n"] {
+        round_trips(&RichDocument::plain(text));
+        assert_eq!(RichDocument::plain(text).to_markdown(), text);
+    }
+    // An empty list item and an empty heading are paragraphs with no text.
+    let empty = RichDocument::from_markdown("- \n# ");
+    assert_eq!(empty.text, "\n");
+    assert_eq!(empty.paragraphs.len(), 2);
+    assert_eq!(empty.to_markdown(), "- \n# ");
+    // Windows line ends read the same.
+    assert_eq!(
+        RichDocument::from_markdown("a\r\n# b\r\n"),
+        RichDocument::from_markdown("a\n# b\n")
+    );
+    // A document that does not hold together is written as its text, never a panic.
+    let bad = doc("한글", vec![bold(1, 2)], vec![heading(1)]);
+    assert_eq!(bad.to_markdown(), "한글");
 }
 
 // ----- the Host API ----------------------------------------------------------------------
