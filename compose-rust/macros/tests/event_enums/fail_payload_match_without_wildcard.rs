@@ -66,6 +66,7 @@ fn handle(payload: &EventPayload<'_>) {
         EventPayload::NativeViewFocus { .. } => {}
         EventPayload::TextFormatAtSelection(_) => {}
         EventPayload::RichTextChanged { .. } => {}
+        EventPayload::AssetWanted { .. } => {}
     }
 }
 
