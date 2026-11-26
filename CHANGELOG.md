@@ -50,7 +50,7 @@ A git dependency on a revision after a release builds. The crate's version stays
 
 ### Rich text in a text field (wire and Rust API)
 
-A `TextField` can keep character and paragraph formatting that the Renderer owns: `TextField!(rich = &state, on_format = ..., on_rich_change = ...)` turns it on, `RichTextState::format(Format::Bold(Toggle::Flip))` formats the selection, and the field reports the formatting at the selection and its document. This adds the properties 220 to 222, the commands `FormatText` and `SetRichText`, the events `TextFormatAtSelection` and `RichTextChanged`, and the enums `FormatOp`, `ParagraphRole` and `ListKind`, so the schema hash moves; a `TextField` without `rich` sends the records it always did. The Renderer only stores the new requests for now. See [#638](https://github.com/DarkPyonix/compose-rust/issues/638).
+A `TextField` can keep character and paragraph formatting that the Renderer owns: `TextField!(rich = &state, on_format = ..., on_rich_change = ...)` turns it on, `RichTextState::format(Format::Bold(Toggle::Flip))` formats the selection, and the field reports the formatting at the selection and its document. `RichDocument` has `to_markdown()` and `from_markdown()` for storing a document. This adds the properties 220 to 222, the commands `FormatText` and `SetRichText`, the events `TextFormatAtSelection` and `RichTextChanged`, and the enums `FormatOp`, `ParagraphRole` and `ListKind`, so the schema hash moves; a `TextField` without `rich` sends the records it always did. The Renderer only stores the new requests for now. See [#638](https://github.com/DarkPyonix/compose-rust/issues/638).
 
 
 ### Widgets are functions and call macros, not builder chains

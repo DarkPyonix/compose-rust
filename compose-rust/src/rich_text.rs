@@ -10,8 +10,12 @@
 //! byte offset into the UTF-8 text, as the runs of a `Text` are. Both lists are sparse: a run
 //! is only there where the text is not plain, and a paragraph only where it is not an
 //! ordinary body paragraph, so a plain document is its text and two empty lists.
+//!
+//! [`RichDocument::to_markdown`] and [`RichDocument::from_markdown`] are a storage format
+//! for the Host's use. The Renderer never sees markdown; the boundary carries only the
+//! records described here.
 
-use crate::schema::{FormatOp, ListKind, Paint, ParagraphRole};
+use crate::schema::{ColorRole, FormatOp, ListKind, Paint, ParagraphRole};
 use std::fmt;
 
 /// Bytes of one character run record.
@@ -745,4 +749,407 @@ impl Format {
             FormatOp::Quote => Self::Quote(toggle()?),
         })
     }
+}
+
+// ----- markdown --------------------------------------------------------------------------
+//
+// The subset, one line to a paragraph (unlike CommonMark, where a blank line ends one):
+//
+//   `# `, `## `, `### `   Title, Heading, Subheading
+//   `- `                  bulleted list item
+//   `* `                  dashed list item (markdown has no dashed list; `*` stands for it)
+//   `1. `                 numbered list item; numbers are written fresh, any number reads
+//   two spaces per level  indent, before the list marker or the text
+//   `> `                  quote, before the indent
+//   ``` fenced lines      consecutive Monostyled paragraphs, one per line, each with its own
+//                         quote and indent but no list kind
+//   `**b**` `*i*` `<u>u</u>` `~~s~~`   bold, italic, underline, strikethrough
+//   `<span style="color:#RRGGBBAA">..</span>`   a literal colour
+//   `<span data-role="Primary">..</span>`       a colour role
+//
+// A brush colour has no stable name outside a running Renderer, so it is dropped. Backslash
+// escapes the characters that would otherwise mean markup: `\`, `*`, `~`, `<` and the
+// backtick everywhere, and `#`, `>`, `-`, a space and the dot after a leading number at the
+// start of a paragraph's text.
+
+impl RichDocument {
+    /// The document as markdown, for storage. Markup the subset has no word for (a brush
+    /// colour, a list kind on a monostyled paragraph) is dropped. Within the subset,
+    /// [`RichDocument::from_markdown`] gives the same document back, provided no run
+    /// crosses a line break and no two neighbouring runs look the same.
+    ///
+    /// A document that does not [`validate`](RichDocument::validate) is written as plain
+    /// text with its line breaks, since its runs and paragraphs cannot be trusted to line up
+    /// with it.
+    pub fn to_markdown(&self) -> String {
+        let valid = self.validate().is_ok();
+        let characters: &[CharacterRun] = if valid { &self.characters } else { &[] };
+        let paragraphs: &[ParagraphFormat] = if valid { &self.paragraphs } else { &[] };
+        let mut lines: Vec<String> = Vec::new();
+        let mut format_index = 0usize;
+        let mut run_index = 0usize;
+        let mut counters = [0u32; MAX_INDENT as usize + 2];
+        let mut fenced = false;
+        let mut start = 0usize;
+        loop {
+            let end = self.text[start..]
+                .find('\n')
+                .map_or(self.text.len(), |at| start + at);
+            while paragraphs
+                .get(format_index)
+                .is_some_and(|format| (format.start as usize) < start)
+            {
+                format_index += 1;
+            }
+            let format = match paragraphs.get(format_index) {
+                Some(format) if format.start as usize == start => *format,
+                _ => ParagraphFormat::body(start as u32),
+            };
+            let monostyled = format.role == ParagraphRole::Monostyled;
+            if monostyled != fenced {
+                lines.push("```".to_owned());
+                fenced = monostyled;
+            }
+            // Numbers are counted from what the paragraphs say, so a list kept in order
+            // after an insert reads 1, 2, 3 again.
+            let level = usize::from(format.indent);
+            let mut number = 0;
+            if format.list == ListKind::Numbered && !monostyled {
+                counters[level] += 1;
+                number = counters[level];
+                counters[level + 1..].fill(0);
+            } else {
+                counters[level..].fill(0);
+            }
+            let mut line = String::new();
+            if format.quote {
+                line.push_str("> ");
+            }
+            for _ in 0..format.indent {
+                line.push_str("  ");
+            }
+            if !monostyled {
+                match format.list {
+                    ListKind::None => {}
+                    ListKind::Bulleted => line.push_str("- "),
+                    ListKind::Dashed => line.push_str("* "),
+                    ListKind::Numbered => {
+                        line.push_str(&number.to_string());
+                        line.push_str(". ");
+                    }
+                }
+                match format.role {
+                    ParagraphRole::Title => line.push_str("# "),
+                    ParagraphRole::Heading => line.push_str("## "),
+                    ParagraphRole::Subheading => line.push_str("### "),
+                    ParagraphRole::Body | ParagraphRole::Monostyled => {}
+                }
+            }
+            while characters
+                .get(run_index)
+                .is_some_and(|run| (run.start + run.len) as usize <= start)
+            {
+                run_index += 1;
+            }
+            write_inline(&mut line, &self.text, start, end, &characters[run_index..]);
+            lines.push(line);
+            if end >= self.text.len() {
+                break;
+            }
+            start = end + 1;
+        }
+        if fenced {
+            lines.push("```".to_owned());
+        }
+        lines.join("\n")
+    }
+
+    /// A document from markdown in the subset [`RichDocument::to_markdown`] writes. It
+    /// reads what it can: markup it does not know stays as text, and a line it cannot make
+    /// sense of is a body paragraph.
+    pub fn from_markdown(markdown: &str) -> Self {
+        let mut document = Self::default();
+        let mut fenced = false;
+        let mut written = false;
+        for line in markdown.split('\n') {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line == "```" {
+                fenced = !fenced;
+                continue;
+            }
+            let mut rest = line;
+            let mut format = ParagraphFormat::body(0);
+            if let Some(after) = rest.strip_prefix("> ") {
+                format.quote = true;
+                rest = after;
+            }
+            let spaces = rest.bytes().take_while(|byte| *byte == b' ').count();
+            format.indent = (spaces / 2).min(usize::from(MAX_INDENT)) as u8;
+            rest = &rest[spaces..];
+            if fenced {
+                format.role = ParagraphRole::Monostyled;
+            } else {
+                if let Some(after) = rest.strip_prefix("- ") {
+                    format.list = ListKind::Bulleted;
+                    rest = after;
+                } else if let Some(after) = rest.strip_prefix("* ") {
+                    format.list = ListKind::Dashed;
+                    rest = after;
+                } else if let Some(after) = numbered_marker(rest) {
+                    format.list = ListKind::Numbered;
+                    rest = after;
+                }
+                if let Some(after) = rest.strip_prefix("### ") {
+                    format.role = ParagraphRole::Subheading;
+                    rest = after;
+                } else if let Some(after) = rest.strip_prefix("## ") {
+                    format.role = ParagraphRole::Heading;
+                    rest = after;
+                } else if let Some(after) = rest.strip_prefix("# ") {
+                    format.role = ParagraphRole::Title;
+                    rest = after;
+                }
+            }
+            if written {
+                document.text.push('\n');
+            }
+            written = true;
+            format.start = document.text.len() as u32;
+            if !format.is_default() {
+                document.paragraphs.push(format);
+            }
+            read_inline(&mut document, rest);
+        }
+        document
+    }
+}
+
+/// The text after a `12. ` marker, or none where the line does not start with one.
+fn numbered_marker(line: &str) -> Option<&str> {
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    line[digits..].strip_prefix(". ")
+}
+
+/// How the text of one paragraph looks at one place: the style bits and the colour.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Look {
+    flags: u32,
+    color: Option<Paint>,
+}
+
+impl Look {
+    fn of(run: &CharacterRun) -> Self {
+        Self {
+            flags: run.flags(),
+            // A brush has no name that outlives the Renderer that registered it.
+            color: run.color.filter(|paint| !matches!(paint, Paint::Asset(_))),
+        }
+    }
+
+    fn is_plain(&self) -> bool {
+        self.flags == 0 && self.color.is_none()
+    }
+
+    fn run(&self, start: u32, len: u32) -> CharacterRun {
+        CharacterRun {
+            start,
+            len,
+            bold: self.flags & FLAG_BOLD != 0,
+            italic: self.flags & FLAG_ITALIC != 0,
+            underline: self.flags & FLAG_UNDERLINE != 0,
+            strikethrough: self.flags & FLAG_STRIKETHROUGH != 0,
+            color: self.color,
+        }
+    }
+
+    /// Writes the marks that take the text from `self` to `next`. Bold, italic and
+    /// strikethrough are toggles when read, so the order of two marks side by side does not
+    /// matter.
+    fn transition(&self, next: &Look, out: &mut String) {
+        let changed = self.flags ^ next.flags;
+        if changed & FLAG_BOLD != 0 {
+            out.push_str("**");
+        }
+        if changed & FLAG_ITALIC != 0 {
+            out.push('*');
+        }
+        if changed & FLAG_UNDERLINE != 0 {
+            out.push_str(if self.flags & FLAG_UNDERLINE != 0 {
+                "</u>"
+            } else {
+                "<u>"
+            });
+        }
+        if changed & FLAG_STRIKETHROUGH != 0 {
+            out.push_str("~~");
+        }
+        if self.color != next.color {
+            if self.color.is_some() {
+                out.push_str("</span>");
+            }
+            match next.color {
+                Some(Paint::Literal(color)) => {
+                    let argb = color.0;
+                    out.push_str(&format!(
+                        "<span style=\"color:#{:02x}{:02x}{:02x}{:02x}\">",
+                        (argb >> 16) & 0xff,
+                        (argb >> 8) & 0xff,
+                        argb & 0xff,
+                        argb >> 24
+                    ));
+                }
+                Some(Paint::Role(role)) => {
+                    out.push_str(&format!("<span data-role=\"{role:?}\">"));
+                }
+                Some(Paint::Asset(_)) | None => {}
+            }
+        }
+    }
+}
+
+/// What `push_escaped` needs to know about the paragraph's text so far.
+struct EscapeState {
+    written: usize,
+    only_digits: bool,
+}
+
+/// Writes the paragraph `text[start..end]` with the runs that touch it, clipped to it.
+fn write_inline(out: &mut String, text: &str, start: usize, end: usize, runs: &[CharacterRun]) {
+    let mut state = EscapeState {
+        written: 0,
+        only_digits: true,
+    };
+    let mut at = start;
+    let mut look = Look::default();
+    let mut index = 0;
+    while at < end {
+        let mut next = end;
+        let mut now = Look::default();
+        while runs
+            .get(index)
+            .is_some_and(|run| (run.start + run.len) as usize <= at)
+        {
+            index += 1;
+        }
+        if let Some(run) = runs.get(index) {
+            let (run_start, run_end) = (run.start as usize, (run.start + run.len) as usize);
+            if run_start <= at {
+                now = Look::of(run);
+                next = next.min(run_end);
+            } else {
+                next = next.min(run_start);
+            }
+        }
+        look.transition(&now, out);
+        for character in text[at..next].chars() {
+            push_escaped(out, character, &mut state);
+        }
+        look = now;
+        at = next;
+    }
+    look.transition(&Look::default(), out);
+}
+
+/// Writes one character of text, backslash first where it would otherwise be markup.
+fn push_escaped(out: &mut String, character: char, state: &mut EscapeState) {
+    let always = matches!(character, '\\' | '*' | '~' | '<' | '`');
+    // At the start of the text a marker character would make a heading, a quote or a list
+    // item, and a space would be read as indent.
+    let at_start = state.written == 0 && matches!(character, '#' | '>' | '-' | ' ');
+    // `1. ` is a list marker, so the dot after a number that starts the text is escaped.
+    let number_dot = character == '.' && state.written > 0 && state.only_digits;
+    if always || at_start || number_dot {
+        out.push('\\');
+    }
+    out.push(character);
+    state.only_digits &= character.is_ascii_digit();
+    state.written += 1;
+}
+
+/// Appends one character to the document, in the run it belongs to.
+fn push_char(document: &mut RichDocument, look: &Look, character: char) {
+    let start = document.text.len();
+    document.text.push(character);
+    if look.is_plain() {
+        return;
+    }
+    let len = character.len_utf8() as u32;
+    if let Some(last) = document.characters.last_mut() {
+        if (last.start + last.len) as usize == start && Look::of(last) == *look {
+            last.len += len;
+            return;
+        }
+    }
+    document.characters.push(look.run(start as u32, len));
+}
+
+/// Reads the text of one paragraph: escapes, marks and colour spans.
+fn read_inline(document: &mut RichDocument, line: &str) {
+    let mut look = Look::default();
+    let mut rest = line;
+    while let Some(first) = rest.chars().next() {
+        if first == '\\' {
+            let escaped = rest[1..]
+                .chars()
+                .next()
+                .filter(|next| next.is_ascii_punctuation() || *next == ' ');
+            match escaped {
+                Some(next) => {
+                    push_char(document, &look, next);
+                    rest = &rest[1 + next.len_utf8()..];
+                }
+                None => {
+                    push_char(document, &look, '\\');
+                    rest = &rest[1..];
+                }
+            }
+        } else if let Some(after) = rest.strip_prefix("**") {
+            look.flags ^= FLAG_BOLD;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix('*') {
+            look.flags ^= FLAG_ITALIC;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("~~") {
+            look.flags ^= FLAG_STRIKETHROUGH;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("<u>") {
+            look.flags |= FLAG_UNDERLINE;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("</u>") {
+            look.flags &= !FLAG_UNDERLINE;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("</span>") {
+            look.color = None;
+            rest = after;
+        } else if let Some((paint, after)) = read_span_open(rest) {
+            look.color = Some(paint);
+            rest = after;
+        } else {
+            push_char(document, &look, first);
+            rest = &rest[first.len_utf8()..];
+        }
+    }
+}
+
+/// A `<span ...>` that sets a colour, read from the start of `text`: the colour and what
+/// follows the tag.
+fn read_span_open(text: &str) -> Option<(Paint, &str)> {
+    if let Some(after) = text.strip_prefix("<span style=\"color:#") {
+        let digits = after.get(..8)?;
+        if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        let rgba = u32::from_str_radix(digits, 16).ok()?;
+        let argb = rgba.rotate_right(8);
+        let after = after[8..].strip_prefix("\">")?;
+        return Some((Paint::Literal(crate::schema::Color(argb)), after));
+    }
+    let after = text.strip_prefix("<span data-role=\"")?;
+    let end = after.find('"')?;
+    let role = ColorRole::from_name(&after[..end]).ok()?;
+    let after = after[end..].strip_prefix("\">")?;
+    Some((Paint::Role(role), after))
 }
