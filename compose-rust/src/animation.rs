@@ -267,6 +267,172 @@ impl AnimationSpec {
             timing,
         }
     }
+
+    /// Compose's `spring(dampingRatio, stiffness)`, starting at once.
+    ///
+    /// The length is the time the spring takes to settle, from [`spring_settle_ms`], so
+    /// the change moves at the speed Compose's spring of the same stiffness and damping
+    /// would. Below a damping ratio of 1 it overshoots its target and comes back. Both
+    /// numbers have to be finite and positive; anything else is refused by the Renderer
+    /// as a protocol error.
+    pub fn spring(stiffness: f32, damping_ratio: f32) -> Self {
+        Self {
+            duration_ms: spring_settle_ms(stiffness, damping_ratio),
+            delay_ms: 0.0,
+            timing: crate::schema::Timing::Spring {
+                stiffness,
+                damping_ratio,
+            },
+        }
+    }
+}
+
+/// How long, in ms, a spring of mass 1 that starts at rest at 0 takes to come within
+/// 0.001 of 1 and stay there.
+///
+/// This is Compose's `estimateAnimationDurationMillis` with a visibility threshold of
+/// 0.001, followed step for step, so that a `Timing::Spring` stretched over this length
+/// moves the way Compose's own spring does. The Renderer computes the same number from
+/// the same two values, which is why it never travels on the wire. Unlike Compose's
+/// estimate, the fraction of a millisecond is kept.
+///
+/// A stiffness or damping ratio that is not finite and positive has no settle time; the
+/// result is then not a meaningful length.
+pub fn spring_settle_ms(stiffness: f32, damping_ratio: f32) -> f32 {
+    // Compose measures the distance in units of the threshold: the spring starts a
+    // thousand of them away and has settled once it stays within one.
+    const THRESHOLD: f64 = 0.001;
+    let stiffness = f64::from(stiffness);
+    let damping_ratio = f64::from(damping_ratio);
+    let p0 = 1.0 / THRESHOLD;
+    let v0 = 0.0;
+    let delta = 1.0;
+
+    // The roots of x^2 + c x + k = 0, the first of which may be complex.
+    let damping = 2.0 * damping_ratio * stiffness.sqrt();
+    let partial = damping * damping - 4.0 * stiffness;
+    let (partial_real, partial_imaginary) = if partial < 0.0 {
+        (0.0, partial.abs().sqrt())
+    } else {
+        (partial.sqrt(), 0.0)
+    };
+    let first_real = (-damping + partial_real) * 0.5;
+    let first_imaginary = partial_imaginary * 0.5;
+    let second_real = (-damping - partial_real) * 0.5;
+
+    let seconds = if damping_ratio > 1.0 {
+        spring_over_damped(first_real, second_real, p0, v0, delta)
+    } else if damping_ratio < 1.0 {
+        spring_under_damped(first_real, first_imaginary, p0, v0, delta)
+    } else {
+        spring_critically_damped(first_real, p0, v0, delta)
+    };
+    (seconds * 1000.0) as f32
+}
+
+fn spring_under_damped(r: f64, imaginary: f64, p0: f64, v0: f64, delta: f64) -> f64 {
+    let c1 = p0;
+    let c2 = (v0 - r * c1) / imaginary;
+    let c = (c1 * c1 + c2 * c2).sqrt();
+    (delta / c).ln() / r
+}
+
+fn spring_critically_damped(r: f64, p0: f64, v0: f64, delta: f64) -> f64 {
+    let c1 = p0;
+    let c2 = v0 - r * c1;
+
+    // The first guess is the later of c1 e^(rt) = delta and c2 t e^(rt) = delta, the
+    // second solved with a few rounds of Lambert's W.
+    let t1 = (delta / c1).abs().ln() / r;
+    let t2 = {
+        let guess = (delta / c2).abs().ln();
+        let mut t = guess;
+        for _ in 0..=5 {
+            t = guess - (t / r).abs().ln();
+        }
+        t
+    } / r;
+    let mut t = if !t1.is_finite() {
+        t2
+    } else if !t2.is_finite() {
+        t1
+    } else {
+        t1.max(t2)
+    };
+
+    // Where the curve bends matters when it bends after the start.
+    let t_inflection = -(r * c1 + c2) / (r * c2);
+    let x_inflection = c1 * (r * t_inflection).exp() + c2 * t_inflection * (r * t_inflection).exp();
+    let signed_delta = if t_inflection.is_nan() || t_inflection <= 0.0 {
+        -delta
+    } else if -x_inflection < delta {
+        if c2 < 0.0 && c1 > 0.0 {
+            t = 0.0;
+        }
+        -delta
+    } else {
+        // Three crossings of the threshold: start between the change of concavity and the
+        // inflection, so that Newton's method lands on the last one.
+        t = -(2.0 / r) - (c1 / c2);
+        delta
+    };
+
+    let mut step = f64::MAX;
+    let mut iterations = 0;
+    while step > 0.001 && iterations < 100 {
+        iterations += 1;
+        let last = t;
+        let value = (c1 + c2 * t) * (r * t).exp() + signed_delta;
+        let slope = (c2 * (r * t + 1.0) + c1 * r) * (r * t).exp();
+        t -= value / slope;
+        step = (last - t).abs();
+    }
+    t
+}
+
+fn spring_over_damped(r1: f64, r2: f64, p0: f64, v0: f64, delta: f64) -> f64 {
+    let c2 = (r1 * p0 - v0) / (r1 - r2);
+    let c1 = p0 - c2;
+
+    // The first guess is the later of c1 e^(r1 t) = delta and c2 e^(r2 t) = delta.
+    let t1 = (delta / c1).abs().ln() / r1;
+    let t2 = (delta / c2).abs().ln() / r2;
+    let mut t = if !t1.is_finite() {
+        t2
+    } else if !t2.is_finite() {
+        t1
+    } else {
+        t1.max(t2)
+    };
+
+    let t_inflection = ((c1 * r1) / (-c2 * r2)).ln() / (r2 - r1);
+    let x_inflection = c1 * (r1 * t_inflection).exp() + c2 * (r2 * t_inflection).exp();
+    let signed_delta = if t_inflection.is_nan() || t_inflection <= 0.0 {
+        -delta
+    } else if -x_inflection < delta {
+        if c2 > 0.0 && c1 < 0.0 {
+            t = 0.0;
+        }
+        -delta
+    } else {
+        t = (-(c2 * r2 * r2) / (c1 * r1 * r1)).ln() / (r1 - r2);
+        delta
+    };
+
+    let slope_at = |t: f64| c1 * r1 * (r1 * t).exp() + c2 * r2 * (r2 * t).exp();
+    if slope_at(t).abs() < 0.0001 {
+        return t;
+    }
+    let mut step = f64::MAX;
+    let mut iterations = 0;
+    while step > 0.001 && iterations < 100 {
+        iterations += 1;
+        let last = t;
+        let value = c1 * (r1 * t).exp() + c2 * (r2 * t).exp() + signed_delta;
+        t -= value / slope_at(t);
+        step = (last - t).abs();
+    }
+    t
 }
 
 impl Default for AnimationSpec {
@@ -444,6 +610,14 @@ pub(crate) fn animated_bytes(target: &[u32], spec: &AnimationSpec) -> Vec<u8> {
             out.extend_from_slice(&count.to_le_bytes());
             out.extend_from_slice(&u16::from(position).to_le_bytes());
         }
+        Timing::Spring {
+            stiffness,
+            damping_ratio,
+        } => {
+            out.push(4);
+            out.extend_from_slice(&stiffness.to_le_bytes());
+            out.extend_from_slice(&damping_ratio.to_le_bytes());
+        }
     }
     out
 }
@@ -477,6 +651,10 @@ pub(crate) fn read_animated(bytes: &[u8]) -> Option<(Vec<u32>, AnimationSpec)> {
                 bytes.get(at + 13..at + 15)?.try_into().ok()?,
             ))
             .ok()?,
+        },
+        4 => Timing::Spring {
+            stiffness: float(at + 9)?,
+            damping_ratio: float(at + 13)?,
         },
         _ => return None,
     };

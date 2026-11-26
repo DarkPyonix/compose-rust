@@ -108,7 +108,8 @@ internal class Transform3DPlan {
 
     /**
      * Works out how [m], sixteen values in the column-major order of CSS `matrix3d`, is
-     * drawn. Allocates only the intermediate arithmetic, none of it kept.
+     * drawn. Allocates nothing, so a matrix an animation changes every frame can be solved
+     * again in the layer phase of every frame.
      */
     fun solve(m: FloatArray, backfaceHidden: Boolean) {
         kind = Kind.Hidden
@@ -138,7 +139,7 @@ internal class Transform3DPlan {
             affine[4] = tx.toFloat()
             affine[5] = ty.toFloat()
             affineOneLayer = AffineParts.isOneLayer(affine[0], affine[1], affine[2], affine[3])
-            kind = if (affine.all { it.isFinite() }) Kind.Affine else Kind.Hidden
+            kind = if (allFinite(affine)) Kind.Affine else Kind.Hidden
             return
         }
         if (solveSingleLayer(a00, a01, a10, a11, g, h, tx, ty)) return
@@ -189,12 +190,16 @@ internal class Transform3DPlan {
             x = 0.0
             z = atan2(q01, q11)
         }
-        val results = floatArrayOf(
-            degrees(x), degrees(asin(sinY)), degrees(z),
-            length0.toFloat(), length1.toFloat(), distance.toFloat(),
-            tx.toFloat(), ty.toFloat(),
-        )
-        if (!results.all { it.isFinite() }) return false
+        val results = scratch
+        results[0] = degrees(x)
+        results[1] = degrees(asin(sinY))
+        results[2] = degrees(z)
+        results[3] = length0.toFloat()
+        results[4] = length1.toFloat()
+        results[5] = distance.toFloat()
+        results[6] = tx.toFloat()
+        results[7] = ty.toFloat()
+        if (!allFinite(results, 8)) return false
         rotationX = results[0]
         rotationY = results[1]
         rotationZ = results[2]
@@ -237,11 +242,17 @@ internal class Transform3DPlan {
         val n01 = (cosX * a01 - sinY * sinX * a11) / determinant
         val n10 = cosY * a10 / determinant
         val n11 = cosY * a11 / determinant
-        val results = floatArrayOf(
-            degrees(asin(sinX)), degrees(asin(sinY)), distance.toFloat(),
-            n00.toFloat(), n01.toFloat(), n10.toFloat(), n11.toFloat(), tx.toFloat(), ty.toFloat(),
-        )
-        if (!results.all { it.isFinite() }) return
+        val results = scratch
+        results[0] = degrees(asin(sinX))
+        results[1] = degrees(asin(sinY))
+        results[2] = distance.toFloat()
+        results[3] = n00.toFloat()
+        results[4] = n01.toFloat()
+        results[5] = n10.toFloat()
+        results[6] = n11.toFloat()
+        results[7] = tx.toFloat()
+        results[8] = ty.toFloat()
+        if (!allFinite(results, 9)) return
         rotationX = results[0]
         rotationY = results[1]
         rotationZ = 0f
@@ -256,6 +267,14 @@ internal class Transform3DPlan {
     }
 
     private fun degrees(radians: Double): Float = (radians * 180.0 / PI).toFloat()
+
+    /** Where a solve collects its results before checking them, made once with the plan. */
+    private val scratch = FloatArray(9)
+
+    private fun allFinite(values: FloatArray, count: Int = values.size): Boolean {
+        for (index in 0 until count) if (!values[index].isFinite()) return false
+        return true
+    }
 
     private companion object {
         const val ORTHOGONAL_TOLERANCE = 1e-4
@@ -288,6 +307,56 @@ internal fun Modifier.perspectiveTransform(plan: Transform3DPlan, originX: Float
         Transform3DPlan.Kind.Stacked -> affineTransform(originX, originY, plan.affineOneLayer) { matrix ->
             plan.affine.copyInto(matrix)
         }.graphicsLayer { perspectiveLayer(plan, origin) }
+    }
+}
+
+/**
+ * Draws this node and its content through a matrix that may change every frame: [plan] is
+ * asked for the solution of the matrix shown now, in the layer phase, and the layers stay
+ * the same whatever kind of solution it is. That costs a layer or two more than
+ * [perspectiveTransform] for a still matrix, and it is what lets an animation move the
+ * matrix without composing or measuring the node again.
+ *
+ * Every kind fits the one shape: the affine layers outside, a perspective layer inside.
+ * [Transform3DPlan.Kind.Affine] leaves the perspective layer at rest,
+ * [Transform3DPlan.Kind.Single] leaves the affine layers at the identity,
+ * [Transform3DPlan.Kind.Stacked] uses both as [perspectiveTransform] does, and
+ * [Transform3DPlan.Kind.Hidden] scales the inner layer to nothing.
+ */
+internal fun Modifier.changingPerspectiveTransform(
+    originX: Float,
+    originY: Float,
+    plan: () -> Transform3DPlan,
+): Modifier {
+    val origin = TransformOrigin(originX, originY)
+    return affineTransform(originX, originY, false) { matrix ->
+        val solved = plan()
+        if (solved.kind == Transform3DPlan.Kind.Affine || solved.kind == Transform3DPlan.Kind.Stacked) {
+            solved.affine.copyInto(matrix)
+        } else {
+            matrix[0] = 1f; matrix[1] = 0f; matrix[2] = 0f; matrix[3] = 1f; matrix[4] = 0f; matrix[5] = 0f
+        }
+    }.graphicsLayer {
+        val solved = plan()
+        // Every property is set every time, so nothing one kind wrote lingers into the next.
+        transformOrigin = origin
+        alpha = 1f
+        translationX = 0f
+        translationY = 0f
+        rotationX = 0f
+        rotationY = 0f
+        rotationZ = 0f
+        scaleX = 1f
+        scaleY = 1f
+        when (solved.kind) {
+            Transform3DPlan.Kind.Hidden -> {
+                alpha = 0f
+                scaleX = 0f
+                scaleY = 0f
+            }
+            Transform3DPlan.Kind.Affine -> Unit
+            Transform3DPlan.Kind.Single, Transform3DPlan.Kind.Stacked -> perspectiveLayer(solved, origin)
+        }
     }
 }
 

@@ -1352,12 +1352,15 @@ define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
 // its `color` property, its first `Background`, its first `Transform`, and the colour of
 // every side of its first `Border` or `BorderEach`. A container's `color` is the colour
 // the text inside it inherits, so one animation on it recolours all of that text.
+// `Transform3D` is the 4x4 matrix of the node's first `Transform3D`: a 3D transform
+// arrives folded into one matrix, so it is animated as a matrix rather than a list.
 define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
     Alpha = 1,
     Color = 2,
     Background = 3,
     Transform = 4,
     BorderColor = 5,
+    Transform3D = 6,
 });
 
 define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
@@ -1390,6 +1393,7 @@ define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
     Linear = 1,
     CubicBezier = 2,
     Steps = 3,
+    Spring = 4,
 });
 
 define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
@@ -2991,6 +2995,15 @@ pub enum Timing {
         count: u32,
         position: StepPosition,
     },
+    /// Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and
+    /// settles at 1. The segment's progress `u` is the time `u * T`, where `T` is how long
+    /// the spring takes to come within 0.001 of 1 and stay there, so the curve ends at
+    /// exactly 1. Below a damping ratio of 1 it overshoots. Both numbers are finite and
+    /// positive.
+    Spring {
+        stiffness: f32,
+        damping_ratio: f32,
+    },
 }
 
 /// One CSS transform function: its kind and up to six values, the unused ones zero.
@@ -3049,6 +3062,9 @@ pub enum KeyframeValue {
     Paint(Paint),
     /// A list of functions, the same kinds in the same order in every keyframe.
     Transform(std::borrow::Cow<'static, [TransformFunction]>),
+    /// For `Transform3D`: a 4x4 matrix, column-major like `Modifier::Transform3D`'s `m`
+    /// (`m[4 * column + row]`).
+    Matrix3D([f32; 16]),
 }
 
 #[derive(Clone, Debug, PartialEq)]

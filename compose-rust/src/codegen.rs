@@ -288,6 +288,13 @@ sealed interface Timing {
 
     /** CSS `steps(count, position)`. */
     data class Steps(val count: Int, val position: StepPosition) : Timing
+
+    /**
+     * Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and settles
+     * at 1, stretched so that the segment ends when it has settled. Overshoots below a
+     * damping ratio of 1. Both values are finite and positive.
+     */
+    data class Spring(val stiffness: kotlin.Float, val dampingRatio: kotlin.Float) : Timing
 }
 
 /**
@@ -314,6 +321,18 @@ sealed interface KeyframeValue {
 
     /** The same kinds in the same order in every keyframe of one animation. */
     data class Transform(val functions: List<TransformFunction>) : KeyframeValue
+
+    /**
+     * For `Transform3D`: sixteen values, column-major like the `Transform3D` modifier's
+     * (`m[4 * column + row]`). Compared by content, as a data class would.
+     */
+    class Matrix3D(val m: FloatArray) : KeyframeValue {
+        override fun equals(other: Any?): Boolean = other is Matrix3D && m.contentEquals(other.m)
+
+        override fun hashCode(): Int = m.contentHashCode()
+
+        override fun toString(): String = "Matrix3D(m=${m.contentToString()})"
+    }
 }
 
 data class Keyframe(
@@ -1068,6 +1087,8 @@ object Protocol {
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
     private const val TRANSFORM_FUNCTION_LENGTH = 28
+    /** A `Transform3D` keyframe's value: sixteen `f32`. */
+    private const val MATRIX3D_VALUE_LENGTH = 64
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
 
@@ -2922,6 +2943,11 @@ object Protocol {
         if (iterations.isNaN() || iterations < 0f) bad("iteration count $iterations", start + 36)
         if (!originX.isFinite() || !originY.isFinite()) bad("origin", start + 40)
         if (events and 0xf.inv() != 0) bad("event bits $events", start + 48)
+        // A 3D matrix animation turns about its base modifier's origin; one here as well
+        // would leave two answers to which one wins.
+        if (property == AnimatedProperty.Transform3D && (originX != 0f || originY != 0f)) {
+            bad("a Transform3D animation takes its origin from its modifier, not the record", start + 40)
+        }
         val keyframes = ArrayList<Keyframe>(keyframeCount)
         var at = start + ANIMATION_HEADER_LENGTH
         for (index in 0 until keyframeCount) {
@@ -2948,6 +2974,18 @@ object Protocol {
                     val least = if (position == StepPosition.JumpNone) 2L else 1L
                     if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
                     Timing.Steps(count.toInt(), position)
+                }
+                TimingKind.Spring -> {
+                    val stiffness = float(at + 8)
+                    val dampingRatio = float(at + 12)
+                    if (!(stiffness.isFinite() && stiffness > 0f) || !(dampingRatio.isFinite() && dampingRatio > 0f)) {
+                        bad("spring(stiffness $stiffness, damping ratio $dampingRatio)", at + 8)
+                    }
+                    if (readU32(batch, base, available, at + 16) != 0L || readU32(batch, base, available, at + 20) != 0L) {
+                        bad("a spring has two values and the last two numbers must be zero", at + 16)
+                    }
+                    if (readU8(batch, base, available, at + 5) != 0) bad("a spring has no step position", at + 5)
+                    Timing.Spring(stiffness, dampingRatio)
                 }
             }
             if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
@@ -2982,6 +3020,13 @@ object Protocol {
                     }
                     value = KeyframeValue.Transform(functions)
                     at = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * count
+                }
+                AnimatedProperty.Transform3D -> {
+                    if (valueAt + MATRIX3D_VALUE_LENGTH > end) bad("matrix runs past the record", valueAt)
+                    val m = FloatArray(16) { float(valueAt + 4 * it) }
+                    if (!m.all { it.isFinite() }) bad("matrix values", valueAt)
+                    value = KeyframeValue.Matrix3D(m)
+                    at = valueAt + MATRIX3D_VALUE_LENGTH
                 }
             }
             keyframes += Keyframe(keyframeOffset, timing, flags != 0, value)
@@ -3529,6 +3574,60 @@ fn vector_transform(
             KeyframeValue::Transform(std::borrow::Cow::Borrowed(to)),
         ],
     )
+}
+
+const VECTOR_MATRIX3D_IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, //
+    0.0, 1.0, 0.0, 0.0, //
+    0.0, 0.0, 1.0, 0.0, //
+    0.0, 0.0, 0.0, 1.0,
+];
+/// A column-major matrix with a perspective term and a translation, every column
+/// different, so a value read from the wrong cell cannot pass.
+const VECTOR_MATRIX3D: [f32; 16] = [
+    0.75, 0.0, -0.5, 0.00125, //
+    0.0, 1.0, 0.0, 0.0, //
+    0.5, 0.0, 0.75, -0.0025, //
+    12.0, -6.0, 3.0, 1.0,
+];
+
+/// An opacity animation timed by a spring: stiffness 1500 and damping ratio 0.5 from the
+/// first keyframe to the last, then linear. Its length is the spring's settle time.
+fn vector_spring_animation() -> Animation<'static> {
+    Animation {
+        node_id: 2,
+        animation_id: 11,
+        property: AnimatedProperty::Alpha,
+        slot: 2,
+        direction: PlaybackDirection::Normal,
+        fill: FillMode::Forwards,
+        play_state: PlayState::Running,
+        interpolation: None,
+        start_time_nanos: 0,
+        delay_ms: 0.0,
+        duration_ms: 364.0,
+        iterations: 1.0,
+        origin_x: 0.0,
+        origin_y: 0.0,
+        events: AnimationEvents::END,
+        keyframes: std::borrow::Cow::Owned(vec![
+            Keyframe {
+                offset: 0.0,
+                timing: Timing::Spring {
+                    stiffness: 1500.0,
+                    damping_ratio: 0.5,
+                },
+                from_presented: false,
+                value: KeyframeValue::Alpha(0.0),
+            },
+            Keyframe {
+                offset: 1.0,
+                timing: Timing::Linear,
+                from_presented: false,
+                value: KeyframeValue::Alpha(1.0),
+            },
+        ]),
+    }
 }
 
 /// The little-endian bytes of some `f32`, the layout a window's size, position and drag
@@ -4566,6 +4665,19 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             paragraphs: &rich_paragraphs,
             selection: Some(Selection { start: 7, end: 13 }),
         },
+        // A spring segment and a 3D matrix animation, after every older record so none of
+        // them moves. Node 2 again, which the vector never creates.
+        Mutation::StartAnimation(vector_spring_animation()),
+        Mutation::StartAnimation(vector_animation(
+            2,
+            12,
+            AnimatedProperty::Transform3D,
+            0,
+            [
+                KeyframeValue::Matrix3D(VECTOR_MATRIX3D_IDENTITY),
+                KeyframeValue::Matrix3D(VECTOR_MATRIX3D),
+            ],
+        )),
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -5117,7 +5229,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 154,
+    "recordCount": 160,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
