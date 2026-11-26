@@ -1,6 +1,9 @@
-//! Editable rich text in a `TextField`: the two commands, the two events and the records
-//! they carry.
+//! Editable rich text in a `TextField`: the two commands, the two events, the records they
+//! carry and the Host API that queues the commands.
 
+mod support;
+
+use compose_rust::ComposeHost;
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, ProtocolError, decode_batch, decode_event, encode_event,
 };
@@ -12,6 +15,9 @@ use compose_rust::schema::{
     Color, ColorRole, EventPayload, FormatOp, ListKind, Paint, ParagraphRole, PropertyKind,
     Selection,
 };
+use compose_rust::ui::*;
+use std::sync::{Arc, Mutex};
+use support::Tree;
 
 // ----- helpers ---------------------------------------------------------------------------
 
@@ -520,4 +526,424 @@ fn fr26_1_a_plain_document_is_its_text_and_two_empty_lists() {
     // A paragraph may start right after a final line break, on the empty last paragraph.
     assert!(doc("a\n", vec![], vec![heading(2)]).validate().is_ok());
     assert!(doc("", vec![], vec![heading(0)]).validate().is_ok());
+}
+
+// ----- the Host API ----------------------------------------------------------------------
+
+fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree, Vec<u8>) {
+    let mut host = ComposeHost::with_content(content);
+    let mut tree = Tree::default();
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    tree.apply(&batch);
+    (host, tree, batch)
+}
+
+fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str) -> Vec<u8> {
+    let (node_id, handler_id) = tree.find("Button", Some(label), 0, PropertyKind::OnClick);
+    let (batch, _) = host
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
+        .expect("the click is accepted");
+    let batch = batch.to_vec();
+    tree.apply(&batch);
+    batch
+}
+
+/// The `FormatText` records of a batch, with the node each is for.
+fn format_records(batch: &[u8]) -> Vec<(u32, FormatOp, u16, Option<Paint>)> {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::FormatText {
+                node_id,
+                op,
+                value,
+                paint,
+            } => Some((node_id, op, value, paint)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn loads(batch: &[u8]) -> Vec<(u32, String)> {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetRichText { node_id, text, .. } => Some((node_id, text.to_owned())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn fr26_1_a_field_without_rich_writes_no_rich_text_property() {
+    let (_host, _tree, batch) = start(|| {
+        TextField!("hello", |_| {}, placeholder = "p", read_only = true);
+    });
+    for mutation in decode_batch(&batch).unwrap() {
+        if let Mutation::SetProp { property, .. } = mutation {
+            assert!(
+                !matches!(
+                    property,
+                    PropertyKind::RichText
+                        | PropertyKind::OnTextFormat
+                        | PropertyKind::OnRichTextChanged
+                ),
+                "{property:?} was written for a field that is not rich"
+            );
+        }
+    }
+}
+
+#[test]
+fn fr26_1_a_rich_field_writes_the_property_and_its_two_listeners() {
+    let (_host, tree, batch) = start(|| {
+        let state = remember_rich_text_state();
+        TextField!("hello", |_| {}, rich = &state);
+    });
+    let properties: Vec<_> = decode_batch(&batch)
+        .unwrap()
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetProp {
+                property, value, ..
+            } => Some((property, value)),
+            _ => None,
+        })
+        .collect();
+    assert!(properties.iter().any(|(property, value)| {
+        *property == PropertyKind::RichText
+            && *value == compose_rust::protocol::PropertyValue::Bool(true)
+    }));
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnTextFormat).len(),
+        1
+    );
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnRichTextChanged)
+            .len(),
+        1
+    );
+}
+
+/// Whether a batch turns `RichText` on for a node.
+fn turns_rich_text_on(batch: &[u8]) -> bool {
+    decode_batch(batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::SetProp {
+                    property: PropertyKind::RichText,
+                    value: compose_rust::protocol::PropertyValue::Bool(true),
+                    ..
+                }
+            )
+        })
+}
+
+#[test]
+fn fr26_1_a_handler_without_rich_turns_rich_text_on() {
+    // The formatting at the selection only comes from a field that keeps formatting, so
+    // asking to hear it is asking for a rich field. No state is bound, so the document,
+    // which nobody hears, gets no listener.
+    let (_host, tree, batch) = start(|| {
+        TextField!("", |_| {}, on_format = Some(|_: TextFormat| {}));
+    });
+    assert!(
+        turns_rich_text_on(&batch),
+        "on_format alone is a rich field"
+    );
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnTextFormat).len(),
+        1
+    );
+    assert!(
+        tree.handled("TextField", PropertyKind::OnRichTextChanged)
+            .is_empty()
+    );
+
+    // The same for the document.
+    let (_host, tree, batch) = start(|| {
+        TextField!("", |_| {}, on_rich_change = Some(|_: RichDocument| {}));
+    });
+    assert!(
+        turns_rich_text_on(&batch),
+        "on_rich_change alone is a rich field"
+    );
+    assert_eq!(
+        tree.handled("TextField", PropertyKind::OnRichTextChanged)
+            .len(),
+        1
+    );
+    assert!(
+        tree.handled("TextField", PropertyKind::OnTextFormat)
+            .is_empty()
+    );
+
+    // A field with neither handler and no state stays plain.
+    let (_host, _tree, batch) = start(|| {
+        TextField!("", |_| {});
+    });
+    assert!(!turns_rich_text_on(&batch));
+}
+
+#[test]
+fn fr26_1_format_writes_exactly_one_format_text_record_in_the_next_batch() {
+    let (mut host, mut tree, first) = start(|| {
+        let state = remember_rich_text_state();
+        let bold = state.clone();
+        Column!({
+            TextField!("", |_| {}, rich = &state);
+            Button!("Bold", move || bold.format(Format::Bold(Toggle::Flip)));
+        });
+    });
+    assert!(format_records(&first).is_empty(), "nothing was asked yet");
+    let (field, _) = tree.find("TextField", None, 0, PropertyKind::OnTextFormat);
+    let batch = click(&mut host, &mut tree, "Bold");
+    assert_eq!(
+        format_records(&batch),
+        vec![(field, FormatOp::Bold, 2, None)]
+    );
+    // The record's bytes: tag 42, length 20, the node, the operation, the value, no paint.
+    let mut record = vec![42, 0, 20, 0];
+    record.extend_from_slice(&field.to_le_bytes());
+    record.extend_from_slice(&1u16.to_le_bytes());
+    record.extend_from_slice(&2u16.to_le_bytes());
+    record.extend_from_slice(&0u64.to_le_bytes());
+    assert_eq!(
+        batch
+            .windows(20)
+            .filter(|w| *w == record.as_slice())
+            .count(),
+        1
+    );
+    // The command went out once: the next batch has none.
+    let again = click(&mut host, &mut tree, "Bold");
+    assert_eq!(format_records(&again).len(), 1);
+}
+
+#[test]
+fn fr26_1_commands_go_out_in_the_order_they_were_made() {
+    let (mut host, mut tree, _) = start(|| {
+        let state = remember_rich_text_state();
+        let sheet = state.clone();
+        Column!({
+            TextField!("", |_| {}, rich = &state);
+            Button!("Sheet", move || {
+                sheet.format(Format::Paragraph(ParagraphRole::Heading));
+                sheet.format(Format::Color(Some(Paint::Role(ColorRole::Primary))));
+                sheet.format(Format::List(ListKind::Numbered));
+                sheet.format(Format::Indent);
+            });
+        });
+    });
+    let batch = click(&mut host, &mut tree, "Sheet");
+    let ops: Vec<_> = format_records(&batch)
+        .into_iter()
+        .map(|(_, op, value, paint)| (op, value, paint))
+        .collect();
+    assert_eq!(
+        ops,
+        vec![
+            (FormatOp::Paragraph, 3, None),
+            (FormatOp::Color, 0, Some(Paint::Role(ColorRole::Primary))),
+            (FormatOp::List, 3, None),
+            (FormatOp::Indent, 0, None),
+        ]
+    );
+}
+
+#[test]
+fn fr26_1_a_command_made_before_the_field_is_composed_waits_for_it() {
+    let (_host, _tree, first) = start(|| {
+        let state = remember_rich_text_state();
+        // Asked before the field that takes the state is composed.
+        state.format(Format::Underline(Toggle::On));
+        Column!({
+            TextField!("", |_| {}, rich = &state);
+        });
+    });
+    let records = format_records(&first);
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!((records[0].1, records[0].2), (FormatOp::Underline, 1));
+}
+
+#[test]
+fn fr26_1_a_state_bound_to_no_field_asks_for_nothing() {
+    let (mut host, mut tree, first) = start(|| {
+        let never = remember_rich_text_state();
+        let ask = never.clone();
+        Button!("Ask", move || ask.format(Format::Bold(Toggle::On)));
+    });
+    assert!(format_records(&first).is_empty());
+    assert!(format_records(&click(&mut host, &mut tree, "Ask")).is_empty());
+    let loose = RichTextState::new();
+    loose.format(Format::Bold(Toggle::On));
+    assert!(!loose.is_bound());
+}
+
+#[test]
+fn fr26_1_load_refuses_an_invalid_document_and_sends_a_valid_one_once() {
+    let valid = vector_document();
+    let accepted = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&accepted);
+    let (mut host, mut tree, _) = start(move || {
+        let state = remember_rich_text_state();
+        let bad = state.clone();
+        let good = state.clone();
+        let (valid, invalid) = (vector_document(), doc("한글", vec![bold(1, 2)], vec![]));
+        let (seen_bad, seen_good) = (Arc::clone(&seen), Arc::clone(&seen));
+        Column!({
+            TextField!("", |_| {}, rich = &state);
+            Button!("Bad", move || {
+                seen_bad.lock().unwrap().push(bad.load(invalid.clone()));
+            });
+            Button!("Good", move || {
+                seen_good.lock().unwrap().push(good.load(valid.clone()));
+            });
+        });
+    });
+    let refused = click(&mut host, &mut tree, "Bad");
+    assert!(loads(&refused).is_empty(), "an invalid document was sent");
+    let sent = click(&mut host, &mut tree, "Good");
+    let (field, _) = tree.find("TextField", None, 0, PropertyKind::OnTextFormat);
+    assert_eq!(loads(&sent), vec![(field, valid.text.clone())]);
+    assert_eq!(*accepted.lock().unwrap(), vec![false, true]);
+    // Asking again with the invalid one still sends nothing.
+    let again = click(&mut host, &mut tree, "Bad");
+    assert!(loads(&again).is_empty());
+}
+
+#[test]
+fn fr26_1_a_state_keeps_no_more_than_the_cap_waiting_for_its_field() {
+    // A state that is given to no field: nothing ever takes what it is asked, so everything
+    // waits. Two documents of half the cap fill it exactly, and the third finds no room.
+    let cap = RichTextState::MAX_PENDING_BYTES;
+    assert_eq!(cap, 1024 * 1024);
+    // A plain document is its 40 byte record and its text on the wire.
+    let half = RichDocument::plain("a".repeat(cap / 2 - 40));
+    let small = RichDocument::plain("b");
+    let answers = Arc::new(Mutex::new(Vec::new()));
+    let kept = Arc::new(Mutex::new(None));
+    let (seen_answers, seen_kept) = (Arc::clone(&answers), Arc::clone(&kept));
+    let expected = half.clone();
+    let (mut host, mut tree, first) = start(move || {
+        let state = remember_rich_text_state();
+        let (half, small) = (half.clone(), small.clone());
+        let (answers, kept) = (Arc::clone(&seen_answers), Arc::clone(&seen_kept));
+        Button!("Fill", move || {
+            let mut answers = answers.lock().unwrap();
+            answers.push(state.load(half.clone()));
+            answers.push(state.load(half.clone()));
+            answers.push(state.load(small.clone()));
+            // A command is dropped the same way, and says nothing by its return.
+            state.format(Format::Bold(Toggle::On));
+            *kept.lock().unwrap() = Some(state.document());
+        });
+    });
+    assert!(loads(&first).is_empty());
+    let batch = click(&mut host, &mut tree, "Fill");
+    assert_eq!(*answers.lock().unwrap(), vec![true, true, false]);
+    // The document the state answers with is the last one it accepted, not the one it
+    // dropped.
+    assert_eq!(kept.lock().unwrap().as_ref(), Some(&expected));
+    // No field took any of it.
+    assert!(loads(&batch).is_empty());
+    assert!(format_records(&batch).is_empty());
+
+    // A document larger than the cap is taken when nothing waits, so it can still be loaded.
+    let large = RichDocument::plain("c".repeat(cap + 1));
+    let taken = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&taken);
+    let (mut host, mut tree, _) = start(move || {
+        let state = remember_rich_text_state();
+        let large = large.clone();
+        let seen = Arc::clone(&seen);
+        Button!("Large", move || {
+            let mut seen = seen.lock().unwrap();
+            seen.push(state.load(large.clone()));
+            seen.push(state.load(RichDocument::plain("d")));
+        });
+    });
+    click(&mut host, &mut tree, "Large");
+    assert_eq!(*taken.lock().unwrap(), vec![true, false]);
+}
+
+#[test]
+fn fr26_1_the_state_and_the_handlers_hear_the_two_events() {
+    let formats = Arc::new(Mutex::new(Vec::new()));
+    let documents = Arc::new(Mutex::new(Vec::new()));
+    let (seen_formats, seen_documents) = (Arc::clone(&formats), Arc::clone(&documents));
+    let (mut host, mut tree, _) = start(move || {
+        let state = remember_rich_text_state();
+        let (formats, documents) = (Arc::clone(&seen_formats), Arc::clone(&seen_documents));
+        Column!({
+            Text!(format!(
+                "bold:{:?} chars:{}",
+                state.format_at_selection().bold,
+                state.document().characters.len()
+            ));
+            TextField!(
+                "",
+                |_| {},
+                rich = &state,
+                on_format = Some(move |format: TextFormat| formats.lock().unwrap().push(format)),
+                on_rich_change = Some(move |document: RichDocument| {
+                    documents.lock().unwrap().push(document)
+                })
+            );
+        });
+    });
+    assert_eq!(tree.texts()[0], "bold:None chars:0");
+    let (field, format_handler) = tree.find("TextField", None, 0, PropertyKind::OnTextFormat);
+    let (_, document_handler) = tree.find("TextField", None, 0, PropertyKind::OnRichTextChanged);
+
+    let format = compose_rust::codegen::text_format_vector();
+    let (batch, _) = host
+        .dispatch(HostEvent::new(
+            field,
+            format_handler,
+            EventPayload::TextFormatAtSelection(format),
+        ))
+        .expect("the format is delivered");
+    let batch = batch.to_vec();
+    tree.apply(&batch);
+    assert_eq!(*formats.lock().unwrap(), vec![format]);
+    assert_eq!(tree.texts()[0], "bold:All chars:0");
+
+    let document = vector_document();
+    let (characters, paragraphs) = (document.encode_characters(), document.encode_paragraphs());
+    let (batch, _) = host
+        .dispatch(HostEvent::new(
+            field,
+            document_handler,
+            EventPayload::RichTextChanged {
+                text: &document.text,
+                characters: &characters,
+                paragraphs: &paragraphs,
+            },
+        ))
+        .expect("the document is delivered");
+    let batch = batch.to_vec();
+    tree.apply(&batch);
+    assert_eq!(*documents.lock().unwrap(), vec![document]);
+    assert_eq!(tree.texts()[0], "bold:All chars:3");
+
+    // A document that does not hold together is refused with a protocol error.
+    let bad = doc("한글", vec![bold(1, 2)], vec![]);
+    let (characters, paragraphs) = (bad.encode_characters(), bad.encode_paragraphs());
+    let refused = host.dispatch(HostEvent::new(
+        field,
+        document_handler,
+        EventPayload::RichTextChanged {
+            text: &bad.text,
+            characters: &characters,
+            paragraphs: &paragraphs,
+        },
+    ));
+    assert!(refused.is_err());
+    assert_eq!(documents.lock().unwrap().len(), 1);
 }

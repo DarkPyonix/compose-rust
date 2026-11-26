@@ -38,6 +38,7 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod rich;
 pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
@@ -47,6 +48,9 @@ pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::font_features::FontFeature;
 pub use crate::message::{Message, show_message};
+pub use crate::rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, TextFormat, Toggle, Tri,
+};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
@@ -57,6 +61,7 @@ pub use crate::schema::{
     Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
     WindowHeightClass, WindowSizeClass,
 };
+pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
 
@@ -74,6 +79,7 @@ pub use crate::{
 };
 pub use crate::{MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use rich::{RichTextState, remember_rich_text_state};
 pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so

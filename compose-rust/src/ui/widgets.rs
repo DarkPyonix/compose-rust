@@ -1288,6 +1288,10 @@ pub(crate) struct TextFieldScope {
     text_handle: Option<super::TextFieldHandle>,
     bare: bool,
     read_only: bool,
+    rich: bool,
+    rich_state: Option<super::rich::RichTextState>,
+    on_text_format: Option<Box<dyn FnMut(crate::rich_text::TextFormat)>>,
+    on_rich_change: Option<Box<dyn FnMut(crate::rich_text::RichDocument)>>,
     done: bool,
 }
 
@@ -1325,6 +1329,10 @@ pub(crate) fn TextField() -> TextFieldScope {
         text_handle: None,
         bare: false,
         read_only: false,
+        rich: false,
+        rich_state: None,
+        on_text_format: None,
+        on_rich_change: None,
         done: false,
     }
 }
@@ -1513,12 +1521,42 @@ impl TextFieldScope {
         self
     }
 
+    /// Turns on rich text for the field and binds `state` to it. The Renderer then keeps
+    /// character and paragraph formatting for the text, `state.format(..)` formats the
+    /// selection, and the state reads back the formatting at the selection and the
+    /// document.
+    pub(crate) fn rich(mut self, state: &super::rich::RichTextState) -> Self {
+        self.rich = true;
+        self.rich_state = Some(state.clone());
+        self
+    }
+
+    /// Hears the formatting at the selection each time it changes. Turns on rich text.
+    pub(crate) fn on_format(
+        mut self,
+        handler: impl FnMut(crate::rich_text::TextFormat) + 'static,
+    ) -> Self {
+        self.rich = true;
+        self.on_text_format = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Hears the document after the user pauses editing. Turns on rich text.
+    pub(crate) fn on_rich_change(
+        mut self,
+        handler: impl FnMut(crate::rich_text::RichDocument) + 'static,
+    ) -> Self {
+        self.rich = true;
+        self.on_rich_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
-        let (bare, read_only) = (self.bare, self.read_only);
+        let (bare, read_only, rich) = (self.bare, self.read_only, self.rich);
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1554,6 +1592,14 @@ impl TextFieldScope {
             ));
         }
         motion_input(self.on_motion_finished.take(), &mut listeners);
+        let rich_state = self.rich_state.take();
+        rich_input(
+            self.on_text_format.take(),
+            self.on_rich_change.take(),
+            rich_state.as_ref(),
+            &mut listeners,
+        );
+        super::rich::bind_rich_state(rich_state.as_ref());
         super::focus::bind_focus_handle(self.focus_handle.take());
         super::text_handle::bind_text_field_handle(self.text_handle.take());
         emit(
@@ -1571,6 +1617,10 @@ impl TextFieldScope {
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 if read_only {
                     attrs.push(("read_only", OwnedAttr::Bool(true)));
+                }
+                // Written only for a rich field, so a plain one sends what it always did.
+                if rich {
+                    attrs.push(("rich_text", OwnedAttr::Bool(true)));
                 }
                 // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
                 // as for `Text`.
@@ -1622,6 +1672,51 @@ impl TextFieldScope {
 }
 
 composed_on_drop!(TextFieldScope);
+
+/// Listens for a rich field's formatting and document. A listener is registered only where
+/// someone hears it, the bound state or the handler the caller gave, so a field nobody
+/// asks anything of is not sent events nobody reads.
+fn rich_input(
+    on_format: Option<Box<dyn FnMut(crate::rich_text::TextFormat)>>,
+    on_document: Option<Box<dyn FnMut(crate::rich_text::RichDocument)>>,
+    state: Option<&super::rich::RichTextState>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let format_state = state.map(super::rich::RichTextState::format_state);
+    if format_state.is_some() || on_format.is_some() {
+        let mut handler = on_format;
+        listeners.push((
+            "ontextformat",
+            EventCallback::TextFormat(Rc::new(RefCell::new(
+                move |format: crate::rich_text::TextFormat| {
+                    if let Some(state) = &format_state {
+                        state.set(format);
+                    }
+                    if let Some(handler) = handler.as_mut() {
+                        handler(format);
+                    }
+                },
+            ))),
+        ));
+    }
+    let document_state = state.map(super::rich::RichTextState::document_state);
+    if document_state.is_some() || on_document.is_some() {
+        let mut handler = on_document;
+        listeners.push((
+            "onrichtextchanged",
+            EventCallback::RichText(Rc::new(RefCell::new(
+                move |document: crate::rich_text::RichDocument| {
+                    if let Some(handler) = handler.as_mut() {
+                        handler(document.clone());
+                    }
+                    if let Some(state) = &document_state {
+                        state.set(document);
+                    }
+                },
+            ))),
+        ));
+    }
+}
 
 // ----- buttons and controls ---------------------------------------------------------------
 
