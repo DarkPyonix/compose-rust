@@ -4043,6 +4043,28 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 새 레코드도 태그도 없습니다. 스키마 해시가 움직이지 않습니다. 작성 API에 `release_asset(id)` 하나. Renderer는 글꼴 바이트의 형식 판별과 가변 글꼴 축 지정이 필요합니다.
 
+#### 48.4 늦게 싣는 글꼴 (`Draft`, 이슈 #1057)
+
+요청한 쪽: Ember NFR-L1(darkpyonix-ember #1082). 한글 글꼴은 한 face가 1.5 MB를 넘고, 앱이 쓰는 글자 대부분은 KS X 1001의 2,350자 안에 있습니다. 앱은 작게 줄인 face를 먼저 싣고 원본 face는 그 뒤에 두고 싶습니다. 그런데 지금의 글꼴 목록과 `FontStack`은 모든 face의 바이트를 첫 배치에 실어야 하고, 싣지 않으면 줄인 face에 없는 글자(똠, 쀍)가 OS 글꼴로 그려집니다. 이 항목은 바이트를 필요할 때 싣는 후보를 둡니다.
+
+1. **후보 종류 `LazyAsset(id)`(`FONT_REF_LAZY_ASSET = 4`).** FR-40의 글꼴 목록과 `FontStack`의 패밀리에 쓸 수 있습니다. `id`는 바이트를 아직 보내지 않은 글꼴 에셋의 id입니다.
+2. **작성 API.** `lazy_asset(AssetKind::Font, bytes) -> u32`는 같은 바이트를 `asset()`이 받을 id를 돌려주고, 아무것도 등록하지 않으며, 바이트를 기억해 둡니다. `FontStack::lazy_family(ids)`는 그 id들로 늦게 싣는 패밀리를 둡니다. 같은 바이트가 이미 `asset()`으로 등록되어 있으면 그 후보는 처음부터 `Asset(id)`처럼 동작합니다.
+3. **Renderer.** 바이트가 오기 전의 늦은 후보는 없는 후보로 셉니다. 어떤 글자의 글리프가 그 앞의 실린 후보 어디에도 없으면, 그 늦은 후보의 id로 `AssetWanted(id)` 이벤트(이벤트 71, 페이로드 46: `asset_id u32`)를 id마다 한 번 보냅니다. 바이트가 오기 전까지 그 글자는 목록의 늦은 후보 뒤로 넘어가지 않습니다. OS 글꼴이나 기본 글꼴로 대신 그리지 않고, 그 프레임에는 빈 자리(글리프 없음 표시)로 둡니다.
+4. **Host.** `AssetWanted(id)`를 받으면 다음 배치에 기존 `RegisterAsset(id, bytes)`를 싣습니다(FR-16.2). 새 명령은 없습니다. 모르는 id의 요청은 무시하고 `ProtocolError`를 한 번 냅니다.
+5. **바이트가 온 뒤.** 그 후보는 `Asset(id)`와 같고, 그 목록을 쓰는 텍스트는 다시 측정되고 다시 그려집니다. 측정과 그리기는 늦은 후보가 실리기 전에도 뒤에도 같은 값을 냅니다(FR-40, 규칙 6).
+6. **수명.** 한 번 실린 늦은 글꼴은 `ReleaseAsset(id)`까지 삽니다(규칙 5). 내린 뒤 그 글꼴이 다시 필요해지면 다시 `AssetWanted(id)`를 보냅니다.
+
+수용 기준:
+
+1. `[줄인 face, LazyAsset(원본)]` 스택을 쓴 첫 배치에 원본의 바이트가 없습니다(fr48_4_lazy_face_bytes_stay_on_the_host).
+2. 줄인 face에 없는 글자(똠, 쀍)를 그리면 `AssetWanted`가 한 번 나가고, 다음 배치 뒤 그 글자가 원본 face로 그려집니다. 그 사이에도 OS 글꼴로 그려지지 않습니다(fr48_4_missing_glyph_loads_the_lazy_face_never_the_os_font).
+3. 같은 프레임에 여러 텍스트가 같은 늦은 후보를 필요로 해도 요청은 한 번입니다(fr48_4_lazy_face_is_requested_once).
+4. 실리기 전과 뒤의 측정값이 각각 그 순간의 그린 값과 같습니다(fr48_4_measure_and_draw_agree_across_the_load).
+5. 줄인 face에 있는 글자만 쓰는 화면에서는 요청이 나가지 않습니다(fr48_4_covered_text_requests_nothing).
+6. 인코딩 후 디코딩한 후보와 이벤트가 같습니다(fr10_lazy_asset_font_ref_round_trips).
+
+비용: 후보 종류 하나(4), 이벤트 하나(71), 페이로드 하나(46). 스키마 해시가 움직이므로 스키마 잠금 아래에서 합칩니다. 작성 API에 `lazy_asset`과 `FontStack::lazy_family`.
+
 ### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 > **1.0 작업(소유자, 2026-11-21).** `Mask`는 1.0에 들어갑니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).

@@ -203,6 +203,10 @@ internal class MeasureRequests {
                         putInt(record, 3)
                         putInt(record + 4, ref.family.ordinal + 1)
                     }
+                    is FontRef.LazyAsset -> {
+                        putInt(record, 4)
+                        putInt(record + 4, ref.assetId)
+                    }
                 }
             }
             return records
@@ -268,6 +272,7 @@ internal fun fontBlob(refs: List<FontRef>): ByteArray {
                 nameAt += name.size
             }
             is FontRef.Generic -> out.putInt(3).putInt(ref.family.ordinal + 1).putInt(0)
+            is FontRef.LazyAsset -> out.putInt(4).putInt(ref.assetId).putInt(0)
         }
     }
     names.forEach { out.put(it) }

@@ -449,7 +449,7 @@ mod tests {
             "the number of modifiers moved: {on_purpose}"
         );
         assert_eq!(
-            tables_hash, 0x356d_d2f8_078c_86f5,
+            tables_hash, 0xec93_c466_6e16_7d5e,
             "the names, tags or modifier fields of the widget, property and modifier tables \
              moved, and now hash to {tables_hash:#018x}: {on_purpose}"
         );
