@@ -172,24 +172,21 @@ fn function_keys(pad: &[[&'static str; 4]]) -> Vec<&'static str> {
         .collect()
 }
 
-/// Equals is the accent, operators the operator role, and every other key the quiet
-/// filled key most of the pad is made of. All three references fill the function keys
-/// too: none of them draws a key as an outline.
+/// Equals is the accent and operators the operator role. The digits are the neutral
+/// filled key most of the pad is made of, and the function keys the second neutral step
+/// beside them. All three references fill the function keys too: none of them draws a key
+/// as an outline, and none of them puts the accent on a digit or a function key, which is
+/// what the neutral tiers promise in every design system without the pad choosing an ink.
 fn variant_for(label: &str) -> ButtonVariant {
     if label == "=" {
         ButtonVariant::Filled
     } else if is_operator(label) {
         ButtonVariant::Operator
+    } else if is_content_key(label) {
+        ButtonVariant::Neutral
     } else {
-        ButtonVariant::Tonal
+        ButtonVariant::NeutralSecondary
     }
-}
-
-/// The label ink for a key, or `None` to let the variant decide. The neutral keys print
-/// their label in the page's ink in every reference, where some systems' tonal key would
-/// print it in the accent.
-fn color_for(label: &str) -> Option<Paint> {
-    (variant_for(label) == ButtonVariant::Tonal).then_some(Paint::Role(ColorRole::OnSurface))
 }
 
 /// What a key press does, whichever key it was.
@@ -219,8 +216,7 @@ fn pad_key(label: &'static str, modifier: Modifier, press: Press) {
         move || press(label),
         modifier = modifier,
         variant = variant_for(label),
-        kind = ButtonKind::ActionKey,
-        color = color_for(label)
+        kind = ButtonKind::ActionKey
     );
 }
 
@@ -813,7 +809,8 @@ mod tests {
 
     /// Every key is pressed with something behind it. None of the three references draws
     /// a key as an outline: the function keys are filled like the digits, `AC` included,
-    /// and every key is drawn in the system's own calculator-key shape.
+    /// and every key is drawn in the system's own calculator-key shape. Each key is the
+    /// variant its role names: equals, the operators, the digits and the function keys.
     #[test]
     fn fr22_every_key_is_a_filled_key() {
         for system in SYSTEMS {
@@ -827,8 +824,10 @@ mod tests {
                         ButtonVariant::Filled
                     } else if is_operator(&label) {
                         ButtonVariant::Operator
+                    } else if is_content_key(&label) {
+                        ButtonVariant::Neutral
                     } else {
-                        ButtonVariant::Tonal
+                        ButtonVariant::NeutralSecondary
                     };
                     assert_eq!(
                         variant,
@@ -849,6 +848,53 @@ mod tests {
             apple.variant_of("%"),
             "AC is styled apart from the keys beside it",
         );
+    }
+
+    /// The digits are the first neutral tier and the function keys the second, under every
+    /// system and at every width, and no key chooses its own ink: the tiers carry no accent
+    /// in any design system, so the pad has nothing to paint over. A pad that coloured its
+    /// keys' labels would be a sample picking a colour the design system is meant to.
+    #[test]
+    fn fr22_calculator_digits_and_functions_use_neutral_tiers() {
+        for system in SYSTEMS {
+            for width in [420.0, 760.0, 1180.0] {
+                let screen = Screen::with(system, width, 780.0);
+                let mut digits = 0;
+                let mut functions = 0;
+                for (node, label) in screen.keys() {
+                    assert_eq!(
+                        screen.colors.get(&node),
+                        None,
+                        "{label} under {system:?} at {width} picks its own ink",
+                    );
+                    let variant = screen.variants.get(&node).copied();
+                    if is_content_key(&label) {
+                        digits += 1;
+                        assert_eq!(
+                            variant,
+                            Some(ButtonVariant::Neutral as i64),
+                            "{label} under {system:?} at {width} is not a neutral key",
+                        );
+                    } else if is_function_key(&label) {
+                        functions += 1;
+                        assert_eq!(
+                            variant,
+                            Some(ButtonVariant::NeutralSecondary as i64),
+                            "{label} under {system:?} at {width} is not a secondary neutral key",
+                        );
+                    }
+                }
+                assert_eq!(
+                    digits, 11,
+                    "{system:?} at {width} does not show ten digits and a point"
+                );
+                assert!(functions > 0, "{system:?} at {width} has no function keys");
+            }
+        }
+        for (digit, function) in [("7", "%"), ("0", BACKSPACE)] {
+            assert_eq!(variant_for(digit), ButtonVariant::Neutral);
+            assert_eq!(variant_for(function), ButtonVariant::NeutralSecondary);
+        }
     }
 
     /// Fluent fills only equals with the accent, while macOS fills every operator and
@@ -1350,6 +1396,8 @@ mod tests {
         /// The variant and the kind of every button that names them.
         variants: HashMap<u32, i64>,
         kinds: HashMap<u32, i64>,
+        /// The ink of every node that names one.
+        colors: HashMap<u32, i64>,
         enabled: HashMap<u32, bool>,
         /// Whether each sheet is open.
         opens: HashMap<u32, bool>,
@@ -1380,6 +1428,7 @@ mod tests {
                 type_roles: HashMap::new(),
                 variants: HashMap::new(),
                 kinds: HashMap::new(),
+                colors: HashMap::new(),
                 enabled: HashMap::new(),
                 opens: HashMap::new(),
                 modifiers: HashMap::new(),
@@ -1466,6 +1515,12 @@ mod tests {
                         (PropertyKind::ButtonKind, PropertyValue::Integer(kind)) => {
                             self.kinds.insert(node_id, kind);
                         }
+                        (PropertyKind::Color, PropertyValue::Integer(paint)) => {
+                            self.colors.insert(node_id, paint);
+                        }
+                        (PropertyKind::Color, PropertyValue::None) => {
+                            self.colors.remove(&node_id);
+                        }
                         (PropertyKind::Enabled, PropertyValue::Bool(enabled)) => {
                             self.enabled.insert(node_id, enabled);
                         }
@@ -1508,6 +1563,7 @@ mod tests {
             self.type_roles.remove(&node_id);
             self.variants.remove(&node_id);
             self.kinds.remove(&node_id);
+            self.colors.remove(&node_id);
             self.enabled.remove(&node_id);
             self.opens.remove(&node_id);
             self.modifiers.retain(|(node, _), _| *node != node_id);

@@ -15,6 +15,12 @@ data class ShellDestination(
     val label: String,
     val icon: IconRole?,
     val enabled: Boolean,
+    /**
+     * The destination's count as the design system's badge writes it, cut at the same
+     * ceiling, or null where the destination carries no count. A platform bar sets it as
+     * its own badge on the tab.
+     */
+    val badge: String? = null,
 )
 
 /**

@@ -224,6 +224,8 @@ internal class IosNavigationShell(
             tag = 0,
         )
         item.enabled = destination.enabled
+        // The tab bar's own badge, carrying the count as the design system writes it.
+        item.badgeValue = destination.badge
         navigation.tabBarItem = item
         return navigation
     }

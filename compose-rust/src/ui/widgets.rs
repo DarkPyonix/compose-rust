@@ -3867,6 +3867,7 @@ pub(crate) struct NavigationItemScope {
     color: Option<Paint>,
     enabled: bool,
     section: Option<String>,
+    count: Option<u32>,
     on_click: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -3881,6 +3882,7 @@ pub(crate) fn NavigationItem(text: impl Into<String>) -> NavigationItemScope {
         color: None,
         enabled: true,
         section: None,
+        count: None,
         on_click: None,
         on_motion_finished: None,
         done: false,
@@ -3909,6 +3911,12 @@ impl NavigationItemScope {
         self
     }
 
+    /// How many things the destination holds.
+    pub(crate) fn count(mut self, count: u32) -> Self {
+        self.count = Some(count);
+        self
+    }
+
     pub(crate) fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -3918,7 +3926,7 @@ impl NavigationItemScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let section = self.section.take();
-        let (icon, color, enabled) = (self.icon, self.color, self.enabled);
+        let (icon, color, enabled, count) = (self.icon, self.color, self.enabled, self.count);
         let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::NavigationItem"),
@@ -3930,6 +3938,11 @@ impl NavigationItemScope {
                 attrs.push(("color", super::paint(color)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("section", optional_text(section)));
+                // The badge's own property: absent is no count, which is not a count of 0.
+                attrs.push((
+                    "count",
+                    count.map_or(OwnedAttr::None, |count| OwnedAttr::Int(i64::from(count))),
+                ));
             },
             with_motion(vec![("onclick", unit(self.on_click.take()))], motion),
             content,

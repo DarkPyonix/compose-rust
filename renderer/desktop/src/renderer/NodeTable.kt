@@ -1914,9 +1914,11 @@ class NodeTable {
                 // How large an HTML island is drawn. Only the island's root has one.
                 PropertyKind.IslandZoom -> widget == WidgetKind.AbsoluteBox
 
-                // How many a badge counts, or the revision of a programmatic scroll request.
+                // How many a badge counts, how many things a destination holds, or the
+                // revision of a programmatic scroll request.
                 PropertyKind.Count ->
                     widget == WidgetKind.Badge ||
+                        widget == WidgetKind.NavigationItem ||
                         widget == WidgetKind.ScrollColumn ||
                         widget == WidgetKind.ScrollRow
 
