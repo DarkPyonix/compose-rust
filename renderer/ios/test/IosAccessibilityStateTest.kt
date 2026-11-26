@@ -8,6 +8,8 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.state.ToggleableState
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.ui.node.NodeTable
@@ -28,6 +30,10 @@ class IosAccessibilityStateTest {
         val table = NodeTable()
         table.apply(Mutation.Create(NODE, WidgetKind.Box))
         table.apply(Mutation.SetModifier(NODE, 0, ProtocolModifier.Semantics(role, state)))
+        return configOf(table)
+    }
+
+    private fun configOf(table: NodeTable): SemanticsConfiguration {
         val modifier = Modifier.accessibility(assertNotNull(table.node(NODE)))
         val semantics = modifier.foldIn<SemanticsModifier?>(null) { found, element -> found ?: element as? SemanticsModifier }
         return assertNotNull(semantics, "the node got no semantics").semanticsConfiguration
@@ -50,21 +56,31 @@ class IosAccessibilityStateTest {
         assertEquals(null, configOf(SemanticsRole.Button, 0).getOrNull(SemanticsProperties.StateDescription))
     }
 
-    /**
-     * The checked field's fourth value is mixed. The iOS build of the shared interpreter puts
-     * Compose's indeterminate toggle state on the node, which Compose's iOS bridge hands to
-     * VoiceOver as the element's mixed value.
-     */
     @Test
     fun fr68_mixed_checkbox_reaches_the_ios_accessibility_value() {
-        assertEquals(
-            ToggleableState.Indeterminate,
-            configOf(SemanticsRole.Checkbox, MIXED).getOrNull(SemanticsProperties.ToggleableState),
-        )
-        assertEquals(
-            ToggleableState.On,
-            configOf(SemanticsRole.Checkbox, CHECKED).getOrNull(SemanticsProperties.ToggleableState),
-        )
+        val mixed = configOf(SemanticsRole.Checkbox, MIXED)
+        assertEquals(ToggleableState.Indeterminate, mixed.getOrNull(SemanticsProperties.ToggleableState))
+        assertEquals("mixed", mixed.getOrNull(SemanticsProperties.StateDescription))
+        val checked = configOf(SemanticsRole.Checkbox, CHECKED)
+        assertEquals(ToggleableState.On, checked.getOrNull(SemanticsProperties.ToggleableState))
+        assertEquals(null, checked.getOrNull(SemanticsProperties.StateDescription))
+    }
+
+    @Test
+    fun fr68_ios_checkbox_mixed_description_clears_when_the_host_removes_indeterminate() {
+        val table = NodeTable()
+        table.apply(Mutation.Create(NODE, WidgetKind.Checkbox))
+        table.apply(Mutation.SetProp(NODE, PropertyKind.AccessibleName, PropertyValue.Text("Stage file")))
+        table.apply(Mutation.SetProp(NODE, PropertyKind.Indeterminate, PropertyValue.Bool(true)))
+
+        val mixed = configOf(table)
+        assertEquals("mixed", mixed.getOrNull(SemanticsProperties.StateDescription))
+        assertEquals(listOf("Stage file"), mixed.getOrNull(SemanticsProperties.ContentDescription))
+
+        table.apply(Mutation.SetProp(NODE, PropertyKind.Indeterminate, PropertyValue.None))
+        val unchecked = configOf(table)
+        assertEquals(null, unchecked.getOrNull(SemanticsProperties.StateDescription))
+        assertEquals(listOf("Stage file"), unchecked.getOrNull(SemanticsProperties.ContentDescription))
     }
 
     private companion object {
