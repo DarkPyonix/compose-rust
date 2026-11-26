@@ -48,6 +48,7 @@ pub mod palette;
 pub mod picked_file;
 pub mod preview;
 pub mod protocol;
+pub mod rich_text;
 pub mod runtime;
 pub mod schema;
 pub mod spans;
@@ -101,6 +102,9 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
 pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
+pub use rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, RichTextError, TextFormat, Toggle, Tri,
+};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
@@ -120,6 +124,7 @@ pub use schema::{
     TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
+pub use schema::{FormatOp, ListKind, ParagraphRole};
 pub use schema::{MinimapSide, WordWrapMode};
 pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{

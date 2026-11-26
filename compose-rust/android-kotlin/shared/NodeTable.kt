@@ -13,8 +13,10 @@ import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.ContentScale
+import dev.darkpyonix.composerust.protocol.FormatOp
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
+import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TextAlign
@@ -50,6 +52,27 @@ data class HostText(
 )
 
 /**
+ * Something the Host asked of a rich text field, in the order it was asked. The field's
+ * rich text model takes them in turn; until then they wait on the node.
+ */
+internal sealed interface RichRequest {
+    /** One `FormatText`: the operation, the value it takes and, for a colour, the paint. */
+    data class Format(val op: FormatOp, val value: Int, val paint: Paint?) : RichRequest
+
+    /**
+     * One `SetRichText`: the document and the selection the Host gave, -1 and -1 for none.
+     * The records are as sent and are checked against the text where they are applied.
+     */
+    class Load(
+        val text: String,
+        val characters: ByteArray,
+        val paragraphs: ByteArray,
+        val selectionStart: Int,
+        val selectionEnd: Int,
+    ) : RichRequest
+}
+
+/**
  * One interpreted node. Each field is its own snapshot state, so a `SetProp` on one node
  * invalidates only the composables that read that node.
  */
@@ -60,6 +83,21 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
     internal var focusRequestRevision by mutableStateOf(0L)
+
+    /** Whether a `TextField` keeps character and paragraph formatting (`RichText`). */
+    internal val rich: Boolean get() = flag(PropertyKind.RichText, default = false)
+
+    /** The handler that hears the formatting at the selection, or null. */
+    internal val onTextFormat: Long? get() = handler(PropertyKind.OnTextFormat)
+
+    /** The handler that hears the document, or null. */
+    internal val onRichTextChanged: Long? get() = handler(PropertyKind.OnRichTextChanged)
+
+    /**
+     * What the Host asked of a rich text field and nothing has applied yet, oldest first.
+     * Only a field with `RichText` on gets any.
+     */
+    internal val pendingRich = mutableListOf<RichRequest>()
 
     /**
      * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
@@ -468,6 +506,18 @@ class NodeTable {
             is Mutation.Move -> insert(mutation.parentId, mutation.nodeId, mutation.index)
             is Mutation.Remove -> remove(mutation.nodeId)
             is Mutation.SetText -> setText(mutation)
+            is Mutation.FormatText -> richNode(mutation.nodeId, "FormatText")?.pendingRich?.add(
+                RichRequest.Format(mutation.op, mutation.value, mutation.paint),
+            )
+            is Mutation.SetRichText -> richNode(mutation.nodeId, "SetRichText")?.pendingRich?.add(
+                RichRequest.Load(
+                    mutation.text,
+                    mutation.characters,
+                    mutation.paragraphs,
+                    mutation.selectionStart,
+                    mutation.selectionEnd,
+                ),
+            )
             is Mutation.AppendText -> appendText(mutation)
             // One record changes the whole tree's appearance. `ComposeRustContent`
             // resolves it into tokens and rules, and Compose invalidates the readers.
@@ -872,6 +922,22 @@ class NodeTable {
                 height = mutation.rectHeightPx,
             ),
         )
+    }
+
+    /**
+     * The rich text field a command names, or null after reporting that it names none: no
+     * such node, not a text field, or a text field that did not turn `RichText` on.
+     */
+    private fun richNode(nodeId: Int, command: String): Node? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        if (node.widget != WidgetKind.TextField || !node.rich) {
+            fail(TableError.UNSUPPORTED_PROPERTY, "$command on ${node.widget} without RichText")
+            return null
+        }
+        return node
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -1879,7 +1945,13 @@ class NodeTable {
                 -> widget == WidgetKind.Sheet
 
                 // Whether a text field rejects edits while keeping focus, selection and copy.
-                PropertyKind.ReadOnly -> widget == WidgetKind.TextField
+                PropertyKind.ReadOnly,
+                // Whether it keeps character and paragraph formatting, and the two handlers
+                // that hear the formatting at the selection and the document.
+                PropertyKind.RichText,
+                PropertyKind.OnTextFormat,
+                PropertyKind.OnRichTextChanged,
+                -> widget == WidgetKind.TextField
 
                 // How a picture is laid into its box. An icon takes its design system's
                 // optical size, so only an image has a box to lay it into.
