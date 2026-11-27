@@ -50,6 +50,8 @@ mod macros {
             presentation = SheetPresentation::Centered,
             max_width = 480,
             handle = false,
+            detents = SheetDetents::MEDIUM,
+            drag_to_dismiss = false,
             on_motion_finished = Some(|_: MotionFinished| {}),
             {
                 child("body");
@@ -226,6 +228,7 @@ mod macros {
             color = Paint::Role(ColorRole::Primary),
             enabled = false,
             section = "Main",
+            count = 4,
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
     }
@@ -288,6 +291,8 @@ mod functions {
             0.75,
             SheetPresentation::Centered,
             480,
+            false,
+            SheetDetents::MEDIUM,
             false,
             Some(|_: MotionFinished| {}),
             || {
@@ -425,6 +430,7 @@ mod functions {
             Paint::Role(ColorRole::Primary),
             false,
             "Main",
+            4,
             Some(|_: MotionFinished| {}),
         );
     }

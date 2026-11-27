@@ -556,6 +556,8 @@ interface ComponentRules {
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.None,
             separator = theme.color(ColorRole.OutlineVariant),
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 64.dp,
             railWidth = 80.dp,
             drawerWidth = 240.dp,
@@ -1127,6 +1129,18 @@ data class NavigationStyle(
      * this and a fraction of black is not it.
      */
     val headingContent: Color? = null,
+    /**
+     * The ink a destination's count is set in at the end of a sidebar row: the platform's
+     * secondary ink, quieter than the label it follows. A bar and a rail badge the icon
+     * instead, in the design system's badge.
+     */
+    val countContent: Color,
+    /**
+     * The same count on the selected row, chosen to read on whatever marks that row: the
+     * secondary ink where the mark is faint or beside the row, the ink made for the accent
+     * where the row is filled with it.
+     */
+    val selectedCountContent: Color,
     /** The hairline between the destinations and the screen, null where there is none. */
     val separator: Color?,
     val barHeight: Dp,
@@ -1234,6 +1248,13 @@ data class NavigationStyle(
      * says they are, and a list whose rows are two heights has no rhythm.
      */
     val destinationHeight: Dp? = null,
+    /**
+     * Whether the bar floats over the page rather than standing under it: a capsule held
+     * off the window's edges by [floatingInset], with the page running on beneath it. Set
+     * where the application chose a floating bar for a compact window, never by a design
+     * system's own answer.
+     */
+    val floating: Boolean = false,
 )
 
 /** The edge a sheet comes in from. */
@@ -1267,7 +1288,15 @@ data class SheetStyle(
      * had, and the content starts that far below it.
      */
     val handleGap: Dp? = null,
+    /**
+     * How far below the top safe area a bottom sheet stops when it is opened out to its
+     * large resting height, so a strip of the page stays in sight above it.
+     */
+    val largeDetentMargin: Dp = SHEET_LARGE_DETENT_MARGIN,
 )
+
+/** The room a sheet at its large resting height leaves above itself where a system names none. */
+internal val SHEET_LARGE_DETENT_MARGIN: Dp = 16.dp
 
 /**
  * Where a transient message appears.

@@ -475,6 +475,10 @@ fn frame_allocations(with_features: bool) -> usize {
 
 #[test]
 fn fr88_span_font_features_do_not_allocate_in_steady_state() {
+    // One unmeasured pass first: whatever the process sets up once (lazy statics, the first
+    // growth of a shared buffer) lands in it, not in whichever measurement happens to run
+    // first, so the two counts compare the runs and nothing else.
+    frame_allocations(false);
     let plain = frame_allocations(false);
     let featured = frame_allocations(true);
     assert_eq!(

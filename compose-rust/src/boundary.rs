@@ -972,6 +972,21 @@ impl Host {
                 }
                 return self.publish_density(scale);
             }
+            // A font the Renderer needs the bytes of: no node and no handler. The answer is the
+            // registration the application set aside, on the batch this call returns. An id
+            // nothing was set aside under changes nothing and is refused, once, for this event.
+            EventPayload::AssetWanted { asset_id } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                if !crate::asset::want(asset_id) {
+                    return Err(ProtocolError::UnknownAsset(asset_id));
+                }
+                self.batch().begin();
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
             // The two events that belong to the application and to no window: no node and
             // no handler, and an answer before anything is looked up.
             EventPayload::WindowRequested { key, request } => {

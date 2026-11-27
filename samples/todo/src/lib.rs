@@ -810,11 +810,14 @@ pub fn app() {
                             NavigationItem!(
                                 choice.label(),
                                 move || pick(View::Filter(choice)),
-                                icon = choice.icon()
+                                icon = choice.icon(),
+                                count = filter_counts[choice.index()] as u32
                             );
                         });
                     }
-                    for list in all_lists.iter() {
+                    // The same counts the narrow window's list of lists shows beside each
+                    // destination, so a destination keeps its count at every width.
+                    for (list, count) in list_counts.iter() {
                         let pick = Rc::clone(&pick);
                         let id = list.id;
                         key(format!("list {id}"), || {
@@ -822,7 +825,8 @@ pub fn app() {
                                 list.name.clone(),
                                 move || pick(View::List(id)),
                                 icon = IconRole::List,
-                                section = AsRef::<str>::as_ref(&(LISTS_LABEL))
+                                section = AsRef::<str>::as_ref(&(LISTS_LABEL)),
+                                count = *count as u32
                             );
                         });
                     }
@@ -1032,7 +1036,7 @@ fn bar_menu(
             }
             // Clearing throws work away, so it says so and offers the way back.
             let close = open;
-            Button!(
+            MenuItem!(
                 "Clear completed",
                 move || {
                     close.set(false);
@@ -1049,16 +1053,14 @@ fn bar_menu(
                         .with_duration(MessageDuration::Long)
                         .show();
                 },
-                variant = ButtonVariant::Text,
-                modifier = Modifier.fill_max_width(),
-                color = Paint::Role(ColorRole::Error),
-                enabled = completed_here > 0
+                enabled = completed_here > 0,
+                color = Paint::Role(ColorRole::Error)
             );
             if let View::List(id) = current {
                 // A list is a place to keep tasks, not the tasks themselves: deleting one
                 // keeps its tasks, under All.
                 let close = open;
-                Button!(
+                MenuItem!(
                     "Delete list",
                     move || {
                         close.set(false);
@@ -1084,21 +1086,14 @@ fn bar_menu(
                         .with_duration(MessageDuration::Long)
                         .show();
                     },
-                    variant = ButtonVariant::Text,
-                    modifier = Modifier.fill_max_width(),
                     color = Paint::Role(ColorRole::Error)
                 );
             }
             let (close, about) = (open, about_open);
-            Button!(
-                ABOUT_LABEL,
-                move || {
-                    close.set(false);
-                    about.set(true);
-                },
-                variant = ButtonVariant::Text,
-                modifier = Modifier.fill_max_width()
-            );
+            MenuItem!(ABOUT_LABEL, move || {
+                close.set(false);
+                about.set(true);
+            });
         }
     );
 }
@@ -1346,18 +1341,13 @@ fn menu_entries(
 ) {
     let id = task.id;
     let (close, draft, edit) = (*menu_open, *edit_draft, *editing);
-    Button!(
-        "Edit",
-        move || {
-            close.set(None);
-            draft.set(String::new());
-            edit.set(Some(id));
-        },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width()
-    );
+    MenuItem!("Edit", move || {
+        close.set(None);
+        draft.set(String::new());
+        edit.set(Some(id));
+    });
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button!(
+    MenuItem!(
         "Move up",
         move || {
             close.set(None);
@@ -1365,12 +1355,10 @@ fn menu_entries(
                 swap(index, above);
             }
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         enabled = previous.is_some()
     );
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button!(
+    MenuItem!(
         "Move down",
         move || {
             close.set(None);
@@ -1378,14 +1366,12 @@ fn menu_entries(
                 swap(index, below);
             }
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         enabled = next.is_some()
     );
     // Deleting throws work away without asking, so it says what it did and offers the
     // task back.
     let (close, data) = (*menu_open, *data);
-    Button!(
+    MenuItem!(
         "Delete",
         move || {
             close.set(None);
@@ -1403,8 +1389,6 @@ fn menu_entries(
                 .with_duration(MessageDuration::Long)
                 .show();
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         color = Paint::Role(ColorRole::Error)
     );
 }
@@ -1578,7 +1562,7 @@ mod tests {
         /// The value handler each field declared, so a test can type into it.
         value_handlers: HashMap<u32, u64>,
         /// The integer properties a test reads back, by node and property: icons, type
-        /// roles, alignments, arrangements and selected indices.
+        /// roles, alignments, arrangements, selected indices and destination counts.
         integers: HashMap<(u32, u16), i64>,
         /// The string properties beside the text: accessible names and sections.
         strings: HashMap<(u32, u16), String>,
@@ -1654,7 +1638,8 @@ mod tests {
                             | PropertyKind::Alignment
                             | PropertyKind::Arrangement
                             | PropertyKind::SpaceRole
-                            | PropertyKind::SelectedIndex,
+                            | PropertyKind::SelectedIndex
+                            | PropertyKind::Count,
                             PropertyValue::Integer(value),
                         ) => {
                             self.integers.insert((*node_id, *property as u16), *value);
@@ -3254,6 +3239,66 @@ mod tests {
                 .iter()
                 .all(|node| !reloaded.mock.is_inside(*node, WidgetKind::Card)),
             "a card on its own list's page repeats the list's name"
+        );
+    }
+
+    /// Every destination in the sidebar carries the count the narrow window's list of lists
+    /// shows beside the same destination, the filters and a list of the application's own
+    /// alike, so a destination does not lose its count when the window is wide enough for
+    /// the design system's sidebar.
+    #[test]
+    fn fr21_2_4_sidebar_destinations_carry_the_counts_the_list_of_lists_shows() {
+        let mut screen = Screen::loaded(None);
+        let back = screen.mock.named_on_the_page(SHOW_LISTS)[0];
+        screen.click(back);
+        let new_list = screen.mock.buttons_off_the_navigation(NEW_LIST_LABEL)[0];
+        screen.click(new_list);
+        let field = screen.mock.field_in_an_open_sheet();
+        screen.submit(field, "Errands");
+        screen.settle();
+        let add = screen.mock.named_on_the_page(ADD_TASK)[0];
+        screen.click(add);
+        let field = screen.mock.field_in_an_open_sheet();
+        screen.submit(field, "Buy stamps");
+        screen.settle();
+        let back = screen.mock.named_on_the_page(SHOW_LISTS)[0];
+        screen.click(back);
+
+        let mut counted = 0;
+        for label in ["All", "Active", "Done", "Errands"] {
+            let destination = screen
+                .mock
+                .nodes_of_kind_with_text(WidgetKind::NavigationItem, label);
+            assert_eq!(destination.len(), 1, "{label} should be one destination");
+            let carried = screen.mock.integer(destination[0], PropertyKind::Count);
+            let row_button = screen.mock.buttons_off_the_navigation(label);
+            assert_eq!(
+                row_button.len(),
+                1,
+                "the list of lists has no row for {label}"
+            );
+            let row = screen.mock.parents[&row_button[0]];
+            let shown: Vec<i64> = screen
+                .mock
+                .texts
+                .iter()
+                .filter(|(node, _)| {
+                    screen.mock.parents.get(node) == Some(&row)
+                        && screen.mock.widgets.get(node) == Some(&WidgetKind::Text)
+                })
+                .filter_map(|(_, text)| text.parse().ok())
+                .collect();
+            assert_eq!(shown.len(), 1, "the row for {label} shows no single count");
+            assert_eq!(
+                carried,
+                Some(shown[0]),
+                "the sidebar's {label} does not carry the count its row shows"
+            );
+            counted += usize::from(shown[0] > 0);
+        }
+        assert!(
+            counted > 0,
+            "every count was zero, so the comparison proves little"
         );
     }
 

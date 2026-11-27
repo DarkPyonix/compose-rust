@@ -185,6 +185,12 @@ pub(crate) enum EventCallback {
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
     /// The size a node's size motion settled at.
     Motion(Rc<RefCell<dyn FnMut(crate::MotionFinished)>>),
+    /// The formatting at a rich text field's selection.
+    TextFormat(Rc<RefCell<dyn FnMut(crate::rich_text::TextFormat)>>),
+    /// A rich text field's document.
+    RichText(Rc<RefCell<dyn FnMut(crate::rich_text::RichDocument)>>),
+    /// A request to go back, which the handler consumes or leaves.
+    Back(Rc<RefCell<dyn FnMut(crate::BackRequested)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
     /// Where a scroll container is, for the `ScrollState` bound to it.
@@ -285,6 +291,11 @@ pub(crate) struct Composer {
     focus_binding: Option<Rc<crate::ui::focus::FocusTarget>>,
     /// The focus handles asked for since the last batch, each once.
     focus_requests: Vec<Rc<crate::ui::focus::FocusTarget>>,
+    /// The rich text state the widget being composed asked to be bound to its node.
+    rich_binding: Option<Rc<crate::ui::rich::RichTarget>>,
+    /// The rich text states with commands waiting, each once. A state whose field is not on
+    /// screen stays here until it is.
+    rich_requests: Vec<Rc<crate::ui::rich::RichTarget>>,
     /// The text field handle the field being composed asked to be bound to its node.
     text_binding: Option<Rc<crate::ui::text_handle::TextFieldTarget>>,
     /// The text field handles given a text since the last batch, each once.
@@ -329,6 +340,8 @@ impl Composer {
             dirty_scratch: Vec::new(),
             focus_binding: None,
             focus_requests: Vec::new(),
+            rich_binding: None,
+            rich_requests: Vec::new(),
             text_binding: None,
             text_requests: Vec::new(),
         }
@@ -1188,10 +1201,65 @@ impl Composer {
         if let Some(target) = self.focus_binding.take() {
             target.node.set(node);
         }
+        if let Some(target) = self.rich_binding.take() {
+            target.node.set(node);
+            // Commands made before the field was composed go out with this batch.
+            if target.has_pending() {
+                self.request_rich(target);
+            }
+        }
         if let Some(target) = self.text_binding.take() {
             target.node.set(node);
         }
         node
+    }
+
+    /// Binds a rich text state to the node the next `update_node` creates or updates, which
+    /// is the node of the widget that asked.
+    pub(crate) fn bind_rich_to_next_node(&mut self, target: Rc<crate::ui::rich::RichTarget>) {
+        if self.composing() {
+            self.rich_binding = Some(target);
+        }
+    }
+
+    /// Records that a rich text state has commands waiting, to be written with the next
+    /// batch once its field is on screen. A state is listed once however many it has.
+    pub(crate) fn request_rich(&mut self, target: Rc<crate::ui::rich::RichTarget>) {
+        if !target.queued.replace(true) {
+            self.rich_requests.push(target);
+        }
+    }
+
+    /// Writes the commands waiting for rich text fields that are on screen, in the order
+    /// they were made. A state whose field is not there yet keeps its commands, and a state
+    /// nobody holds any more drops them.
+    pub(crate) fn flush_rich_requests(&mut self) {
+        if self.rich_requests.is_empty() {
+            return;
+        }
+        let mut waiting = Vec::new();
+        for target in std::mem::take(&mut self.rich_requests) {
+            let node = target.node.get();
+            if Rc::strong_count(&target) == 1 {
+                drop(target.take());
+                target.queued.set(false);
+            } else if node != 0 && self.writer.is_placed(node) {
+                target.queued.set(false);
+                for request in target.take() {
+                    match request {
+                        crate::ui::rich::RichRequest::Format(format) => {
+                            self.writer.batch_mut().format_text(node, format);
+                        }
+                        crate::ui::rich::RichRequest::Load(document) => {
+                            self.writer.batch_mut().set_rich_text(node, &document, None);
+                        }
+                    }
+                }
+            } else {
+                waiting.push(target);
+            }
+        }
+        self.rich_requests = waiting;
     }
 
     /// Binds a focus handle to the node the next `update_node` creates or updates, which

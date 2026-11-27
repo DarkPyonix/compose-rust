@@ -48,6 +48,7 @@ pub mod palette;
 pub mod picked_file;
 pub mod preview;
 pub mod protocol;
+pub mod rich_text;
 pub mod runtime;
 pub mod schema;
 pub mod spans;
@@ -66,9 +67,9 @@ pub mod zoom;
 pub use animation::{
     Animated, AnimationMoment, AnimationSpec, GraphicsLayer, animate_color_as_state,
     animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
-    start_animation, transition,
+    spring_settle_ms, start_animation, transition,
 };
-pub use asset::{AssetId, asset, release_asset};
+pub use asset::{AssetId, asset, lazy_asset, release_asset};
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
@@ -91,7 +92,8 @@ pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{
-    FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest, pointer_button,
+    BackRequested, FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest,
+    pointer_button,
 };
 pub use message::{Message, show_message};
 pub use notification::{
@@ -101,7 +103,12 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
 pub use preview::{PreviewContext, PreviewSize, PreviewSpec, PreviewVariant};
+pub use rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, RichTextError, TextFormat, Toggle, Tri,
+};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
+pub use schema::BackSource;
+pub use schema::SheetDetents;
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
     ColorRole, ColorScheme, CompactNavigation, ContentScale, DecorationKind, DesignSystem,
@@ -120,11 +127,13 @@ pub use schema::{
     TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
+pub use schema::{FormatOp, ListKind, ParagraphRole};
 pub use schema::{MinimapSide, WordWrapMode};
 pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
 };
+pub use ui::{RichTextState, remember_rich_text_state};
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};
 pub use windows::{

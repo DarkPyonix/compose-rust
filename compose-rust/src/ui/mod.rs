@@ -38,6 +38,7 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod rich;
 pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
@@ -47,16 +48,20 @@ pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::font_features::FontFeature;
 pub use crate::message::{Message, show_message};
+pub use crate::rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, TextFormat, Toggle, Tri,
+};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
-    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
-    WindowHeightClass, WindowSizeClass,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetDetents,
+    SheetPresentation, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole,
+    VerticalAlignment, WindowHeightClass, WindowSizeClass,
 };
+pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
 
@@ -68,12 +73,13 @@ pub fn theme() -> ThemeHandle {
 pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::windows::{WindowDragEvent, WindowDragOver, WindowFrame};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use rich::{RichTextState, remember_rich_text_state};
 pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so
@@ -85,8 +91,8 @@ pub use functions::{
     IndeterminateProgressIndicator, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, Menu,
     MenuItem, NativeView, Navigation, NavigationItem, Popover, ProgressIndicator, RadioButton, Row,
     Scaffold, ScrollColumn, ScrollRow, Select, SelectionContainer, Separator, Sheet, Slider,
-    Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
-    Window,
+    Spacer, SplitPane, Submenu, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip,
+    TopAppBar, Window,
 };
 pub use lazy::LazyListScope;
 pub use widgets::{ScrollState, remember_scroll_state};
@@ -207,6 +213,9 @@ pub struct SemanticsState {
     pub click_action: bool,
     pub focus_action: bool,
     pub has_popup: bool,
+    /// Whether the node is a modal: while it is on screen, only the nodes inside it are in
+    /// the accessibility tree, and Tab does not leave it.
+    pub modal: bool,
 }
 
 impl SemanticsState {
@@ -221,6 +230,7 @@ impl SemanticsState {
         click_action: false,
         focus_action: false,
         has_popup: false,
+        modal: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -295,6 +305,14 @@ impl SemanticsState {
         }
     }
 
+    /// A node that is a modal, as a dialog drawn in the page announces itself.
+    pub const fn modal(modal: bool) -> Self {
+        Self {
+            modal,
+            ..Self::NONE
+        }
+    }
+
     /// Says whether the node is checked, keeping every other field.
     pub const fn with_checked(mut self, checked: bool) -> Self {
         self.checked = Some(checked);
@@ -355,6 +373,12 @@ impl SemanticsState {
         self
     }
 
+    /// Says whether the node is a modal, keeping every other field.
+    pub const fn with_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
+        self
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -385,6 +409,7 @@ impl SemanticsState {
             } else {
                 0
             }
+            | if self.modal { SEMANTICS_MODAL_BIT } else { 0 }
     }
 }
 
@@ -606,6 +631,7 @@ pub struct Modifier {
     press_feedback: Option<(f32, f32)>,
     hover_style: Option<HoverStyle>,
     focus_ring: Option<(Paint, f32, f32)>,
+    backdrop: Option<(f32, f32, Paint)>,
     press_style: Option<PressStyle>,
     semantics_role: Option<SemanticsRole>,
     semantics_label: Option<Arc<str>>,
@@ -628,6 +654,7 @@ pub struct Modifier {
     unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
+    active_descendant: Option<u32>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -664,6 +691,7 @@ impl Modifier {
             press_feedback: None,
             hover_style: None,
             focus_ring: None,
+            backdrop: None,
             press_style: None,
             semantics_role: None,
             semantics_label: None,
@@ -686,6 +714,7 @@ impl Modifier {
             unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
+            active_descendant: None,
         }
     }
 
@@ -1056,6 +1085,22 @@ impl Modifier {
         self
     }
 
+    /// Blurs what the application drew behind this node, inside the node's outline: by
+    /// `blur_dp`, with its saturation multiplied by `saturation` (1 leaves it as it is),
+    /// and `tint` laid over it. The same values draw the same on every design system,
+    /// which is what `material` does not promise: use this for a bar, a popover or a sheet
+    /// that has to look like glass everywhere.
+    ///
+    /// Only what this application drew is blurred, never the desktop behind the window.
+    /// Where the Renderer cannot blur, or the reader asked for reduced transparency, the
+    /// node is painted with `tint` at full opacity, so choose a `tint` the content reads
+    /// on. A colour role is the theme's and keeps its contrast. On a node that also has a
+    /// `material`, this is what is drawn.
+    pub fn backdrop(mut self, blur_dp: f32, saturation: f32, tint: impl Into<Paint>) -> Self {
+        self.backdrop = Some((blur_dp, saturation, tint.into()));
+        self
+    }
+
     /// Moves the node from where it was laid out, in dp, without moving anything else.
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset = Some((x, y));
@@ -1232,6 +1277,27 @@ impl Modifier {
     /// Whether the node opens a popup, as a menu button announces it.
     pub const fn has_popup(mut self, has_popup: bool) -> Self {
         self.semantics_state.has_popup = has_popup;
+        self
+    }
+
+    /// Makes the node a modal when true: while it is on screen, only the nodes inside it are
+    /// in the accessibility tree, and Tab and Shift+Tab do not move focus out of it. A
+    /// `Dialog` and a `Sheet` are modal already; this is for a node drawn in the page.
+    pub const fn modal(mut self, modal: bool) -> Self {
+        self.semantics_state.modal = modal;
+        self
+    }
+
+    /// The option a combobox's keys point at while focus stays on the combobox, as
+    /// WAI-ARIA's `aria-activedescendant` does: give the option widget `focus_handle =
+    /// &handle` and the combobox `Modifier.role(Role::ComboBox).active_descendant(&handle)`.
+    ///
+    /// The node the handle is bound to when this is called is the one sent. A handle bound to
+    /// no node yet sends nothing; the composition after its option first appears sends it,
+    /// which is the composition that changes the active option in the first place.
+    pub fn active_descendant(mut self, option: &crate::ui::FocusHandle) -> Self {
+        let node = option.bound_node();
+        self.active_descendant = (node != 0).then_some(node);
         self
     }
 
@@ -1534,6 +1600,21 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                 OwnedAttr::Bytes(bytes)
             }),
     );
+    // The blur and the saturation, then the tint. Written whenever it is set, because the
+    // wire carries every Modifier slot on every node.
+    push(
+        false,
+        "backdrop",
+        modifier
+            .backdrop
+            .map_or(OwnedAttr::None, |(blur, saturation, tint)| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&blur.to_le_bytes());
+                bytes.extend_from_slice(&saturation.to_le_bytes());
+                bytes.extend_from_slice(&tint.to_bits().to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
     // The tint, a zero word for none, and then the four curve points, the first NaN for
     // no curve.
     push(
@@ -1554,6 +1635,13 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         false,
         "semantics",
         semantics_bits(modifier).map_or(OwnedAttr::None, OwnedAttr::Int),
+    );
+    push(
+        false,
+        "active_descendant",
+        modifier
+            .active_descendant
+            .map_or(OwnedAttr::None, |node| OwnedAttr::Int(i64::from(node))),
     );
     push(
         false,

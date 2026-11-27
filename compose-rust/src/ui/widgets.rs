@@ -23,11 +23,11 @@ use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
     HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
-    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    SheetDetents, SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
     VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
-use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
+use crate::{BackRequested, FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -214,7 +214,22 @@ struct FocusAndKeyHandlers {
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    on_back_requested: Option<Box<dyn FnMut(BackRequested)>>,
     focus_handle: Option<super::FocusHandle>,
+}
+
+/// Writes a back handler as the listener the wire needs. A node that was given none has no
+/// `OnBackRequested` at all, and a window with no such node leaves back to the platform.
+fn back_input(
+    handler: Option<Box<dyn FnMut(BackRequested)>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handler {
+        listeners.push((
+            "onbackrequested",
+            EventCallback::Back(Rc::new(RefCell::new(handler))),
+        ));
+    }
 }
 
 /// Writes a motion handler as the listener the wire needs. A node that was given none has
@@ -287,6 +302,7 @@ fn focus_and_key_input(
         ));
     }
     motion_input(handlers.on_motion_finished.take(), listeners);
+    back_input(handlers.on_back_requested.take(), listeners);
 }
 
 macro_rules! focus_and_key_handlers {
@@ -333,6 +349,19 @@ macro_rules! focus_and_key_handlers {
                 handler: impl FnMut(MotionFinished) + 'static,
             ) -> Self {
                 self.focus_and_keys.on_motion_finished = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Hears a request to go back that no open overlay and no focused control took:
+            /// Android's back, Escape, a mouse's back button or an iOS edge swipe. The
+            /// innermost node with a handler hears it first; calling `consume` on the event
+            /// ends it there, and leaving it passes it to the next handler out and then to
+            /// the platform.
+            pub(crate) fn on_back_requested(
+                mut self,
+                handler: impl FnMut(BackRequested) + 'static,
+            ) -> Self {
+                self.focus_and_keys.on_back_requested = Some(std::boxed::Box::new(handler));
                 self
             }
         }
@@ -1288,6 +1317,10 @@ pub(crate) struct TextFieldScope {
     text_handle: Option<super::TextFieldHandle>,
     bare: bool,
     read_only: bool,
+    rich: bool,
+    rich_state: Option<super::rich::RichTextState>,
+    on_text_format: Option<Box<dyn FnMut(crate::rich_text::TextFormat)>>,
+    on_rich_change: Option<Box<dyn FnMut(crate::rich_text::RichDocument)>>,
     done: bool,
 }
 
@@ -1325,6 +1358,10 @@ pub(crate) fn TextField() -> TextFieldScope {
         text_handle: None,
         bare: false,
         read_only: false,
+        rich: false,
+        rich_state: None,
+        on_text_format: None,
+        on_rich_change: None,
         done: false,
     }
 }
@@ -1513,12 +1550,42 @@ impl TextFieldScope {
         self
     }
 
+    /// Turns on rich text for the field and binds `state` to it. The Renderer then keeps
+    /// character and paragraph formatting for the text, `state.format(..)` formats the
+    /// selection, and the state reads back the formatting at the selection and the
+    /// document.
+    pub(crate) fn rich(mut self, state: &super::rich::RichTextState) -> Self {
+        self.rich = true;
+        self.rich_state = Some(state.clone());
+        self
+    }
+
+    /// Hears the formatting at the selection each time it changes. Turns on rich text.
+    pub(crate) fn on_format(
+        mut self,
+        handler: impl FnMut(crate::rich_text::TextFormat) + 'static,
+    ) -> Self {
+        self.rich = true;
+        self.on_text_format = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Hears the document after the user pauses editing. Turns on rich text.
+    pub(crate) fn on_rich_change(
+        mut self,
+        handler: impl FnMut(crate::rich_text::RichDocument) + 'static,
+    ) -> Self {
+        self.rich = true;
+        self.on_rich_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
-        let (bare, read_only) = (self.bare, self.read_only);
+        let (bare, read_only, rich) = (self.bare, self.read_only, self.rich);
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1554,6 +1621,14 @@ impl TextFieldScope {
             ));
         }
         motion_input(self.on_motion_finished.take(), &mut listeners);
+        let rich_state = self.rich_state.take();
+        rich_input(
+            self.on_text_format.take(),
+            self.on_rich_change.take(),
+            rich_state.as_ref(),
+            &mut listeners,
+        );
+        super::rich::bind_rich_state(rich_state.as_ref());
         super::focus::bind_focus_handle(self.focus_handle.take());
         super::text_handle::bind_text_field_handle(self.text_handle.take());
         emit(
@@ -1571,6 +1646,10 @@ impl TextFieldScope {
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 if read_only {
                     attrs.push(("read_only", OwnedAttr::Bool(true)));
+                }
+                // Written only for a rich field, so a plain one sends what it always did.
+                if rich {
+                    attrs.push(("rich_text", OwnedAttr::Bool(true)));
                 }
                 // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
                 // as for `Text`.
@@ -1622,6 +1701,51 @@ impl TextFieldScope {
 }
 
 composed_on_drop!(TextFieldScope);
+
+/// Listens for a rich field's formatting and document. A listener is registered only where
+/// someone hears it, the bound state or the handler the caller gave, so a field nobody
+/// asks anything of is not sent events nobody reads.
+fn rich_input(
+    on_format: Option<Box<dyn FnMut(crate::rich_text::TextFormat)>>,
+    on_document: Option<Box<dyn FnMut(crate::rich_text::RichDocument)>>,
+    state: Option<&super::rich::RichTextState>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let format_state = state.map(super::rich::RichTextState::format_state);
+    if format_state.is_some() || on_format.is_some() {
+        let mut handler = on_format;
+        listeners.push((
+            "ontextformat",
+            EventCallback::TextFormat(Rc::new(RefCell::new(
+                move |format: crate::rich_text::TextFormat| {
+                    if let Some(state) = &format_state {
+                        state.set(format);
+                    }
+                    if let Some(handler) = handler.as_mut() {
+                        handler(format);
+                    }
+                },
+            ))),
+        ));
+    }
+    let document_state = state.map(super::rich::RichTextState::document_state);
+    if document_state.is_some() || on_document.is_some() {
+        let mut handler = on_document;
+        listeners.push((
+            "onrichtextchanged",
+            EventCallback::RichText(Rc::new(RefCell::new(
+                move |document: crate::rich_text::RichDocument| {
+                    if let Some(handler) = handler.as_mut() {
+                        handler(document.clone());
+                    }
+                    if let Some(state) = &document_state {
+                        state.set(document);
+                    }
+                },
+            ))),
+        ));
+    }
+}
 
 // ----- buttons and controls ---------------------------------------------------------------
 
@@ -2852,6 +2976,7 @@ pub(crate) struct MenuItemScope {
     selected: bool,
     enabled: bool,
     color: Option<Paint>,
+    shortcut_label: Option<String>,
     on_click: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -2859,6 +2984,9 @@ pub(crate) struct MenuItemScope {
 
 /// A single row in a `Menu` or action list: left-aligned label, optional leading icon,
 /// and optional selected state.
+///
+/// On the wire it is a `Button` marked as a menu entry, so a Renderer that puts menus up
+/// as the operating system's own can tell it from any other button.
 pub(crate) fn MenuItem(text: impl Into<String>) -> MenuItemScope {
     MenuItemScope {
         modifier: Modifier::new(),
@@ -2867,6 +2995,7 @@ pub(crate) fn MenuItem(text: impl Into<String>) -> MenuItemScope {
         selected: false,
         enabled: true,
         color: None,
+        shortcut_label: None,
         on_click: None,
         on_motion_finished: None,
         done: false,
@@ -2897,6 +3026,13 @@ impl MenuItemScope {
         self
     }
 
+    /// The text shown at the row's trailing edge for the key that does the same thing,
+    /// such as "Ctrl+S". Text only: the key itself stays the application's to handle.
+    pub(crate) fn shortcut_label(mut self, label: impl Into<String>) -> Self {
+        self.shortcut_label = Some(label.into());
+        self
+    }
+
     pub(crate) fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -2906,6 +3042,7 @@ impl MenuItemScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
+        let shortcut_label = self.shortcut_label.take();
         let mut listeners = vec![("onclick", unit(self.on_click.take()))];
         motion_input(self.on_motion_finished.take(), &mut listeners);
         emit(
@@ -2920,6 +3057,11 @@ impl MenuItemScope {
                 attrs.push(("text_align", role_or_zero(Some(TextAlign::Start))));
                 attrs.push(("checked", OwnedAttr::Bool(selected)));
                 attrs.push(("color", super::paint(color)));
+                attrs.push((
+                    "shortcut_label",
+                    shortcut_label.map_or(OwnedAttr::None, OwnedAttr::Text),
+                ));
+                attrs.push(("menu_entry", OwnedAttr::Bool(true)));
             },
             listeners,
             content,
@@ -2929,6 +3071,81 @@ impl MenuItemScope {
 
 composed_on_drop!(MenuItemScope);
 motion_handler!(MenuItemScope);
+
+/// A `Submenu` and its builder.
+pub(crate) struct SubmenuScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    enabled: bool,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    done: bool,
+}
+
+/// An entry of a `Menu` that opens a menu of its own: a row named `text` whose content is
+/// the entries it opens. Compose Desktop's nested `Menu` in a menu bar.
+///
+/// On the wire it is a `Menu` marked as a menu entry, whose first child is the `MenuItem`
+/// that names it. Whether it is open is the Renderer's, as it is in every platform's menu,
+/// so opening and closing it sends nothing to the Host.
+pub(crate) fn Submenu(text: impl Into<String>) -> SubmenuScope {
+    SubmenuScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        enabled: true,
+        on_motion_finished: None,
+        done: false,
+    }
+}
+
+impl SubmenuScope {
+    /// Leading semantic icon for the submenu's row.
+    pub(crate) fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// A disabled submenu shows its row greyed and does not open.
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = std::mem::take(&mut self.modifier);
+        let text = std::mem::take(&mut self.text);
+        let (icon, enabled) = (self.icon, self.enabled);
+        let motion = self.on_motion_finished.take();
+        emit(
+            widget_key("compose_rust::ui::Submenu"),
+            WidgetKind::Menu,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("menu_entry", OwnedAttr::Bool(true)));
+            },
+            with_motion(Vec::new(), motion),
+            || {
+                {
+                    let _anchor = crate::runtime::group_guard(widget_key(
+                        "compose_rust::ui::Submenu::anchor",
+                    ));
+                    let mut row = MenuItem(text).enabled(enabled);
+                    if let Some(icon) = icon {
+                        row = row.icon(icon);
+                    }
+                    drop(row);
+                }
+                let _entries =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Submenu::entries"));
+                content();
+            },
+        );
+    }
+}
+
+container!(SubmenuScope);
+motion_handler!(SubmenuScope);
 
 // ----- surfaces that come and go ----------------------------------------------------------
 
@@ -2943,6 +3160,8 @@ pub(crate) struct ModalScope {
     presentation: SheetPresentation,
     max_width: Option<u32>,
     handle: bool,
+    detents: SheetDetents,
+    drag_to_dismiss: bool,
     on_dismiss: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -2960,6 +3179,8 @@ pub(crate) fn Dialog(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         handle: true,
+        detents: SheetDetents::NONE,
+        drag_to_dismiss: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -2978,6 +3199,8 @@ pub(crate) fn Sheet(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         handle: true,
+        detents: SheetDetents::NONE,
+        drag_to_dismiss: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -3036,9 +3259,36 @@ impl ModalScope {
         self
     }
 
+    /// The heights a bottom sheet rests at. `MEDIUM | LARGE` opens at half the window and
+    /// is pulled up to nearly all of it and back; one of them is that one height; `NONE`
+    /// leaves the height to the design system. A centered sheet and one that comes from
+    /// the side have no resting heights and ignore it. Only a `Sheet` sends it.
+    pub(crate) fn detents(mut self, detents: SheetDetents) -> Self {
+        self.detents = detents;
+        self
+    }
+
+    /// Whether pulling a bottom sheet down closes it. On by default.
+    ///
+    /// Turned off, the pull stops at the lowest resting height and no dismissal is sent,
+    /// so a sheet holding unsaved input is not closed by a stray drag. Escape, the
+    /// platform's back and a press outside still ask to close it.
+    pub(crate) fn drag_to_dismiss(mut self, enabled: bool) -> Self {
+        self.drag_to_dismiss = enabled;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
+        // Each is sent only when it says something other than the default, so a sheet
+        // that sets neither writes what it always did.
+        let detents = if widget == WidgetKind::Sheet {
+            self.detents.bits()
+        } else {
+            0
+        };
+        let keep_on_drag = widget == WidgetKind::Sheet && !self.drag_to_dismiss;
         let max_height_fraction = self
             .max_height_fraction
             .filter(|_| widget == WidgetKind::Sheet);
@@ -3076,6 +3326,12 @@ impl ModalScope {
                 }
                 if hide_handle {
                     attrs.push(("sheet_handle", OwnedAttr::Bool(false)));
+                }
+                if detents != 0 {
+                    attrs.push(("sheet_detents", OwnedAttr::Int(i64::from(detents))));
+                }
+                if keep_on_drag {
+                    attrs.push(("sheet_drag_to_dismiss", OwnedAttr::Bool(false)));
                 }
             },
             with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),
@@ -3694,9 +3950,10 @@ impl<'a> NavigationScope<'a> {
     ///
     /// Without it the design system answers, which is a bottom bar on most of them. An
     /// application whose own reference draws a compact window differently says so here:
-    /// `Sidebar` puts the sidebar away behind a toggle on every design system, and `None`
+    /// `Sidebar` puts the sidebar away behind a toggle on every design system, `None`
     /// leaves the destinations off a compact window so the screen can reach them its own
-    /// way. Medium and Expanded windows keep the design system's rail and drawer whatever
+    /// way, and `Floating` draws them as a pill-shaped bar floating over the bottom of the
+    /// page. Medium and Expanded windows keep the design system's rail and drawer whatever
     /// this says, and the screen still never asks how wide the window is.
     pub(crate) fn compact(mut self, compact: CompactNavigation) -> Self {
         self.compact = compact;
@@ -3772,6 +4029,7 @@ pub(crate) struct NavigationItemScope {
     color: Option<Paint>,
     enabled: bool,
     section: Option<String>,
+    count: Option<u32>,
     on_click: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -3786,6 +4044,7 @@ pub(crate) fn NavigationItem(text: impl Into<String>) -> NavigationItemScope {
         color: None,
         enabled: true,
         section: None,
+        count: None,
         on_click: None,
         on_motion_finished: None,
         done: false,
@@ -3814,6 +4073,12 @@ impl NavigationItemScope {
         self
     }
 
+    /// How many things the destination holds.
+    pub(crate) fn count(mut self, count: u32) -> Self {
+        self.count = Some(count);
+        self
+    }
+
     pub(crate) fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -3823,7 +4088,7 @@ impl NavigationItemScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let section = self.section.take();
-        let (icon, color, enabled) = (self.icon, self.color, self.enabled);
+        let (icon, color, enabled, count) = (self.icon, self.color, self.enabled, self.count);
         let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::NavigationItem"),
@@ -3835,6 +4100,11 @@ impl NavigationItemScope {
                 attrs.push(("color", super::paint(color)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("section", optional_text(section)));
+                // The badge's own property: absent is no count, which is not a count of 0.
+                attrs.push((
+                    "count",
+                    count.map_or(OwnedAttr::None, |count| OwnedAttr::Int(i64::from(count))),
+                ));
             },
             with_motion(vec![("onclick", unit(self.on_click.take()))], motion),
             content,
@@ -4331,6 +4601,7 @@ pub(crate) struct WindowScope {
     on_drag: Option<Box<dyn FnMut(crate::windows::WindowDragEvent)>>,
     on_unavailable: Option<Box<dyn FnMut()>>,
     on_closed: Option<Box<dyn FnMut()>>,
+    on_back_requested: Option<Box<dyn FnMut(BackRequested)>>,
     done: bool,
 }
 
@@ -4368,6 +4639,7 @@ pub(crate) fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
         on_drag: None,
         on_unavailable: None,
         on_closed: None,
+        on_back_requested: None,
         done: false,
     }
 }
@@ -4510,6 +4782,15 @@ impl WindowScope {
         self
     }
 
+    /// Hears a request to go back in this window that no node inside it consumed.
+    pub(crate) fn on_back_requested(
+        mut self,
+        handler: impl FnMut(BackRequested) + 'static,
+    ) -> Self {
+        self.on_back_requested = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     /// Composes this window with `content` as its children.
     pub(crate) fn content(mut self, content: impl FnOnce()) {
         self.done = true;
@@ -4649,6 +4930,7 @@ impl WindowScope {
                 }),
             ));
         }
+        back_input(self.on_back_requested.take(), &mut listeners);
 
         let theme = self.theme.take();
         emit(

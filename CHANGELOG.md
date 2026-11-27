@@ -6,6 +6,10 @@
 
 The renderer now builds with the Compose fork's `1.11.1-ext.6` (tag `v1.11.1-ext.6`) for Compose, the window modules and skiko-awt alike. On Windows a toast's answer (a press on it, or the permission) now asks for the frame that delivers it through a callback the renderer registers with the fork, instead of the fork calling a compose-rust symbol by name; nothing changes for an application. The fork's other window changes since ext.5 (the CSS cursor keywords, the caption strip height by title bar mode, UI Automation patterns, native views on Windows and Linux, the GDI route as the Windows default) reach applications as the renderer adopts them.
 
+### Fonts that load on the first letter that needs them
+
+`lazy_asset(AssetKind::Font, bytes)` returns the id `asset()` would give the same bytes and sends nothing. `FontRef::LazyAsset(id)` names such a font in a font list, and `FontStack::lazy_family(ids)` in a stack. The Renderer asks for the bytes with the new `AssetWanted(id)` event the first time a letter that no font before it has reaches it, once per id, and the Host answers with the `RegisterAsset` it already had, on the next batch. Until the bytes arrive the letter is drawn as a missing glyph, never in a font of the machine's own, and measuring and drawing agree before and after. An application can ship a cut-down Korean face for the first batch and keep the full 1.5 MB face on the Host until a letter such as 똠 needs it. A request for an id the Host has nothing for is one `ProtocolError::UnknownAsset`, and a face let go of with `release_asset` is asked for again when it is needed. The schema hash moves (event 71, payload 46, font candidate kind 4) (FR-48.4, [#1057](https://github.com/DarkPyonix/compose-rust/issues/1057)).
+
 ### A Linux window redraws when the display scale changes
 
 The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
@@ -13,6 +17,14 @@ The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` chan
 ### Build failures no longer send a crate user to a script only a checkout has
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
+
+### A scroll container removed in the middle of a frame's reports no longer reports
+
+A frame's scroll reports go out one after another, and the Host's answer to one could remove a container whose report came later in the same frame. That container still reported with the handler the Host had just forgotten, the Host refused it, and the desktop renderer printed `dispatch_event returned -1` (protocol error 100). Ember saw it at its editor window's first frame. A container removed during the reports now sends nothing (FR-80, #1077).
+
+### `CodeEditor` takes font feature settings
+
+A coding font such as JetBrains Mono draws `->`, `=>` and `!=` as ligatures by default, and an editor had no way to turn that off: `FontFeatureSettings` was taken by `Text` and `TextField` only. A `CodeEditor` now takes the same feature records and sets its text with them, so `liga 0` and `calt 0` draw `->` as two glyphs a column each. The line numbers keep the design system's features (FR-83, #1078).
 
 ### `release_asset(id)` lets go of a registered font or picture
 
@@ -45,6 +57,13 @@ The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % ful
 ### The build finds its renderer by schema hash
 
 A git dependency on a revision after a release builds. The crate's version stays the same between two releases while its schema moves on, and the build used to fetch the release for that version, whose renderer was built from the older schema, and then stop at the schema check with nothing else to try. The build now reads the schema hash of the release's renderer, and when it is not the crate's, fetches the renderer published for the crate's schema from the `renderer-dev` release (`compose-rust-renderer-schema-<hash>-<target>.tar.gz`, verified against its `.sha256` like any other). When neither matches, the build stops and names the crate's schema hash, each renderer's hash and both addresses. A released version costs no extra request. The cache is keyed by schema hash and target (`renderer/schema-<hash>/<target>`) instead of by version, so two revisions of one version never share an entry; an entry an earlier build left under the version is used only when its renderer says it was built from the same schema. A renderer that says it was built from the crate's schema is no longer refused for the version written in its `renderer.version`. `COMPOSE_RUST_RENDERER_URL` moves both addresses to a mirror; it is optional, and a build without it uses GitHub as before ([#293](https://github.com/DarkPyonix/compose-rust/issues/293)).
+
+### Rich text in a text field (wire)
+
+### Rich text in a text field (wire and Rust API)
+
+A `TextField` can keep character and paragraph formatting that the Renderer owns: `TextField!(rich = &state, on_format = ..., on_rich_change = ...)` turns it on, `RichTextState::format(Format::Bold(Toggle::Flip))` formats the selection, and the field reports the formatting at the selection and its document. `RichDocument` has `to_markdown()` and `from_markdown()` for storing a document. This adds the properties 220 to 222, the commands `FormatText` and `SetRichText`, the events `TextFormatAtSelection` and `RichTextChanged`, and the enums `FormatOp`, `ParagraphRole` and `ListKind`, so the schema hash moves; a `TextField` without `rich` sends the records it always did. The Renderer only stores the new requests for now. See [#638](https://github.com/DarkPyonix/compose-rust/issues/638).
+
 
 ### Widgets are functions and call macros, not builder chains
 
@@ -96,6 +115,41 @@ A sheet's first line no longer sits level with its drag handle. Material 3 keeps
 ### The renderer builds from the fork's merge of #314
 
 The Compose fork pin moves past the `v1.11.1-ext.6` tag to the merge of fork #314, which still publishes as `1.11.1-ext.6`. With it the fork's own repository lists read the Maven Central mirror CI names in `COMPOSE_MAVEN_MIRROR` before Central, so the fork build no longer stops on Central's 429 in a script plugin's `buildscript` block (trains 13 and 14). The window code it carries also draws every step of a Windows drag in one order on the composition route, places macOS accessibility frames from the top of the content, and keeps a macOS window's GPU memory down while it is idle.
+### A request to go back reaches the application
+
+A layout container and `Window!` take `on_back_requested`. Its handler hears Android's back gesture and button, Escape, a mouse's back button and the swipe in from the leading edge on iOS, when no open overlay and no focused control took it first. The innermost node with a handler hears it first. `BackRequested::consume()` ends the request there; a handler that leaves it passes it to the next handler out, and after the last of them to the platform, which on Android does what it does with a back nobody claimed. `BackRequested::source()` says which of the four it was, as a `BackSource`. A window with no handler does not claim the platform's back at all.
+
+On the wire this is the event `BackRequested` (tag 70, 20 bytes: the header and a `BackSource` word) and the handler property `OnBackRequested` (tag 223). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### A bottom sheet rests at a medium and a large height, and a pull need not close it
+
+`Sheet!` takes `detents` and `drag_to_dismiss`. `detents = SheetDetents::MEDIUM | SheetDetents::LARGE` opens a bottom sheet at half the window; pulling it up opens it out to the window's height less the top safe area and the design system's margin, and pulling it down brings it back to half. One of the two alone is that one height. Which height the sheet is at is the renderer's state and is never reported. `drag_to_dismiss = false` stops a pull at the lowest resting height and sends no dismissal for it, so a sheet holding unsaved input is not closed by a stray drag; Escape, the platform's back and a press outside still call `on_dismiss`. A centered sheet and one that comes from the side take neither. They travel as the properties `SheetDetents` (tag 224, the bits of the set) and `SheetDragToDismiss` (tag 225, a boolean), each sent only when it differs from the default, so a sheet that sets neither writes what it did before. Bits that name no height are a protocol error. The schema hash changes.
+
+### `Modifier::backdrop`: a blur the application chooses
+
+`Modifier.backdrop(blur_dp, saturation, tint)` blurs what the application drew behind a node, inside the node's outline, multiplies its saturation and lays `tint` over it. The values are the application's and draw the same on all seven design systems, where `material` leaves the look to the design system. It is for a bar, a popover or a sheet that has to look like glass everywhere, Material 3 included.
+
+The renderer can only blur what it recorded apart from the node. That is the earlier children of the same `Box`, a `Scaffold`'s page under its bars, and the window's page under a sheet, a dialog or a popover. A node with a backdrop anywhere else is painted with `tint` at full opacity. The same happens under reduced transparency, where the build cannot blur (Android before 12), and for a blur or a saturation that is negative or not a number, which is also reported as a protocol error. The desktop behind the window is never blurred. On a node that has a `material` as well, the backdrop is what is drawn.
+
+On the wire it is the modifier `Backdrop` (tag 47, two words: the blur and the saturation, then the tint). The schema hash changes.
+
+### `CompactNavigation::Floating`, and the top of the safe area
+
+`Navigation!(.., compact = CompactNavigation::Floating)` draws the destinations of a compact window as a pill-shaped bar floating over the bottom of the page, on all seven design systems. The bar is held off the sides of the window and off its bottom by the design system's margin and the bottom safe area. The page runs on under it and shows through it: where the design system's floating surfaces are glass (Liquid Glass and Cupertino) the page behind is blurred the way `Modifier::backdrop` blurs it, and elsewhere the bar is the system's own bar colour, lifted off the page. A `ScrollColumn`, a `LazyColumn` and a `LazyGrid` in the page end their content lower by what the bar covers, so the last row scrolls clear of it. It works where the `Navigation` holds its page and where it sits in a `Scaffold`'s bottom slot. Medium and Expanded windows keep the design system's rail and drawer. It travels as tag 3 of the `CompactNavigation` property (185). The schema hash changes.
+
+**Behavior change.** `window_size().safe_area.top` now carries the strip the system keeps at the top of the window, a status bar or a notch, where it used to carry only a desktop window's caption. On a phone it was 0 before. A window with both reports their sum. An application that added its own status bar padding on a phone now gets that room twice: remove its own padding and use `safe_area.top`.
+
+### A modal hides what is behind it from assistive technology
+
+While a `Dialog` or a `Sheet` is open, every node outside it leaves the accessibility tree: the page, its app bars and navigation, and any overlay opened before it. With overlays stacked, only the topmost is read. Closing it brings the rest back, and focus still returns to the control that opened it. Tab and Shift+Tab go round inside an open `Dialog` as they already did inside a `Sheet`. Any other node becomes a modal with `Modifier::modal(true)` or `SemanticsState::modal(true)`: while it is on screen only the nodes inside it are read, and Tab and Shift+Tab do not move focus out of it. A `Popover` with the bit is modal while it is open. The bit is bit 14 of the `Semantics` state word (`SEMANTICS_MODAL_BIT`), so `SEMANTICS_STATE_MASK` grows by one bit and the schema hash changes ([#938](https://github.com/DarkPyonix/compose-rust/issues/938)).
+
+### Combobox, list box and option roles, and the option a combobox points at
+
+`Role` gains `ComboBox` (20), `ListBox` (21) and `Option` (22). `Modifier::active_descendant(&handle)` says which option a combobox's keys point at while focus stays on the combobox, as WAI-ARIA's `aria-activedescendant` does: the option widget takes `focus_handle = &handle`, and the node that handle is bound to is sent as the `ActiveDescendant` property (tag 219, an integer node id). A handle bound to no node yet sends nothing. Compose has no such relation, so the Renderer adds the option's name to the combobox's state description, which TalkBack reads as its state and VoiceOver as its value; a macOS window reads the three roles as a combo box, a list and its items. `Role` is an exhaustive enum, so a `match` over it needs arms for the three new roles. The schema hash changes ([#942](https://github.com/DarkPyonix/compose-rust/issues/942)).
+
+### Menus open as the operating system's menu
+
+A `Menu`, the options of a closed `Dropdown`, and a top bar's overflow menu are handed to the window's OS menu presenter where it has one, instead of a popup drawn by the design system: `PopupMenu` on Android and `UIMenu` on iOS, and on the Linux windows a drawn menu of the same list. macOS (`NSMenu`) and Windows (`TrackPopupMenuEx`) take the same list once their window code in the Compose fork provides a presenter, and draw their menus as before until then; the web keeps its drawn menu. Choosing an entry sends the event it always did (the entry's `on_click`, or the dropdown's `on_change`), and closing without a choice sends the menu's `on_dismiss` once. A menu holds only entries: `MenuItem`, the new `Submenu!(text, icon, enabled, { .. })`, and `Separator` between them; a dropdown's options are `MenuItem` or `Text`. Any other node there is a protocol error and nothing is put up in its place, so a popup of other content is a `Popover`, which never becomes an OS menu. `MenuItem` takes `shortcut_label`, text shown at the row's trailing edge that registers no key. In a top bar, an icon-only action is named in the overflow menu by its `accessible_name`, one with no name is a protocol error once it overflows, and an action with a content slot never overflows: the title gives way before it. Two properties are added, `ShortcutLabel` (tag 228, text, on a `Button`) and `MenuEntry` (tag 229, a boolean sent as true on a `MenuItem`'s `Button` and a `Submenu`'s `Menu`), and the schema hash changes. The chat, notepad and todo samples write their menus with `MenuItem` and `Separator` ([#19](https://github.com/DarkPyonix/compose-rust/issues/19)).
 
 ## v0.0.12
 

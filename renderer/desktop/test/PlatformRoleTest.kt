@@ -74,6 +74,9 @@ class PlatformRoleTest {
             SemanticsRole.List to ElementRole.LIST,
             SemanticsRole.ListItem to ElementRole.LIST_ITEM,
             SemanticsRole.Group to ElementRole.GROUP,
+            SemanticsRole.ComboBox to ElementRole.COMBO_BOX,
+            SemanticsRole.ListBox to ElementRole.LIST,
+            SemanticsRole.Option to ElementRole.LIST_ITEM,
         )
         for ((role, platform) in expected) assertEquals(platform, role.elementRole(), "$role")
         // The roles Compose names itself go through Compose's role, and no role is no role.

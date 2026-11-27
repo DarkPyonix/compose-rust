@@ -97,6 +97,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.glassLift
 import dev.darkpyonix.composerust.design.glassSurface
+import dev.darkpyonix.composerust.foundation.hostBackdrop
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.node.blurredShadow
@@ -140,7 +141,12 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // came last, after the padding and the clip, and a glass composer was drawn as a
     // capsule inside its own padding with the lift cut off at the edge.
     val material = lastOrNull { it is ProtocolModifier.Material } as ProtocolModifier.Material?
-    val surface = if (material == null) {
+    // The application's own blur is a surface too, and where a node has both it is the one
+    // that is drawn: it was chosen for this node, and the material was left to the system.
+    val backdrop = lastOrNull { it is ProtocolModifier.Backdrop } as ProtocolModifier.Backdrop?
+    val surface = if (backdrop != null) {
+        Modifier.hostBackdrop(backdrop.blurDp, backdrop.saturation, theme.color(backdrop.tint), shape)
+    } else if (material == null) {
         Modifier
     } else {
         // Resolved by the running design system, which answers with blur where it blurs
@@ -164,6 +170,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     var alphaSeen = false
     var backgroundSeen = false
     var transformSeen = false
+    var transform3DSeen = false
     var borderSeen = false
     var pressableAttached = false
     fun attachPressableIfNeeded(chain: Modifier): Modifier {
@@ -266,6 +273,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
             is ProtocolModifier.PressFeedback -> chain
+            // Drawn as the node's surface, through `surface` above.
+            is ProtocolModifier.Backdrop -> chain
             // Read through `hoverStyle`, `focusRing` and `pressStyle` above: they change how
             // the press, the hover and the focus are drawn, and on their own draw nothing.
             is ProtocolModifier.HoverStyle -> chain
@@ -484,12 +493,29 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // exactly, so the layout is untouched and a pointer is tested against the shape
             // that is drawn. The plan is worked out here, once for each value of the record.
             is ProtocolModifier.Transform3D -> {
-                val plan = Transform3DPlan()
-                plan.solve(
-                    floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15),
-                    value.backfaceHidden,
-                )
-                chain.perspectiveTransform(plan, value.originX, value.originY)
+                val holder = if (!transform3DSeen) animated?.invoke() else null
+                transform3DSeen = true
+                val base = floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15)
+                if (holder != null && holder.transform3DAnimated.value) {
+                    // An animation plays on this matrix: the layers read what it shows in
+                    // the layer phase and solve it again there, once per new value, so the
+                    // node is neither composed nor measured again while it plays. The
+                    // origin and backface-visibility stay the modifier's.
+                    val plan = Transform3DPlan()
+                    var solvedVersion = Int.MIN_VALUE
+                    chain.changingPerspectiveTransform(value.originX, value.originY) {
+                        val version = holder.transform3DVersion.intValue
+                        if (version != solvedVersion) {
+                            solvedVersion = version
+                            plan.solve(if (holder.transform3DShown) holder.matrix3D else base, value.backfaceHidden)
+                        }
+                        plan
+                    }
+                } else {
+                    val plan = Transform3DPlan()
+                    plan.solve(base, value.backfaceHidden)
+                    chain.perspectiveTransform(plan, value.originX, value.originY)
+                }
             }
 
             // The node and everything in it are drawn into one layer first, and the layer is
