@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.runtime.composeZoomShortcut
 import dev.darkpyonix.composerust.runtime.zoomedDensity
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.protocol.Window
+import dev.darkpyonix.composerust.foundation.ProvideOsMenu
 import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
@@ -290,19 +291,22 @@ private fun MacosWindowScene(
             }
         }
         val strip = window.caption.value
-        MacosWindowZoom(slot.zoom) { zoomKeys ->
-            WindowContent(
-                host,
-                modifier = zoomKeys,
-                caption = WindowCaption(
-                    height = strip.height,
-                    buttonsWidth = strip.buttonsWidth,
-                    buttonsAtStart = strip.buttonsAtStart,
-                    insetTop = strip.insetTop,
-                    cornerRadius = strip.cornerRadius,
-                    fullSize = fullSize,
-                ),
-            )
+        // The window's entry menus are `NSMenu`s, put up from this window's own loop.
+        ProvideOsMenu(slot.osMenu?.presenter) {
+            MacosWindowZoom(slot.zoom) { zoomKeys ->
+                WindowContent(
+                    host,
+                    modifier = zoomKeys,
+                    caption = WindowCaption(
+                        height = strip.height,
+                        buttonsWidth = strip.buttonsWidth,
+                        buttonsAtStart = strip.buttonsAtStart,
+                        insetTop = strip.insetTop,
+                        cornerRadius = strip.cornerRadius,
+                        fullSize = fullSize,
+                    ),
+                )
+            }
         }
     }
 }

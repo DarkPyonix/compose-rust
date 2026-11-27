@@ -1,5 +1,8 @@
 package dev.darkpyonix.composerust.foundation
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+
 // On macOS and Windows `NSMenu.popUpMenuPositioningItem` and `TrackPopupMenuEx` hold
 // the thread in the system's menu loop until the menu closes. Calling one from inside
 // composition or an effect would run the whole application from there, so [open] only writes
@@ -50,6 +53,17 @@ class BlockingOsMenuPresenter(private val platform: BlockingOsMenu) : OsMenuPres
     }
 
     /**
+     * Dismisses the menu waiting to go up, if any, without putting it up: for a window that
+     * went away before its loop came round, so the menu never opens over a window that is
+     * not there.
+     */
+    fun dismissPending() {
+        val menu = next ?: return
+        next = null
+        menu.once.dismissed()
+    }
+
+    /**
      * Puts up the menu waiting, if any, and reports its result. Blocks while it is up. The
      * window's loop calls it after a frame, outside composition, layout and drawing.
      */
@@ -69,4 +83,29 @@ class BlockingOsMenuPresenter(private val platform: BlockingOsMenu) : OsMenuPres
             menu.once.dismissed()
         }
     }
+}
+
+/**
+ * Gives [content] the window's entry menu presenter as [LocalOsMenuPresenter]. Every window
+ * of a host wraps its own content in this with its own presenter, because a menu's anchor is
+ * in that one window's pixels.
+ */
+@Composable
+fun ProvideOsMenu(presenter: OsMenuPresenter?, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalOsMenuPresenter provides presenter, content = content)
+}
+
+/**
+ * What a window's loop does with [presenter] after it drew and presented a frame: puts up the
+ * menu waiting, if any, and blocks while it is up. The loop calls it outside composition,
+ * layout and drawing, with no lock held that the menu's own loop could need.
+ *
+ * True when the loop must not sleep on its next wait for events, which it treats as it treats
+ * a frame that is due: a menu just closed and what was chosen needs a frame to show, or a newer
+ * menu was asked for while this one was up and waits for the next turn.
+ */
+fun runOsMenuAfterFrame(presenter: BlockingOsMenuPresenter): Boolean {
+    val had = presenter.waiting
+    presenter.runPending()
+    return had || presenter.waiting
 }

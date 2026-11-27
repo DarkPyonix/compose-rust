@@ -222,6 +222,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape, { windowFocused.value }),
     )
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
+    // Entry menus as `NSMenu`, anchored in this window's pixels. The loop below puts a waiting
+    // one up after the frame, because `NSMenu` holds the thread while it tracks.
+    val osMenu = dev.darkpyonix.composerust.foundation.BlockingOsMenuPresenter(
+        AppKitBlockingOsMenu(window) { backingScale.scale },
+    )
     // The application's own tree, drawn by the same interpreter every window uses.
     // Nothing in it knows which window it is in, which is the point.
     scene.setContent {
@@ -244,12 +249,14 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
         ) {
-            NativeWindowContent(
-                host,
-                caption.value.copy(fullSize = asked?.chrome == Chrome.FullSize),
-                actions = null,
-                session = singleWindow,
-            )
+            dev.darkpyonix.composerust.foundation.ProvideOsMenu(osMenu) {
+                NativeWindowContent(
+                    host,
+                    caption.value.copy(fullSize = asked?.chrome == Chrome.FullSize),
+                    actions = null,
+                    session = singleWindow,
+                )
+            }
         }
     }
     installApplicationMenu(options.title)
@@ -368,6 +375,9 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         }
     }
     if (!legacyResize) registerAppKitFrameCallback()
+    // Set when the turn before put a menu up or left one waiting: the next turn does not wait
+    // for the window, as for a frame that is due.
+    var menuBusy = false
 
     try {
         // A plain loop rather than a clock: it waits for the window rather than for a
@@ -386,7 +396,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
-            pumpWindowEvents(TURN_WAIT_SECONDS)
+            pumpWindowEvents(if (menuBusy || osMenu.waiting) 0.0 else TURN_WAIT_SECONDS)
             LatencyTrace.mark("loop turn $frame")
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
                 window.scriptedResize(size.width / backingScale.scale.toInt() to size.height / backingScale.scale.toInt(),
@@ -406,6 +416,10 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // Costs a comparison when nothing has changed, which is almost always.
             semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             reportCaret(textInput)
+            // Last, with the frame on the screen and outside the frame door: `NSMenu` tracks
+            // until the menu closes, and a frame the display link asks for meanwhile is drawn
+            // through the door as during a resize.
+            menuBusy = dev.darkpyonix.composerust.foundation.runOsMenuAfterFrame(osMenu)
         }
         LatencyTrace.summary()
     } finally {

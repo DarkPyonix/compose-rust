@@ -227,6 +227,11 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             CTypeConversion.toCBytes(packed).use { items -> contextMenu(WordFactory.pointer(window.window), items.get()) }
         }
     }
+    // Entry menus as Windows' own popup menus, anchored in this window's pixels. The loop below
+    // puts a waiting one up after the frame, because `TrackPopupMenuEx` holds the thread.
+    val osMenu = dev.darkpyonix.composerust.foundation.BlockingOsMenuPresenter(
+        Win32BlockingOsMenu(window) { window.measure().scale },
+    )
     @Suppress("DEPRECATION")
     scene.setContent {
         // A theme the application sends later moves the window's caption and frame with it.
@@ -242,7 +247,9 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { beginNativeWindowDrag(0) },
         ) {
-            SingleWindowHostContent(singleWindow, caption = caption)
+            dev.darkpyonix.composerust.foundation.ProvideOsMenu(osMenu) {
+                SingleWindowHostContent(singleWindow, caption = caption)
+            }
         }
     }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
@@ -300,7 +307,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             // The window's own turn, before anything is read from it. This thread is the
             // one Windows delivers to, so the messages of this frame arrive here or not
             // at all.
-            window.pump(if (busy) 0.0 else FRAME_SECONDS)
+            window.pump(if (busy || osMenu.waiting) 0.0 else FRAME_SECONDS)
             LatencyTrace.mark("loop turn")
             FrameMainDispatcher.runPending()
             work.runPending()
@@ -340,7 +347,10 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
-            busy = heard || drew
+            // Last, with the frame presented and outside the frame door: `TrackPopupMenuEx`
+            // runs the system's menu loop until the menu closes.
+            val menu = dev.darkpyonix.composerust.foundation.runOsMenuAfterFrame(osMenu)
+            busy = heard || drew || menu
         }
         LatencyTrace.summary()
     } finally {

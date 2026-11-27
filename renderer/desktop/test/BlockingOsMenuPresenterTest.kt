@@ -146,4 +146,19 @@ class BlockingOsMenuPresenterTest {
         presenter.runPending()
         assertEquals("Other", (platform.shown.single().entries.single() as Item).label)
     }
+
+    @Test
+    fun fr33_2_a_menu_whose_window_went_away_is_dismissed_and_never_goes_up() {
+        val platform = Platform { listOf(0) }
+        val presenter = BlockingOsMenuPresenter(platform)
+        val results = mutableListOf<OsMenuResult>()
+        presenter.open(request()) { results += it }
+        presenter.dismissPending()
+        assertFalse(presenter.waiting)
+        presenter.runPending()
+        assertTrue(platform.shown.isEmpty(), "a dismissed menu is not put up")
+        assertEquals(listOf<OsMenuResult>(OsMenuResult.Dismissed), results)
+        presenter.dismissPending()
+        assertEquals(1, results.size, "dismissing with nothing waiting reports nothing")
+    }
 }

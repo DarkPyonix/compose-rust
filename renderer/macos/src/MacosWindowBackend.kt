@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.platformZoomLevelStore
 import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.foundation.MacosOsMenuLoop
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.channels.Channel
@@ -96,7 +97,8 @@ class MacosSceneFrames {
 
 /**
  * What one window holds for itself rather than for the application: the zoom it is drawn at,
- * and the `Window` node it draws.
+ * the `Window` node it draws, and where its entry menus go up as `NSMenu` ([osMenu], null for
+ * a window with no scene).
  *
  * The zoom is the window's own, so a level set on one node or a shortcut pressed in one window
  * changes that window and no other. The level is saved the one way the application saves it
@@ -105,7 +107,7 @@ class MacosSceneFrames {
  * The node is state because a window the system asked for is opened before the application has
  * a node for it, and is told the node when the application answers ([PlatformWindow.adoptedBy]).
  */
-class MacosWindowSlot(nodeId: Int, val zoom: Zoom) {
+class MacosWindowSlot(nodeId: Int, val zoom: Zoom, val osMenu: MacosOsMenuLoop? = null) {
     private val node = mutableIntStateOf(nodeId)
 
     /** The `Window` node this window draws, 0 while it waits for one. */
@@ -176,7 +178,9 @@ class MacosWindowBackend(
             topLeft = if (x != null && y != null) wholePoints(x) to wholePoints(y) else null,
         )
         val frames = MacosSceneFrames()
-        val slot = MacosWindowSlot(config.nodeId, makeZoom())
+        // Its own menus, anchored in its own pixels, put up between its frames.
+        val osMenu = if (scene != null) MacosOsMenuLoop({ created.window }, created::requestFrame) else null
+        val slot = MacosWindowSlot(config.nodeId, makeZoom(), osMenu)
         config.zoomLevel?.let { slot.zoom.setLevel(it) }
         val content = scene?.invoke(config, created, frames, slot)
         if (content != null) {
@@ -188,6 +192,7 @@ class MacosWindowBackend(
             created.onFrameDrawn = { width, height ->
                 previousOnFrameDrawn?.invoke(width, height)
                 created.host?.describeForReaders(drew = true)
+                osMenu?.afterFrame()
             }
         } else {
             created.initWindow()
@@ -501,7 +506,9 @@ internal class MacosPlatformWindow(
 
     /** One turn of the window's scene: what it heard is read and a frame is drawn if one is due. */
     fun turn() {
-        if (!closed) window.pumpHost(0L)
+        if (closed) return
+        window.pumpHost(0L)
+        slot.osMenu?.afterFrame()
     }
 
     private fun reportMoved() {

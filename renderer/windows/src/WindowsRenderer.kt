@@ -165,8 +165,9 @@ private const val DEFAULT_HEIGHT = 360
 /**
  * What every Windows window gives its content, whatever its chrome: a `WindowDrag(true)` node
  * moves [window] (through [windowsWindowDrag]), the system's dark setting is
- * followed while the window is open, and the window wears icon asset [icon] once it
- * has arrived (0 for none).
+ * followed while the window is open, entry menus are the window's own popup menus
+ * ([Win32Window.osMenu]), and the window wears icon asset [icon] once it has arrived (0 for
+ * none).
  */
 @androidx.compose.runtime.Composable
 internal fun WindowsPlatformLocals(
@@ -180,7 +181,8 @@ internal fun WindowsPlatformLocals(
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { windowsWindowDrag(window) },
         dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver provides { rememberWin32SystemDark().value },
     ) {
-        content()
+        // The window's own entry menus, put up as Windows' popup menus by its loop.
+        dev.darkpyonix.composerust.foundation.ProvideOsMenu(window.osMenu, content)
     }
 }
 

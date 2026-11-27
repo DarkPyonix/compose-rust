@@ -122,7 +122,8 @@ internal class MultiWindowLoop(
             platform.windows.Sleep(IDLE_MILLIS)
             return false
         }
-        Win32Loop.pump(if (rest) FRAME_SECONDS else 0.0)
+        // A menu waiting to go up is a turn that is due, like a frame.
+        Win32Loop.pump(if (rest && !backend.osMenuWaiting) FRAME_SECONDS else 0.0)
         deliverWindowsFileDialogs()
         return backend.turn()
     }
