@@ -10,7 +10,6 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{
     HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event, encode_event,
 };
-use compose_rust::runtime::*;
 use compose_rust::schema::{EVENT_SCHEMA, EventPayload, EventPayloadType, PropertyKind};
 use compose_rust::ui::*;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
