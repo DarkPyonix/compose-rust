@@ -1168,34 +1168,40 @@ private fun FloatingBarStrip(
     } else {
         theme.rules.elevation(Modifier, FLOATING_BAR_ELEVATION, shape, theme)
     }
-    Row(
-        modifier
-            .padding(start = inset, end = inset, top = inset, bottom = inset + systemBottom)
-            // The tag is on the capsule rather than on the room around it, so the strip a
-            // test measures is the one on the screen.
-            .testTag(navigationStripTestTag(navigationId))
-            .fillMaxWidth()
-            .height(style.barHeight)
-            .then(lifted)
-            .hostBackdrop(blur, 1f, tint, shape)
-            .clip(shape)
-            .padding(horizontal = theme.space(SpaceRole.Xs)),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OnGlass(glass) {
-            destinations.forEachIndexed { index, childId ->
-                key(childId) {
-                    table.node(childId)?.let { destination ->
-                        Destination(
-                            node = destination,
-                            selected = index == selected,
-                            style = style,
-                            presentation = style.presentation,
-                            theme = theme,
-                            modifier = Modifier.weight(1f),
-                            onSelect = { choose(index, childId) },
-                        )
+    // The room around the capsule is a layout of its own, and the capsule a second one
+    // inside it. [modifier] can carry the navigation node's own test tag, and two tags on
+    // one layout collapse into a single semantics node that keeps only the outer one, so
+    // a capsule drawn on the caller's modifier lost its strip tag wherever a frame's
+    // bottom slot handed the navigation's modifier straight through.
+    Box(modifier.padding(start = inset, end = inset, top = inset, bottom = inset + systemBottom)) {
+        Row(
+            Modifier
+                // The tag is on the capsule rather than on the room around it, so the strip a
+                // test measures is the one on the screen.
+                .testTag(navigationStripTestTag(navigationId))
+                .fillMaxWidth()
+                .height(style.barHeight)
+                .then(lifted)
+                .hostBackdrop(blur, 1f, tint, shape)
+                .clip(shape)
+                .padding(horizontal = theme.space(SpaceRole.Xs)),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OnGlass(glass) {
+                destinations.forEachIndexed { index, childId ->
+                    key(childId) {
+                        table.node(childId)?.let { destination ->
+                            Destination(
+                                node = destination,
+                                selected = index == selected,
+                                style = style,
+                                presentation = style.presentation,
+                                theme = theme,
+                                modifier = Modifier.weight(1f),
+                                onSelect = { choose(index, childId) },
+                            )
+                        }
                     }
                 }
             }
