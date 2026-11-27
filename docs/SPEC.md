@@ -5515,6 +5515,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
 9. `tnum 1` 기능을 준 숫자 문자열(`"1111"`, `"0000"`)을 `MeasureRequests::text`로 측정한 폭과 `Text` 노드로 그린 너비가 비트 단위로 같고, `tnum` 유무에 따른 측정 너비의 변화가 렌더러의 실제 그리기 폭 변화와 일치합니다(`fr83_measured_font_features_match_drawn_text`).
 10. `MeasureRequests::text`에 `font_features`가 전달되면 `font_features_offset@72`와 `font_features_count@76`에 인코딩되어 페이로드의 기능 레코드와 왕복합니다(`fr83_measure_record_carries_font_features`).
+- `CodeEditor`도 `FontFeatureSettings`를 받습니다 `[leader, 2026-11-25, 이슈 #1078]`. `NodeTable`의 허용 목록에 `CodeEditor`를 더하고, 편집기 본문의 글자에만 적용합니다(줄 번호 여백은 디자인 시스템의 기능 그대로). 와이어와 레코드는 `Text`와 같습니다. 코딩 글꼴이 기본으로 켜는 합자(`liga`, `calt`)를 끄는 데 씁니다. 수용 기준: `liga 0`, `calt 0`을 받은 `CodeEditor`는 JetBrains Mono에서 `->`를 두 글리프, 두 칸으로 그리고 캐럿이 그 사이에 멈출 수 있습니다. 설정이 없으면 지금과 같습니다(렌더러 테스트 `fr83_code_editor_*`; 글리프는 앱에서 확인합니다).
 
 ### FR-84 레이아웃 제약 수정자: 크기 범위(`sizeIn`)와 종횡비(`aspectRatio`) (`Done`, 이슈 #603)
 
