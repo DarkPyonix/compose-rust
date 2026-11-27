@@ -686,9 +686,12 @@ const TEXT_FORMAT_EVENT_LEN: usize = 36;
 // the paragraphs' references.
 const EVENT_RICH_TEXT_CHANGED: u16 = 69;
 const RICH_TEXT_CHANGED_LEN: usize = 40;
-// 70 is numbered for an event that is not here yet. 71 is a font the Renderer needs
-// the bytes of: its id, one `u32` after the header.
+// 71 is a font the Renderer needs the bytes of: its id, one `u32` after the header.
 const EVENT_ASSET_WANTED: u16 = 71;
+// 70 is a request to go back that reached the application.
+const EVENT_BACK_REQUESTED: u16 = 70;
+/// `BackRequested` in full: the 16 byte header and the source word.
+const BACK_REQUESTED_LEN: usize = 20;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -1334,6 +1337,19 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_RICH_TEXT_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_BACK_REQUESTED if record_len == BACK_REQUESTED_LEN => {
+            let raw = read_u32(bytes, 16)?;
+            // A source this Host has no name for is a newer or a broken Renderer. Taking it
+            // for one of the four would let a handler act on a gesture that never happened.
+            let source = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::BackSource::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::BackRequested { source }
+        }
+        EVENT_BACK_REQUESTED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -2053,6 +2069,16 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&scale.to_bits().to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::BackRequested { source } = event.payload {
+        put_event_header(
+            output,
+            EVENT_BACK_REQUESTED,
+            BACK_REQUESTED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&u32::from(u16::from(source)).to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::NativeViewFocus { focused } = event.payload {
         put_event_header(
             output,
@@ -2188,6 +2214,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ScrollChanged { .. }
         | crate::schema::EventPayload::NativeViewParent { .. }
         | crate::schema::EventPayload::NativeViewFocus { .. }
+        | crate::schema::EventPayload::BackRequested { .. }
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
@@ -4073,6 +4100,14 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
             44,
             two_words(paint.to_bits(), pack_floats(*width_dp, *offset_dp)),
         ),
+        Modifier::Backdrop {
+            blur_dp,
+            saturation,
+            tint,
+        } => (
+            47,
+            two_words(pack_floats(*blur_dp, *saturation), tint.to_bits()),
+        ),
         Modifier::PressStyle { tint, press_easing } => {
             // A NaN first point is no curve, the one value a curve can never start at.
             let [x1, y1, x2, y2] = press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]);
@@ -4417,6 +4452,20 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             width_dp: unpack_low(second),
             offset_dp: unpack_high(second),
         }),
+        47 => {
+            let (blur_dp, saturation) = (unpack_low(first), unpack_high(first));
+            // A blur or a saturation below zero, or one that is not a number, is nothing
+            // that can be drawn. Zero is: no blur, and no colour left.
+            let drawable = |value: f32| value.is_finite() && value >= 0.0;
+            if !drawable(blur_dp) || !drawable(saturation) {
+                return Err(ProtocolError::InvalidModifier(47));
+            }
+            Ok(Modifier::Backdrop {
+                blur_dp,
+                saturation,
+                tint: decode_paint(second)?,
+            })
+        }
         45 => Ok(Modifier::PressStyle {
             tint: decode_optional_paint(first)?,
             press_easing: if unpack_low(second).is_nan() {
@@ -4624,7 +4673,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x4000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -4669,21 +4718,73 @@ mod tests {
         assert!(
             ROLE_ENUM_SCHEMA
                 .iter()
-                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
-            "the schema must list all 19 roles"
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 22),
+            "the schema must list all 22 roles"
         );
     }
 
     #[test]
+    fn fr71_combobox_listbox_option_roles_round_trip() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::ComboBox, 20),
+            (SemanticsRole::ListBox, 21),
+            (SemanticsRole::Option, 22),
+        ];
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics {
+                    role,
+                    state: 2 << SEMANTICS_EXPANDED_SHIFT,
+                },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        // The option a combobox points at is a node id carried as an integer property.
+        assert_eq!(PropertyKind::ActiveDescendant as u16, 219);
+        let mutation = Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::ActiveDescendant,
+            value: PropertyValue::Integer(7),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
+    fn fr71_modal_bit_round_trips() {
+        use crate::schema::*;
+        assert_eq!(SEMANTICS_MODAL_BIT, 1 << 14);
+        assert_eq!(SEMANTICS_MODAL_BIT & !SEMANTICS_STATE_MASK, 0);
+        let mutation = Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::Semantics {
+                role: SemanticsRole::Group,
+                state: SEMANTICS_MODAL_BIT,
+            },
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
-        // Bit 14 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Bit 15 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 15, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 

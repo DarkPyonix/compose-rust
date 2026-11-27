@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.hideFromAccessibility
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -963,7 +965,12 @@ private fun ComposeRustTree(
                     }
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
-                Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
+                val backgroundA11y = if (overlayFocusStack.hasOpenModal) {
+                    Modifier.clearAndSetSemantics { hideFromAccessibility() }
+                } else {
+                    Modifier
+                }
+                Box(Modifier.padding(top = pageTop, bottom = pageBottom).then(backgroundA11y)) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)

@@ -1248,6 +1248,13 @@ data class NavigationStyle(
      * says they are, and a list whose rows are two heights has no rhythm.
      */
     val destinationHeight: Dp? = null,
+    /**
+     * Whether the bar floats over the page rather than standing under it: a capsule held
+     * off the window's edges by [floatingInset], with the page running on beneath it. Set
+     * where the application chose a floating bar for a compact window, never by a design
+     * system's own answer.
+     */
+    val floating: Boolean = false,
 )
 
 /** The edge a sheet comes in from. */
@@ -1281,7 +1288,15 @@ data class SheetStyle(
      * had, and the content starts that far below it.
      */
     val handleGap: Dp? = null,
+    /**
+     * How far below the top safe area a bottom sheet stops when it is opened out to its
+     * large resting height, so a strip of the page stays in sight above it.
+     */
+    val largeDetentMargin: Dp = SHEET_LARGE_DETENT_MARGIN,
 )
+
+/** The room a sheet at its large resting height leaves above itself where a system names none. */
+internal val SHEET_LARGE_DETENT_MARGIN: Dp = 16.dp
 
 /**
  * Where a transient message appears.
