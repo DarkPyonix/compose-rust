@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.layout.LayoutModifier
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureScope
@@ -207,9 +209,13 @@ internal fun HostRichText(
     val oneLine = LocalOneLineLabel.current && node.property(PropertyKind.MaxLines) == null
     val cutShort = LocalOneLineLabel.current && node.property(PropertyKind.Overflow) == null
     CompositionLocalProvider(LocalDensity provides density) {
+        // The joiners and spaces that keep or break words steer the layout only: a reader and
+        // a lookup by name get the string the Host sent (#1094).
+        val spoken = remember(resolved.text, input.text) { spokenText(resolved.text, input.text) }
+        val named = if (spoken === resolved.text) modifier else modifier.semantics { this.text = spoken }
         BasicText(
             text = text,
-            modifier = modifier.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
+            modifier = named.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
             style = resolved.style,
             overflow = if (cutShort) TextOverflow.Ellipsis else resolved.overflow,
             softWrap = if (oneLine) false else resolved.softWrap,
