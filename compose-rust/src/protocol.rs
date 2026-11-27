@@ -4673,7 +4673,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x4000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -4718,21 +4718,73 @@ mod tests {
         assert!(
             ROLE_ENUM_SCHEMA
                 .iter()
-                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
-            "the schema must list all 19 roles"
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 22),
+            "the schema must list all 22 roles"
         );
     }
 
     #[test]
+    fn fr71_combobox_listbox_option_roles_round_trip() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::ComboBox, 20),
+            (SemanticsRole::ListBox, 21),
+            (SemanticsRole::Option, 22),
+        ];
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics {
+                    role,
+                    state: 2 << SEMANTICS_EXPANDED_SHIFT,
+                },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        // The option a combobox points at is a node id carried as an integer property.
+        assert_eq!(PropertyKind::ActiveDescendant as u16, 219);
+        let mutation = Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::ActiveDescendant,
+            value: PropertyValue::Integer(7),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
+    fn fr71_modal_bit_round_trips() {
+        use crate::schema::*;
+        assert_eq!(SEMANTICS_MODAL_BIT, 1 << 14);
+        assert_eq!(SEMANTICS_MODAL_BIT & !SEMANTICS_STATE_MASK, 0);
+        let mutation = Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::Semantics {
+                role: SemanticsRole::Group,
+                state: SEMANTICS_MODAL_BIT,
+            },
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
-        // Bit 14 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Bit 15 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 15, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 

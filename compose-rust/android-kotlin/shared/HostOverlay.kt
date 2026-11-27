@@ -74,13 +74,22 @@ import androidx.compose.runtime.CompositionLocalProvider
  * control that had it before the overlay opened.
  */
 class OverlayFocusStack {
-    private class Entry(val nodeId: Int, var onEscape: () -> Unit, val opener: FocusRequester?)
+    private class Entry(
+        val nodeId: Int,
+        var onEscape: () -> Unit,
+        val opener: FocusRequester?,
+        val isModal: Boolean,
+    )
 
     private val entries = mutableListOf<Entry>()
     private var openCount by mutableStateOf(0)
+    private var modalCount by mutableStateOf(0)
 
     /** Whether any overlay is open, read in composition so a platform back hook follows it. */
     val hasOpen: Boolean get() = openCount > 0
+
+    /** Whether any modal overlay (Dialog or Sheet) is open, hiding background nodes from accessibility. */
+    val hasOpenModal: Boolean get() = modalCount > 0
     private var currentFocused: FocusRequester? = null
 
     internal fun noteFocused(requester: FocusRequester, focused: Boolean) {
@@ -91,11 +100,12 @@ class OverlayFocusStack {
         }
     }
 
-    internal fun push(nodeId: Int, onEscape: () -> Unit): FocusRequester? {
+    internal fun push(nodeId: Int, onEscape: () -> Unit, isModal: Boolean = true): FocusRequester? {
         entries.removeAll { it.nodeId == nodeId }
         val opener = currentFocused
-        entries += Entry(nodeId, onEscape, opener)
+        entries += Entry(nodeId, onEscape, opener, isModal)
         openCount = entries.size
+        modalCount = entries.count { it.isModal }
         return opener
     }
 
@@ -108,6 +118,7 @@ class OverlayFocusStack {
         if (index < 0) return
         val removed = entries.removeAt(index)
         openCount = entries.size
+        modalCount = entries.count { it.isModal }
         val target = if (entries.isEmpty()) removed.opener else null
         if (target != null) {
             try {
@@ -150,11 +161,12 @@ internal fun ModalOverlayFocus(
     surfaceRequester: FocusRequester,
     onEscape: () -> Unit,
     focusSurface: Boolean = true,
+    isModal: Boolean = true,
 ) {
     val stack = LocalOverlayFocusStack.current
     SideEffect { stack.update(nodeId, onEscape) }
-    DisposableEffect(stack, nodeId) {
-        stack.push(nodeId, onEscape)
+    DisposableEffect(stack, nodeId, isModal) {
+        stack.push(nodeId, onEscape, isModal)
         onDispose { stack.pop(nodeId) }
     }
     if (focusSurface) {

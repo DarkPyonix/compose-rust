@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import dev.darkpyonix.composerust.ui.declaresModal
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
 import dev.darkpyonix.composerust.design.ResolvedTheme
@@ -387,7 +388,16 @@ private fun PopoverContent(
         } else {
             null
         }
-        ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null)
+        // A popover floats over the page and takes nothing away from the reader, unless it
+        // declared itself modal: then it hides what is behind it as a dialog does.
+        ModalOverlayFocus(
+            node.id,
+            surfaceRequester,
+            onDismiss,
+            focusSurface = menuKeys == null,
+            isModal = node.declaresModal(),
+        )
+        val exposed = LocalOverlayFocusStack.current.exposesOverlay(node.id)
         // The recorded page does not reach into a popup, for the reason a menu gives.
         // The application's own blur reads the window's page through positions on the
         // screen, which mean the same thing on both sides of a popup.
@@ -399,12 +409,14 @@ private fun PopoverContent(
         ) {
             Column(
                 Modifier
+                    // A modal opened after this popover hides it, as it hides the page.
+                    .behindModal(!exposed)
                     .popoverSizeLimit(margin, provider)
                     .then(modifier)
                     .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
                     .modalOverlaySurface(node.id, surfaceRequester)
-                    // A group that floats over the page, not a dialog: nothing behind it
-                    // is taken away from the reader, and no title is announced for it.
+                    // A group that floats over the page, not a dialog: no title is
+                    // announced for it.
                     .semantics {
                         popup()
                         isTraversalGroup = true

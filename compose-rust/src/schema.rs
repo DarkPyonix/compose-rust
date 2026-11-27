@@ -267,7 +267,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,thumb_elevation,track_border,sheet_handle,read_only,native_visible,on_native_view_focus,indeterminate,outline_color,rich_text,on_text_format,on_rich_text_changed,fold_column_width_dp,insert_spaces,on_back_requested,sheet_detents,sheet_drag_to_dismiss;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,thumb_elevation,track_border,sheet_handle,read_only,native_visible,on_native_view_focus,indeterminate,outline_color,rich_text,on_text_format,on_rich_text_changed,fold_column_width_dp,insert_spaces,on_back_requested,sheet_detents,sheet_drag_to_dismiss,active_descendant;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle,WeightUnfilled,Backdrop;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged,TextFormatAtSelection,RichTextChanged,AssetWanted,BackRequested;",
@@ -1020,6 +1020,13 @@ define_wire_enum!(SEMANTICS_ROLE_SCHEMA, SemanticsRole {
     List = 17,
     ListItem = 18,
     Group = 19,
+    // A field with a list of choices it opens, the WAI-ARIA combobox: the node keyboard focus
+    // stays on while `ActiveDescendant` names the option the keys point at.
+    ComboBox = 20,
+    // The list a combobox opens, holding its options.
+    ListBox = 21,
+    // One choice of a list box.
+    Option = 22,
 });
 
 // Density roles, because dp density differs per design system.
@@ -2848,8 +2855,9 @@ pub enum Modifier {
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
-    /// accessibility tree, the two action bits expose a click and a focus action, and
-    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup.
+    /// accessibility tree, the two action bits expose a click and a focus action,
+    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup, and `SEMANTICS_MODAL_BIT` makes
+    /// the node a modal that leaves everything outside it out of the accessibility tree.
     Semantics {
         role: SemanticsRole,
         state: u32,
@@ -3009,8 +3017,11 @@ pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
 pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
 /// The bit that says the node opens a popup.
 pub const SEMANTICS_HAS_POPUP_BIT: u32 = 1 << 13;
+/// The bit that makes the node a modal: while it is in the tree and not hidden, only the
+/// nodes inside it stay in the accessibility tree, and Tab does not leave it.
+pub const SEMANTICS_MODAL_BIT: u32 = 1 << 14;
 /// Every bit `Modifier::Semantics::state` may set.
-pub const SEMANTICS_STATE_MASK: u32 = 0b11_1111_1111_1111;
+pub const SEMANTICS_STATE_MASK: u32 = 0b111_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
@@ -4560,8 +4571,7 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     InsertSpaces = 227,
     // The handler that hears a request to go back that no open overlay and no focused
     // control took: Android's back, Escape, a mouse's back button or an iOS edge swipe.
-    // On a layout container or a `Window`. 218 and 219 are held by properties on another
-    // branch.
+    // On a layout container or a `Window`. 218 is held by a property on another branch.
     OnBackRequested = 223,
     // The heights a bottom `Sheet` may rest at, as the bits of a `SheetDetents`: 1 is
     // medium, half the window, and 2 is large, nearly all of it. Absent or 0 is the one
@@ -4570,6 +4580,11 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // Whether pulling a bottom `Sheet` down closes it, a boolean. Absent is yes. Escape,
     // the platform's back and a press outside ask to close it either way.
     SheetDragToDismiss = 225,
+    // The option a combobox's keys point at while focus stays on the combobox, as the node
+    // id of an `Option` inside the list box it opens: WAI-ARIA's `aria-activedescendant`.
+    // An integer. Absent or 0 is none, and an id no node has is read as none, because a
+    // list being redrawn can name an option that has just gone.
+    ActiveDescendant = 219,
 });
 
 /// What happened, for each event the Renderer can send.

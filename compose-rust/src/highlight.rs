@@ -440,7 +440,7 @@ mod tests {
         );
         assert_eq!(
             PROPERTY_SCHEMA.len(),
-            165,
+            166,
             "the number of properties moved: {on_purpose}"
         );
         assert_eq!(

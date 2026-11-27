@@ -1368,9 +1368,9 @@ mod tests {
         let mut writer = NodeWriter::new();
         let role = i64::from(u16::from(crate::SemanticsRole::Group));
         let accepted =
-            writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 13))));
+            writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 14))));
         assert!(matches!(accepted, Some(Some(_))));
-        let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 14))));
+        let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 15))));
         assert!(matches!(refused, Some(None)));
     }
 }

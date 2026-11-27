@@ -136,6 +136,14 @@ On the wire it is the modifier `Backdrop` (tag 47, two words: the blur and the s
 
 **Behavior change.** `window_size().safe_area.top` now carries the strip the system keeps at the top of the window, a status bar or a notch, where it used to carry only a desktop window's caption. On a phone it was 0 before. A window with both reports their sum. An application that added its own status bar padding on a phone now gets that room twice: remove its own padding and use `safe_area.top`.
 
+### A modal hides what is behind it from assistive technology
+
+While a `Dialog` or a `Sheet` is open, every node outside it leaves the accessibility tree: the page, its app bars and navigation, and any overlay opened before it. With overlays stacked, only the topmost is read. Closing it brings the rest back, and focus still returns to the control that opened it. Tab and Shift+Tab go round inside an open `Dialog` as they already did inside a `Sheet`. Any other node becomes a modal with `Modifier::modal(true)` or `SemanticsState::modal(true)`: while it is on screen only the nodes inside it are read, and Tab and Shift+Tab do not move focus out of it. A `Popover` with the bit is modal while it is open. The bit is bit 14 of the `Semantics` state word (`SEMANTICS_MODAL_BIT`), so `SEMANTICS_STATE_MASK` grows by one bit and the schema hash changes ([#938](https://github.com/DarkPyonix/compose-rust/issues/938)).
+
+### Combobox, list box and option roles, and the option a combobox points at
+
+`Role` gains `ComboBox` (20), `ListBox` (21) and `Option` (22). `Modifier::active_descendant(&handle)` says which option a combobox's keys point at while focus stays on the combobox, as WAI-ARIA's `aria-activedescendant` does: the option widget takes `focus_handle = &handle`, and the node that handle is bound to is sent as the `ActiveDescendant` property (tag 219, an integer node id). A handle bound to no node yet sends nothing. Compose has no such relation, so the Renderer adds the option's name to the combobox's state description, which TalkBack reads as its state and VoiceOver as its value; a macOS window reads the three roles as a combo box, a list and its items. `Role` is an exhaustive enum, so a `match` over it needs arms for the three new roles. The schema hash changes ([#942](https://github.com/DarkPyonix/compose-rust/issues/942)).
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

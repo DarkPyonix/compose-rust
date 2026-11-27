@@ -1713,6 +1713,9 @@ class NodeTable {
             when (property) {
                 // The name assistive technology reads can be given to any node.
                 PropertyKind.AccessibleName -> true
+                // The option a combobox points at goes on whichever node declared the
+                // combobox role, and that role can be declared on any node.
+                PropertyKind.ActiveDescendant -> true
 
                 // Colours and size of the selection controls.
                 PropertyKind.TrackColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider || widget == WidgetKind.ProgressIndicator
