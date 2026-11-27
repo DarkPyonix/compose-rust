@@ -5887,7 +5887,7 @@ compose_rust_host_dispatch_event: click 1
 
 ### 수용 기준
 
-1. **측정값과 그려진 크기가 같습니다.** 같은 텍스트와 모양을 `AtMost(w)`로 잰 결과와, Renderer가 폭 `w`의 `Text` 노드로 그린 결과의 너비, 높이, 첫 기준선, 줄 수가 비트 단위로 같습니다. 대상은 다음 네 가지입니다.
+1. **측정값과 그려진 크기가 같습니다.** 같은 텍스트와 모양을 `AtMost(w)`로 잰 결과와, Renderer가 폭 `w`의 `Text` 노드로 그린 결과의 높이, 첫 기준선, 줄 수가 비트 단위로 같습니다. **너비는 반올림하지 않은 값입니다**(#1107, 리더 승인 2026-11-27): 줄을 바꾼 글의 가장 넓은 폭(`min(maxIntrinsicWidth, w)`)을 소수로 돌려주고, 그려진 상자는 그 값을 장치 픽셀 단위로 올린 크기입니다. HTML 레이아웃은 글자 폭을 소수로 더해 나가므로, 정수로 올린 값을 돌려주면 한 덩이마다 1~2 px씩 넓어지고 한 줄에 놓인 덩이들의 오차가 쌓입니다(탭 줄 하나에서 4.97 px). 그 대신 **텍스트 노드에 준 폭 제약은 장치 픽셀로 바꿀 때 올리고 내리지 않습니다.** Host가 잰 소수 폭(예: 88.44 dp)을 그대로 노드 폭으로 주면 반올림한 88 px 제약에서 마지막 낱말이 다음 줄로 넘어가기 때문입니다. 대상은 다음 네 가지입니다.
    - 라틴
    - 한국어(단어 경계 줄바꿈)
    - 이모지
@@ -5895,7 +5895,7 @@ compose_rust_host_dispatch_event: click 1
 
    마지막 줄 폭과 `truncated`도 같아야 합니다. 같은 기준을 FR-40의 칸에도 적용합니다. 한국어 `word_break`의 `Normal`과 `KeepAll`, 탭이 든 `pre` 문자열, `absolute_size` 문자열입니다.
 
-   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트)
+   (pr2_measured_text_matches_the_drawn_text, Kotlin 측 테스트. 소수 너비는 pr2_measured_width_is_not_rounded_to_whole_pixels, 그 폭을 받은 노드가 줄을 더 바꾸지 않는 것은 pr2_a_text_given_its_measured_width_keeps_its_lines)
 2. `MinContent`와 `MaxContent`가 Compose `ParagraphIntrinsics`의 `minIntrinsicWidth`, `maxIntrinsicWidth`와 같습니다(pr2_intrinsic_widths_match_compose).
 3. 이미 적용된 노드를 잰 크기가, 같은 제약에서 Compose 레이아웃이 그 노드에 준 크기와 같습니다. 대상은 `Button`, `TextField`, `Column` 안의 `Text` 둘입니다(pr2_measured_node_matches_its_layout).
 4. 아직 적용되지 않은 노드는 `UnknownNode`를 받고, 같은 호출의 나머지 요청은 정상으로 잽니다(pr2_unknown_node_is_reported_per_record).

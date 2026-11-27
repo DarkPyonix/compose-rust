@@ -94,7 +94,11 @@ internal fun ComposeUiTest.drawnLayout(nodeId: Int): TextLayoutResult {
 /** The measured answer is the drawn layout, field by field and bit for bit. */
 internal fun assertSameAsDrawn(measured: MeasuredResult, drawn: TextLayoutResult, density: Float, case: String) {
     assertEquals(MeasureRecords.STATUS_OK, measured.status, "$case: status")
-    assertEquals(drawn.size.width / density, measured.width, "$case: width")
+    // The answer is the width before Compose rounds it up to whole pixels; the drawn box is
+    // that width rounded up.
+    val bound = drawn.layoutInput.constraints.let { if (it.hasBoundedWidth) it.maxWidth.toFloat() else Float.POSITIVE_INFINITY }
+    assertEquals(minOf(drawn.multiParagraph.intrinsics.maxIntrinsicWidth, bound) / density, measured.width, "$case: width")
+    assertEquals(drawn.size.width, kotlin.math.ceil(measured.width * density - 1e-3f).toInt(), "$case: drawn width rounded up")
     assertEquals(drawn.size.height / density, measured.height, "$case: height")
     assertEquals(drawn.firstBaseline / density, measured.firstBaseline, "$case: first baseline")
     assertEquals(drawn.lineCount, measured.lineCount, "$case: line count")
@@ -196,6 +200,69 @@ class MeasureTest {
             text(text, width = width, fontSize = 22f, fontWeight = 700, lineHeight = 30f)
         },
     )
+
+    /** File names and a heading, as an editor tab row and a probe page measure them. */
+    private val runs = listOf("Button.test.tsx", "Button.tsx", "format.ts", "# Probe workspace", "README.md", "index.ts")
+
+    /**
+     * The width a run is measured at is the one it is laid out with, not that width rounded up
+     * to whole pixels: an HTML line adds its runs' widths up, and whole pixels add one or two
+     * each. Unbounded, it is the widest the run can be.
+     */
+    @Test
+    fun pr2_measured_width_is_not_rounded_to_whole_pixels() = runComposeUiTest {
+        startHost(FakeHostConnection(emptyList()), Density(1f))
+        val requests = MeasureRequests()
+        for (run in runs) {
+            requests.text(run, width = Float.POSITIVE_INFINITY)
+            requests.text(run, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT)
+        }
+        val (status, results) = measure(requests)
+        assertEquals(MeasureRecords.CALL_OK, status)
+        val widths = results.chunked(2).map { (atMost, widest) ->
+            assertEquals(widest.width, atMost.width, "an unbounded run is as wide as it can be")
+            atMost.width
+        }
+        assertTrue(widths.any { it != kotlin.math.floor(it) }, "every width is whole: $widths")
+    }
+
+    /**
+     * A Host gives a text the width it measured, fractions and all. That width rounded to the
+     * nearest pixel would be narrower than the text whenever the fraction is under a half, and
+     * the last word would wrap; the text's width is rounded up instead.
+     */
+    @Test
+    fun pr2_a_text_given_its_measured_width_keeps_its_lines() {
+        var measured: List<MeasuredResult> = emptyList()
+        runComposeUiTest {
+            startHost(FakeHostConnection(emptyList()), Density(1f))
+            val requests = MeasureRequests()
+            for (run in runs) requests.text(run, width = Float.POSITIVE_INFINITY)
+            measured = measure(requests).second
+        }
+        val roundedDown = runs.indices.filter { val w = measured[it].width; w - kotlin.math.floor(w) in 0.001f..0.499f }
+        assertTrue(roundedDown.isNotEmpty(), "no run here would have been rounded down: ${measured.map { it.width }}")
+        for (index in roundedDown) {
+            runComposeUiTest {
+                val width = measured[index].width
+                startHost(
+                    FakeHostConnection(
+                        listOf(
+                            Mutation.Create(COLUMN, WidgetKind.Column),
+                            Mutation.Create(TEXT, WidgetKind.Text),
+                            Mutation.SetProp(TEXT, PropertyKind.Text, PropertyValue.Text(runs[index])),
+                            Mutation.SetModifier(TEXT, 0, ProtocolModifier.Width(width)),
+                            Mutation.Insert(COLUMN, TEXT, 0),
+                        ),
+                    ),
+                    Density(1f),
+                )
+                val drawn = drawnLayout(TEXT)
+                assertEquals(1, drawn.lineCount, "'${runs[index]}' at its measured $width wrapped")
+                assertEquals(kotlin.math.ceil(width).toInt(), drawn.size.width, "'${runs[index]}' box")
+            }
+        }
+    }
 
     @Test
     fun pr2_measured_text_matches_the_drawn_text() {
