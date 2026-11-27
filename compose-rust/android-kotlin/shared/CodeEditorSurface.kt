@@ -247,6 +247,12 @@ class CodeEditorLook(
     val currentLineGutter: Color = Color.Unspecified,
     /** Whether pressing Tab inserts spaces to the next tab stop (true) or a literal tab (false). */
     val insertSpaces: Boolean = true,
+    /**
+     * The OpenType features line numbers are set with. The node's features are for the text
+     * (an editor turning a coding font's ligatures off), and the numbers keep the design
+     * system's, so a list meant for code does not change how the gutter's digits are drawn.
+     */
+    val lineNumberFeatures: String? = textStyle.fontFeatureSettings,
 )
 
 /** The room above the first line and below the last, in whole pixels. */
