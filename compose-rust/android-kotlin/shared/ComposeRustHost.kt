@@ -1525,12 +1525,12 @@ internal class ClipboardServer {
     var install: () -> Unit = {}
 }
 
-/** The longest a window keeps its picture for a font none of whose faces has arrived (FR-48.4 rule 7). */
+/** The longest a window keeps its picture for a font none of whose faces has arrived: long enough for the Host's next batch, short enough that a font that never comes cannot freeze the window. */
 internal const val FONT_HOLD_MILLIS = 300L
 
 /**
  * Keeps the picture drawn last while a text waits for a font it has no face of, at most
- * [FONT_HOLD_MILLIS] counted in frames from the first one that waited (FR-48.4 rule 7).
+ * [FONT_HOLD_MILLIS] counted in frames from the first one that waited.
  *
  * A theme can name a font whose bytes the Host sends only when a text first needs them. The
  * frame that finds the text has nothing to draw its letters in, and drawing it would show

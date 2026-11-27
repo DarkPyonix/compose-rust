@@ -327,7 +327,7 @@ class LazyFontTest {
     }
 
     /**
-     * FR-48.4 criterion 7: a theme whose code role is a stack of faces the Host keeps asks for
+     * a theme whose code role is a stack of faces the Host keeps asks for
      * nothing while no text is in that role, and for the face once one is.
      */
     @Test
@@ -354,7 +354,7 @@ class LazyFontTest {
     }
 
     /**
-     * FR-48.4 criterion 8: the first picture of a text whose font has no face yet is not
+     * the first picture of a text whose font has no face yet is not
      * drawn with boxes; the window waits, and draws the text in its font once the bytes come.
      */
     @Test
@@ -378,7 +378,7 @@ class LazyFontTest {
         assertWidth(2 * em(FULL_ADVANCE), drawnLayout(FIRST), 2, "the code text in its own face")
     }
 
-    /** FR-48.4 criterion 9: a face that never comes holds the window for 300 ms at most. */
+    /** a face that never comes holds the window for 300 ms at most. */
     @Test
     fun fr48_4_a_font_that_never_arrives_holds_the_frame_at_most_300_ms() = runComposeUiTest {
         mainClock.autoAdvance = false
@@ -399,7 +399,7 @@ class LazyFontTest {
         assertTrue(!blank(), "the missing glyph was not drawn after the wait")
     }
 
-    /** FR-48.4 criterion 10: a stack whose first family is here never holds the window. */
+    /** a stack whose first family is here never holds the window. */
     @Test
     fun fr48_4_a_loaded_first_family_never_holds_the_frame() = runComposeUiTest {
         mainClock.autoAdvance = false

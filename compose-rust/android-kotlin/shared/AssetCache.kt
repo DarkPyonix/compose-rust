@@ -111,7 +111,7 @@ class AssetCache {
 
     /**
      * Ids a text waits for with no face of its font to draw in: the first family of the font
-     * it is set in has not arrived (FR-48.4 rule 7). State, because the window's drawing reads
+     * it is set in has not arrived, so the window waits for it rather than show boxes. State, because the window's drawing reads
      * it: while any is here the window keeps the picture it drew last.
      */
     private val holding = mutableStateListOf<Int>()
@@ -425,7 +425,7 @@ class FontChain(val members: List<Member>) {
             // A letter reached a family whose bytes are not here. It is not handed on to a
             // later family or to the machine: it is drawn as a missing glyph until they arrive.
             // A letter of the first family has no face at all to be drawn in: the window
-            // waits a moment for it rather than show boxes (FR-48.4 rule 7).
+            // waits a moment for it rather than show boxes.
             pending.request(hold = member == 0)
             val family = MissingGlyphFaces.family(codePointsIn(text, start, end)) ?: drawn.family
             return AnnotatedString.Range(SpanStyle(fontFamily = family), start, end)
