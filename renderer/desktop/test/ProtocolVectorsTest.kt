@@ -484,7 +484,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1811 + 24 + 36 + 171 + 20, bytes.size, "the two rich text events and then the font request follow the two platform view events")
+        assertEquals(1811 + 24 + 36 + 171 + 20 + 20, bytes.size, "the two rich text events, the font request and then the back request follow the two platform view events")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -502,6 +502,32 @@ class ProtocolVectorsTest {
         val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 25, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
         assertEquals(bytes.copyOfRange(1811, 1811 + 24).toList(), out.array().copyOf(focusLength).toList())
+    }
+
+    /**
+     * The back request and the handler property it is sent for, against the bytes the Host
+     * wrote: the header and one source word, 20 bytes, after every older event.
+     */
+    @Test
+    fun fr91_back_requested_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.SetProp(1, PropertyKind.OnBackRequested, PropertyValue.Integer(302L)) in mutations)
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(
+            HostEvent.BackRequested(1, 302L, dev.darkpyonix.composerust.protocol.BackSource.EdgeSwipe),
+            out,
+        )
+        assertEquals(20, length)
+        assertEquals(bytes.copyOfRange(2062, 2082).toList(), out.array().copyOf(length).toList())
+        assertEquals(70, out.getShort(0).toInt())
+        // Each source is its own word.
+        val words = dev.darkpyonix.composerust.protocol.BackSource.entries.map { source ->
+            val one = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+            Protocol.encodeEvent(HostEvent.BackRequested(1, 302L, source), one)
+            source.name to one.getInt(16)
+        }
+        assertEquals(listOf("SystemBack" to 1, "Escape" to 2, "PointerBack" to 3, "EdgeSwipe" to 4), words)
     }
 
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
@@ -1150,7 +1176,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1663, 1683).toList(), out.array().copyOf(length).toList())
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1174,7 +1200,7 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
         assertEquals(bytes.copyOfRange(1759, 1779).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
@@ -1206,8 +1232,8 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.AssetWanted(0, 0L, 42), out)
         assertEquals(20, length)
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
-        // The last record, after the two rich text events.
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
+        // After the two rich text events, and before the back request.
         assertEquals(bytes.copyOfRange(2042, 2062).toList(), out.array().copyOf(length).toList())
         assertEquals(71, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
@@ -1400,7 +1426,7 @@ class ProtocolVectorsTest {
             )
         }
         // The platform view events follow the density report, two records of 32 and 24 bytes.
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
     }
 
     /**
@@ -1415,7 +1441,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1443, 1467)))
-        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

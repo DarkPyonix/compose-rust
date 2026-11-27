@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
 import dev.darkpyonix.composerust.foundation.navigationFor
+import dev.darkpyonix.composerust.foundation.pointerBackButton
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -903,6 +904,10 @@ private fun ComposeRustTree(
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
+    // Who in this window hears a request to go back, and what becomes of one nobody consumed.
+    val backRequests = remember(host, windowNodeId) {
+        dev.darkpyonix.composerust.foundation.BackRequests(host.table, windowNodeId, host)
+    }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
     // The platform views of this window, and the surfaces drawn above them.
@@ -948,19 +953,30 @@ private fun ComposeRustTree(
             platformWindowMaterial(asked)
             drawnMenuPresenter?.theme = theme
         }
-        // Android's back closes the topmost overlay, as Escape does, and is left to the app
-        // when none is open. Where no platform installs a back hook this does nothing.
-        dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
-            overlayFocusStack.handleBack()
+        // The platform's back closes the topmost overlay, as Escape does. With none open it
+        // goes to the nodes that asked to hear it, and where none of them consumed it, on to
+        // the platform. A window with no overlay open and no such node does not claim back
+        // at all, so the system can show what it will do before the gesture ends. Where no
+        // platform installs a back hook this does nothing.
+        dev.darkpyonix.composerust.foundation.platformBackHandler(
+            overlayFocusStack.hasOpen || (backRequests.hasListener && !backRequests.passing),
+        ) {
+            if (!overlayFocusStack.handleBack()) backRequests.platformBack()
         }
+        dev.darkpyonix.composerust.foundation.PassUnhandledBack(backRequests)
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier
                     .then(measured)
                     .then(dragStrip)
                     .onKeyEvent { event ->
-                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                        // Escape is heard here on the way back up from the focused node, so a
+                        // control that used it, and a key handler that consumed it, kept it.
+                        overlayFocusStack.handleEscape(event) ||
+                            backRequests.handleEscape(event) ||
+                            sidebarShortcuts.handle(event, platform)
                     }
+                    .pointerBackButton(backRequests)
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {

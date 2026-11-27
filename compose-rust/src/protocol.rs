@@ -686,9 +686,12 @@ const TEXT_FORMAT_EVENT_LEN: usize = 36;
 // the paragraphs' references.
 const EVENT_RICH_TEXT_CHANGED: u16 = 69;
 const RICH_TEXT_CHANGED_LEN: usize = 40;
-// 70 is numbered for an event that is not here yet. 71 is a font the Renderer needs
-// the bytes of: its id, one `u32` after the header.
+// 71 is a font the Renderer needs the bytes of: its id, one `u32` after the header.
 const EVENT_ASSET_WANTED: u16 = 71;
+// 70 is a request to go back that reached the application.
+const EVENT_BACK_REQUESTED: u16 = 70;
+/// `BackRequested` in full: the 16 byte header and the source word.
+const BACK_REQUESTED_LEN: usize = 20;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -1334,6 +1337,19 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_RICH_TEXT_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_BACK_REQUESTED if record_len == BACK_REQUESTED_LEN => {
+            let raw = read_u32(bytes, 16)?;
+            // A source this Host has no name for is a newer or a broken Renderer. Taking it
+            // for one of the four would let a handler act on a gesture that never happened.
+            let source = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::BackSource::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::BackRequested { source }
+        }
+        EVENT_BACK_REQUESTED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -2053,6 +2069,16 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&scale.to_bits().to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::BackRequested { source } = event.payload {
+        put_event_header(
+            output,
+            EVENT_BACK_REQUESTED,
+            BACK_REQUESTED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&u32::from(u16::from(source)).to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::NativeViewFocus { focused } = event.payload {
         put_event_header(
             output,
@@ -2188,6 +2214,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ScrollChanged { .. }
         | crate::schema::EventPayload::NativeViewParent { .. }
         | crate::schema::EventPayload::NativeViewFocus { .. }
+        | crate::schema::EventPayload::BackRequested { .. }
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }

@@ -27,7 +27,7 @@ use crate::schema::{
     VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
-use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
+use crate::{BackRequested, FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -214,7 +214,22 @@ struct FocusAndKeyHandlers {
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    on_back_requested: Option<Box<dyn FnMut(BackRequested)>>,
     focus_handle: Option<super::FocusHandle>,
+}
+
+/// Writes a back handler as the listener the wire needs. A node that was given none has no
+/// `OnBackRequested` at all, and a window with no such node leaves back to the platform.
+fn back_input(
+    handler: Option<Box<dyn FnMut(BackRequested)>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handler {
+        listeners.push((
+            "onbackrequested",
+            EventCallback::Back(Rc::new(RefCell::new(handler))),
+        ));
+    }
 }
 
 /// Writes a motion handler as the listener the wire needs. A node that was given none has
@@ -287,6 +302,7 @@ fn focus_and_key_input(
         ));
     }
     motion_input(handlers.on_motion_finished.take(), listeners);
+    back_input(handlers.on_back_requested.take(), listeners);
 }
 
 macro_rules! focus_and_key_handlers {
@@ -333,6 +349,19 @@ macro_rules! focus_and_key_handlers {
                 handler: impl FnMut(MotionFinished) + 'static,
             ) -> Self {
                 self.focus_and_keys.on_motion_finished = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Hears a request to go back that no open overlay and no focused control took:
+            /// Android's back, Escape, a mouse's back button or an iOS edge swipe. The
+            /// innermost node with a handler hears it first; calling `consume` on the event
+            /// ends it there, and leaving it passes it to the next handler out and then to
+            /// the platform.
+            pub(crate) fn on_back_requested(
+                mut self,
+                handler: impl FnMut(BackRequested) + 'static,
+            ) -> Self {
+                self.focus_and_keys.on_back_requested = Some(std::boxed::Box::new(handler));
                 self
             }
         }
@@ -4439,6 +4468,7 @@ pub(crate) struct WindowScope {
     on_drag: Option<Box<dyn FnMut(crate::windows::WindowDragEvent)>>,
     on_unavailable: Option<Box<dyn FnMut()>>,
     on_closed: Option<Box<dyn FnMut()>>,
+    on_back_requested: Option<Box<dyn FnMut(BackRequested)>>,
     done: bool,
 }
 
@@ -4476,6 +4506,7 @@ pub(crate) fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
         on_drag: None,
         on_unavailable: None,
         on_closed: None,
+        on_back_requested: None,
         done: false,
     }
 }
@@ -4618,6 +4649,15 @@ impl WindowScope {
         self
     }
 
+    /// Hears a request to go back in this window that no node inside it consumed.
+    pub(crate) fn on_back_requested(
+        mut self,
+        handler: impl FnMut(BackRequested) + 'static,
+    ) -> Self {
+        self.on_back_requested = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     /// Composes this window with `content` as its children.
     pub(crate) fn content(mut self, content: impl FnOnce()) {
         self.done = true;
@@ -4757,6 +4797,7 @@ impl WindowScope {
                 }),
             ));
         }
+        back_input(self.on_back_requested.take(), &mut listeners);
 
         let theme = self.theme.take();
         emit(
