@@ -91,8 +91,8 @@ pub use functions::{
     IndeterminateProgressIndicator, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, Menu,
     MenuItem, NativeView, Navigation, NavigationItem, Popover, ProgressIndicator, RadioButton, Row,
     Scaffold, ScrollColumn, ScrollRow, Select, SelectionContainer, Separator, Sheet, Slider,
-    Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
-    Window,
+    Spacer, SplitPane, Submenu, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip,
+    TopAppBar, Window,
 };
 pub use lazy::LazyListScope;
 pub use widgets::{ScrollState, remember_scroll_state};

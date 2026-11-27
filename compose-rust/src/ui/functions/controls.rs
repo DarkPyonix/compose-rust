@@ -527,7 +527,10 @@ macro_rules! dropdown {
         /// corner clip, inner padding, minimum height or focus line, for a select that sits
         /// inside a box which already draws its own frame; a `background` or `border` given
         /// on the `modifier` is still drawn. `on_motion_finished` runs once when the node's
-        /// size motion comes to rest. Each child in `content` is one option.
+        /// size motion comes to rest. Each child in `content` is one option: a `MenuItem`
+        /// or a `Text`, and a `Separator` between them. Where the window puts menus up as
+        /// the operating system's own, the options of a field that opens them are one,
+        /// with the chosen one checked; any other node among them is a protocol error.
         #[Composable(widget)]
         pub fn $name(
             selected_index: usize,
@@ -571,12 +574,21 @@ dropdown! {
 /// A single row in a `Menu` or action list: left-aligned label, optional leading icon, and
 /// optional selected state.
 ///
+/// A `Menu` holds entries and nothing else: `MenuItem`, `Submenu`, and `Separator` between
+/// them. Where the window puts menus up as the operating system's own, a menu of entries is
+/// one; anything else in it is a protocol error, and a menu of arbitrary content is a
+/// `Popover`.
+///
 /// `on_click` runs when the row is chosen. `icon` is the leading semantic icon of the row.
-/// `selected` marks the row as the currently selected option. `color` overrides the row's
-/// label and icon colour, for example for a destructive action. `on_motion_finished` runs
-/// once when the node's size motion comes to rest.
+/// `selected` marks the row as the currently selected option, a check mark in an operating
+/// system menu. `color` overrides the row's label and icon colour, for example for a
+/// destructive action; an operating system menu has no colour of its own and shows the row
+/// in its usual colour. `shortcut_label` is the text shown at the row's trailing edge for
+/// the key that does the same thing, such as "Ctrl+S"; it is only text, and the key stays
+/// the application's to handle. `on_motion_finished` runs once when the node's size motion
+/// comes to rest.
 #[Composable(widget)]
-pub fn MenuItem(
+pub fn MenuItem<'a>(
     text: impl Into<String>,
     on_click: impl FnMut() + 'static,
     modifier: Modifier,
@@ -584,6 +596,7 @@ pub fn MenuItem(
     #[default(false)] selected: bool,
     #[default(true)] enabled: bool,
     #[default(None::<::compose_rust::ui::Paint>)] color: impl Into<Option<Paint>>,
+    #[default(None::<&str>)] shortcut_label: impl Into<Option<&'a str>>,
     #[default(None::<fn(::compose_rust::MotionFinished)>)] on_motion_finished: Option<
         impl FnMut(MotionFinished) + 'static,
     >,
@@ -593,9 +606,36 @@ pub fn MenuItem(
         .modifier(modifier)
         .selected(selected)
         .enabled(enabled);
-    set!(scope; icon, color);
+    set!(scope; icon, color, shortcut_label);
     set_some!(scope; on_motion_finished);
     drop(scope);
+}
+
+/// An entry of a `Menu` that opens a menu of its own. Compose Desktop's nested `Menu` in a
+/// menu bar.
+///
+/// `text` names the row, `icon` is its leading semantic icon, and a submenu that is not
+/// `enabled` shows its row greyed and does not open. Each child in `content` is one entry
+/// of the menu it opens, on the same terms as a `Menu`'s: `MenuItem`, `Submenu` and
+/// `Separator`. Whether it is open is the Renderer's, as it is in every platform's menu.
+/// `on_motion_finished` runs once when the node's size motion comes to rest.
+#[Composable(widget)]
+pub fn Submenu(
+    text: impl Into<String>,
+    modifier: Modifier,
+    #[default(None::<::compose_rust::ui::IconRole>)] icon: impl Into<Option<IconRole>>,
+    #[default(true)] enabled: bool,
+    #[default(None::<fn(::compose_rust::MotionFinished)>)] on_motion_finished: Option<
+        impl FnMut(MotionFinished) + 'static,
+    >,
+    #[default(|| {})] content: impl FnOnce(),
+) {
+    let mut scope = crate::ui::widgets::Submenu(text)
+        .modifier(modifier)
+        .enabled(enabled);
+    set!(scope; icon);
+    set_some!(scope; on_motion_finished);
+    scope.content(content);
 }
 
 /// A small token that is chosen or filters. Compose's `FilterChip`.
