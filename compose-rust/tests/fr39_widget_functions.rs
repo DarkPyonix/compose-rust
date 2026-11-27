@@ -69,7 +69,7 @@ mod macros {
 mod functions {
     use compose_rust::ui::*;
     use compose_rust::windows::WindowDragOver;
-    use compose_rust::{KeyEvent, MotionFinished, PointerEvent, PointerKinds};
+    use compose_rust::{BackRequested, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 
     /// `macros::layout`, every call in the function form.
     pub fn layout() {
@@ -89,6 +89,7 @@ mod functions {
             Some(|_: KeyEvent| {}),
             None::<&FocusHandle>,
             Some(|_: MotionFinished| {}),
+            None::<fn(BackRequested)>,
             "pane",
             Some(|_: WindowDragOver| {}),
             || {
@@ -108,6 +109,7 @@ mod functions {
                     None::<fn(KeyEvent)>,
                     None::<&FocusHandle>,
                     None::<fn(MotionFinished)>,
+                    None::<fn(BackRequested)>,
                     None::<&str>,
                     None::<fn(WindowDragOver)>,
                     || {
@@ -122,6 +124,7 @@ mod functions {
                             None::<fn(KeyEvent)>,
                             None::<&FocusHandle>,
                             None::<fn(MotionFinished)>,
+                            None::<fn(BackRequested)>,
                             None::<&str>,
                             None::<fn(WindowDragOver)>,
                             || {
@@ -135,6 +138,7 @@ mod functions {
                                     None::<fn(KeyEvent)>,
                                     None::<&FocusHandle>,
                                     None::<fn(MotionFinished)>,
+                                    None::<fn(BackRequested)>,
                                     || {},
                                 );
                             },
@@ -153,6 +157,7 @@ mod functions {
                     None::<fn(KeyEvent)>,
                     None::<&FocusHandle>,
                     None::<fn(MotionFinished)>,
+                    None::<fn(BackRequested)>,
                     || {
                         Card(
                             Modifier::new(),
@@ -164,6 +169,7 @@ mod functions {
                             None::<fn(KeyEvent)>,
                             None::<&FocusHandle>,
                             None::<fn(MotionFinished)>,
+                            None::<fn(BackRequested)>,
                             || {
                                 Surface(
                                     Modifier::new(),
@@ -175,6 +181,7 @@ mod functions {
                                     None::<fn(KeyEvent)>,
                                     None::<&FocusHandle>,
                                     None::<fn(MotionFinished)>,
+                                    None::<fn(BackRequested)>,
                                     || {
                                         SelectionContainer(
                                             Modifier::new(),
@@ -186,6 +193,7 @@ mod functions {
                                             None::<fn(KeyEvent)>,
                                             None::<&FocusHandle>,
                                             None::<fn(MotionFinished)>,
+                                            None::<fn(BackRequested)>,
                                             || {},
                                         );
                                     },
@@ -206,6 +214,7 @@ mod functions {
                     None::<fn(KeyEvent)>,
                     None::<&FocusHandle>,
                     None::<fn(MotionFinished)>,
+                    None::<fn(BackRequested)>,
                     || {},
                 );
                 FlowRow(
@@ -239,6 +248,7 @@ mod functions {
             None::<fn(KeyEvent)>,
             None::<&FocusHandle>,
             None::<fn(MotionFinished)>,
+            None::<fn(BackRequested)>,
             None::<&str>,
             None::<fn(WindowDragOver)>,
             || {
@@ -258,6 +268,7 @@ mod functions {
                     None::<fn(KeyEvent)>,
                     None::<&FocusHandle>,
                     None::<fn(MotionFinished)>,
+                    None::<fn(BackRequested)>,
                     None::<&str>,
                     None::<fn(WindowDragOver)>,
                     || {},
