@@ -112,6 +112,12 @@ A sheet's first line no longer sits level with its drag handle. Material 3 keeps
 
 `current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).
 
+### A request to go back reaches the application
+
+A layout container and `Window!` take `on_back_requested`. Its handler hears Android's back gesture and button, Escape, a mouse's back button and the swipe in from the leading edge on iOS, when no open overlay and no focused control took it first. The innermost node with a handler hears it first. `BackRequested::consume()` ends the request there; a handler that leaves it passes it to the next handler out, and after the last of them to the platform, which on Android does what it does with a back nobody claimed. `BackRequested::source()` says which of the four it was, as a `BackSource`. A window with no handler does not claim the platform's back at all.
+
+On the wire this is the event `BackRequested` (tag 70, 20 bytes: the header and a `BackSource` word) and the handler property `OnBackRequested` (tag 223). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

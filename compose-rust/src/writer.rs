@@ -1254,6 +1254,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "scrollchanged" | "onscrollchanged" => Some(PropertyKind::OnScrollChanged),
         "motionfinished" | "onmotionfinished" => Some(PropertyKind::OnMotionFinished),
         "nativeviewfocus" | "onnativeviewfocus" => Some(PropertyKind::OnNativeViewFocus),
+        "backrequested" | "onbackrequested" => Some(PropertyKind::OnBackRequested),
         "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
         "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
         "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),

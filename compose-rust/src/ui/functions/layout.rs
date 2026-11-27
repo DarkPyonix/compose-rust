@@ -6,11 +6,16 @@ use crate::schema::{
 };
 use crate::ui::{FocusHandle, Modifier, ScrollState};
 use crate::windows::WindowDragOver;
-use crate::{KeyEvent, MotionFinished, PointerEvent, PointerKinds};
+use crate::{BackRequested, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use compose_rust_macros::Composable;
 
 /// A container that can be a control: the parameters every one of them takes after its
 /// own, and the content.
+///
+/// `on_back_requested` hears a request to go back that no open overlay and no focused
+/// control took: Android's back, Escape, a mouse's back button or an iOS edge swipe. The
+/// innermost container with a handler hears it first. Calling `consume` on the event ends
+/// it there; leaving it passes it to the next handler out and then to the platform.
 ///
 /// `tear_off` adds the two parameters of a node the user can pull out into a window.
 macro_rules! container {
@@ -53,6 +58,8 @@ macro_rules! container {
             focus_handle: impl Into<Option<&'a FocusHandle>>,
             #[default(None::<fn(::compose_rust::MotionFinished)>)]
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
+            #[default(None::<fn(::compose_rust::BackRequested)>)]
+            on_back_requested: Option<impl FnMut(BackRequested) + 'static>,
             #[default(None::<&str>)] tear_off_key: impl Into<Option<&'a str>>,
             #[default(None::<fn(::compose_rust::windows::WindowDragOver)>)]
             on_window_drag_over: Option<impl FnMut(WindowDragOver) + 'static>,
@@ -72,6 +79,7 @@ macro_rules! container {
                 on_key_down,
                 on_key_up,
                 on_motion_finished,
+                on_back_requested,
                 on_window_drag_over,
             );
             $scope.content(content);
@@ -102,6 +110,8 @@ macro_rules! container {
             focus_handle: impl Into<Option<&'a FocusHandle>>,
             #[default(None::<fn(::compose_rust::MotionFinished)>)]
             on_motion_finished: Option<impl FnMut(MotionFinished) + 'static>,
+            #[default(None::<fn(::compose_rust::BackRequested)>)]
+            on_back_requested: Option<impl FnMut(BackRequested) + 'static>,
             #[default(|| {})] content: impl FnOnce(),
         ) {
             let mut $scope = crate::ui::widgets::$name().modifier(modifier);
@@ -118,6 +128,7 @@ macro_rules! container {
                 on_key_down,
                 on_key_up,
                 on_motion_finished,
+                on_back_requested,
             );
             $scope.content(content);
         }

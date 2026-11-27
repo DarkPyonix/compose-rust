@@ -189,6 +189,8 @@ pub(crate) enum EventCallback {
     TextFormat(Rc<RefCell<dyn FnMut(crate::rich_text::TextFormat)>>),
     /// A rich text field's document.
     RichText(Rc<RefCell<dyn FnMut(crate::rich_text::RichDocument)>>),
+    /// A request to go back, which the handler consumes or leaves.
+    Back(Rc<RefCell<dyn FnMut(crate::BackRequested)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
     /// Where a scroll container is, for the `ScrollState` bound to it.

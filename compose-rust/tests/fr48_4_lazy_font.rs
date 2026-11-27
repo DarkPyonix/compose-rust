@@ -324,8 +324,8 @@ fn fr10_lazy_asset_font_ref_round_trips() {
     }
 
     let events = include_bytes!("vectors/events.bin");
-    // The last record, after the two rich text events.
-    assert_eq!(events.len(), 2042 + 20);
+    // After the two rich text events, and before the back request's 20 bytes.
+    assert_eq!(events.len(), 2042 + 20 + 20);
     assert_eq!(decode_event(&events[2042..2062]), Ok(asset_wanted(42)));
 
     let mut long = Vec::new();
