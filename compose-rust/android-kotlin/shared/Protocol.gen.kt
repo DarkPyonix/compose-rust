@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, ThumbElevation, TrackBorder, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Indeterminate, OutlineColor, RichText, OnTextFormat, OnRichTextChanged, FoldColumnWidthDp, InsertSpaces, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, ThumbElevation, TrackBorder, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Indeterminate, OutlineColor, RichText, OnTextFormat, OnRichTextChanged, FoldColumnWidthDp, InsertSpaces, OnBackRequested, SheetDetents, SheetDragToDismiss, ActiveDescendant, ShortcutLabel, MenuEntry, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -28,7 +28,7 @@ enum class TileMode { Clamp, Repeat, Mirror }
 
 enum class MaterialRole { Thin, Regular, Thick, Chrome }
 
-enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList, TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group }
+enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList, TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group, ComboBox, ListBox, Option }
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
@@ -136,7 +136,7 @@ enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
 enum class EditGroupStatus { Applied, Rejected, Invalid, TooOld }
 
-enum class CompactNavigation { Sidebar, None }
+enum class CompactNavigation { Sidebar, None, Floating }
 
 enum class Snap { ItemStart }
 
@@ -165,6 +165,8 @@ enum class ContentScale { Fit, Crop, FillBounds }
 enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
 
 enum class SheetPresentation { Edge, Centered }
+
+enum class BackSource { SystemBack, Escape, PointerBack, EdgeSwipe }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1357,6 +1359,7 @@ sealed interface Modifier {
     data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
     data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
     data class WeightUnfilled(val value: kotlin.Float) : Modifier
+    data class Backdrop(val blurDp: kotlin.Float, val saturation: kotlin.Float, val tint: Paint) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -2016,13 +2019,14 @@ sealed interface HostEvent {
             "RichTextChanged(nodeId=$nodeId, handlerId=$handlerId, textLength=${text.length}, characters=${characters.size / 24}, paragraphs=${paragraphs.size / 16})"
     }
     data class AssetWanted(override val nodeId: Int, override val handlerId: Long, val assetId: Int) : HostEvent
+    data class BackRequested(override val nodeId: Int, override val handlerId: Long, val source: BackSource) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 327326763861914240L
+    const val SCHEMA_HASH: Long = 8851295966197714158L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2759,6 +2763,7 @@ object Protocol {
                 is HostEvent.TextFormatAtSelection -> null
                 is HostEvent.RichTextChanged -> event.text.toByteArray(StandardCharsets.UTF_8) + event.characters + event.paragraphs
                 is HostEvent.AssetWanted -> null
+                is HostEvent.BackRequested -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2824,6 +2829,7 @@ object Protocol {
                 is HostEvent.TextFormatAtSelection -> 36
                 is HostEvent.RichTextChanged -> 40
                 is HostEvent.AssetWanted -> 20
+                is HostEvent.BackRequested -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2893,6 +2899,7 @@ object Protocol {
                 is HostEvent.TextFormatAtSelection -> 68
                 is HostEvent.RichTextChanged -> 69
                 is HostEvent.AssetWanted -> 71
+                is HostEvent.BackRequested -> 70
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -3198,6 +3205,7 @@ object Protocol {
                     out.putInt(event.paragraphs.size)
                 }
                 is HostEvent.AssetWanted -> out.putInt(event.assetId)
+                is HostEvent.BackRequested -> out.putInt(backSourceTag(event.source))
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -3450,6 +3458,12 @@ object Protocol {
         222 -> PropertyKind.OnRichTextChanged
         226 -> PropertyKind.FoldColumnWidthDp
         227 -> PropertyKind.InsertSpaces
+        223 -> PropertyKind.OnBackRequested
+        224 -> PropertyKind.SheetDetents
+        225 -> PropertyKind.SheetDragToDismiss
+        219 -> PropertyKind.ActiveDescendant
+        228 -> PropertyKind.ShortcutLabel
+        229 -> PropertyKind.MenuEntry
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3573,6 +3587,13 @@ object Protocol {
     private fun systemColorSchemeTag(value: SystemColorScheme): Int = when (value) {
         SystemColorScheme.Light -> 0
         SystemColorScheme.Dark -> 1
+    }
+
+    private fun backSourceTag(value: BackSource): Int = when (value) {
+        BackSource.SystemBack -> 1
+        BackSource.Escape -> 2
+        BackSource.PointerBack -> 3
+        BackSource.EdgeSwipe -> 4
     }
 
     private fun pointerKindTag(value: PointerKind): Int = when (value) {
@@ -3763,6 +3784,9 @@ object Protocol {
         17 -> SemanticsRole.List
         18 -> SemanticsRole.ListItem
         19 -> SemanticsRole.Group
+        20 -> SemanticsRole.ComboBox
+        21 -> SemanticsRole.ListBox
+        22 -> SemanticsRole.Option
         else -> throw ProtocolException("unknown SemanticsRole tag $tag", offset)
     }
 
@@ -4262,6 +4286,7 @@ object Protocol {
     private fun compactNavigation(tag: Int, offset: Int): CompactNavigation = when (tag) {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
+        3 -> CompactNavigation.Floating
         else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
     }
 
@@ -4368,6 +4393,14 @@ object Protocol {
         else -> throw ProtocolException("unknown SheetPresentation tag $tag", offset)
     }
 
+    private fun backSource(tag: Int, offset: Int): BackSource = when (tag) {
+        1 -> BackSource.SystemBack
+        2 -> BackSource.Escape
+        3 -> BackSource.PointerBack
+        4 -> BackSource.EdgeSwipe
+        else -> throw ProtocolException("unknown BackSource tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -4442,6 +4475,7 @@ object Protocol {
         44 -> 0
         45 -> 1
         48 -> 0
+        47 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4494,6 +4528,7 @@ object Protocol {
             44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             48 -> Modifier.WeightUnfilled(kotlin.Float.fromBits(first.toInt()))
+            47 -> Modifier.Backdrop(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), paint(second, offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

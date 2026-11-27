@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>{{identifier}}</id>
-  <metadata_license>CC0-1.0</metadata_license>
+  <metadata_license>{{metadata_license}}</metadata_license>
   <project_license>{{license}}</project_license>
   <name>{{name}}</name>
-  <summary>{{description}}</summary>
-  <developer id="{{identifier}}">
+  <summary>{{summary}}</summary>
+  <developer id="{{developer_id}}">
     <name>{{publisher}}</name>
   </developer>
   <description>

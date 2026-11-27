@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import dev.darkpyonix.composerust.runtime.LocalSystemBars
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +135,15 @@ internal fun HostScaffold(
     }
     val navigation = theme.navigationFor(navigationNode, sizeClass)
     val holdsNavigation = bottomBar?.let { holdsANavigation(it, table) } == true
-    val frame = scaffoldFrame(navigation.presentation, destinationsCanTurn = holdsNavigation)
+    // A bar the application asked to float is laid over the page rather than under it, so
+    // the page has the whole frame and is told how much of its bottom the bar covers.
+    val floats = holdsNavigation && navigation.floating
+    val frame = if (floats) {
+        ScaffoldFrame.Overlaid
+    } else {
+        scaffoldFrame(navigation.presentation, destinationsCanTurn = holdsNavigation)
+    }
+    val barReserve = if (floats) floatingBarReserve(navigation, LocalSystemBars.current.bottom) else 0.dp
     val floatingAction = slots[SlotRole.FloatingAction]
     val content = slots[SlotRole.Content]
     // Where the action goes is the design system's answer, asked once for this width. A
@@ -271,7 +280,10 @@ internal fun HostScaffold(
                     slot(floatingAction)
                 }
             }
-            CompositionLocalProvider(LocalGlassBackdrop provides null) {
+            CompositionLocalProvider(
+                LocalGlassBackdrop provides null,
+                LocalFloatingBarReserve provides barReserve,
+            ) {
                 page(Modifier.weight(1f).fillMaxSize().recordsGlassBackdrop(backdropState))
             }
             if (action != null && actionAtEnd) {
@@ -292,7 +304,11 @@ internal fun HostScaffold(
     // Over the page and taking none of it. The slot draws the button that brings the
     // destinations out and, while they are out, the strip and the press that dismisses it.
     if (frame == ScaffoldFrame.Overlaid) {
-        slot(bottomBar)
+        if (floats) {
+            Box(Modifier.align(Alignment.BottomCenter)) { slot(bottomBar) }
+        } else {
+            slot(bottomBar)
+        }
     }
     }
     }

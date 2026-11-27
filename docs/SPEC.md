@@ -1834,6 +1834,24 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
 - 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
 
+#### 21.3.4 시트의 멈춤 높이와 끌어서 닫기 (`Agreed`, 이슈 #309, [leader, 2026-11-22])
+
+휴대폰 폭의 동작 시트와 거르기 시트는 화면 절반에서 멈췄다가 끌어 올리면 거의 전체로 펴집니다(iOS의 medium·large detent, Material의 partially expanded·expanded). 지금의 가장자리 시트는 한 높이뿐이고, 끌어서 닫기는 늘 켜져 있습니다.
+
+- **새 속성 `SheetDetents`**(속성 태그 224, u32 비트 집합): `Medium = 1`, `Large = 2`. 둘 다 켜면 시트는 `Medium`에서 열리고, 사용자가 끌어 올리면 `Large`로, 내리면 `Medium`으로 돌아갑니다. 하나만 켜면 그 높이 하나입니다. 보내지 않으면(0) 지금처럼 디자인 시스템이 정한 한 높이입니다. 모르는 비트는 `ProtocolError`입니다.
+- `Medium`은 창 높이의 절반, `Large`는 창 높이에서 위쪽 안전 영역과 디자인 시스템의 위쪽 여백을 뺀 높이입니다. 정확한 여백은 `ComponentRules`의 답입니다(FR-14.1).
+- **지금 어느 높이에 있는지는 Renderer의 상태입니다(D5).** 끄는 동안과 멈춘 뒤에도 경계를 넘는 것은 없습니다. 21.3의 "끌기는 경계를 넘지 않는다"와 같습니다.
+- **새 속성 `SheetDragToDismiss`**(속성 태그 225, Bool). 기본값은 참이고 지금의 동작입니다. 거짓이면 아래로 끌어도 가장 낮은 멈춤 높이에서 멈추고 `OnDismiss`를 보내지 않습니다. Esc, Android Back, 바깥 누르기의 `OnDismiss`(21.3, 21.3.2)는 이 값과 상관없이 그대로입니다. 저장하지 않은 입력이 있는 시트를 실수로 끌어 닫지 않게 하는 값이고, 닫는 다른 길까지 막는 값이 아닙니다.
+- `Presentation=Centered`(21.3.1)와 데스크톱의 옆 시트에는 멈춤 높이가 없습니다. 두 속성은 그 표현에서 무시되고 오류가 아닙니다. 같은 선언이 창 폭에 따라 표현을 바꾸기 때문입니다.
+- **Rust API**: `Sheet!`의 `detents: SheetDetents`(`SheetDetents::MEDIUM | SheetDetents::LARGE`)와 `drag_to_dismiss: bool` 매개변수. 보내지 않으면 속성을 쓰지 않습니다.
+
+수용 기준:
+
+1. 두 속성이 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다. 모르는 비트는 `ProtocolError`입니다(`fr21_3_4_sheet_detents_round_trip`).
+2. `Medium | Large`인 가장자리 시트가 창 높이의 절반으로 열리고, 위로 끌면 `Large` 높이에서 멈추며, 다시 내리면 `Medium`에서 멈춥니다. 그동안 Host는 아무 사건도 받지 않습니다(렌더러 테스트, `fr21_3_4_a_sheet_rests_at_its_detents`).
+3. `drag_to_dismiss = false`인 시트는 끝까지 끌어도 `OnDismiss`를 보내지 않고, Esc는 여전히 한 번 보냅니다(`fr21_3_4_drag_to_dismiss_off_keeps_the_sheet`).
+4. 두 속성을 보내지 않은 시트의 그림과 동작은 이 변경 전과 같습니다(기존 시트 테스트가 그대로 통과).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -1915,6 +1933,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
   - `CompactNavigation::Default`(와이어 0): 디자인 시스템의 답입니다(21.2, 21.2.1). 고르지 않은 것과 같고 속성을 보내지 않습니다.
   - `CompactNavigation::Sidebar`(1): 토글 뒤로 치워진 사이드바입니다(21.2.1의 치워둠). 일곱 디자인 시스템 전부에서 같은 뜻이고, 나와 있을 때의 모양(폭, 색, 선택 표시)은 그 디자인 시스템의 서랍과 같습니다.
   - `CompactNavigation::None`(2): Compact에서 목적지가 화면에 없고 부르는 버튼도 없습니다. 목적지로 가는 길은 애플리케이션이 직접 그립니다(FR-22.3의 6번). 이름은 Compose의 `NavigationSuiteType.None`을 따릅니다.
+  - `CompactNavigation::Floating`(3, 이슈 #311, `Agreed`, [leader, 2026-11-22]): Compact에서 목적지들이 창 아래쪽에 떠 있는 알약 모양의 막대가 됩니다. 페이지는 막대 밑까지 이어지고 막대 뒤로 비칩니다. 막대는 아래쪽 안전 영역과 디자인 시스템의 여백만큼 창 가장자리에서 떨어지고, 바탕은 23.3.1의 `Backdrop`과 같은 길로 그 디자인 시스템이 정한 흐림과 색입니다(Liquid Glass와 Cupertino는 유리, 나머지는 그 시스템의 떠 있는 표면). 페이지의 스크롤 컨테이너는 마지막 내용이 막대에 가리지 않도록 막대 높이만큼 아래 여백을 받습니다. 앱이 안전 영역을 직접 읽어야 하는 경우는 `window_size().safe_area`가 위·아래·양옆을 모두 줍니다. 모바일의 위쪽 값도 Compose의 `safeDrawing`에서 오므로 따로 읽을 길을 더하지 않습니다.
 - **고르는 것은 Compact 하나입니다.** Medium과 Expanded의 레일과 서랍은 21.2 그대로 디자인 시스템이 답합니다. 앱은 크기 클래스를 읽지 않고(FR-22) 값을 한 번 보내며, 그 값이 어느 폭에서 쓰이는지는 Renderer가 정합니다.
 - **와이어**: 새 속성 `CompactNavigation`(추가 전용 태그 **185**, u32)을 `Navigation`에만 싣습니다. 값은 새 역할 열거형 `CompactNavigation`(`Sidebar = 1`, `None = 2`)의 태그이고, 0은 보내지 않은 것과 같습니다. 스키마 해시가 움직입니다. 21.2.1의 "와이어에 새로 실리는 것이 없습니다"는 기본에 대해 여전히 참입니다.
 - **사이드바가 나와 있는지는 여전히 Renderer의 상태입니다(D5).** 21.2.1과 같이, 사용자가 토글을 여닫는 동안 경계를 넘는 것은 없습니다.
@@ -1928,6 +1947,9 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 4. 치워둠의 토글은 페이지 내용과 겹치지 않습니다. `Navigation`이 페이지를 직접 들 때와 `Scaffold`의 하단 슬롯에 있을 때, 페이지가 막대로 시작할 때와 그렇지 않을 때, 그 넷 모두에서 일곱 디자인 시스템 전부의 토글 경계가 페이지 첫 내용의 경계와 겹치지 않습니다(`fr21_2_3_the_toggle_never_overlaps_the_page`). 창 캡션이 있을 때 막대의 내용이 토글 뒤에서 시작하는 것도 확인합니다(`fr21_2_3_a_bar_on_the_caption_starts_after_the_toggle`).
 5. 값을 고르지 않은 `Navigation`은 이 변경 전과 같은 표현으로 그려집니다(`fr21_2_3_without_a_choice_the_design_system_answers_as_before`).
 6. Rust API가 `Sidebar`와 `None`을 태그 185의 1과 2로 쓰고, 고르지 않으면 이 속성을 보내지 않습니다(`fr21_2_3_compact_navigation_writes_its_tag`).
+7. `Floating`을 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 떠 있는 막대 하나를 그리고, 막대의 아래 경계가 창 아래 경계에서 아래쪽 안전 영역 이상 떨어지며, 페이지가 막대 밑까지 이어집니다. Medium과 Expanded는 바뀌지 않습니다(`fr21_2_3_a_chosen_floating_bar_floats_on_every_design_system`).
+8. `Floating` 막대 밑의 `ScrollColumn`을 끝까지 내리면 마지막 자식의 아래 경계가 막대의 위 경계보다 위에 있습니다(`fr21_2_3_the_floating_bar_never_hides_the_last_item`).
+9. 위쪽 안전 영역이 있는 창(테스트에서 주입한 inset)에서 `window_size().safe_area.top`이 그 값입니다(`fr21_2_3_safe_area_top_is_reported`).
 
 #### 21.5.1 참조 화면이 요구하는 의미들 (`Agreed`)
 
@@ -2022,7 +2044,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
 9. Flatpak은 Flathub용 매니페스트로 만들고(런타임은 `org.freedesktop.Platform`/`Sdk` 25.08입니다. 26.08은 Flathub의 appstream 목록에는 있으나 `flathub` 원격에 ref가 아직 없어 설치되지 않으므로, 설치되는 가장 새 런타임을 씁니다)  `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_9_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_9_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다. CI는 `packager-macos.yml`의 Windows 잡(`Velopack packaging and self-update (windows-latest)`, 단계 `Build and check .msi package (PerUser and PerMachine)`)에서 `--instLocation PerUser`와 `PerMachine` 두 가지를 만들고, `scripts/tests/msi-info.ps1`이 Windows Installer의 Property 테이블을 읽어 ProductName, Manufacturer, ProductCode, UpgradeCode가 있고 ProductVersion이 `vpk pack --packVersion`으로 시작하는지 봅니다(pending CI). 설치해 보는 것은 수동입니다.
-11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다. **2026-11-25 오너 결정(Q5 (a), "a가 맞는 방식 아냐?"): 패키저가 그 템플릿을 실제로 채웁니다.** 템플릿 여섯 개(`Info.plist`, `app.desktop`, `app.metainfo.xml`, `flatpak-manifest.json`, `AppxManifest.xml`, `application.manifest`의 `.in`)와 자리표시자 표 `metadata-map.md`는 `scripts/packaging-templates/`에 복사해 두고, `PIN`이 포크 주소, 커밋, 경로, 파일마다의 git blob id를 적습니다. 이 고정은 렌더러의 고정(`renderer/scripts/build-compose.sh`)과 따로 둡니다. 템플릿을 고쳐도 렌더러를 다시 빌드하지 않게 하기 위해서입니다. 템플릿은 이 저장소에서 고치지 않고 포크에서 고친 뒤 `scripts/check-packaging-templates.py --bump <커밋>`으로 고정을 옮깁니다. CI는 복사본이 `PIN`과 같은지(손으로 고친 파일, 고정되지 않은 파일, 빠진 파일은 실패), 그리고 `PIN`이 그 커밋의 포크와 같은지(포크에서 바뀌었거나 새로 생긴 템플릿은 실패) 확인합니다(fr22_6_11_the_copy_matches_its_pin, fr22_6_11_a_template_edited_here_fails, fr22_6_11_an_unpinned_template_fails, fr22_6_11_a_template_changed_in_the_fork_without_the_pin_fails, fr22_6_11_the_pin_matches_the_fork_on_github, `scripts/tests/packaging-templates.test.sh`). 패키저는 템플릿 글자를 먼저 채우고(값을 형식에 맞게 이스케이프한 뒤 그대로 넣고, 채우지 못한 자리표시자는 오류), 그 뒤에는 더하기만 합니다. 템플릿에 없는 줄, 키, 요소를 더하거나 템플릿이 비워 둔 요소 안에 자식을 넣는 것은 되고, 템플릿이 채운 것을 바꾸거나 빼는 것은 안 됩니다. 패키저마다 이것을 확인하는 시험을 둡니다(macOS `Info.plist`: fr22_6_11_the_plist_is_the_forks_template_filled_then_added_to, fr22_6_11_a_bundle_without_a_category_gets_the_templates_default, fr22_6_11_a_display_name_other_than_the_name_is_refused, fr22_6_11_an_unfilled_placeholder_is_an_error, `scripts/packager-macos/tests/test_plist.py`). 템플릿이 우리가 내보내는 것을 표현하지 못하는 곳(Flathub가 받지 않는 `dir` 소스, `asInvoker`가 없는 `application.manifest`, 고정된 MSIX 배경색)은 포크의 템플릿을 고칩니다(리더 결정 2026-11-25).
+11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다. **2026-11-25 오너 결정(Q5 (a), "a가 맞는 방식 아냐?"): 패키저가 그 템플릿을 실제로 채웁니다.** 템플릿 여섯 개(`Info.plist`, `app.desktop`, `app.metainfo.xml`, `flatpak-manifest.json`, `AppxManifest.xml`, `application.manifest`의 `.in`)와 자리표시자 표 `metadata-map.md`는 `scripts/packaging-templates/`에 복사해 두고, `PIN`이 포크 주소, 커밋, 경로, 파일마다의 git blob id를 적습니다. 이 고정은 렌더러의 고정(`renderer/scripts/build-compose.sh`)과 따로 둡니다. 템플릿을 고쳐도 렌더러를 다시 빌드하지 않게 하기 위해서입니다. 템플릿은 이 저장소에서 고치지 않고 포크에서 고친 뒤 `scripts/check-packaging-templates.py --bump <커밋>`으로 고정을 옮깁니다. CI는 복사본이 `PIN`과 같은지(손으로 고친 파일, 고정되지 않은 파일, 빠진 파일은 실패), 그리고 `PIN`이 그 커밋의 포크와 같은지(포크에서 바뀌었거나 새로 생긴 템플릿은 실패) 확인합니다(fr22_6_11_the_copy_matches_its_pin, fr22_6_11_a_template_edited_here_fails, fr22_6_11_an_unpinned_template_fails, fr22_6_11_a_template_changed_in_the_fork_without_the_pin_fails, fr22_6_11_the_pin_matches_the_fork_on_github, `scripts/tests/packaging-templates.test.sh`). 패키저는 템플릿 글자를 먼저 채우고(값을 형식에 맞게 이스케이프한 뒤 그대로 넣고, 채우지 못한 자리표시자는 오류), 그 뒤에는 더하기만 합니다. 템플릿에 없는 줄, 키, 요소를 더하거나 템플릿이 비워 둔 요소 안에 자식을 넣는 것은 되고, 템플릿이 채운 것을 바꾸거나 빼는 것은 안 됩니다. 패키저마다 이것을 확인하는 시험을 둡니다(macOS `Info.plist`: fr22_6_11_the_plist_is_the_forks_template_filled_then_added_to, fr22_6_11_a_bundle_without_a_category_gets_the_templates_default, fr22_6_11_a_display_name_other_than_the_name_is_refused, fr22_6_11_an_unfilled_placeholder_is_an_error, `scripts/packager-macos/tests/test_plist.py`; Linux desktop 항목, metainfo, Flatpak 매니페스트: fr22_6_11_the_desktop_entry_is_its_template_then_additions, fr22_6_11_the_desktop_entry_follows_its_template, fr22_6_11_the_metainfo_keeps_every_line_its_template_renders, fr22_6_11_the_metainfo_follows_its_template, fr22_6_11_the_flatpak_manifest_holds_its_template, fr22_6_11_the_flatpak_manifest_follows_its_template, fr22_6_11_an_unfilled_placeholder_stops_the_packager, `scripts/packager-linux/tests/templates.rs`; Windows `AppxManifest.xml`: fr22_6_11_the_manifest_is_its_template_filled, fr22_6_11_additions_keep_every_template_line_in_order, fr22_6_11_the_manifest_follows_its_template, fr22_6_11_the_template_names_the_assets_the_packager_makes, `scripts/packager-windows/src/manifest.rs`. 자리표시자가 없는 `application.manifest`는 크레이트가 이 디렉터리를 읽을 수 없어 `compose-rust/build/application.manifest`에 그대로 복사해 두고, 둘이 다르면 fr22_6_11_the_crate_application_manifest_is_the_template가 실패합니다). 템플릿이 우리가 내보내는 것을 표현하지 못하는 곳(Flathub가 받지 않는 `dir` 소스, `asInvoker`가 없는 `application.manifest`, 고정된 MSIX 배경색)은 포크의 템플릿을 고칩니다(리더 결정 2026-11-25).
 12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 CI로 확인합니다. 갱신 패키지에 들어가는 앱이 서명된 앱이어야 하므로, ad hoc 서명은 vpk가 UpdateMac을 넣은 뒤, nupkg와 portable `.zip`을 만들기 전에 vpk가 합니다(`vpk pack --signAppIdentity -`, `codesign --deep`). `.dmg`는 그 portable `.zip`의 앱을 그대로 담습니다. CI(macOS arm64 러너)는 `.dmg`의 앱을 복사해 quarantine 속성을 붙이고, 1.0.0으로 실행하고, 1.0.1 피드에서 갱신한 뒤, 갱신된 앱이 `codesign --verify --deep --strict`를 통과하고 1.0.1로 실행되는 것을 확인합니다(fr22_6_12_adhoc_signed_app_receives_velopack_update_and_launches). CI는 앱 안의 실행 파일을 직접 실행하므로, Gatekeeper의 첫 열기 확인(Finder에서 열기, 개인정보 보호 및 보안의 그래도 열기)과 갱신 뒤 Finder에서 다시 여는 것은 사람이 실제 기기에서 확인합니다. CI가 통과하기 전에는 이 항목을 통과로 보지 않습니다.
 13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_13_the_manifest_declares_per_monitor_v2_awareness, fr22_6_13_the_resource_file_starts_with_the_empty_entry, fr22_6_13_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_13_sdk_versions_order_numerically). WACK은 CI의 Windows 러너(`windows-latest`)에서 `.msix`와 `.msixbundle`에 `appcert.exe`로 돌고(`.github/workflows/package-windows.yml`의 `Package, sign and certify (stand-in)` 잡, 단계 `Windows App Certification Kit (package)`와 `(bundle)`; 렌더러를 실은 샘플은 `package-windows-host.yml`의 `Windows App Certification Kit (DPI awareness must pass)` 단계), 필수 테스트가 FAIL이면 잡이 실패하고 `DPIAwarenessValidation`은 PASS여야 합니다(`run-wack.ps1 -RequirePass`). 러너 이미지의 Windows SDK에 `appcert.exe`가 들어 있어 따로 설치하지 않습니다. 이 확인은 CI 실행 번호가 붙을 때까지 대기 중입니다(pending CI). Store 제출 자체와 Store의 갱신은 Partner Center 계정이 필요해 수동입니다.
 14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_14_every_piece_of_code_is_signed_ad_hoc, fr22_6_14_the_signed_application_runs).
@@ -2221,6 +2243,24 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 해석은 디자인 시스템의 몫입니다. Cupertino와 Liquid Glass는 흐림이고, Material 3는 고도와 톤 얹기이며, GNOME은 불투명 표면입니다. 같은 선언이 시스템마다 자기 모습으로 나오는 것이 FR-14의 전부입니다.
 - 14.1이 정한 것을 뒤집지 않습니다. 흉내 낸 반투명을 "Liquid Glass를 구현했다"고 말하지 않는다는 규칙은 그대로이고, 이것은 그 주장이 아니라 흐림을 말할 어휘입니다.
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
+
+#### 23.3.1 앱이 고르는 흐림: `Backdrop` (`Agreed`, 이슈 #300, [leader, 2026-11-22])
+
+`Material(role)`은 흐림을 디자인 시스템에 맡깁니다. Material 3는 불투명한 색을 칠하므로, 모든 플랫폼에서 Liquid Glass처럼 보여야 하는 앱의 떠 있는 막대, 위 막대, 팝오버, 시트는 그 모습을 말할 수 없습니다. 색에서 `Paint::Role`이 기본이고 `Paint::Literal`이 탈출구이듯(FR-41.2의 같은 논리), 흐림에도 역할 옆에 값으로 말하는 탈출구를 둡니다.
+
+- **수정자 `Backdrop { blur_dp: f32, saturation: f32, tint: Paint }`**(수정자 태그 47, 16바이트 칸 하나: `f32` 둘과 `Paint` 하나). 이 노드의 모양 안에서, 이 앱이 그 노드 뒤에 그린 내용을 `blur_dp`만큼 흐리고 채도를 `saturation`배(1이면 그대로)로 바꾼 뒤 `tint`를 얹습니다. 디자인 시스템과 상관없이 같은 값입니다.
+- 흐리는 대상은 14.1·23.3의 유리와 같이 **이 앱이 그린 내용**입니다. 창 뒤의 바탕 화면은 흐리지 않습니다. 같은 기록 층(Liquid Glass의 backdrop 층)을 씁니다.
+- **흐리는 것은 Renderer가 그 노드와 따로 기록해 둔 내용입니다**(`[leader, 2026-11-22]`). 세 경우입니다. 같은 `Box` 안에서 그 노드보다 먼저 그려진 형제, `Scaffold`의 막대 아래에 놓인 페이지, 시트, 다이얼로그, 팝오버 아래에 놓인 창의 페이지입니다. 그 밖의 자리에 놓인 `Backdrop` 노드는 `tint`를 불투명도 1로 칠합니다(바로 아래 줄과 같은 결과). 이유: 노드는 자기를 그리는 기록 안에 있어서 자기 뒤의 모든 것을 따로 떼어 낼 수 없고, 흐릴 수 있는 것은 Renderer가 이미 별도 층으로 기록한 내용뿐입니다. 떠 있는 막대, 위 막대, 팝오버, 시트라는 이 요구사항의 쓰임은 세 경우에 모두 들어갑니다.
+- **흐릴 수 없으면 `tint`만 칠합니다.** 투명도 감소가 켜졌거나(14.1의 3번) 그 렌더러가 흐림을 그릴 수 없으면, `tint`를 불투명도 1로 칠합니다. 대비는 앱이 고른 `tint`의 책임입니다. 역할 `tint`는 테마의 값이므로 대비를 지킵니다.
+- 한 노드에 `Material`과 `Backdrop`이 함께 있으면 `Backdrop`이 이깁니다. 값 범위: `blur_dp`는 0 이상 유한, `saturation`은 0 이상 유한. 그 밖은 `ProtocolError`이고 그 노드는 `tint`만 칠합니다.
+- **Rust API**: `Modifier::backdrop(blur_dp, saturation, tint)`. dioxus-compose의 `backdrop` 속성은 그쪽 일입니다.
+
+수용 기준:
+
+1. `Backdrop`이 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 벡터에 덧붙고 기존 수정자 벡터는 그대로, `fr23_3_1_backdrop_round_trips`). 음수나 NaN 값은 `ProtocolError`입니다.
+2. 줄무늬 위에 놓인 `Backdrop(20, 1, 반투명 흰색)` 노드의 픽셀이 Material 3을 포함한 일곱 디자인 시스템 모두에서 같고, 줄무늬가 흐려져 그 노드 안의 인접 픽셀 차이가 흐림 없는 경우보다 작습니다(`fr23_3_1_backdrop_blurs_the_same_on_every_design_system`).
+3. 투명도 감소가 켜지면 같은 노드가 `tint`를 불투명하게 칠하고 흐림 층을 그리지 않습니다(`fr23_3_1_reduced_transparency_draws_the_tint_only`).
+4. `Material`과 `Backdrop`이 함께 있으면 `Backdrop`의 결과와 같습니다.
 
 ### FR-24 모션 (`Draft`)
 
@@ -3251,6 +3291,32 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 #### 39.6 이행
 
 이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+
+### FR-91 앱 수준의 뒤로 가기: `BackRequested` (`Agreed`, 이슈 #302, [leader, 2026-11-22])
+
+휴대폰 폭에서 목록과 상세를 오가는 화면은 앱이 자기 탐색 스택을 갖고, 시스템의 뒤로 가기가 그 스택을 꺼내야 합니다. 지금은 열린 오버레이만 Esc와 Android Back으로 닫히고(21.3.2), 열린 오버레이가 없을 때의 뒤로 가기는 앱에 닿지 않습니다. 앱이 그것을 들을 방법이 없습니다.
+
+- **사건 하나, 출처 넷.** 새 이벤트 `BackRequested`는 다음 넷 가운데 하나가 일어났고 열린 오버레이가 그것을 가져가지 않았을 때 옵니다.
+  - Android의 시스템 뒤로 가기(제스처와 버튼). 21.3.2가 열린 오버레이에 먼저 줍니다.
+  - Esc. 포커스된 컨트롤이 쓰지 않고(IME 조합 취소, 편집기의 제안 닫기 등, 21.3.2의 "안쪽 컨트롤이 먼저") 열린 오버레이도 없을 때입니다. `KeyDown` 핸들러가 Esc를 소비하면(FR-12) 오지 않습니다.
+  - 마우스의 뒤로 버튼(버튼 4). 데스크톱과 웹입니다.
+  - iOS의 왼쪽 가장자리 밀기. Compose의 플랫폼 `BackHandler`가 받는 것과 같은 제스처입니다.
+- **받는 쪽은 노드입니다.** 핸들러 속성 `OnBackRequested`를 레이아웃 컨테이너와 `Window`가 받습니다. 사건은 그 창에서 이 속성을 가진 노드 가운데 **가장 안쪽**(트리 순서에서 가장 깊고, 같은 깊이면 나중의 것)에 먼저 가고, 소비되지 않으면 바깥 조상으로 올라갑니다. 화면이 바뀌어 상세 화면의 노드가 사라지면 그 핸들러도 자동으로 빠집니다. Compose의 `BackHandler`가 가장 나중에 구성된 것을 먼저 부르는 것과 같은 모델이고, 앱이 등록 순서를 손으로 맞출 일이 없습니다.
+- **처리했는지는 동기 반환값입니다(FR-12).** 핸들러가 소비 표시를 남기면 처리한 것이고 사건은 거기서 끝납니다. 아무 핸들러도 소비하지 않으면 Renderer가 플랫폼의 기본 동작을 합니다. Android는 그 콜백을 잠시 끄고 다시 보내 시스템이 처리하게 합니다(첫 창이면 앱을 뒤로 보내고, 첫 창이 아니면 FR-53의 `WindowCloseRequested`). 데스크톱의 Esc와 버튼 4, iOS의 밀기에는 기본 동작이 없으므로 아무 일도 일어나지 않습니다. 웹의 버튼 4는 소비되지 않으면 브라우저의 뒤로 가기입니다.
+- **켜고 끄는 값은 없습니다.** 핸들러가 있으면 켜진 것입니다. 끄려면 앱이 속성을 보내지 않습니다. Android에서 시스템이 예측 뒤로 가기 애니메이션을 미리 보이려면 "이 뒤로 가기를 앱이 가져가는가"를 사건 전에 알아야 하므로, Renderer는 그 창에 `OnBackRequested`를 가진 노드가 하나라도 있는 동안 콜백을 켜 둡니다. 예측 애니메이션 자체(진행도 전달)는 이 항목에 없고, 뒤로 가기가 끝났을 때 사건 하나만 옵니다.
+- **와이어**: 이벤트 `BackRequested`(이벤트 태그 70), 페이로드 형식 `Back`(45) `source: u32`(`SystemBack = 1`, `Escape = 2`, `PointerBack = 3`, `EdgeSwipe = 4`, 모르는 값은 `ProtocolError`), 20바이트. 핸들러 속성 `OnBackRequested`(속성 태그 223). 경계 진입점은 늘지 않습니다. 스키마 해시가 움직입니다.
+- **Rust API**: 레이아웃 컨테이너와 `Window!`의 `on_back_requested` 매개변수. 핸들러가 받는 `BackRequested`는 `source()`와 `consume()`을 가집니다. dioxus-compose의 `use_back_handler`와 탐색 스택은 그쪽 일입니다.
+
+수용 기준:
+
+1. `BackRequested`와 `OnBackRequested`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩되며(체크인된 프로토콜 벡터에 덧붙고 기존 레코드는 그대로), 모르는 `source`는 `ProtocolError`입니다(`fr91_back_requested_round_trips`).
+2. 바깥 `Column`과 그 안의 `Box`가 모두 `OnBackRequested`를 가질 때, Esc는 `Box`에만 가고, `Box`가 소비하지 않으면 `Column`에 갑니다. 둘 다 소비하지 않으면 사건은 끝납니다(`fr91_back_goes_to_the_innermost_handler_first`).
+3. 열린 `Sheet`가 있으면 Esc와 Android Back은 21.3.2대로 시트의 `OnDismiss`만 보내고 `BackRequested`는 오지 않습니다(`fr91_an_open_overlay_takes_back_first`).
+4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `BackRequested`는 오지 않습니다. `KeyDown`에서 Esc를 소비한 노드가 있어도 오지 않습니다(`fr91_escape_used_by_a_control_is_not_back`).
+5. 마우스 버튼 4가 `PointerBack` 출처로 옵니다(데스크톱 렌더러 테스트, `fr91_pointer_back_button_is_back`).
+6. Android: 소비된 Back은 Activity를 끝내지 않고, 소비되지 않은 Back은 시스템 기본 동작으로 갑니다(Android 계측 테스트 또는 Robolectric, `fr91_android_unhandled_back_falls_through`). `OnBackRequested`가 없는 창에서는 콜백이 꺼져 있습니다.
+7. iOS의 가장자리 밀기가 `EdgeSwipe`로 오는 것은 시뮬레이터에서 손으로 확인하고 이 항목에 적습니다.
+8. 핸들러를 가진 노드가 지워지면 다음 뒤로 가기는 그 노드에 가지 않습니다(`fr91_a_removed_handler_no_longer_hears_back`).
 
 ### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #933, #23)
 
@@ -4684,6 +4750,32 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다()(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
 8. [leader, provisional] (darkpyonix leader, 2026-11-15) **컨테이너 역할(#838).** 컨테이너 역할(Menu, List, Group, TabList, Tree, Navigation)을 가진 노드는 자식을 하나로 합치지 않고 각 자식을 따로 접근 가능한 노드로 남기며(순회 그룹), 목록형(Menu, List, TabList, Tree)은 자식 수를 담은 컬렉션 정보를 낸다. 플랫폼 역할 매핑이 있는 창(macOS GraalVM, Windows, Linux)에서는 메뉴·목록·그룹 역할로 읽힌다 (fr71_a_container_role_keeps_its_children_as_separate_nodes). Kotlin/Native macOS 창의 역할은 #782의 역할 훅이 들어온 뒤에 성립하며, 그때까지 이 부분은 완료가 아니다.
+9. [leader, 2026-11-23] **모달은 뒤의 노드를 접근성 트리에서 뺍니다(#938).**
+   - **무엇이 모달인가.** 열린 `Dialog`와 `Sheet`는 표현 방식과 상관없이 모달입니다. 다른 노드는 `Semantics` 수정자의 상태 비트 `modal`(비트 14, `1 << 14`)로 모달이 되고, 와이어에서 모달을 알아보는 길은 이 비트 하나입니다. 이 비트를 가진 `Popover`는 열려 있는 동안 모달이고, 그 밖의 노드는 트리에 있고 `hidden`이 아닌 동안 모달입니다. Host API는 `Modifier::modal(bool)`과 `SemanticsState::modal`입니다. 비트는 추가 전용이고 `SEMANTICS_STATE_MASK`가 넓어지므로 스키마 해시가 움직입니다. 모르는 비트가 `ProtocolError`라는 기준 4는 비트 15부터 적용됩니다.
+   - **"뒤"의 뜻.** 모달이 하나라도 열려 있으면 가장 나중에 열린 모달 하나만 노출됩니다. 그 모달의 하위 트리에 있지 않은 모든 노드는 접근성 트리에서 빠집니다. 앱 바, 탐색, 페이지의 다른 노드, 그보다 먼저 열린 `Dialog`, `Sheet`, `Popover`가 모두 여기에 듭니다. 모달 안에서 연 `Popover`처럼 그 모달보다 나중에 열린 비모달 오버레이는 남습니다. 모달이 닫히거나 비트가 꺼지면 빠졌던 노드가 다시 들어오고, 겹친 모달이면 그 아래 모달이 다시 맨 위가 됩니다. 일시 메시지(21.4, 노드가 아님)와 Renderer가 그리는 창 단추(닫기, 최소화, 최대화)는 창의 것이라 이 규칙 밖이며 그대로 남습니다.
+   - **플랫폼.** Renderer는 이 일을 공용 Compose 의미 트리에서 합니다(빠지는 노드와 그 하위 트리의 의미를 지우고 `hideFromAccessibility`로 둡니다). 그래서 그 트리를 읽는 모든 플랫폼의 접근성 트리에 똑같이 적용됩니다. macOS, Windows, Linux 창의 브리지, Android, iOS, 웹이 모두 그렇습니다. 플랫폼 고유의 모달 표시(`accessibilityModal`, UIA `IsModal`, AT-SPI `MODAL` 상태)는 포크의 창 코드이고 이 기준이 약속하지 않습니다.
+   - **키보드.** 열린 `Dialog`와 `Sheet` 안에서 Tab과 Shift+Tab은 오버레이 안을 돌고 밖으로 나가지 않습니다(21.3.1의 포커스 규칙을 `Dialog`에도 같이 적용합니다). `modal` 비트를 가진 노드 안에서 Tab과 Shift+Tab은 그 노드 밖으로 나가지 않고, 끝에 닿으면 그 자리에 머뭅니다. Host의 포커스 요청(FR-65)은 막지 않습니다. 열릴 때 포커스가 오버레이 안으로 가고 닫히면 연 컨트롤로 돌아가는 것은 21.3.2의 규칙 그대로이며 이 기준이 새로 정하지 않습니다(`fr21_escape_returns_focus_to_the_opener`).
+   - 수용 기준(자동):
+     1. 열린 `Dialog` 뒤의 버튼은 의미 트리에 없고, 대화상자 안의 버튼은 있습니다. 닫으면 뒤의 버튼이 돌아옵니다(`fr71_modal_hides_background_from_accessibility_tree`).
+     2. 열린 `Sheet` 위에 `Dialog`를 열면 시트의 내용과 페이지가 모두 빠지고 대화상자의 내용만 남습니다. 대화상자를 닫으면 시트의 내용이 돌아오고 페이지는 계속 빠져 있습니다(`fr71_stacked_modals_expose_only_the_topmost`).
+     3. 페이지 안의 `Column`에 `modal` 비트를 주면 그 `Column`의 형제와 조상의 다른 자식이 빠지고 `Column` 안의 노드는 남습니다. 비트를 떼면 모두 돌아옵니다(`fr71_a_node_with_the_modal_bit_hides_everything_outside_it`).
+     4. 열린 `Dialog` 안의 두 버튼 사이에서 Tab을 거듭 누르면 포커스가 대화상자 안을 돌아 첫 버튼으로 돌아오고, Shift+Tab도 대화상자 밖으로 나가지 않습니다(`fr71_dialog_tab_and_shift_tab_cycle_inside`). `Sheet`는 `fr21_centered_sheet_focus_trap_and_tab_cycle`이 같은 것을 확인합니다.
+     5. `modal` 비트를 가진 노드 안에서 Tab과 Shift+Tab을 거듭 눌러도 포커스가 그 노드 밖으로 나가지 않습니다(`fr71_tab_does_not_leave_a_node_with_the_modal_bit`).
+     6. `modal` 비트가 와이어로 왕복하고 비트 15가 `ProtocolError`가 됩니다(`fr71_modal_bit_round_trips`, `nfr7_unknown_semantics_bit_is_a_protocol_error`). `Modifier::modal(true)`가 상태 단어에 `1 << 14`를 보냅니다(`fr71_modal_modifier_sends_bit_14`).
+   - 사람 손으로 확인하는 항목: `Dialog`를 연 채 VoiceOver(macOS, iOS), TalkBack, Narrator로 창을 훑어 대화상자 뒤의 노드가 읽히지 않고, 닫은 뒤 다시 읽히는지 확인합니다.
+10. [leader, 2026-11-23] **콤보박스, 목록 상자, 선택지(#942).**
+    - **어휘.** 역할 열거에 `ComboBox`(20), `ListBox`(21), `Option`(22)을 이어 붙입니다. 속성 219 `ActiveDescendant`(정수, 노드 id)는 `ComboBox` 노드에 두고, 그 콤보박스가 여는 `ListBox` 안의 `Option` 노드 가운데 지금 키보드가 가리키는 하나를 가리킵니다(WAI-ARIA `aria-activedescendant`). 속성이 없거나 0이면 가리키는 선택지가 없습니다. 없는 노드의 id는 오류가 아니고 가리키는 선택지가 없는 것으로 읽습니다. 선택지 목록을 다시 그리는 사이에 잠깐 생길 수 있는 일이기 때문입니다. 추가 전용이고 스키마 해시가 움직입니다.
+    - **Host API.** `Modifier::role(Role::ComboBox)`, `Role::ListBox`, `Role::Option`, 그리고 `Modifier::active_descendant(&FocusHandle)`입니다. 선택지 위젯에 `focus_handle`로 묶은 손잡이를 넘기면 그 손잡이가 수정자를 만드는 때에 묶여 있는 노드의 id가 나갑니다. 아직 아무 노드에도 묶이지 않은 손잡이는 아무것도 보내지 않습니다. dioxus-compose처럼 노드 id를 직접 아는 쪽은 `active_descendant` 속성을 정수로 씁니다.
+    - **Renderer, 모든 플랫폼 공통.** Compose의 `Role`에는 세 역할의 대응이 없으므로 1단계의 규칙대로 `stateDescription`에 역할 이름(`combobox`, `listbox`, `option`)을 싣습니다. `ListBox`는 기준 8의 컨테이너 역할입니다(순회 그룹, 자식 수를 담은 컬렉션 정보). Compose 의미 트리에는 `aria-activedescendant`에 해당하는 관계 속성이 없습니다. 그래서 Renderer는 가리키는 선택지의 이름(그 노드의 `AccessibleName`, 없으면 그 노드와 자손의 `Text`)을 콤보박스의 `stateDescription` 끝에 덧붙입니다. TalkBack에는 상태 설명으로, iOS VoiceOver에는 요소의 값으로 갑니다. 관계 자체는 노출되지 않습니다.
+    - **macOS 창.** `ComboBox`는 `ElementRole.COMBO_BOX`(AXComboBox), `ListBox`는 `LIST`, `Option`은 `LIST_ITEM`으로 나갑니다(GraalVM 창과 Kotlin/Native 창의 역할 훅 모두). 창이 역할을 제 말로 하므로 GraalVM 창은 값에서 역할 이름을 빼고, 편집할 수 없는 콤보박스에서는 가리키는 선택지의 이름만 값으로 냅니다. 편집할 수 있는 콤보박스(`TextField`)의 값은 입력한 글자이므로, 이 창에서는 선택지의 이름이 나가지 않습니다. AX의 관계 속성(선택된 자식 등)은 포크 브리지에 없어서 내보내지 않습니다.
+    - **Windows, Linux, 웹.** 각 창의 브리지가 공용 의미 트리에서 읽는 것(역할 이름이 담긴 상태 설명과 그 값)까지입니다. UIA와 AT-SPI의 관계 속성, 웹 DOM 경로의 `role="combobox"`와 `aria-activedescendant`는 없습니다. 웹 DOM 경로는 #871이 추적합니다.
+    - **위젯.** 지금 이 역할과 속성을 스스로 쓰는 위젯은 없습니다. `Dropdown`은 Compose의 `Role.DropdownList`를 그대로 쓰고, 제안 목록을 가진 `TextField`는 없습니다. 이 기준은 어휘와 그 매핑을 정하고, 앱(예: Ember의 모델 선택기)과 dioxus-compose의 `role`, `aria-activedescendant`가 수정자와 속성으로 씁니다.
+    - 수용 기준(자동):
+      1. 세 역할이 20, 21, 22로 왕복하고 스키마가 역할 22개를 나열합니다(`fr71_combobox_listbox_option_roles_round_trip`, `fr71_every_new_role_round_trips_and_is_exposed`).
+      2. `Modifier::active_descendant`가 묶인 손잡이 노드의 id를 `ActiveDescendant`로 보내고, 묶이지 않은 손잡이는 보내지 않습니다(`fr71_active_descendant_sends_the_option_node_id`).
+      3. 세 역할의 노드가 역할 이름을 담은 상태 설명을 갖고, `ListBox`는 자식 수를 담은 컬렉션 정보를 냅니다(`fr71_combobox_listbox_and_option_reach_the_accessibility_node`). macOS 창의 역할 매핑은 `fr71_platform_role_every_role_compose_cannot_name_has_the_platforms_own`이 확인합니다.
+      4. `ActiveDescendant`가 가리키는 선택지의 이름이 콤보박스의 상태 설명 끝에 붙고 편집할 수 없는 콤보박스에서는 GraalVM macOS 창의 값으로 나가며, 선택지가 바뀌면 따라 바뀌고, 없는 id는 아무것도 붙이지 않습니다(`fr71_active_descendant_names_the_active_option`).
+    - 사람 손으로 확인하는 항목: 콤보박스에 포커스를 둔 채 화살표로 가리키는 선택지를 바꾸면 VoiceOver(macOS, iOS), TalkBack, Narrator가 새 선택지의 이름을 읽는지 확인합니다.
 
 ### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 
@@ -5515,6 +5607,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
 9. `tnum 1` 기능을 준 숫자 문자열(`"1111"`, `"0000"`)을 `MeasureRequests::text`로 측정한 폭과 `Text` 노드로 그린 너비가 비트 단위로 같고, `tnum` 유무에 따른 측정 너비의 변화가 렌더러의 실제 그리기 폭 변화와 일치합니다(`fr83_measured_font_features_match_drawn_text`).
 10. `MeasureRequests::text`에 `font_features`가 전달되면 `font_features_offset@72`와 `font_features_count@76`에 인코딩되어 페이로드의 기능 레코드와 왕복합니다(`fr83_measure_record_carries_font_features`).
+- `CodeEditor`도 `FontFeatureSettings`를 받습니다 `[leader, 2026-11-25, 이슈 #1078]`. `NodeTable`의 허용 목록에 `CodeEditor`를 더하고, 편집기 본문의 글자에만 적용합니다(줄 번호 여백은 디자인 시스템의 기능 그대로). 와이어와 레코드는 `Text`와 같습니다. 코딩 글꼴이 기본으로 켜는 합자(`liga`, `calt`)를 끄는 데 씁니다. 수용 기준: `liga 0`, `calt 0`을 받은 `CodeEditor`는 JetBrains Mono에서 `->`를 두 글리프, 두 칸으로 그리고 캐럿이 그 사이에 멈출 수 있습니다. 설정이 없으면 지금과 같습니다(렌더러 테스트 `fr83_code_editor_*`; 글리프는 앱에서 확인합니다).
 
 ### FR-84 레이아웃 제약 수정자: 크기 범위(`sizeIn`)와 종횡비(`aspectRatio`) (`Done`, 이슈 #603)
 
@@ -6562,6 +6655,7 @@ Objective-C 쪽은 Java의 역할(role)을 **클래스 이름 문자열**로 바
   - 단일 창(`runRenderer`)과 다중 창(`MacosWindowBackend`) 모두 런루프 턴(`pumpHost`)을 돌아 포인터·키보드·접근성 사건을 Compose 장면으로 전달하고, 매 프레임 뒤에 `NSAccessibility` 트리(`AppKitAccessibilityTree`, `backdrop.accessibilityChildren`)를 갱신합니다.
   - `Button`과 클릭 가능한 컨테이너(`Row`, `Column`, `Box`, `Surface`, `Card`에 `OnClick`이 붙은 노드, FR-46)가 모두 `AXButton` 역할과 자식 텍스트를 합친 라벨로 노출됩니다.
   - 외부 프로세스(`System Events` / `AXUIElement`)나 프로세스 안 스냅샷(`accessibilitySnapshot`)이 창을 처음 질의할 때부터 트리가 채워져 있어야 하며, `AXPress`(`accessibilityPerformPress`), 값 설정(`setAccessibilityValue`), 포커스 이동(`setAccessibilityFocused`)을 호출하면 `HostEvent`가 전달되고 새 프레임과 갱신된 접근성 트리가 그려집니다.
+  - 요소의 `AXPosition`/`AXFrame`은 그려진 자리와 같은 화면 좌표입니다. 창의 접근성 트리는 위가 원점인 장면 좌표를 창 내용의 화면 사각형 위쪽에서부터 재서 놓습니다(호스트 뷰가 뒤집힌 뷰든 아니든 같음). 주 디스플레이의 위나 아래에 있는 디스플레이의 창도, 1x와 2x에서도 같습니다(#937, 포크 #257, 핀 c7fc0146은 #1085). 시험: 포크 `extended/window/native/macos/test/AccessibilityFrameTest.kt`의 `a_control_at_the_top_of_the_content_ends_at_the_contents_top_edge`, `a_control_at_the_bottom_of_the_content_starts_at_the_contents_bottom_edge`, `a_window_on_a_display_above_or_below_the_primary_one_keeps_its_controls_in_place`, `the_button_in_the_issue_reads_where_it_is_drawn`, `an_unflipped_host_view_still_counts_the_scenes_y_down_from_the_top`, `the_windows_reader_frames_are_where_its_view_draws_them`. 두 번째 디스플레이와 VoiceOver 커서는 사람이 확인합니다(darkpyonix#141).
 - **Linux (`AT-SPI2`)**: 세션 버스에 `org.a11y.atspi.Accessible`, `Component`, `Action`, `Value`, `Text`, `EditableText` 인터페이스로 역할, 라벨, 상태, 동작을 노출합니다.
 - **Windows (`UI Automation`, #419)**: `WM_GETOBJECT` / `IRawElementProviderSimple`에서 역할과 이름뿐 아니라 컨트롤 패턴(`IInvokeProvider`, `IValueProvider`, `IToggleProvider`, `IRangeValueProvider`), 상태, 포커스, 계층(`IRawElementProviderFragment`), 동작 라우팅을 노출해야 합니다(미완료, #419).
 - **iOS (`UIAccessibility`) / Android (`AccessibilityNodeProvider`)**: 각 플랫폼의 Compose UI 기본 접근성 브리지가 semantics 트리를 그대로 노출합니다.

@@ -165,6 +165,14 @@ private fun OpeningList(
 ) {
     var open by remember(node.id) { mutableStateOf(false) }
     val fieldRequester = remember(node.id) { FocusRequester() }
+    // Where the window puts entry menus up as the operating system's, the options go up as
+    // one, the chosen one checked. An option no such menu can show is reported, and the
+    // field then opens nothing rather than a drawn list in its place.
+    val presenter = LocalOsMenuPresenter.current
+    val osOptions = presenter?.let { table.optionEntries(node.id, options, shown) }
+    if (osOptions != null) ReportNotAnEntry(node.id, osOptions, dispatcher)
+    val canOpen = osOptions?.notAnEntry == null
+    val anchor = rememberMenuAnchor(node.id)
     val style = theme.rules.container(role, theme)
     val bare = node.flag(PropertyKind.Bare, default = false)
     val bareInteractions = remember(node.id) { MutableInteractionSource() }
@@ -185,7 +193,7 @@ private fun OpeningList(
     val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape.withCornerCurve(node.modifiers.cornerCurve())
     // The frame is as wide as the node: a field given a width draws its frame across all of
     // it, and its marker sits inside that frame rather than past the end of a shorter one.
-    Box(modifier, propagateMinConstraints = true) {
+    Box(modifier.then(anchor.modifier), propagateMinConstraints = true) {
         Box(
             Modifier
                 // A bare field clips only to a corner the node named itself.
@@ -209,9 +217,9 @@ private fun OpeningList(
                             interactionSource = bareInteractions,
                             indication = null,
                             enabled = enabled,
-                        ) { open = true }
+                        ) { if (canOpen) open = true }
                     } else {
-                        it.clickable(enabled = enabled) { open = true }
+                        it.clickable(enabled = enabled) { if (canOpen) open = true }
                     }
                 }
                 .let {
@@ -245,7 +253,20 @@ private fun OpeningList(
                 style = theme.pickerTextStyle(color = theme.color(ColorRole.OnSurfaceVariant)),
             )
         }
-        if (open) {
+        if (open && presenter != null && osOptions != null) {
+            if (osOptions.notAnEntry == null) {
+                OsEntryMenu(
+                    presenter = presenter,
+                    entries = osOptions.entries,
+                    anchor = anchor,
+                    onChosen = { item ->
+                        open = false
+                        onChoose(item.id)
+                    },
+                    onDismissed = { open = false },
+                )
+            }
+        } else if (open) {
             val popupShape = if (node.setsOwnShape()) {
                 node.containerShape(style, theme)
             } else {

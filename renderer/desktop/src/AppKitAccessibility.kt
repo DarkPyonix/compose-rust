@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import dev.darkpyonix.composerust.protocol.SemanticsRole
+import dev.darkpyonix.composerust.ui.DeclaredActiveOption
 import dev.darkpyonix.composerust.ui.DeclaredExpanded
 import dev.darkpyonix.composerust.ui.DeclaredHasPopup
 import dev.darkpyonix.composerust.ui.DeclaredRole
@@ -69,6 +70,9 @@ internal fun SemanticsRole.elementRole(): Int? = when (this) {
     SemanticsRole.List -> ElementRole.LIST
     SemanticsRole.ListItem -> ElementRole.LIST_ITEM
     SemanticsRole.Group -> ElementRole.GROUP
+    SemanticsRole.ComboBox -> ElementRole.COMBO_BOX
+    SemanticsRole.ListBox -> ElementRole.LIST
+    SemanticsRole.Option -> ElementRole.LIST_ITEM
     else -> null
 }
 
@@ -117,6 +121,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     val declaredRole = config.getOrNull(DeclaredRole)
     val declaredExpanded = config.getOrNull(DeclaredExpanded)
     val declaredHasPopup = config.getOrNull(DeclaredHasPopup) == true
+    val declaredActiveOption = config.getOrNull(DeclaredActiveOption)
     // A role the Host declared is what the node is, even with nothing to read out: an empty
     // menu is still a menu, and a reader moving through the window has to be told so.
     val platformRole = declaredRole?.elementRole()
@@ -177,15 +182,18 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
 
     // The state description of a declared node says its role and whether it is open, for
     // readers that have no other way to hear them. This window says both in the platform's
-    // own words, so the text is left out rather than heard twice.
+    // own words, so the text is left out rather than heard twice. What is left of it for a
+    // combobox is the option it points at, which becomes its value.
     val stateDescription = config.getOrNull(SemanticsProperties.StateDescription)
-        ?.takeUnless { it == declaredStateDescription(declaredRole, declaredExpanded, declaredHasPopup) }
+        ?.takeUnless {
+            it == declaredStateDescription(declaredRole, declaredExpanded, declaredHasPopup, declaredActiveOption)
+        }
     val value = when {
         // A password is announced by its length, never its letters.
         editable != null && password -> "\u2022".repeat(editable.text.length)
         editable != null -> editable.text
         range != null -> stateDescription ?: range.current.toString()
-        else -> stateDescription
+        else -> stateDescription ?: declaredActiveOption
     }
     val bounds = boundsInRoot
     return AccessibleElement(
