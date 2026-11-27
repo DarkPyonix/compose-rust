@@ -35,7 +35,7 @@ case "$branch" in
         ;;
 esac
 
-required=(AGENTS.md CLAUDE.md PROJECT.md docs/INTENT.md docs/SPEC.md)
+required=(AGENTS.md PROJECT.md docs/INTENT.md docs/SPEC.md)
 missing=()
 for doc in "${required[@]}"; do
     [[ -s "$doc" ]] || missing+=("$doc")
@@ -50,8 +50,8 @@ This usually means a branch cut from main or release was merged into develop, wh
 replays the deletion sync-release.sh made. Restore them from the last commit that had
 them, and rebase the offending work onto develop instead of merging it:
 
-  git log --diff-filter=D --oneline -- AGENTS.md CLAUDE.md
-  git checkout <commit-before-that> -- AGENTS.md CLAUDE.md PROJECT.md docs/INTENT.md docs/SPEC.md
+  git log --diff-filter=D --oneline -- AGENTS.md
+  git checkout <commit-before-that> -- AGENTS.md PROJECT.md docs/INTENT.md docs/SPEC.md
 HINT
     exit 1
 fi

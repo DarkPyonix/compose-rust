@@ -172,7 +172,7 @@ none of it.
    - folders: `.github/`, `compose-rust/`, `docs/`, `experiments/`,
      `renderer/`, `samples/`, `scripts/`;
    - files: `.gitignore`, `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, `LICENSE`,
-     `README.md`, `AGENTS.md`, `CLAUDE.md`, `PROJECT.md`;
+     `README.md`, `AGENTS.md`, `PROJECT.md`;
    - temporary, each with the date it leaves:
    `adapters/` and `bench/dioxus-baseline/` moved to dioxus-compose on 2026-10-04 (#37
    step 4); `design-systems/` moved to compose-multiplatform-core-extended (#39).
