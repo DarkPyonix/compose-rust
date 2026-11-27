@@ -13,6 +13,7 @@ import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.foundation.SHEET_DETENT_MASK
+import dev.darkpyonix.composerust.foundation.backdropIsDrawable
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.FormatOp
@@ -1464,6 +1465,15 @@ class NodeTable {
                     "does not know: 0x${unknown.toString(16)}",
             )
             return
+        }
+        if (modifier is ProtocolModifier.Backdrop && !backdropIsDrawable(modifier.blurDp, modifier.saturation)) {
+            // Reported and kept: the node still has a surface, and what it is drawn with is
+            // the one part of the modifier that can be honoured, its tint.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "Backdrop modifier on node ${mutation.nodeId} blurs by ${modifier.blurDp} dp at saturation " +
+                    "${modifier.saturation}; both must be numbers of zero or more, so the node is painted with its tint",
+            )
         }
         while (node.modifiers.size <= mutation.index) {
             node.modifiers.add(ProtocolModifier.Empty)

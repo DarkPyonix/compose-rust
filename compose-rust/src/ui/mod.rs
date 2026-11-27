@@ -613,6 +613,7 @@ pub struct Modifier {
     press_feedback: Option<(f32, f32)>,
     hover_style: Option<HoverStyle>,
     focus_ring: Option<(Paint, f32, f32)>,
+    backdrop: Option<(f32, f32, Paint)>,
     press_style: Option<PressStyle>,
     semantics_role: Option<SemanticsRole>,
     semantics_label: Option<Arc<str>>,
@@ -671,6 +672,7 @@ impl Modifier {
             press_feedback: None,
             hover_style: None,
             focus_ring: None,
+            backdrop: None,
             press_style: None,
             semantics_role: None,
             semantics_label: None,
@@ -1060,6 +1062,22 @@ impl Modifier {
     /// What this node's surface is made of. The effect is the design system's.
     pub const fn material(mut self, role: MaterialRole) -> Self {
         self.material = Some(role);
+        self
+    }
+
+    /// Blurs what the application drew behind this node, inside the node's outline: by
+    /// `blur_dp`, with its saturation multiplied by `saturation` (1 leaves it as it is),
+    /// and `tint` laid over it. The same values draw the same on every design system,
+    /// which is what `material` does not promise: use this for a bar, a popover or a sheet
+    /// that has to look like glass everywhere.
+    ///
+    /// Only what this application drew is blurred, never the desktop behind the window.
+    /// Where the Renderer cannot blur, or the reader asked for reduced transparency, the
+    /// node is painted with `tint` at full opacity, so choose a `tint` the content reads
+    /// on. A colour role is the theme's and keeps its contrast. On a node that also has a
+    /// `material`, this is what is drawn.
+    pub fn backdrop(mut self, blur_dp: f32, saturation: f32, tint: impl Into<Paint>) -> Self {
+        self.backdrop = Some((blur_dp, saturation, tint.into()));
         self
     }
 
@@ -1538,6 +1556,21 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                 bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
                 bytes.extend_from_slice(&width.to_le_bytes());
                 bytes.extend_from_slice(&offset.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    // The blur and the saturation, then the tint. Written whenever it is set, because the
+    // wire carries every Modifier slot on every node.
+    push(
+        false,
+        "backdrop",
+        modifier
+            .backdrop
+            .map_or(OwnedAttr::None, |(blur, saturation, tint)| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&blur.to_le_bytes());
+                bytes.extend_from_slice(&saturation.to_le_bytes());
+                bytes.extend_from_slice(&tint.to_bits().to_le_bytes());
                 OwnedAttr::Bytes(bytes)
             }),
     );
