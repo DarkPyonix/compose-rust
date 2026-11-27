@@ -240,6 +240,17 @@ pub enum EventPayloadType {
     /// kind of handle as a `u16`, a reserved `u16`, and the window's backing scale as an
     /// `f32`. A fixed 32-byte record.
     NativeViewParent,
+    /// The formatting at a rich text field's selection: a word of two-bit style states, the
+    /// paragraph role, list kind, indent and quote as halves, and the shared colour as a
+    /// `u64` paint. A fixed 36-byte record.
+    TextFormat,
+    /// A rich text field's document: the text, then the character run and paragraph
+    /// records, each a reference behind the record. A fixed 40-byte record and its three
+    /// arrays.
+    RichText,
+    /// One `u32`: the id of a font the Renderer needs and has not been sent, which the Host
+    /// set aside with `lazy_asset`. A fixed 20-byte record.
+    AssetWanted,
     /// One `u32`: where a request to go back came from, a `BackSource` tag. A fixed
     /// 20-byte record.
     Back,
@@ -256,13 +267,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,sheet_handle,read_only,native_visible,on_native_view_focus,on_back_requested,sheet_detents,sheet_drag_to_dismiss;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle,Backdrop;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,thumb_elevation,track_border,sheet_handle,read_only,native_visible,on_native_view_focus,indeterminate,outline_color,rich_text,on_text_format,on_rich_text_changed,fold_column_width_dp,insert_spaces,on_back_requested,sheet_detents,sheet_drag_to_dismiss;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth,BorderDash,HoverStyle,FocusRing,PressStyle,WeightUnfilled,Backdrop;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged,BackRequested;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged,TextFormatAtSelection,RichTextChanged,AssetWanted,BackRequested;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,AttachNativeView,FocusNativeView,QueryPositionRect,InsertSnippet,SetSelections;",
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,AttachNativeView,FocusNativeView,QueryPositionRect,InsertSnippet,SetSelections,FormatText,SetRichText;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
     "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius,toast_container_light,toast_container_dark,toast_content_light,toast_content_dark,toast_border_width,toast_padding_horizontal,toast_padding_vertical,toast_font_size,toast_line_height;",
@@ -446,8 +457,10 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeSelections => 40,
                 EventPayloadType::Density => 41,
                 EventPayloadType::NativeViewParent => 42,
-                // 43 and 44 are held by payload types on another branch.
+                EventPayloadType::TextFormat => 43,
+                EventPayloadType::RichText => 44,
                 EventPayloadType::Back => 45,
+                EventPayloadType::AssetWanted => 46,
             }],
         );
         index += 1;
@@ -459,6 +472,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
     hash = hash_bytes(hash, &SEMANTICS_STATE_MASK.to_le_bytes());
+    hash = hash_bytes(hash, &SEMANTICS_CHECKED_MIXED.to_le_bytes());
     hash
 }
 
@@ -1064,6 +1078,11 @@ define_wire_enum!(BUTTON_VARIANT_SCHEMA, ButtonVariant {
     Outlined = 3,
     Text = 4,
     Operator = 5,
+    // Filled buttons that carry no accent anywhere: a neutral fill with body ink, and a
+    // second neutral step that stands apart from it beside it. Which one is lighter is the
+    // design system's answer.
+    Neutral = 6,
+    NeutralSecondary = 7,
 });
 
 // What a button is, independently from the visual emphasis its variant carries.
@@ -1341,12 +1360,15 @@ define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
 // its `color` property, its first `Background`, its first `Transform`, and the colour of
 // every side of its first `Border` or `BorderEach`. A container's `color` is the colour
 // the text inside it inherits, so one animation on it recolours all of that text.
+// `Transform3D` is the 4x4 matrix of the node's first `Transform3D`: a 3D transform
+// arrives folded into one matrix, so it is animated as a matrix rather than a list.
 define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
     Alpha = 1,
     Color = 2,
     Background = 3,
     Transform = 4,
     BorderColor = 5,
+    Transform3D = 6,
 });
 
 define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
@@ -1379,6 +1401,7 @@ define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
     Linear = 1,
     CubicBezier = 2,
     Steps = 3,
+    Spring = 4,
 });
 
 define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
@@ -1505,6 +1528,41 @@ define_wire_enum!(USER_SELECT_SCHEMA, UserSelect {
     None = 1,
     Text = 2,
     All = 3,
+});
+
+// What a `FormatText` command does. The first four turn a character style on or off over the
+// selection, `Color` sets the text colour, the next two set what a paragraph is, and the
+// last three move or mark whole paragraphs. A value that is not here is a protocol error.
+define_wire_enum!(FORMAT_OP_SCHEMA, FormatOp {
+    Bold = 1,
+    Italic = 2,
+    Underline = 3,
+    Strikethrough = 4,
+    Color = 5,
+    Paragraph = 6,
+    List = 7,
+    Indent = 8,
+    Outdent = 9,
+    Quote = 10,
+});
+
+// What a paragraph of a rich text field is, by role rather than by size: the design system
+// decides how each is drawn.
+define_wire_enum!(PARAGRAPH_ROLE_SCHEMA, ParagraphRole {
+    Body = 1,
+    Title = 2,
+    Heading = 3,
+    Subheading = 4,
+    Monostyled = 5,
+});
+
+// The list a paragraph belongs to. `None` is 0 so a paragraph that is not in a list is the
+// zero of its field.
+define_wire_enum!(LIST_KIND_SCHEMA, ListKind {
+    None = 0,
+    Bulleted = 1,
+    Dashed = 2,
+    Numbered = 3,
 });
 
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
@@ -1716,6 +1774,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "UserSelect",
         variants: USER_SELECT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FormatOp",
+        variants: FORMAT_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ParagraphRole",
+        variants: PARAGRAPH_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ListKind",
+        variants: LIST_KIND_SCHEMA,
     },
     RoleEnumSchema {
         name: "WindowMode",
@@ -2767,7 +2837,8 @@ pub enum Modifier {
     },
     /// What this node is to assistive technology: its role, and whether it is checked or
     /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
-    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
+    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on; the
+    /// checked field also takes 3, `SEMANTICS_CHECKED_MIXED`, for a mixed node. The
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
@@ -2878,6 +2949,9 @@ pub enum Modifier {
         tint: Option<Paint>,
         press_easing: Option<[f32; 4]>,
     },
+    /// Compose `Modifier.weight(w, fill = false)`: takes up to its weighted share of the
+    /// parent's remaining main-axis space, without forcing a shorter child to expand.
+    WeightUnfilled(f32),
     /// Blurs what the application drew behind this node, inside the node's outline, by
     /// `blur_dp`, multiplies its saturation by `saturation` (1 leaves it as it is) and lays
     /// `tint` over it. The values are the application's and are the same on every design
@@ -2917,6 +2991,10 @@ pub const SEMANTICS_DISABLED_SHIFT: u32 = 6;
 /// Where the focused field sits in `Modifier::Semantics::state`: 0 unset, 1 not focused,
 /// 2 focused.
 pub const SEMANTICS_FOCUSED_SHIFT: u32 = 8;
+/// The value of the checked field that says the node is mixed, neither checked nor
+/// unchecked: a box that stands for a set of which only some are checked. The two-bit field
+/// is otherwise 0 unset, 1 off and 2 on, so this takes the one value that was left.
+pub const SEMANTICS_CHECKED_MIXED: u32 = 3;
 /// The bit that excludes the node from the accessibility tree.
 pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
 /// The bit that exposes a click action on the node.
@@ -3001,6 +3079,15 @@ pub enum Timing {
         count: u32,
         position: StepPosition,
     },
+    /// Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and
+    /// settles at 1. The segment's progress `u` is the time `u * T`, where `T` is how long
+    /// the spring takes to come within 0.001 of 1 and stay there, so the curve ends at
+    /// exactly 1. Below a damping ratio of 1 it overshoots. Both numbers are finite and
+    /// positive.
+    Spring {
+        stiffness: f32,
+        damping_ratio: f32,
+    },
 }
 
 /// One CSS transform function: its kind and up to six values, the unused ones zero.
@@ -3059,6 +3146,9 @@ pub enum KeyframeValue {
     Paint(Paint),
     /// A list of functions, the same kinds in the same order in every keyframe.
     Transform(std::borrow::Cow<'static, [TransformFunction]>),
+    /// For `Transform3D`: a 4x4 matrix, column-major like `Modifier::Transform3D`'s `m`
+    /// (`m[4 * column + row]`).
+    Matrix3D([f32; 16]),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3989,8 +4079,13 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         extra_words: 1,
         fields: PRESS_STYLE_FIELDS,
     },
-    // The blur and the saturation share the first word and the tint is the second. 46 is
-    // held by a modifier on another branch.
+    VariantSchema {
+        name: "WeightUnfilled",
+        tag: 48,
+        extra_words: 0,
+        fields: VALUE_FLOAT_FIELD,
+    },
+    // The blur and the saturation share the first word and the tint is the second.
     VariantSchema {
         name: "Backdrop",
         tag: 47,
@@ -4414,9 +4509,17 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // gutter, so the text starts at the same place whether or not the file has folds or
     // changes. A boolean, absent is no.
     FixedGutterColumns = 211,
+    // How high a `Switch` lifts its thumb, an f32 in dp: a soft shadow under the thumb
+    // that travels with it, cut to the track. Absent is the design system's, which is no
+    // shadow in every system today; 0 is no shadow.
+    ThumbElevation = 212,
+    // A line around a `Switch`'s track in both states, as a blob of 12 bytes: the width as
+    // an f32 in dp, then the `Paint` bits as a u64, both little-endian. The fields are the
+    // `Border` modifier's, in its order. Absent is the design system's border; a width of 0
+    // is none.
+    TrackBorder = 213,
     // Whether a bottom `Sheet` draws its drag handle, a boolean. Absent is yes. Without it
-    // the sheet still drags the same way. 212 and 213 are held by properties on other
-    // branches.
+    // the sheet still drags the same way.
     SheetHandle = 214,
     // When true on a TextField, the field stays focusable and selectable (including copy)
     // while rejecting edits and announcing itself as read-only.
@@ -4428,10 +4531,31 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     NativeVisible = 190,
     // The handler that hears the platform view take and lose keyboard focus.
     OnNativeViewFocus = 191,
+    // Whether a Checkbox is in the mixed state, a boolean sent only when true. It wins over
+    // `Checked`: the box is drawn filled with a dash instead of a check, assistive
+    // technology hears it as mixed, and a press asks for checked.
+    Indeterminate = 216,
+    // The colour of a Checkbox's border as `Paint` bits, in every state alike. Absent is the
+    // design system's border.
+    OutlineColor = 217,
+    // When true on a TextField, the Renderer keeps character and paragraph formatting for the
+    // field's text, takes `FormatText` and `SetRichText`, and reports the formatting at the
+    // selection and the document. Absent is a plain field with no formatting bookkeeping.
+    RichText = 220,
+    // The handler that hears the formatting at a rich text field's selection.
+    OnTextFormat = 221,
+    // The handler that hears a rich text field's document: text, character runs, paragraphs.
+    OnRichTextChanged = 222,
+    // The width in dp of a code editor's fold column when folds (or fixed gutter columns) are
+    // shown, an f32. Absent leaves the column one row wide (`rowPx`).
+    FoldColumnWidthDp = 226,
+    // Whether pressing Tab in a code editor inserts spaces to the next tab stop (true, the
+    // default when absent) or a literal tab character (false). A boolean.
+    InsertSpaces = 227,
     // The handler that hears a request to go back that no open overlay and no focused
     // control took: Android's back, Escape, a mouse's back button or an iOS edge swipe.
-    // On a layout container or a `Window`. 216 to 222 are held by properties on other
-    // branches.
+    // On a layout container or a `Window`. 218 and 219 are held by properties on another
+    // branch.
     OnBackRequested = 223,
     // The heights a bottom `Sheet` may rest at, as the bits of a `SheetDetents`: 1 is
     // medium, half the window, and 2 is large, nearly all of it. Absent or 0 is the one
@@ -4622,6 +4746,14 @@ pub enum EventPayload<'a> {
     /// `ZoomChanged` reports on its own.
     DensityChanged {
         scale: f32,
+    },
+    /// The Renderer needs the bytes of a font it was named by id and never sent: text
+    /// reached a lazy candidate of a font list or a font stack with a letter no font before
+    /// it has. Sent once per id, and again after a `ReleaseAsset` of it. Delivered to the
+    /// Host itself, with no node and no handler, which answers with the `RegisterAsset` the
+    /// application set aside with `lazy_asset`.
+    AssetWanted {
+        asset_id: u32,
     },
     /// The selection of a code editor moved, or an edit moved it. `version` is the document
     /// version it is read against, the same series `CodeChanged` counts, and an edit's
@@ -4850,6 +4982,17 @@ pub enum EventPayload<'a> {
     SelectionsChanged {
         version: u32,
         selections: &'a [u8],
+    },
+    /// The formatting at a rich text field's selection, sent when the selection or its
+    /// formatting changes, at most once a frame.
+    TextFormatAtSelection(crate::rich_text::TextFormat),
+    /// A rich text field's document, debounced as `TextChanged` is. `characters` and
+    /// `paragraphs` are the 24-byte and 16-byte records of [`crate::rich_text`], which
+    /// [`crate::rich_text::RichDocument::from_payload`] reads and checks.
+    RichTextChanged {
+        text: &'a str,
+        characters: &'a [u8],
+        paragraphs: &'a [u8],
     },
     /// What became of one `EditCodeGroup`, sent exactly once for each. `current_version`
     /// is the version after the last change the group made where it went in, and the
@@ -5373,8 +5516,25 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 53,
         payload: EventPayloadType::Density,
     },
-    // A request to go back that reached the application. 68 and 69 are held by events on
-    // another branch.
+    // The formatting at the selection of a rich text field, to its format listener.
+    EventSchema {
+        name: "TextFormatAtSelection",
+        tag: 68,
+        payload: EventPayloadType::TextFormat,
+    },
+    // A rich text field's document, to its document listener.
+    EventSchema {
+        name: "RichTextChanged",
+        tag: 69,
+        payload: EventPayloadType::RichText,
+    },
+    // A font the Renderer needs the bytes of, addressed to the Host.
+    EventSchema {
+        name: "AssetWanted",
+        tag: 71,
+        payload: EventPayloadType::AssetWanted,
+    },
+    // A request to go back that reached the application.
     EventSchema {
         name: "BackRequested",
         tag: 70,

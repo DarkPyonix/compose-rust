@@ -9,7 +9,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
@@ -32,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -124,6 +128,12 @@ fun interface EventDispatcher {
  * intermediate states of a batch are never drawn.
  */
 class ComposeRustHost(private val connection: HostConnection) : EventDispatcher {
+    /**
+     * The windows that can serve the clipboard and file operations, oldest first. The last one
+     * serves (ComposeRustTree); every window of a multi-window application is one.
+     */
+    internal val clipboardServers = ArrayList<ClipboardServer>()
+
     val table: NodeTable = NodeTable()
 
     val roots: List<Int> get() = table.roots
@@ -204,6 +214,13 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.clipboardReads.drain()
         table.fileCalls.drain()
         table.storage.drain()
+        // Fonts the last frame found letters for and has no bytes of. Asked here and not
+        // where the letter was found, inside a composition or a measure call, because the
+        // Host answers each with a batch that registers the font. The text set in it is
+        // composed again when it arrives.
+        table.assets.drainWanted { assetId ->
+            dispatch(HostEvent.AssetWanted(nodeId = 0, handlerId = 0, assetId = assetId))
+        }
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -535,42 +552,60 @@ private fun ComposeRustTree(
     SideEffect { host.table.fileCalls.wake = frames::request }
     // A storage answer from the browser is delivered at the top of the frame it asks for.
     SideEffect { host.table.storage.wake = frames::request }
+    // A font the Host has not sent is asked for at the top of the frame after the one that
+    // found a letter for it.
+    SideEffect { host.table.assets.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
-    // shares it, so the root window's is enough.
+    // shares the system's clipboard, so one window serves it: the one that opened last, and
+    // when it goes, the one before it. A window of several draws its own node
+    // (windowNodeId != 0) and serves like the one window of a single window application.
     @Suppress("DEPRECATION")
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     // The suspending clipboard, which is the only one a browser can read, and the scope its
     // reads run in: the composition's own, so they run on the UI thread.
     val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
     val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
-    if (windowNodeId == 0) {
-        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
-        DisposableEffect(host) { onDispose { host.table.fileCalls.detach() } }
-        SideEffect {
-            host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+    val clipboardServer = remember(host) { ClipboardServer() }
+    clipboardServer.install = {
+        host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+            @Suppress("DEPRECATION")
+            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+        }
+        host.table.clipboardReads.launcher = { read ->
+            clipboardScope.launch(block = { read() })
+        }
+        // File operations suspend on the same scope, on the UI thread.
+        host.table.fileCalls.launcher = { operation ->
+            clipboardScope.launch(block = { operation() })
+        }
+        host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+            // A platform with a suspending read uses it. Elsewhere the clipboard manager
+            // answers at once, which every other target supports.
+            val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+            if (platformRead != null) {
+                platformRead(composeClipboard)
+            } else {
                 @Suppress("DEPRECATION")
-                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
-            }
-            host.table.clipboardReads.launcher = { read ->
-                clipboardScope.launch(block = { read() })
-            }
-            // File operations suspend on the same scope, on the UI thread.
-            host.table.fileCalls.launcher = { operation ->
-                clipboardScope.launch(block = { operation() })
-            }
-            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
-                // A platform with a suspending read uses it. Elsewhere the clipboard manager
-                // answers at once, which every other target supports.
-                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
-                if (platformRead != null) {
-                    platformRead(composeClipboard)
-                } else {
-                    @Suppress("DEPRECATION")
-                    clipboardManager.getText()?.text
-                }
+                clipboardManager.getText()?.text
             }
         }
     }
+    DisposableEffect(host, clipboardServer) {
+        host.clipboardServers += clipboardServer
+        clipboardServer.install()
+        onDispose {
+            val serving = host.clipboardServers.lastOrNull() === clipboardServer
+            host.clipboardServers -= clipboardServer
+            if (serving) {
+                // What this window's scope was running never finishes: answered now, once.
+                host.table.clipboardReads.detach()
+                host.table.fileCalls.detach()
+                host.clipboardServers.lastOrNull()?.install?.invoke()
+            }
+        }
+    }
+    // A recomposition hands the serving window's newest clipboard and scope over.
+    SideEffect { if (host.clipboardServers.lastOrNull() === clipboardServer) clipboardServer.install() }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
@@ -615,17 +650,27 @@ private fun ComposeRustTree(
     // the layout callback below, which runs after that composition's effects.
     val reportInputs = remember(host, windowNodeId) { WindowReportInputs() }
     val measured = Modifier.onSizeChanged { size ->
+        with(density) { sizeClass = windowSizeClassOf(size.width.toDp().value) }
+        measuredSize = size
+    }.onGloballyPositioned { coordinates ->
+        // The Host is told in the frame that measured the window, as it is told an
+        // observed node's size. Waiting for the recomposition the write above schedules
+        // means waiting for a second frame, and a window that draws only when asked
+        // (macOS) can go a long time without one while the Host lays its page out for
+        // a 0x0, compact window. The reporter drops a repeat, so the effect below,
+        // which still reports a change of the safe area, sends nothing twice, and a
+        // window that only moved says nothing.
+        //
+        // From here and not from onSizeChanged, which runs inside the measure pass. The
+        // Host answers a size by laying its page out again before the call returns, and
+        // asks this side to measure the nodes on that page. Measuring a node is a layout
+        // of its own, and Compose refuses to start one while another is running
+        // ("performMeasureAndLayout called during measure layout"), so every such node
+        // came back unmeasured on every resize. This callback runs once the pass that
+        // measured the window is over, before the frame is drawn.
+        val size = coordinates.size
         with(density) {
-            val widthDp = size.width.toDp().value
-            sizeClass = windowSizeClassOf(widthDp)
-            measuredSize = size
-            // The Host is told from the layout that measured the window, as it is told an
-            // observed node's size. Waiting for the recomposition the write above schedules
-            // means waiting for a second frame, and a window that draws only when asked
-            // (macOS) can go a long time without one while the Host lays its page out for
-            // a 0x0, compact window. The reporter drops a repeat, so the effect below,
-            // which still reports a change of the safe area, sends nothing twice.
-            reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
+            reporter.report(size.width.toDp().value, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
     // Whether anything in the tree asked to be made of a material when the window opened.
@@ -905,7 +950,13 @@ private fun ComposeRustTree(
         // than as content extending underneath one.
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
-        SideEffect { platformWindowMaterial(asked) }
+        val drawnMenuPresenter =
+            dev.darkpyonix.composerust.foundation.LocalOsMenuPresenter.current as?
+                dev.darkpyonix.composerust.foundation.DrawnOsMenuPresenter
+        SideEffect {
+            platformWindowMaterial(asked)
+            drawnMenuPresenter?.theme = theme
+        }
         // The platform's back closes the topmost overlay, as Escape does. With none open it
         // goes to the nodes that asked to hear it, and where none of them consumed it, on to
         // the platform. A window with no overlay open and no such node does not claim back
@@ -1367,12 +1418,14 @@ private const val BAR_SEARCH_DEPTH = 4
  * setting directly assigns to this at startup instead; a platform that cannot leaves the
  * reader with a way to say so, which is better than no way at all.
  */
-var reduceTransparency: Boolean = run {
-    val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
-        ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
-        ?: return@run false
-    !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
-}
+var reduceTransparency: Boolean by mutableStateOf(
+    run {
+        val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
+            ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
+            ?: return@run false
+        !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
+    },
+)
 
 /**
  * The strips of the window the system draws its own things in.
@@ -1441,4 +1494,9 @@ internal fun pageInsets(
  */
 var platformKeyboardInset: @Composable () -> Dp = {
     with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
+}
+
+/** One window's way of serving the clipboard and file operations: [install] wires them to it. */
+internal class ClipboardServer {
+    var install: () -> Unit = {}
 }

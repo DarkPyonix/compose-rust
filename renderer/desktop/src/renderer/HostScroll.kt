@@ -175,6 +175,20 @@ internal class ScrollPort(val nodeId: Int) {
 
     val hasRequests: Boolean get() = queue.isNotEmpty()
 
+    /**
+     * Set by a container that also reports its offset down the page in an event of its own
+     * (a code editor's `CodeScrolled`): whether that event has yet to say the offset given,
+     * or null while nobody listens for it. While it has not, the scroll report waits and
+     * leaves with that event, so the Host hears one place from both in the same frame.
+     */
+    var companionOwes: ((Int) -> Boolean?)? = null
+
+    /** True once a report has waited for the companion event. It waits for one frame. */
+    var waited = false
+
+    /** Counts up when a frame leaves this container's report to its composition. */
+    var lateRevision by mutableIntStateOf(0)
+
     fun request(request: ScrollRequest) {
         queue += request
         requestRevision++
@@ -207,6 +221,16 @@ internal class ScrollReports {
 
     private val pending = LinkedHashSet<ScrollPort>()
 
+    /**
+     * The containers the running [flush] has still to report. A report's answer can remove a
+     * container that comes later in the same flush, and one that is gone must not be
+     * reported: its handler is already forgotten by the Host, which refuses the event.
+     */
+    private val flushing = LinkedHashSet<ScrollPort>()
+
+    /** Where the last [flush] sent its reports, for the ones a composition sends after it. */
+    private var dispatch: ((HostEvent) -> Unit)? = null
+
     val hasPending: Boolean get() = pending.isNotEmpty()
 
     fun changed(port: ScrollPort) {
@@ -217,6 +241,7 @@ internal class ScrollReports {
 
     fun forget(port: ScrollPort) {
         pending.remove(port)
+        flushing.remove(port)
     }
 
     fun clear() {
@@ -225,42 +250,111 @@ internal class ScrollReports {
 
     /** Sends one report for every container that moved since the last frame. */
     fun flush(dispatch: (HostEvent) -> Unit) {
+        this.dispatch = dispatch
         if (pending.isEmpty()) return
         val ports = pending.toList()
         pending.clear()
+        flushing.addAll(ports)
+        try {
+            flushEach(ports, dispatch)
+        } finally {
+            flushing.clear()
+        }
+    }
+
+    private fun flushEach(ports: List<ScrollPort>, dispatch: (HostEvent) -> Unit) {
         for (port in ports) {
+            // Removed by the answer to a report sent earlier in this flush.
+            if (!flushing.remove(port)) continue
             val handler = port.handlerId ?: continue
             // A request still on its way in: the report waits for what it does, and the
             // container says so again once it has acted.
             if (port.busy) continue
             val sample = port.sampler?.invoke() ?: continue
-            val before = port.sent
-            val moved = before == null || !sample.samePlace(before)
-            // A place is reported when it changes. Coming to rest is reported once, with
-            // the last place, unless the last report already said so.
-            if (!moved && (sample.moving || port.sentSettled)) continue
-            val settled = !sample.moving
-            port.sent = sample
-            port.sentSettled = settled
-            var flags = 0
-            if (settled) flags = flags or ScrollWire.CHANGED_SETTLED
-            if (sample.canScrollBackward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD
-            if (sample.canScrollForward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_FORWARD
-            dispatch(
-                HostEvent.ScrollChanged(
-                    nodeId = port.nodeId,
-                    handlerId = handler,
-                    item = sample.item,
-                    flags = flags,
-                    xPx = sample.x.toDouble(),
-                    yPx = sample.y.toDouble(),
-                    maxXPx = sample.maxX.toDouble(),
-                    maxYPx = sample.maxY.toDouble(),
-                    viewportWidthPx = sample.viewportWidth.toDouble(),
-                    viewportHeightPx = sample.viewportHeight.toDouble(),
-                ),
-            )
+            // A container whose own event is listened to can still move in this frame,
+            // after this point, and say so in that event. A report sent now would then be
+            // one of two in the frame, naming a place the event does not. So the report is
+            // left to the frame's composition, which is where that event is sent from.
+            if (port.companionOwes?.invoke(sample.y) != null) {
+                port.lateRevision++
+                continue
+            }
+            report(port, handler, sample)?.let(dispatch)
         }
+    }
+
+    /**
+     * Sends the report [flush] left to the composition, unless the container's own event
+     * has yet to say where it is: then the report leaves with that event, in [paired]. A
+     * frame in which the event never came ends the wait, so no place goes unreported.
+     */
+    fun late(port: ScrollPort) {
+        val handler = port.handlerId ?: return
+        if (port.busy) return
+        val sample = port.sampler?.invoke() ?: return
+        if (port.companionOwes?.invoke(sample.y) == true && !port.waited) {
+            port.waited = true
+            changed(port)
+            return
+        }
+        port.waited = false
+        report(port, handler, sample)?.let { dispatch?.invoke(it) }
+    }
+
+    /**
+     * [events] with a container's scroll report put straight after each `CodeScrolled` in
+     * them, where the node has a scroll handler and the report has something new to say.
+     *
+     * An editor says its offset in `CodeScrolled` when it has laid the frame out, which is
+     * later in a frame than [flush] runs. Sent on its own schedule, the scroll report for
+     * the same move could reach the Host a frame after it, or in the same frame with the
+     * place of the frame before. Sent here, both leave together and name one place. A
+     * request still being applied does not hold this report back: the offset has already
+     * been said by the event beside it.
+     */
+    fun paired(port: ScrollPort?, events: List<HostEvent>): List<HostEvent> {
+        val handler = port?.handlerId ?: return events
+        if (events.none { it is HostEvent.CodeScrolled }) return events
+        val paired = ArrayList<HostEvent>(events.size + 1)
+        for (event in events) {
+            paired += event
+            if (event !is HostEvent.CodeScrolled) continue
+            val sample = port.sampler?.invoke() ?: continue
+            // The view has moved on since the editor read this offset. The event for where
+            // it is now follows, and the report goes with that one.
+            if (sample.y.toDouble() != event.value) continue
+            port.waited = false
+            report(port, handler, sample)?.let { paired += it }
+        }
+        return paired
+    }
+
+    /** The report for [sample], or null where the Host has already been told all of it. */
+    private fun report(port: ScrollPort, handler: Long, sample: ScrollSample): HostEvent.ScrollChanged? {
+        val before = port.sent
+        val moved = before == null || !sample.samePlace(before)
+        // A place is reported when it changes. Coming to rest is reported once, with
+        // the last place, unless the last report already said so.
+        if (!moved && (sample.moving || port.sentSettled)) return null
+        val settled = !sample.moving
+        port.sent = sample
+        port.sentSettled = settled
+        var flags = 0
+        if (settled) flags = flags or ScrollWire.CHANGED_SETTLED
+        if (sample.canScrollBackward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD
+        if (sample.canScrollForward) flags = flags or ScrollWire.CHANGED_CAN_SCROLL_FORWARD
+        return HostEvent.ScrollChanged(
+            nodeId = port.nodeId,
+            handlerId = handler,
+            item = sample.item,
+            flags = flags,
+            xPx = sample.x.toDouble(),
+            yPx = sample.y.toDouble(),
+            maxXPx = sample.maxX.toDouble(),
+            maxYPx = sample.maxY.toDouble(),
+            viewportWidthPx = sample.viewportWidth.toDouble(),
+            viewportHeightPx = sample.viewportHeight.toDouble(),
+        )
     }
 }
 
@@ -292,6 +386,8 @@ internal abstract class ScrollSurface {
 /** One axis of a container that scrolls by an offset. */
 internal class ScrollAxis(
     val state: ScrollableState,
+    /** True where [state] takes the pointer's travel, so a delta above zero scrolls back. */
+    val reversed: Boolean = false,
     val value: () -> Int,
     val max: () -> Int,
     val viewport: () -> Int,
@@ -383,7 +479,8 @@ internal class OffsetScrollSurface(
             launch {
                 unlessRefused {
                     if (animate) {
-                        axis.state.animateScrollBy((target - axis.value()).toFloat())
+                        val by = (target - axis.value()).toFloat()
+                        axis.state.animateScrollBy(if (axis.reversed) -by else by)
                     } else {
                         axis.jump(target)
                     }
@@ -701,6 +798,15 @@ internal fun HostScroll(node: Node, table: NodeTable, surface: ScrollSurface) {
         LaunchedEffect(port, handlerId, surface) {
             snapshotFlow { surface.sample() }.collect { reports.changed(port) }
         }
+        // What the frame's flush left to this composition is sent once it has been applied.
+        val late = port.lateRevision
+        val sentLate = remember(port) { intArrayOf(late) }
+        SideEffect {
+            if (sentLate[0] != late) {
+                sentLate[0] = late
+                reports.late(port)
+            }
+        }
     }
 }
 
@@ -733,8 +839,8 @@ private suspend fun apply(
  */
 private suspend fun placedBox(container: Node, target: Node?): Rect? {
     if (target == null) return null
-    container.placementWanted = true
-    target.placementWanted = true
+    container.watchPlacement()
+    target.watchPlacement()
     try {
         repeat(PLACEMENT_FRAMES) {
             val viewport = container.placement
@@ -751,9 +857,7 @@ private suspend fun placedBox(container: Node, target: Node?): Rect? {
         }
         return null
     } finally {
-        container.placementWanted = false
-        target.placementWanted = false
-        container.placement = null
-        target.placement = null
+        container.unwatchPlacement()
+        target.unwatchPlacement()
     }
 }

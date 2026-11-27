@@ -348,7 +348,12 @@ internal class MacosPlatformWindow(
     }
 
     override fun setMinimumSize(width: Float, height: Float) {
-        if (!closed) native.contentMinSize = NSMakeSize(width.toDouble(), height.toDouble())
+        if (!closed) {
+            native.contentMinSize = NSMakeSize(
+                width.coerceAtLeast(0f).toDouble(),
+                height.coerceAtLeast(0f).toDouble(),
+            )
+        }
     }
 
     override fun setResizable(resizable: Boolean) {

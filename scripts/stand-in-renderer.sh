@@ -62,11 +62,16 @@ if [[ $if_refused -eq 1 ]]; then
         echo "the renderer this build finds was generated from this checkout's schema" >&2
         exit 0
     fi
-    # The two refusals that mean no published renderer fits this tree. The first is the
-    # schema check. The second is a release that answered, with no artifact for this
-    # version, which is what every version bump looks like until it is released. A network
-    # failure, a bad checksum or anything else is not one of them and still fails.
-    if grep -q "generated from a different schema" "$log"; then
+    # The three refusals that mean no published renderer fits this tree. The first is the
+    # lookup finding neither the version's release nor a renderer published under this
+    # schema hash, which is what a schema change looks like until develop has published
+    # its renderer. The second is the schema check on a renderer that was found. The third
+    # is a release that answered, with no artifact for this version, which is what every
+    # version bump looks like until it is released. A network failure, a bad checksum or
+    # anything else is not one of them and still fails.
+    if grep -q "no published renderer was built from this crate's schema" "$log"; then
+        reason="no published renderer was built from this checkout's schema"
+    elif grep -q "generated from a different schema" "$log"; then
         reason="the renderer this build finds was generated from a different schema than this checkout"
     elif grep -q "The server was reached and answered that there is no such file" "$log"; then
         reason="no renderer is published for this crate version yet"

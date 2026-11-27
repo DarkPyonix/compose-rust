@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, ThumbElevation, TrackBorder, SheetHandle, ReadOnly, NativeVisible, OnNativeViewFocus, Indeterminate, OutlineColor, RichText, OnTextFormat, OnRichTextChanged, FoldColumnWidthDp, InsertSpaces, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -40,7 +40,7 @@ enum class Arrangement { Start, Center, End, SpaceBetween, SpaceAround, SpaceEve
 
 enum class Alignment { TopStart, TopCenter, TopEnd, CenterStart, Center, CenterEnd, BottomStart, BottomCenter, BottomEnd }
 
-enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }
+enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator, Neutral, NeutralSecondary }
 
 enum class ButtonKind { Standard, ActionKey }
 
@@ -76,7 +76,7 @@ enum class OverflowWrap { Normal, Anywhere, BreakWord }
 
 enum class GenericFamily { SystemUi, SansSerif, Serif, Monospace }
 
-enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor }
+enum class AnimatedProperty { Alpha, Color, Background, Transform, BorderColor, Transform3D }
 
 enum class PlaybackDirection { Normal, Reverse, Alternate, AlternateReverse }
 
@@ -86,7 +86,7 @@ enum class PlayState { Running, Paused }
 
 enum class ColorInterpolation { SrgbPremultiplied, Oklab }
 
-enum class TimingKind { Linear, CubicBezier, Steps }
+enum class TimingKind { Linear, CubicBezier, Steps, Spring }
 
 enum class StepPosition { JumpStart, JumpEnd, JumpNone, JumpBoth }
 
@@ -119,6 +119,12 @@ enum class WheelDeltaMode { Pixel, Line, Page }
 enum class Cursor { Auto, Default, Pointer, Text, VerticalText, Crosshair, Move, Grab, Grabbing, NotAllowed, NoDrop, Wait, Progress, Help, ContextMenu, Cell, Copy, Alias, AllScroll, ZoomIn, ZoomOut, ColResize, RowResize, EResize, NResize, NeResize, NwResize, SResize, SeResize, SwResize, WResize, EwResize, NsResize, NeswResize, NwseResize, None }
 
 enum class UserSelect { Auto, None, Text, All }
+
+enum class FormatOp { Bold, Italic, Underline, Strikethrough, Color, Paragraph, List, Indent, Outdent, Quote }
+
+enum class ParagraphRole { Body, Title, Heading, Subheading, Monostyled }
+
+enum class ListKind { None, Bulleted, Dashed, Numbered }
 
 enum class WindowMode { Single, Windows }
 
@@ -1043,6 +1049,13 @@ sealed interface FontRef {
 
     /** A family CSS names without naming a font. */
     data class Generic(val family: GenericFamily) : FontRef
+
+    /**
+     * A font asset the Host has not sent yet. Its bytes are asked for the first time a
+     * letter no candidate before it has reaches it; until they arrive that letter is drawn
+     * as a missing glyph. Once they are here it is the same as [Asset].
+     */
+    data class LazyAsset(val assetId: Int) : FontRef
 }
 
 /** Decodes font candidate lists, wherever they sit: a property, a run or a measure request. */
@@ -1055,6 +1068,7 @@ object FontRefRecords {
     private const val ASSET = 1
     private const val SYSTEM = 2
     private const val GENERIC = 3
+    private const val LAZY_ASSET = 4
 
     /**
      * The [count] candidates whose records start at [at] in [buffer], each name read from
@@ -1088,6 +1102,7 @@ object FontRefRecords {
                         FontRef.System(name.decodeToString())
                     }
                     GENERIC -> FontRef.Generic(genericFamilyOrNull(value) ?: return null)
+                    LAZY_ASSET -> FontRef.LazyAsset(value)
                     else -> return null
                 }
             }
@@ -1341,6 +1356,7 @@ sealed interface Modifier {
     data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
     data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
     data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
+    data class WeightUnfilled(val value: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1352,6 +1368,13 @@ sealed interface Timing {
 
     /** CSS `steps(count, position)`. */
     data class Steps(val count: Int, val position: StepPosition) : Timing
+
+    /**
+     * Compose's `spring()`: a damped oscillator of mass 1 that starts at rest at 0 and settles
+     * at 1, stretched so that the segment ends when it has settled. Overshoots below a
+     * damping ratio of 1. Both values are finite and positive.
+     */
+    data class Spring(val stiffness: kotlin.Float, val dampingRatio: kotlin.Float) : Timing
 }
 
 /**
@@ -1378,6 +1401,18 @@ sealed interface KeyframeValue {
 
     /** The same kinds in the same order in every keyframe of one animation. */
     data class Transform(val functions: List<TransformFunction>) : KeyframeValue
+
+    /**
+     * For `Transform3D`: sixteen values, column-major like the `Transform3D` modifier's
+     * (`m[4 * column + row]`). Compared by content, as a data class would.
+     */
+    class Matrix3D(val m: FloatArray) : KeyframeValue {
+        override fun equals(other: Any?): Boolean = other is Matrix3D && m.contentEquals(other.m)
+
+        override fun hashCode(): Int = m.contentHashCode()
+
+        override fun toString(): String = "Matrix3D(m=${m.contentToString()})"
+    }
 }
 
 data class Keyframe(
@@ -1742,6 +1777,46 @@ sealed interface Mutation {
     }
 
     /**
+     * Applies one formatting command to the selection of the rich text field [nodeId].
+     * [value] is what the operation takes: 0 off, 1 on or 2 flip for the four character
+     * styles and for Quote, a ParagraphRole or ListKind tag for those two, else 0. [paint] is
+     * only for Color, where none clears the colour.
+     */
+    data class FormatText(
+        val nodeId: Int,
+        val op: FormatOp,
+        val value: Int,
+        val paint: Paint?,
+    ) : Mutation
+
+    /**
+     * Replaces the document of the rich text field [nodeId]. [characters] is 24-byte records
+     * (start, length, style flags, colour paint word and a reserved word) and [paragraphs]
+     * 16-byte records (start, role, list kind, indent, quote and a reserved word), every
+     * offset a byte offset into [text]. A selection of -1 and -1 leaves the field's own.
+     * The records are as sent: the field checks them against the text.
+     */
+    data class SetRichText(
+        val nodeId: Int,
+        val text: String,
+        val characters: ByteArray,
+        val paragraphs: ByteArray,
+        val selectionStart: Int,
+        val selectionEnd: Int,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetRichText && nodeId == other.nodeId && text == other.text &&
+                    characters.contentEquals(other.characters) &&
+                    paragraphs.contentEquals(other.paragraphs) &&
+                    selectionStart == other.selectionStart && selectionEnd == other.selectionEnd)
+
+        override fun hashCode(): Int =
+            (((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 +
+                paragraphs.contentHashCode()) * 31 + selectionStart * 31 + selectionEnd
+    }
+
+    /**
      * Replaces a range of the code editor [nodeId]'s document, as it stood at
      * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
      * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
@@ -1926,13 +2001,28 @@ sealed interface HostEvent {
             "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
     }
     data class DensityChanged(override val nodeId: Int, override val handlerId: Long, val scale: kotlin.Float) : HostEvent
+    data class TextFormatAtSelection(override val nodeId: Int, override val handlerId: Long, val flags: Int, val role: Int, val list: Int, val indent: Int, val quote: Int, val paint: Long) : HostEvent
+    data class RichTextChanged(override val nodeId: Int, override val handlerId: Long, val text: String, val characters: ByteArray, val paragraphs: ByteArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is RichTextChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    text == other.text && characters.contentEquals(other.characters) &&
+                    paragraphs.contentEquals(other.paragraphs))
+
+        override fun hashCode(): Int =
+            ((nodeId * 31 + text.hashCode()) * 31 + characters.contentHashCode()) * 31 + paragraphs.contentHashCode()
+
+        override fun toString(): String =
+            "RichTextChanged(nodeId=$nodeId, handlerId=$handlerId, textLength=${text.length}, characters=${characters.size / 24}, paragraphs=${paragraphs.size / 16})"
+    }
+    data class AssetWanted(override val nodeId: Int, override val handlerId: Long, val assetId: Int) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6472594915190799861L
+    const val SCHEMA_HASH: Long = 327326763861914240L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1977,10 +2067,14 @@ object Protocol {
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
+    private const val TAG_FORMAT_TEXT = 42
+    private const val TAG_SET_RICH_TEXT = 43
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
     private const val TRANSFORM_FUNCTION_LENGTH = 28
+    /** A `Transform3D` keyframe's value: sixteen `f32`. */
+    private const val MATRIX3D_VALUE_LENGTH = 64
     /** Four role tags, one font asset id per type role, then the palette's reference. */
     private val THEME_RECORD_LENGTH = 20 + 4 * TypeRole.entries.size
 
@@ -2299,6 +2393,26 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_FORMAT_TEXT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.FormatText(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            op = formatOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            value = readU16(batch, base, available, offset + 10),
+                            paint = optionalPaint(readU64(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
+                    TAG_SET_RICH_TEXT -> {
+                        requireRecordLength(length, 40, offset)
+                        Mutation.SetRichText(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            text = readString(batch, base, available, offset + 8),
+                            characters = readBytes(batch, base, available, offset + 16),
+                            paragraphs = readBytes(batch, base, available, offset + 24),
+                            selectionStart = readU32(batch, base, available, offset + 32).toInt(),
+                            selectionEnd = readU32(batch, base, available, offset + 36).toInt(),
+                        )
                     }
                     TAG_SET_SELECTIONS -> {
                         requireRecordLength(length, 20, offset)
@@ -2642,6 +2756,9 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> null
                 is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
                 is HostEvent.DensityChanged -> null
+                is HostEvent.TextFormatAtSelection -> null
+                is HostEvent.RichTextChanged -> event.text.toByteArray(StandardCharsets.UTF_8) + event.characters + event.paragraphs
+                is HostEvent.AssetWanted -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2704,6 +2821,9 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> 20
                 is HostEvent.SelectionsChanged -> 28
                 is HostEvent.DensityChanged -> 20
+                is HostEvent.TextFormatAtSelection -> 36
+                is HostEvent.RichTextChanged -> 40
+                is HostEvent.AssetWanted -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2770,6 +2890,9 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> 52
                 is HostEvent.SelectionsChanged -> 67
                 is HostEvent.DensityChanged -> 53
+                is HostEvent.TextFormatAtSelection -> 68
+                is HostEvent.RichTextChanged -> 69
+                is HostEvent.AssetWanted -> 71
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -3057,6 +3180,24 @@ object Protocol {
                     writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.DensityChanged -> out.putFloat(event.scale)
+                is HostEvent.TextFormatAtSelection -> {
+                    out.putInt(event.flags)
+                    out.putShort(event.role.toShort())
+                    out.putShort(event.list.toShort())
+                    out.putShort(event.indent.toShort())
+                    out.putShort(event.quote.toShort())
+                    out.putLong(event.paint)
+                }
+                is HostEvent.RichTextChanged -> {
+                    val textLength = event.text.toByteArray(StandardCharsets.UTF_8).size
+                    out.putInt(recordLength)
+                    out.putInt(textLength)
+                    out.putInt(recordLength + textLength)
+                    out.putInt(event.characters.size)
+                    out.putInt(recordLength + textLength + event.characters.size)
+                    out.putInt(event.paragraphs.size)
+                }
+                is HostEvent.AssetWanted -> out.putInt(event.assetId)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -3296,10 +3437,19 @@ object Protocol {
         209 -> PropertyKind.SpanFontFeatures
         210 -> PropertyKind.ContentPaddingDp
         211 -> PropertyKind.FixedGutterColumns
+        212 -> PropertyKind.ThumbElevation
+        213 -> PropertyKind.TrackBorder
         214 -> PropertyKind.SheetHandle
         215 -> PropertyKind.ReadOnly
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
+        216 -> PropertyKind.Indeterminate
+        217 -> PropertyKind.OutlineColor
+        220 -> PropertyKind.RichText
+        221 -> PropertyKind.OnTextFormat
+        222 -> PropertyKind.OnRichTextChanged
+        226 -> PropertyKind.FoldColumnWidthDp
+        227 -> PropertyKind.InsertSpaces
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3411,6 +3561,7 @@ object Protocol {
         AnimatedProperty.Background -> 3
         AnimatedProperty.Transform -> 4
         AnimatedProperty.BorderColor -> 5
+        AnimatedProperty.Transform3D -> 6
     }
 
     private fun reducedMotionTag(value: ReducedMotion): Int = when (value) {
@@ -3672,6 +3823,8 @@ object Protocol {
         3 -> ButtonVariant.Outlined
         4 -> ButtonVariant.Text
         5 -> ButtonVariant.Operator
+        6 -> ButtonVariant.Neutral
+        7 -> ButtonVariant.NeutralSecondary
         else -> throw ProtocolException("unknown ButtonVariant tag $tag", offset)
     }
 
@@ -3841,6 +3994,7 @@ object Protocol {
         3 -> AnimatedProperty.Background
         4 -> AnimatedProperty.Transform
         5 -> AnimatedProperty.BorderColor
+        6 -> AnimatedProperty.Transform3D
         else -> throw ProtocolException("unknown AnimatedProperty tag $tag", offset)
     }
 
@@ -3876,6 +4030,7 @@ object Protocol {
         1 -> TimingKind.Linear
         2 -> TimingKind.CubicBezier
         3 -> TimingKind.Steps
+        4 -> TimingKind.Spring
         else -> throw ProtocolException("unknown TimingKind tag $tag", offset)
     }
 
@@ -4035,6 +4190,37 @@ object Protocol {
         2 -> UserSelect.Text
         3 -> UserSelect.All
         else -> throw ProtocolException("unknown UserSelect tag $tag", offset)
+    }
+
+    private fun formatOp(tag: Int, offset: Int): FormatOp = when (tag) {
+        1 -> FormatOp.Bold
+        2 -> FormatOp.Italic
+        3 -> FormatOp.Underline
+        4 -> FormatOp.Strikethrough
+        5 -> FormatOp.Color
+        6 -> FormatOp.Paragraph
+        7 -> FormatOp.List
+        8 -> FormatOp.Indent
+        9 -> FormatOp.Outdent
+        10 -> FormatOp.Quote
+        else -> throw ProtocolException("unknown FormatOp tag $tag", offset)
+    }
+
+    private fun paragraphRole(tag: Int, offset: Int): ParagraphRole = when (tag) {
+        1 -> ParagraphRole.Body
+        2 -> ParagraphRole.Title
+        3 -> ParagraphRole.Heading
+        4 -> ParagraphRole.Subheading
+        5 -> ParagraphRole.Monostyled
+        else -> throw ProtocolException("unknown ParagraphRole tag $tag", offset)
+    }
+
+    private fun listKind(tag: Int, offset: Int): ListKind = when (tag) {
+        0 -> ListKind.None
+        1 -> ListKind.Bulleted
+        2 -> ListKind.Dashed
+        3 -> ListKind.Numbered
+        else -> throw ProtocolException("unknown ListKind tag $tag", offset)
     }
 
     private fun windowMode(tag: Int, offset: Int): WindowMode = when (tag) {
@@ -4255,6 +4441,7 @@ object Protocol {
         43 -> 1
         44 -> 0
         45 -> 1
+        48 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4306,6 +4493,7 @@ object Protocol {
             43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            48 -> Modifier.WeightUnfilled(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
@@ -4526,6 +4714,11 @@ object Protocol {
         if (iterations.isNaN() || iterations < 0f) bad("iteration count $iterations", start + 36)
         if (!originX.isFinite() || !originY.isFinite()) bad("origin", start + 40)
         if (events and 0xf.inv() != 0) bad("event bits $events", start + 48)
+        // A 3D matrix animation turns about its base modifier's origin; one here as well
+        // would leave two answers to which one wins.
+        if (property == AnimatedProperty.Transform3D && (originX != 0f || originY != 0f)) {
+            bad("a Transform3D animation takes its origin from its modifier, not the record", start + 40)
+        }
         val keyframes = ArrayList<Keyframe>(keyframeCount)
         var at = start + ANIMATION_HEADER_LENGTH
         for (index in 0 until keyframeCount) {
@@ -4552,6 +4745,18 @@ object Protocol {
                     val least = if (position == StepPosition.JumpNone) 2L else 1L
                     if (count < least || count > Int.MAX_VALUE) bad("steps($count, $position)", at + 8)
                     Timing.Steps(count.toInt(), position)
+                }
+                TimingKind.Spring -> {
+                    val stiffness = float(at + 8)
+                    val dampingRatio = float(at + 12)
+                    if (!(stiffness.isFinite() && stiffness > 0f) || !(dampingRatio.isFinite() && dampingRatio > 0f)) {
+                        bad("spring(stiffness $stiffness, damping ratio $dampingRatio)", at + 8)
+                    }
+                    if (readU32(batch, base, available, at + 16) != 0L || readU32(batch, base, available, at + 20) != 0L) {
+                        bad("a spring has two values and the last two numbers must be zero", at + 16)
+                    }
+                    if (readU8(batch, base, available, at + 5) != 0) bad("a spring has no step position", at + 5)
+                    Timing.Spring(stiffness, dampingRatio)
                 }
             }
             if (flags and 1.inv() != 0 || (index > 0 && flags != 0)) bad("keyframe flags $flags", at + 6)
@@ -4586,6 +4791,13 @@ object Protocol {
                     }
                     value = KeyframeValue.Transform(functions)
                     at = valueAt + 4 + TRANSFORM_FUNCTION_LENGTH * count
+                }
+                AnimatedProperty.Transform3D -> {
+                    if (valueAt + MATRIX3D_VALUE_LENGTH > end) bad("matrix runs past the record", valueAt)
+                    val m = FloatArray(16) { float(valueAt + 4 * it) }
+                    if (!m.all { it.isFinite() }) bad("matrix values", valueAt)
+                    value = KeyframeValue.Matrix3D(m)
+                    at = valueAt + MATRIX3D_VALUE_LENGTH
                 }
             }
             keyframes += Keyframe(keyframeOffset, timing, flags != 0, value)

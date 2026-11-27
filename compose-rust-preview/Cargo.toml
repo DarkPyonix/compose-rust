@@ -1,0 +1,22 @@
+[package]
+name = "compose-rust-preview"
+version = "0.0.12"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Screen preview runner and deterministic headless PNG exporter for compose-rust."
+repository = "https://github.com/DarkPyonix/compose-rust"
+
+[[bin]]
+name = "compose-rust-preview"
+path = "src/main.rs"
+bench = false
+
+[lib]
+bench = false
+
+[dependencies]
+compose-rust = { path = "../compose-rust" }
+png = "0.17.16"
+syn = { version = "2", features = ["full", "parsing"] }
+walkdir = "2.5.0"
