@@ -55,6 +55,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,7 @@ import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.node.TableError
 
 /** True when the Host set a shape modifier of its own, which replaces the default shape. */
 internal fun Node.setsOwnShape(): Boolean =
@@ -339,8 +341,11 @@ internal fun HostTopAppBar(
                     BarTitle(node, title, theme)
                 }
             } else {
+                val room = rememberBarOverflowState(node.id)
                 if (titleInBar) {
-                    BarTitle(node, title, theme)
+                    BarTitle(node, title, theme, room)
+                } else {
+                    room.titleWidth = 0
                 }
                 val children = node.children.toList()
                 val split = table.trailingActionsStart(children)
@@ -356,6 +361,7 @@ internal fun HostTopAppBar(
                         theme,
                         gap = theme.space(SpaceRole.Sm),
                         capsule = null,
+                        state = room,
                     )
                 }
             }
@@ -444,8 +450,11 @@ private fun FloatingTopAppBar(
         val title = node.text(PropertyKind.Text)
         val titleInBar = title.isNotEmpty() &&
             !(caption.height > 0.dp && platformCaption(theme).titlePlacement == CaptionTitlePlacement.SystemCaption)
+        val room = rememberBarOverflowState(node.id)
         if (titleInBar) {
-            BarTitle(node, title, theme)
+            BarTitle(node, title, theme, room)
+        } else {
+            room.titleWidth = 0
         }
         val children = node.children.toList()
         val split = table.trailingActionsStart(children)
@@ -471,6 +480,7 @@ private fun FloatingTopAppBar(
                 theme,
                 gap = theme.space(SpaceRole.Sm),
                 capsule = BarCapsule(material, capsule, theme.space(SpaceRole.Xs)),
+                state = room,
             )
         }
     }
@@ -552,13 +562,39 @@ private val HAIRLINE = 1.dp
  * of text in a bar whose size is decided by the platform rather than by what it says.
  */
 @Composable
-private fun BarTitle(node: Node, title: String, theme: ResolvedTheme) {
+private fun BarTitle(node: Node, title: String, theme: ResolvedTheme, room: BarOverflowState? = null) {
     ThemedText(
         text = title,
         style = node.textStyle(theme, TypeRole.Subtitle),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .testTag(barTitleTestTag(node.id))
+            .let { if (room == null) it else it.givesWayToActions(room) },
     )
+}
+
+/** Test tag of the title a bar draws itself. */
+fun barTitleTestTag(barId: Int): String = "${nodeTestTag(barId)}-title"
+
+
+/**
+ * Draws the title no wider than [BarOverflowState.titleCap], cut short with an ellipsis,
+ * and notes how wide it was drawn so the actions measured after it can say how much room
+ * they still need.
+ */
+private fun Modifier.givesWayToActions(room: BarOverflowState): Modifier = layout { measurable, constraints ->
+    val cap = room.titleCap
+    val maxWidth = if (cap == Int.MAX_VALUE || !constraints.hasBoundedWidth) {
+        constraints.maxWidth
+    } else {
+        cap.coerceIn(0, constraints.maxWidth)
+    }
+    val placeable = measurable.measure(
+        constraints.copy(minWidth = constraints.minWidth.coerceAtMost(maxWidth), maxWidth = maxWidth),
+    )
+    room.titleWidth = placeable.width
+    layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
 }
 
 /**
@@ -610,7 +646,24 @@ private class BarOverflowState {
     var open by mutableStateOf(false)
     val widths = HashMap<Int, Int>()
     var anchorWidth = 0
+
+    /**
+     * The widest the title may be drawn, or [Int.MAX_VALUE] for as wide as it is. Set when
+     * the actions that cannot move into the menu would not fit beside the title, so the
+     * title gives way first.
+     */
+    var titleCap by mutableIntStateOf(Int.MAX_VALUE)
+
+    /** How wide the title was drawn in the pass being measured. */
+    var titleWidth = 0
+
+    /** The nameless actions already reported while they stay in the menu. */
+    val reportedUnnamed = HashSet<Int>()
 }
+
+/** What a bar remembers about its actions, shared by its title and its actions. */
+@Composable
+private fun rememberBarOverflowState(barId: Int): BarOverflowState = remember(barId) { BarOverflowState() }
 
 /**
  * A bar's trailing actions: as many as fit drawn in the bar at their own width, the rest in
@@ -620,6 +673,12 @@ private class BarOverflowState {
  * whatever the leading content left over. A Compose `Row` hands each child what the ones
  * before it did not take, and when the actions were the row's own children the last ones
  * were measured at nothing and drawn as empty pills or not at all.
+ *
+ * An action with a content slot is never an entry of a menu, which shows a label and an
+ * icon and nothing else, so it stays in the bar in its declared place, and only the others
+ * move into the menu, the last declared first. When even the ones that stay do not fit,
+ * the title gives way before them ([BarOverflowState.titleCap]), and only when it has
+ * nothing left do they shrink, as any other children of a row do.
  *
  * [capsule] is set on a floating bar, which gathers each run of plain actions, the overflow
  * button among them, into one capsule of its material.
@@ -633,31 +692,43 @@ private fun BarActions(
     theme: ResolvedTheme,
     gap: Dp,
     capsule: BarCapsule?,
+    state: BarOverflowState = rememberBarOverflowState(bar.id),
 ) {
-    val state = remember(bar.id) { BarOverflowState() }
-    val shown = state.shown.coerceIn(0, actions.size)
-    val inBar = actions.subList(0, shown)
-    val overflowed = actions.subList(shown, actions.size)
+    val stays = actions.map { table.node(it)?.hasContentSlot() == true }
+    val movable = actions.filterIndexed { index, _ -> !stays[index] }
+    val shown = state.shown.coerceIn(0, movable.size)
+    val kept = movable.subList(0, shown).toHashSet()
+    val inBar = actions.filterIndexed { index, id -> stays[index] || id in kept }
+    val overflowed = movable.subList(shown, movable.size)
     val density = LocalDensity.current
     val gapPx = with(density) { gap.roundToPx() }
     val capsulePx = capsule?.let { with(density) { it.padding.roundToPx() } } ?: 0
     val gathers = actions.map { table.gathersIntoCapsule(it) }
+    val presenter = LocalOsMenuPresenter.current
+    if (presenter != null) ReportUnnamedActions(bar.id, overflowed, table, dispatcher, state)
 
+    // A width is an action's own only when nothing squeezed it, so a squeezed frame does not
+    // make the bar believe there is room it does not have.
     fun measured(childId: Int): Modifier = Modifier.layout { measurable, constraints ->
         val placeable = measurable.measure(constraints)
-        state.widths[childId] = placeable.width
+        if (constraints.maxWidth == Constraints.Infinity) state.widths[childId] = placeable.width
         layout(placeable.width, placeable.height) { placeable.place(0, 0) }
     }
     val anchorMeasured = Modifier.layout { measurable, constraints ->
         val placeable = measurable.measure(constraints)
-        state.anchorWidth = placeable.width
+        if (constraints.maxWidth == Constraints.Infinity) state.anchorWidth = placeable.width
         layout(placeable.width, placeable.height) { placeable.place(0, 0) }
     }
 
-    // One the bar has not measured yet counts as nothing, so it is drawn on the next frame,
-    // measured there, and the decision is made again with its real width.
+    // How wide the actions are with the first `count` movable ones drawn, every one that
+    // stays drawn, and the overflow button after them when `withAnchor` is true. One the
+    // bar has not measured yet counts as nothing, so it is drawn on the next frame, measured
+    // there, and the decision is made again with its real width.
     fun rowWidth(count: Int, withAnchor: Boolean): Int {
-        val items = (0 until count).map { (state.widths[actions[it]] ?: 0) to gathers[it] } +
+        val first = movable.subList(0, count.coerceIn(0, movable.size)).toHashSet()
+        val items = actions.indices
+            .filter { stays[it] || actions[it] in first }
+            .map { (state.widths[actions[it]] ?: 0) to gathers[it] } +
             (if (withAnchor) listOf(state.anchorWidth to true) else emptyList())
         if (items.isEmpty()) return 0
         if (capsule == null) return items.sumOf { it.first } + gapPx * (items.size - 1)
@@ -665,6 +736,11 @@ private fun BarActions(
         return groups.sumOf { group ->
             group.sumOf { it.first } + if (group.size == 1 && !group[0].second) 0 else 2 * capsulePx
         } + gapPx * (groups.size - 1)
+    }
+
+    @Composable
+    fun Overflow() {
+        OverflowButton(bar, overflowed, state, table, dispatcher, theme, anchorMeasured)
     }
 
     Layout(
@@ -677,9 +753,7 @@ private fun BarActions(
                     inBar.forEach { childId ->
                         key(childId) { RenderNode(childId, table, dispatcher, measured(childId)) }
                     }
-                    if (overflowed.isNotEmpty()) {
-                        OverflowButton(bar, overflowed, state, table, dispatcher, theme, anchorMeasured)
-                    }
+                    if (overflowed.isNotEmpty()) Overflow()
                 } else {
                     // The overflow button is an action like the rest, so it shares the
                     // capsule of the plain actions just before it.
@@ -694,7 +768,7 @@ private fun BarActions(
                             FloatingCapsule(capsule) {
                                 group.forEach { childId ->
                                     if (childId == null) {
-                                        OverflowButton(bar, overflowed, state, table, dispatcher, theme, anchorMeasured)
+                                        Overflow()
                                     } else {
                                         key(childId) { RenderNode(childId, table, dispatcher, measured(childId)) }
                                     }
@@ -706,11 +780,23 @@ private fun BarActions(
             }
         },
     ) { measurables, constraints ->
-        // Each action at its own width: the row is measured unbounded, and only what fits
-        // the bar's leftover width stays in it.
-        val row = measurables.single().measure(constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity))
         val available = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
-        val fits = fittingActions(actions.size, available, ::rowWidth)
+        val fits = fittingActions(movable.size, available, ::rowWidth)
+        // The least the actions need: the ones that stay, and the overflow button when there
+        // is anything that could go behind it.
+        val floor = rowWidth(0, movable.isNotEmpty())
+        state.titleCap = if (constraints.hasBoundedWidth) {
+            (state.titleWidth.toLong() + available - floor).coerceIn(0L, Int.MAX_VALUE.toLong() - 1).toInt()
+        } else {
+            Int.MAX_VALUE
+        }
+        // Each action at its own width: the row is measured unbounded, and only what fits
+        // the bar's leftover width stays in it. When even the actions that stay do not fit,
+        // they are measured in what there is and shrink like any row's children.
+        val squeezed = rowWidth(fits, fits < movable.size) > available
+        val row = measurables.single().measure(
+            constraints.copy(minWidth = 0, maxWidth = if (squeezed) available else Constraints.Infinity),
+        )
         val settled = fits == shown
         if (!settled) state.shown = fits
         val width = row.width.coerceAtMost(available).coerceAtLeast(constraints.minWidth)
@@ -719,6 +805,38 @@ private fun BarActions(
             // wider than the bar, and drawing it would lay actions over the window's own
             // buttons for a frame.
             if (settled) row.placeRelative(0, 0)
+        }
+    }
+}
+
+/**
+ * Says once for each action with neither text nor an accessible name that it went into the
+ * overflow menu, where an operating system menu has nothing to call it, and again only if
+ * it leaves the menu and comes back. An action that fits in the bar is never reported.
+ */
+@Composable
+private fun ReportUnnamedActions(
+    barId: Int,
+    overflowed: List<Int>,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    state: BarOverflowState,
+) {
+    val unnamed = overflowed.filter { table.isUnnamedAction(it) }
+    SideEffect {
+        state.reportedUnnamed.retainAll(unnamed.toSet())
+        for (id in unnamed) {
+            if (!state.reportedUnnamed.add(id)) continue
+            dispatcher.dispatch(
+                HostEvent.ProtocolError(
+                    nodeId = id,
+                    handlerId = 0,
+                    code = TableError.INVALID_CHILDREN,
+                    message = "action $id of bar $barId moved into the overflow menu with no text " +
+                        "and no accessible name, so the menu has nothing to call it and leaves " +
+                        "it out; give it an accessible_name",
+                ),
+            )
         }
     }
 }
@@ -757,7 +875,13 @@ private fun OverflowButton(
     // something overflowed.
     DisposableEffect(bar.id) { onDispose { state.open = false } }
     val buttonRequester = remember(bar.id) { FocusRequester() }
-    Box(modifier) {
+    // Where the window puts entry menus up as the operating system's, the overflow menu is
+    // one: each overflowed action is an entry, and an overflowed menu a submenu.
+    val presenter = LocalOsMenuPresenter.current
+    val read = if (presenter != null) table.overflowEntries(overflowed) else null
+    if (read != null) ReportNotAnEntry(bar.id, read, dispatcher)
+    val anchor = rememberMenuAnchor(button.id)
+    Box(modifier.then(anchor.modifier)) {
         HostButton(
             button,
             Modifier
@@ -768,7 +892,18 @@ private fun OverflowButton(
             local,
             theme,
         )
-        if (state.open) {
+        if (state.open && presenter != null && read != null) {
+            OsEntryMenu(
+                presenter = presenter,
+                entries = read.entries,
+                anchor = anchor,
+                onChosen = { item ->
+                    state.open = false
+                    table.clickEntry(item.id, dispatcher)
+                },
+                onDismissed = { state.open = false },
+            )
+        } else if (state.open) {
             OverflowMenu(bar, overflowed, state, buttonRequester, table, dispatcher, theme)
         }
     }
