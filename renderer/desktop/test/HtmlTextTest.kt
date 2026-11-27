@@ -4,6 +4,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.design.installPlatformUiFamily
@@ -160,6 +164,73 @@ class HtmlTextTest {
                 assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, case.name)
             }
         }
+    }
+
+    /** A word longer than a 140 pixel line, then words that fit, as dioxus-compose#43 found it. */
+    private val longWord = "aVeryLongIdentifierWithoutAnySpacesInsideItAtAll"
+    private val longWordText = "$longWord then words"
+    private val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+    private val normalWrap = PropertyKind.OverflowWrap to PropertyValue.Integer(OverflowWrap.Normal.ordinal + 1L)
+    private val normalBreak = PropertyKind.WordBreak to PropertyValue.Integer(WordBreak.Normal.ordinal + 1L)
+
+    /**
+     * CSS `overflow-wrap: normal` keeps a word wider than its line whole: it has a line of its
+     * own and overflows it, and the text is as wide as that word. Compose by itself breaks the
+     * word where the line ends, which is still what a text that names no `overflow_wrap` gets.
+     */
+    @Test
+    fun fr40_a_word_wider_than_its_line_overflows_it_whole() = runComposeUiTest {
+        startHost(FakeHostConnection(emptyList()), Density(1f))
+        val (status, results) = measure(
+            MeasureRequests()
+                .text(longWordText, role = 0, width = 140f, fonts = sans, wordBreak = 1, overflowWrap = OverflowWrap.Normal.ordinal + 1)
+                .text(longWord, role = 0, fonts = sans, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT)
+                .text(longWordText, role = 0, width = 140f, fonts = sans),
+        )
+        assertEquals(MeasureRecords.CALL_OK, status)
+        val (kept, word, broken) = results
+        assertTrue(word.width > 140f, "the word fits in 140, so this case proves nothing: ${word.width}")
+        assertEquals(2, kept.lineCount, "the word on a line of its own, then the words that fit")
+        assertTrue(abs(kept.width - word.width) < 0.01f, "as wide as the word: ${kept.width} against ${word.width}")
+        assertTrue(kept.lastLineWidth <= 140f, "the last line fits: ${kept.lastLineWidth}")
+        assertTrue(broken.lineCount > 2 && broken.width <= 140f, "no overflow_wrap: broken inside, ${broken.lineCount} lines ${broken.width} wide")
+    }
+
+    /**
+     * The Host gives the drawn text the width it measured at. The drawn lines are the measured
+     * ones, the word overflows the node's end, and a reader is told the string the Host sent,
+     * without the line ends that steer the layout.
+     */
+    @Test
+    fun fr40_a_word_kept_whole_is_drawn_as_measured() = runComposeUiTest {
+        val pinned = Density(1.5f, 1f)
+        startHost(
+            FakeHostConnection(
+                listOf(
+                    Mutation.Create(COLUMN, WidgetKind.Column),
+                    Mutation.Create(TEXT, WidgetKind.Text),
+                    Mutation.SetProp(TEXT, PropertyKind.Text, PropertyValue.Text(longWordText)),
+                    Mutation.SetProp(TEXT, noRole.first, noRole.second),
+                    Mutation.SetProp(TEXT, PropertyKind.Font, PropertyValue.Bytes(fontBlob(sans))),
+                    Mutation.SetProp(TEXT, normalWrap.first, normalWrap.second),
+                    Mutation.SetProp(TEXT, normalBreak.first, normalBreak.second),
+                    Mutation.SetModifier(TEXT, 0, ProtocolModifier.Width(140f)),
+                    Mutation.Insert(COLUMN, TEXT, 0),
+                ),
+            ),
+            pinned,
+        )
+        val (status, results) = measure(
+            MeasureRequests().text(longWordText, role = 0, width = 140f, fonts = sans, wordBreak = 1, overflowWrap = OverflowWrap.Normal.ordinal + 1),
+        )
+        assertEquals(MeasureRecords.CALL_OK, status)
+        val drawn = drawnLayout(TEXT)
+        assertSameAsDrawn(results.single(), drawn, pinned.density, "kept whole")
+        assertEquals(2, drawn.lineCount)
+        assertEquals(longWord, drawn.layoutInput.text.text.substring(0, drawn.getLineEnd(0)).trimEnd())
+        assertTrue('\u2028' in drawn.layoutInput.text.text, "the layout has no line end after the word")
+        val config = onNodeWithTag(nodeTestTag(TEXT)).fetchSemanticsNode().config
+        assertEquals(longWordText, config.getOrNull(SemanticsProperties.Text)?.joinToString("") { it.text })
     }
 
     @Test

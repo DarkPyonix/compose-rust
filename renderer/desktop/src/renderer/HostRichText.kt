@@ -37,6 +37,7 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.TableError
+import dev.darkpyonix.composerust.ui.widthPxRoundedUp
 
 /**
  * One run of different treatment inside a string.
@@ -158,6 +159,25 @@ internal fun HostRichText(
             )
         },
     )
+    // A word wider than its line stays whole where CSS keeps it whole. The lines are fitted
+    // at the width the node is given, which is the width the Host measured them at, and the
+    // text is laid out wide enough for the word, which overflows the node's end.
+    val givenWidth = node.modifiers.lastOrNull {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Width || it is dev.darkpyonix.composerust.protocol.Modifier.Size
+    }?.let {
+        when (it) {
+            is dev.darkpyonix.composerust.protocol.Modifier.Width -> it.value
+            is dev.darkpyonix.composerust.protocol.Modifier.Size -> it.width
+            else -> null
+        }
+    }
+    val kept = if (resolved.keepWords && givenWidth != null && !LocalOneLineLabel.current) {
+        val pixels = density.widthPxRoundedUp(givenWidth)
+        remember(resolved.text, resolved.style, pixels, density) { keepWordsWhole(resolved, pixels, density, fontResolver) }
+    } else {
+        null
+    }
+    val laidOut = kept?.resolved ?: resolved
     val wordFloor = if (input.softWrap && (input.wordBreak == null || input.wordBreak == WordBreak.Normal) && input.overflowWrap != OverflowWrap.Anywhere) {
         val words = resolveText(input, theme, assets, density, fontResolver, intrinsicWordBreak = WordBreak.KeepAll)
         kotlin.math.ceil(MultiParagraphIntrinsics(words.text, words.style, words.placeholders, density, fontResolver).minIntrinsicWidth).toInt()
@@ -194,13 +214,13 @@ internal fun HostRichText(
     // selection colour.
     val text = if (LocalSelectedWhole.current) {
         val background = LocalTextSelectionColors.current.backgroundColor
-        remember(resolved.text, background) {
-            AnnotatedString.Builder(resolved.text).apply {
-                addStyle(SpanStyle(background = background), 0, resolved.text.length)
+        remember(laidOut.text, background) {
+            AnnotatedString.Builder(laidOut.text).apply {
+                addStyle(SpanStyle(background = background), 0, laidOut.text.length)
             }.toAnnotatedString()
         }
     } else {
-        resolved.text
+        laidOut.text
     }
     // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
     // text size does not reach it. Everything else is laid out where it stands.
@@ -211,16 +231,18 @@ internal fun HostRichText(
     CompositionLocalProvider(LocalDensity provides density) {
         // The joiners and spaces that keep or break words steer the layout only: a reader and
         // a lookup by name get the string the Host sent (#1094).
-        val spoken = remember(resolved.text, input.text) { spokenText(resolved.text, input.text) }
-        val named = if (spoken === resolved.text) modifier else modifier.semantics { this.text = spoken }
+        val spoken = remember(laidOut.text, input.text) { spokenText(laidOut.text, input.text) }
+        val named = if (spoken === laidOut.text) modifier else modifier.semantics { this.text = spoken }
         BasicText(
             text = text,
-            modifier = named.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
+            modifier = named
+                .then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor))
+                .then(if (kept != null) LaidOutAt(kept.layoutWidth) else Modifier),
             style = resolved.style,
             overflow = if (cutShort) TextOverflow.Ellipsis else resolved.overflow,
             softWrap = if (oneLine) false else resolved.softWrap,
             maxLines = if (oneLine) 1 else resolved.maxLines,
-            inlineContent = resolved.inlineContent,
+            inlineContent = laidOut.inlineContent,
             color = color,
         )
     }
@@ -234,6 +256,21 @@ private class WordFloor(private val width: Int) : LayoutModifier {
 
     override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int =
         maxOf(width, measurable.minIntrinsicWidth(height))
+}
+
+/**
+ * Lays the text out [width] pixels wide inside the width it is given, from its start, so the
+ * word [keepWordsWhole] kept whole is drawn past the end of that width, as CSS draws it.
+ */
+private class LaidOutAt(private val width: Int) : LayoutModifier {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): androidx.compose.ui.layout.MeasureResult {
+        val placeable = measurable.measure(
+            constraints.copy(minWidth = minOf(constraints.minWidth, width), maxWidth = maxOf(width, constraints.minWidth)),
+        )
+        return layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
+            placeable.placeRelative(0, 0)
+        }
+    }
 }
 
 /** The narrowest width of a text that may break anywhere: [width], not its longest token. */

@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.foundation.ResolvedText
 import dev.darkpyonix.composerust.foundation.TextInput
 import dev.darkpyonix.composerust.foundation.TextRun
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
+import dev.darkpyonix.composerust.foundation.keepWordsWhole
 import dev.darkpyonix.composerust.foundation.resolveText
 import dev.darkpyonix.composerust.foundation.spanFontFeatureSettings
 import dev.darkpyonix.composerust.protocol.FontRefRecords
@@ -221,6 +222,13 @@ internal class MeasureContext(
                     Constraints.Infinity
                 } else {
                     density.widthPxRoundedUp(width)
+                }
+                // A word wider than the line that CSS keeps whole: the lines are fitted as CSS
+                // fits them, and the answer is as wide as the widest, the word included.
+                val kept = keepWordsWhole(resolved, maxWidth, density, fontFamilyResolver)
+                if (kept != null) {
+                    val laid = layout(kept.resolved, kept.layoutWidth, density)
+                    return described(laid, width = laid.multiParagraph.intrinsics.maxIntrinsicWidth / density.density, density)
                 }
                 val laid = layout(resolved, maxWidth, density)
                 // The width before Compose rounds it up to whole pixels: an HTML layout adds

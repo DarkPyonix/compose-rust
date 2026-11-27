@@ -233,3 +233,20 @@ internal fun CacheDrawScope.blurredShadow(
  * is nothing to blur.
  */
 private fun composeBlurRadius(sigma: Float): Float = kotlin.math.max(0f, (sigma - 0.5f) / 0.57735f)
+
+/**
+ * Where a line of [text] may end, as offsets after 0 in increasing order, the end of the
+ * text last: ICU's opportunities, which are the ones Android's line breaker breaks at.
+ */
+internal fun lineBreakOpportunities(text: String): IntArray {
+    if (text.isEmpty()) return IntArray(0)
+    val breaks = android.icu.text.BreakIterator.getLineInstance()
+    breaks.setText(text)
+    val out = ArrayList<Int>()
+    var at = breaks.next()
+    while (at != android.icu.text.BreakIterator.DONE) {
+        if (at > 0) out += at
+        at = breaks.next()
+    }
+    return out.toIntArray()
+}

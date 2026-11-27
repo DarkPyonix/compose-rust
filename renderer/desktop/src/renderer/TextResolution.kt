@@ -56,6 +56,7 @@ import dev.darkpyonix.composerust.ui.node.PendingFace
 import dev.darkpyonix.composerust.ui.node.fontTracking
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
+import dev.darkpyonix.composerust.ui.node.lineBreakOpportunities
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
@@ -151,6 +152,12 @@ internal class ResolvedText(
     val runFeaturesProblem: String? = null,
     /** Which fonts the text named and is not set in, or null where it is set in all it named. */
     val ignoredFonts: String? = null,
+    /**
+     * Whether a word wider than its line stays whole and overflows the line, as CSS keeps it
+     * with `overflow-wrap: normal` and a `word-break` other than `break-all`. Where false, the
+     * word is broken where the line ends, which is what Compose does by itself.
+     */
+    val keepWords: Boolean = false,
 )
 
 /**
@@ -286,6 +293,7 @@ internal fun resolveText(
         problems = problems,
         ignoredFonts = ignoredFontsProblem(input),
         runFeaturesProblem = badRunFeatures,
+        keepWords = input.softWrap && input.overflowWrap == OverflowWrap.Normal && mode != BreakMode.BreakAll,
     )
 }
 
@@ -558,7 +566,7 @@ internal fun spokenText(laidOut: AnnotatedString, original: String): AnnotatedSt
         val char = laidOut[index]
         if (next < original.length && char == original[next]) {
             next++
-        } else if (char == WORD_JOINER || char == ZERO_WIDTH_SPACE) {
+        } else if (char == WORD_JOINER || char == ZERO_WIDTH_SPACE || char == LINE_SEPARATOR) {
             if (keptFrom < index) out.append(laidOut.subSequence(keptFrom, index))
             keptFrom = index + 1
         } else {
@@ -568,6 +576,128 @@ internal fun spokenText(laidOut: AnnotatedString, original: String): AnnotatedSt
     }
     if (keptFrom < laidOut.length) out.append(laidOut.subSequence(keptFrom, laidOut.length))
     return out.toAnnotatedString()
+}
+
+/** Ends a line where [keepWordsWhole] fitted one. */
+private const val LINE_SEPARATOR = '\u2028'
+
+/** A text whose lines [keepWordsWhole] fitted, and the width to lay it out at. */
+internal class KeptWords(
+    /** The text with a line separator at the end of every line that does not end by itself. */
+    val resolved: ResolvedText,
+    /** The width, in pixels, every line fits: the line's own width, or the widest word's. */
+    val layoutWidth: Int,
+)
+
+/**
+ * The lines of [resolved] at [maxWidth] pixels, set the way CSS sets them where a word wider
+ * than its line is not broken inside: each line takes every word that fits, and a word wider
+ * than the line has a line of its own and overflows it. Null where that is what laying the
+ * text out at [maxWidth] does anyway, which is whenever its widest word fits.
+ *
+ * Laid out at [maxWidth], Compose would break the wide word where the line ends. Laid out at
+ * the wide word's width, the other lines would take more words than fit. So the lines are
+ * fitted here, at the line breaker's own opportunities and with the widths of an unbroken
+ * layout, and each one is ended with a line separator; laid out at [KeptWords.layoutWidth]
+ * the text then breaks exactly there. The separators steer the layout only: [spokenText]
+ * leaves them out, as it does the joiners [breakText] puts in.
+ *
+ * Text with right to left letters is left to Compose: the widths here are read along one
+ * direction.
+ */
+internal fun keepWordsWhole(
+    resolved: ResolvedText,
+    maxWidth: Int,
+    density: Density,
+    fontFamilyResolver: FontFamily.Resolver,
+): KeptWords? {
+    if (!resolved.keepWords || maxWidth == Constraints.Infinity) return null
+    val string = resolved.text.text
+    val intrinsics = MultiParagraphIntrinsics(resolved.text, resolved.style, resolved.placeholders, density, fontFamilyResolver)
+    if (intrinsics.minIntrinsicWidth <= maxWidth || string.any(::rightToLeft)) return null
+    val unbroken = MultiParagraph(
+        intrinsics,
+        Constraints.fitPrioritizingWidth(0, ceil(intrinsics.maxIntrinsicWidth).toInt() + 1, 0, Constraints.Infinity),
+    )
+    fun x(offset: Int): Float = unbroken.getHorizontalPosition(offset, usePrimaryDirection = true)
+    // How wide a line from [from] to [to] is: the spaces it ends with hang past its end.
+    fun width(from: Int, to: Int): Float {
+        var end = to
+        while (end > from && string[end - 1].isWhitespace()) end--
+        return if (end == from) 0f else kotlin.math.abs(x(end) - x(from))
+    }
+    val breaks = ArrayList<Int>()
+    var widest = intrinsics.minIntrinsicWidth
+    var start = 0
+    // The farthest opportunity the line from [start] reaches within [maxWidth], or -1.
+    var fits = -1
+    val ends = lineBreakOpportunities(string)
+    var index = 0
+    while (index < ends.size) {
+        val end = ends[index]
+        val ended = string[end - 1].let { it == '\n' || it == '\r' || it == LINE_SEPARATOR || it == '\u2029' }
+        val wide = width(start, end)
+        when {
+            wide <= maxWidth -> {
+                if (ended) { start = end; fits = -1 } else fits = end
+                index++
+            }
+            fits > start -> {
+                breaks += fits
+                start = fits
+                fits = -1
+            }
+            else -> {
+                // A word wider than the line: alone on it, and whole.
+                widest = maxOf(widest, wide)
+                if (!ended && end < string.length) breaks += end
+                start = end
+                fits = -1
+                index++
+            }
+        }
+    }
+    val fitted = if (breaks.isEmpty()) {
+        resolved
+    } else {
+        val text = AnnotatedString.Builder(string.length + breaks.size).run {
+            var from = 0
+            for (at in breaks) {
+                append(resolved.text.subSequence(from, at))
+                append(LINE_SEPARATOR)
+                from = at
+            }
+            append(resolved.text.subSequence(from, string.length))
+            toAnnotatedString()
+        }
+        // An offset of the text moves by the separators put in before it.
+        fun moved(offset: Int, upTo: Boolean): Int = offset + breaks.count { if (upTo) it < offset else it <= offset }
+        ResolvedText(
+            text = text,
+            style = resolved.style,
+            softWrap = resolved.softWrap,
+            maxLines = resolved.maxLines,
+            overflow = resolved.overflow,
+            placeholders = resolved.placeholders.map {
+                AnnotatedString.Range(it.item, moved(it.start, upTo = false), moved(it.end, upTo = true))
+            },
+            inlineContent = resolved.inlineContent,
+            minContentText = resolved.minContentText,
+            minContentPlaceholders = resolved.minContentPlaceholders,
+            runsProblem = resolved.runsProblem,
+            problems = resolved.problems,
+            runFeaturesProblem = resolved.runFeaturesProblem,
+            ignoredFonts = resolved.ignoredFonts,
+            keepWords = true,
+        )
+    }
+    return KeptWords(fitted, maxOf(maxWidth, ceil(widest).toInt()))
+}
+
+/** A letter of a script written right to left: Hebrew, Arabic, Syriac, Thaana and their forms. */
+private fun rightToLeft(char: Char): Boolean {
+    val code = char.code
+    return code in 0x0590..0x08FF || code in 0xFB1D..0xFDFF || code in 0xFE70..0xFEFF
 }
 
 internal fun breakText(text: String, mode: BreakMode): BrokenText {
