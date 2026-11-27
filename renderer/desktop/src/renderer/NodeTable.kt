@@ -1713,6 +1713,9 @@ class NodeTable {
             when (property) {
                 // The name assistive technology reads can be given to any node.
                 PropertyKind.AccessibleName -> true
+                // The option a combobox points at goes on whichever node declared the
+                // combobox role, and that role can be declared on any node.
+                PropertyKind.ActiveDescendant -> true
 
                 // Colours and size of the selection controls.
                 PropertyKind.TrackColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider || widget == WidgetKind.ProgressIndicator
@@ -2216,6 +2219,14 @@ class NodeTable {
                 // Whether a bar across the top of a screen draws the design system's
                 // hairline separator underneath.
                 PropertyKind.Separator -> widget == WidgetKind.TopAppBar
+
+                // The text a menu entry shows for the key that does the same thing. Only a
+                // button can be a menu item.
+                PropertyKind.ShortcutLabel -> widget == WidgetKind.Button
+
+                // The mark that makes a node a menu entry: a button is an item, a menu is a
+                // submenu named by its first child.
+                PropertyKind.MenuEntry -> widget == WidgetKind.Button || widget == WidgetKind.Menu
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
