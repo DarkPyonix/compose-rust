@@ -64,6 +64,9 @@ fn handle(payload: &EventPayload<'_>) {
         EventPayload::CodeEditGroupResult { .. } => {}
         EventPayload::NativeViewParent { .. } => {}
         EventPayload::NativeViewFocus { .. } => {}
+        EventPayload::TextFormatAtSelection(_) => {}
+        EventPayload::RichTextChanged { .. } => {}
+        EventPayload::AssetWanted { .. } => {}
     }
 }
 

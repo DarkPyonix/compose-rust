@@ -534,7 +534,8 @@ internal fun NodeTable.gathersIntoCapsule(childId: Int): Boolean {
     return when (child.widget) {
         WidgetKind.Button -> when (child.variant()) {
             ButtonVariant.Text, ButtonVariant.Tonal, ButtonVariant.Outlined -> true
-            ButtonVariant.Filled, ButtonVariant.Operator -> false
+            ButtonVariant.Filled, ButtonVariant.Operator,
+            ButtonVariant.Neutral, ButtonVariant.NeutralSecondary -> false
         }
         WidgetKind.Menu -> true
         else -> false

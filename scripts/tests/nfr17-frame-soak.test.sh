@@ -86,6 +86,19 @@ else
     grep -q '^FAIL ' <<<"$out" || fail "checker missing-end failure did not print FAIL: $out"
 fi
 
+# 5b. A soak that failed shows what the application printed, and how it ended.
+printf '#!/usr/bin/env bash\necho "the renderer could not open a window"\nexit 3\n' > "$tmp/crashed-app"
+chmod +x "$tmp/crashed-app"
+DXC_FRAME_SOAK_TIMEOUT=10 "$run_script" "$tmp/crashed-app" "$tmp/crashed" crashed || true
+if out="$("$check_script" "$tmp/crashed/crashed.log" 2.0 2000 2>&1)"; then
+    fail "checker accepted a soak whose application crashed: $out"
+else
+    grep -q 'the renderer could not open a window' <<<"$out" ||
+        fail "checker failure did not show what the application printed: $out"
+    grep -q 'exited with status 3 before phase start' <<<"$out" ||
+        fail "the runner did not record how the application ended: $out"
+fi
+
 # 6. Runner end-to-end with a stub app: samples real host memory and feeds checker.
 cat > "$tmp/fake-app" <<'EOF'
 #!/usr/bin/env bash
@@ -101,6 +114,12 @@ DXC_FRAME_SOAK_TIMEOUT=30 "$run_script" "$tmp/fake-app" "$tmp/out" stub ||
 [[ -f "$tmp/out/stub.log" ]] || fail "frame-soak-run.sh produced no stub.log"
 out="$("$check_script" "$tmp/out/stub.log" 2.0 2000 2>&1)" ||
     fail "checker rejected stub runner output: $out"
+# The application's own lines are kept apart from the phase lines the runner writes. In one
+# file, a Windows application wrote at its own place and overwrote the runner's start line.
+grep -q 'frame-soak: phase start pid=' "$tmp/out/stub.app.log" ||
+    fail "the application's output did not go to stub.app.log"
+! grep -q 'frame-soak: phase start pid=' "$tmp/out/stub.log" ||
+    fail "the application wrote into the runner's phase log"
 
 # 7. Runner supports macOS, Linux and Windows memory sampling.
 grep -Fq 'footprint' "$run_script" || fail "frame-soak-run.sh has no macOS footprint sampler"

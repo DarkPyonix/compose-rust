@@ -19,7 +19,13 @@ timeout_s="${DXC_FRAME_SOAK_TIMEOUT:-300}"
 
 mkdir -p "$out"
 log="$out/$label.log"
+# What the application prints goes to a file of its own. Written into the same file as the
+# phase lines below, a Windows application wrote at its own place in it rather than at the
+# end, and its "phase end" overwrote the start of the "phase start" line written here
+# (train-15 run 45565915308), so a soak that passed read as one with no start.
+app_log="$out/$label.app.log"
 : > "$log"
+: > "$app_log"
 
 sample_memory() {
     local os_pid="$1"
@@ -82,7 +88,7 @@ wait_for_phase() {
     local app_pid="$1" phase="$2" max_tries="$3"
     local line=""
     for _ in $(seq "$max_tries"); do
-        line="$(grep -m1 "frame-soak: phase $phase " "$log" 2>/dev/null || true)"
+        line="$(grep -m1 "frame-soak: phase $phase " "$app_log" 2>/dev/null || true)"
         if [[ -n "$line" ]]; then
             echo "$line"
             return 0
@@ -98,7 +104,7 @@ field_of() {
     sed -nE "s/.* ${key}=([0-9]+).*/\1/p" <<<"$line" | head -1
 }
 
-"$app" "--frame-soak=$frames" >> "$log" 2>&1 &
+"$app" "--frame-soak=$frames" >> "$app_log" 2>&1 &
 app_pid=$!
 
 cleanup() {
@@ -111,12 +117,24 @@ trap cleanup EXIT
 
 max_tries=$(( timeout_s * 5 ))
 
+# Says in the log how the application ended when it went before a phase it was waited for,
+# so a soak that never started reads as the crash it was, not as missing lines.
+note_exit() {
+    local phase="$1" status=0
+    kill -0 "$app_pid" 2>/dev/null && return 0
+    wait "$app_pid" 2>/dev/null || status=$?
+    printf 'compose-rust: frame-soak the application exited with status %s before phase %s\n' \
+        "$status" "$phase" >> "$log"
+}
+
 if start_line="$(wait_for_phase "$app_pid" start "$max_tries")"; then
     os_pid="$(field_of "$start_line" pid)"
     start_frames="$(field_of "$start_line" frames)"
     read -r start_kb start_metric < <(sample_memory "${os_pid:-$app_pid}")
     printf 'compose-rust: frame-soak phase start frames=%s footprint_kb=%s metric=%s\n' \
         "${start_frames:-0}" "${start_kb:-0}" "${start_metric:-unknown}" >> "$log"
+else
+    note_exit start
 fi
 
 if end_line="$(wait_for_phase "$app_pid" end "$max_tries")"; then
@@ -126,6 +144,8 @@ if end_line="$(wait_for_phase "$app_pid" end "$max_tries")"; then
     printf 'compose-rust: frame-soak phase end frames=%s footprint_kb=%s metric=%s\n' \
         "${end_frames:-0}" "${end_kb:-0}" "${end_metric:-unknown}" >> "$log"
     printf 'compose-rust: frame-soak done frames=%s\n' "${end_frames:-0}" >> "$log"
+else
+    note_exit end
 fi
 
 cleanup
