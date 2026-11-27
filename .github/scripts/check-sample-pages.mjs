@@ -374,9 +374,43 @@ async function fr79_todo_list_survives_a_reload_on_the_web() {
     return failures;
 }
 
+async function fr68_web_checkbox_sets_aria_checked_for_each_state() {
+    const label = 'Checkbox aria-checked in owner-checks';
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'en-US' });
+    const page = await context.newPage();
+    const overlay = (role, name) => page.locator(`[role="${role}"][aria-label="${name}"]`);
+    try {
+        await page.goto(`${base}/owner-checks/`, { waitUntil: 'load', timeout: DRAW_TIMEOUT_MS });
+        // Activate the overlay's accessibility action directly. The canvas receives pointer input.
+        await overlay('button', 'Screen reader').dispatchEvent('click', undefined, { timeout: DRAW_TIMEOUT_MS });
+
+        const checkbox = overlay('checkbox', 'Test checkbox');
+        const mixed = overlay('checkbox', 'Test mixed checkbox');
+        await mixed.waitFor({ state: 'attached', timeout: 10_000 });
+        const assertChecked = async (box, expected) => {
+            await box.and(page.locator(`[aria-checked="${expected}"]`)).waitFor({ state: 'attached', timeout: 5_000 });
+        };
+        await assertChecked(checkbox, 'false');
+        await assertChecked(mixed, 'mixed');
+        await checkbox.dispatchEvent('click');
+        await assertChecked(checkbox, 'true');
+
+        console.log(`ok    ${label}`);
+        return [];
+    } catch (error) {
+        console.log(`FAIL  ${label}\n        ${error.message}`);
+        return [label];
+    } finally {
+        await context.close();
+    }
+}
+
 const failures = await fr22_web_every_sample_draws_without_a_page_error();
 if (samples.includes('todo')) {
     failures.push(...(await fr79_todo_list_survives_a_reload_on_the_web()));
+}
+if (samples.includes('owner-checks')) {
+    failures.push(...(await fr68_web_checkbox_sets_aria_checked_for_each_state()));
 }
 await browser.close();
 server.close();
