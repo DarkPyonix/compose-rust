@@ -12,7 +12,7 @@ at the commit `PIN` names, with the git blob id of each file.
 | `templates/app.metainfo.xml.in` | packager-linux |
 | `templates/flatpak-manifest.json.in` | packager-linux (Flathub manifest) |
 | `templates/AppxManifest.xml.in` | packager-windows (`.msix`) |
-| `templates/application.manifest.in` | the Windows application manifest |
+| `templates/application.manifest.in` | the manifest every Windows executable built on the crate carries; `compose-rust/build/application.manifest` is a byte-for-byte copy, because the published crate cannot read this directory |
 | `metadata-map.md` | what each `{{placeholder}}` is and its default |
 
 A packager renders the template text first (each value escaped for its format, then put in
