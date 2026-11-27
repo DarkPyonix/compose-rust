@@ -118,6 +118,10 @@ A layout container and `Window!` take `on_back_requested`. Its handler hears And
 
 On the wire this is the event `BackRequested` (tag 70, 20 bytes: the header and a `BackSource` word) and the handler property `OnBackRequested` (tag 223). The schema hash changes, so a renderer and a crate from before this change no longer agree.
 
+### A bottom sheet rests at a medium and a large height, and a pull need not close it
+
+`Sheet!` takes `detents` and `drag_to_dismiss`. `detents = SheetDetents::MEDIUM | SheetDetents::LARGE` opens a bottom sheet at half the window; pulling it up opens it out to the window's height less the top safe area and the design system's margin, and pulling it down brings it back to half. One of the two alone is that one height. Which height the sheet is at is the renderer's state and is never reported. `drag_to_dismiss = false` stops a pull at the lowest resting height and sends no dismissal for it, so a sheet holding unsaved input is not closed by a stray drag; Escape, the platform's back and a press outside still call `on_dismiss`. A centered sheet and one that comes from the side take neither. They travel as the properties `SheetDetents` (tag 224, the bits of the set) and `SheetDragToDismiss` (tag 225, a boolean), each sent only when it differs from the default, so a sheet that sets neither writes what it did before. Bits that name no height are a protocol error. The schema hash changes.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

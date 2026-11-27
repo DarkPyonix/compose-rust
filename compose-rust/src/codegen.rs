@@ -4714,6 +4714,21 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::OnBackRequested,
             value: PropertyValue::Integer(302),
         },
+        // A sheet that rests at both heights and is not closed by a pull.
+        Mutation::Create {
+            node_id: 27,
+            widget: WidgetKind::Sheet,
+        },
+        Mutation::SetProp {
+            node_id: 27,
+            property: PropertyKind::SheetDetents,
+            value: PropertyValue::Integer(3),
+        },
+        Mutation::SetProp {
+            node_id: 27,
+            property: PropertyKind::SheetDragToDismiss,
+            value: PropertyValue::Bool(false),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -5280,7 +5295,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 161,
+    "recordCount": 164,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
