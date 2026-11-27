@@ -1,6 +1,9 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
@@ -301,6 +304,118 @@ class LazyFontTest {
     }
 
     /** Whether the missing glyph face made for `똠` alone maps [codePoint], read from its own `cmap`. */
+    /** A theme with only the code role set in [font]: what an application with a lazy monospace face sends. */
+    private fun monoIn(font: Int) = Mutation.SetTheme(
+        Theme(
+            DesignSystem.Material3,
+            DesignSystem.Material3,
+            ColorScheme.Light,
+            adaptive = false,
+            fonts = TypeRole.entries.map { if (it == TypeRole.Mono) font else 0 },
+        ),
+    )
+
+    private fun inRole(role: TypeRole, value: String) =
+        Triple(WidgetKind.Text, value, listOf(PropertyKind.TypeRole to PropertyValue.Integer(role.ordinal + 1L), size))
+
+    /** Whether the window's picture is one colour: nothing drawn on it, or nothing new. */
+    private fun ComposeUiTest.blank(): Boolean {
+        val pixels = onRoot().captureToImage().toPixelMap()
+        val first = pixels[0, 0]
+        for (x in 0 until pixels.width) for (y in 0 until pixels.height) if (pixels[x, y] != first) return false
+        return true
+    }
+
+    /**
+     * FR-48.4 criterion 7: a theme whose code role is a stack of faces the Host keeps asks for
+     * nothing while no text is in that role, and for the face once one is.
+     */
+    @Test
+    fun fr48_4_a_lazy_theme_font_is_asked_for_only_when_its_role_is_drawn() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            screen(
+                inRole(TypeRole.Body, "가"),
+                before = listOf(register(STACK, lazyStack(true to listOf(FULL))), monoIn(STACK)),
+            ),
+        )
+        val host = startHost(connection, Density(1f))
+        assertEquals(emptyList(), connection.wanted(), "a screen with no code text asked for the code face")
+
+        deliver(
+            host,
+            connection,
+            Mutation.Create(FIRST + 1, WidgetKind.Text),
+            Mutation.SetProp(FIRST + 1, PropertyKind.Text, PropertyValue.Text("똠")),
+            Mutation.SetProp(FIRST + 1, PropertyKind.TypeRole, PropertyValue.Integer(TypeRole.Mono.ordinal + 1L)),
+            Mutation.Insert(COLUMN, FIRST + 1, 1),
+        )
+        waitForIdle()
+        assertEquals(listOf(HostEvent.AssetWanted(0, 0L, FULL)), connection.wanted())
+    }
+
+    /**
+     * FR-48.4 criterion 8: the first picture of a text whose font has no face yet is not
+     * drawn with boxes; the window waits, and draws the text in its font once the bytes come.
+     */
+    @Test
+    fun fr48_4_a_text_with_no_face_holds_the_frame_until_its_font_arrives() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val connection = FakeHostConnection(
+            screen(
+                inRole(TypeRole.Mono, "똠똠"),
+                before = listOf(register(STACK, lazyStack(true to listOf(FULL))), monoIn(STACK)),
+            ),
+        )
+        val host = startHost(connection, Density(1f))
+        repeat(3) { mainClock.advanceTimeByFrame() }
+        assertTrue(host.table.assets.holdingFrame, "the window is not waiting for the face")
+        assertTrue(blank(), "boxes were drawn while the face was on its way")
+
+        deliver(host, connection, register(FULL, full))
+        repeat(2) { mainClock.advanceTimeByFrame() }
+        assertTrue(!host.table.assets.holdingFrame, "still waiting after the face arrived")
+        assertTrue(!blank(), "the text was not drawn once its face arrived")
+        assertWidth(2 * em(FULL_ADVANCE), drawnLayout(FIRST), 2, "the code text in its own face")
+    }
+
+    /** FR-48.4 criterion 9: a face that never comes holds the window for 300 ms at most. */
+    @Test
+    fun fr48_4_a_font_that_never_arrives_holds_the_frame_at_most_300_ms() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val connection = FakeHostConnection(
+            screen(
+                inRole(TypeRole.Mono, "똠"),
+                before = listOf(register(STACK, lazyStack(true to listOf(FULL))), monoIn(STACK)),
+            ),
+        )
+        val host = startHost(connection, Density(1f))
+        repeat(3) { mainClock.advanceTimeByFrame() }
+        assertTrue(host.table.assets.holdingFrame)
+        mainClock.advanceTimeBy(dev.darkpyonix.composerust.runtime.FONT_HOLD_MILLIS - 100)
+        assertTrue(host.table.assets.holdingFrame, "the wait ended before its time")
+        mainClock.advanceTimeBy(150)
+        repeat(2) { mainClock.advanceTimeByFrame() }
+        assertTrue(!host.table.assets.holdingFrame, "the window waited past 300 ms")
+        assertTrue(!blank(), "the missing glyph was not drawn after the wait")
+    }
+
+    /** FR-48.4 criterion 10: a stack whose first family is here never holds the window. */
+    @Test
+    fun fr48_4_a_loaded_first_family_never_holds_the_frame() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val connection = FakeHostConnection(
+            screen(
+                inRole(TypeRole.Mono, "가똠"),
+                before = listOf(register(STACK, lazyStack(false to listOf(SUBSET), true to listOf(FULL))), monoIn(STACK)),
+            ),
+        )
+        val host = startHost(connection, Density(1f))
+        repeat(3) { mainClock.advanceTimeByFrame() }
+        assertEquals(listOf(HostEvent.AssetWanted(0, 0L, FULL)), connection.wanted())
+        assertTrue(!host.table.assets.holdingFrame, "a text with a face to draw in held the window")
+        assertTrue(!blank(), "the subset's letter was not drawn")
+    }
+
     private fun missingFaceHas(codePoint: Int): Boolean {
         val bytes = dev.darkpyonix.composerust.ui.node.missingGlyphFont(intArrayOf(HANGUL_TTOM))
         return assertNotNull(parseCmapRanges(bytes)).contains(codePoint)
