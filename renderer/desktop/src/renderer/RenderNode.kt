@@ -370,6 +370,7 @@ fun RenderNode(
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
             onFocusAction = { table.requestNodeFocus(nodeId) },
+            platform = theme.platform,
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
