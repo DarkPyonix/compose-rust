@@ -1036,7 +1036,7 @@ fn bar_menu(
             }
             // Clearing throws work away, so it says so and offers the way back.
             let close = open;
-            Button!(
+            MenuItem!(
                 "Clear completed",
                 move || {
                     close.set(false);
@@ -1053,16 +1053,14 @@ fn bar_menu(
                         .with_duration(MessageDuration::Long)
                         .show();
                 },
-                variant = ButtonVariant::Text,
-                modifier = Modifier.fill_max_width(),
-                color = Paint::Role(ColorRole::Error),
-                enabled = completed_here > 0
+                enabled = completed_here > 0,
+                color = Paint::Role(ColorRole::Error)
             );
             if let View::List(id) = current {
                 // A list is a place to keep tasks, not the tasks themselves: deleting one
                 // keeps its tasks, under All.
                 let close = open;
-                Button!(
+                MenuItem!(
                     "Delete list",
                     move || {
                         close.set(false);
@@ -1088,20 +1086,16 @@ fn bar_menu(
                         .with_duration(MessageDuration::Long)
                         .show();
                     },
-                    variant = ButtonVariant::Text,
-                    modifier = Modifier.fill_max_width(),
                     color = Paint::Role(ColorRole::Error)
                 );
             }
             let (close, about) = (open, about_open);
-            Button!(
+            MenuItem!(
                 ABOUT_LABEL,
                 move || {
                     close.set(false);
                     about.set(true);
-                },
-                variant = ButtonVariant::Text,
-                modifier = Modifier.fill_max_width()
+                }
             );
         }
     );
@@ -1350,18 +1344,16 @@ fn menu_entries(
 ) {
     let id = task.id;
     let (close, draft, edit) = (*menu_open, *edit_draft, *editing);
-    Button!(
+    MenuItem!(
         "Edit",
         move || {
             close.set(None);
             draft.set(String::new());
             edit.set(Some(id));
-        },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width()
+        }
     );
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button!(
+    MenuItem!(
         "Move up",
         move || {
             close.set(None);
@@ -1369,12 +1361,10 @@ fn menu_entries(
                 swap(index, above);
             }
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         enabled = previous.is_some()
     );
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
-    Button!(
+    MenuItem!(
         "Move down",
         move || {
             close.set(None);
@@ -1382,14 +1372,12 @@ fn menu_entries(
                 swap(index, below);
             }
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         enabled = next.is_some()
     );
     // Deleting throws work away without asking, so it says what it did and offers the
     // task back.
     let (close, data) = (*menu_open, *data);
-    Button!(
+    MenuItem!(
         "Delete",
         move || {
             close.set(None);
@@ -1407,8 +1395,6 @@ fn menu_entries(
                 .with_duration(MessageDuration::Long)
                 .show();
         },
-        variant = ButtonVariant::Text,
-        modifier = Modifier.fill_max_width(),
         color = Paint::Role(ColorRole::Error)
     );
 }
