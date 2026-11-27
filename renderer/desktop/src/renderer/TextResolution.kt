@@ -543,6 +543,33 @@ internal class BrokenText(val text: String, private val map: IntArray?) {
     }
 }
 
+/**
+ * [laidOut] without the characters [breakText] put in to steer line breaking, its spans kept:
+ * what a reader is told and what a test finds by name. [original] is the string the Host sent.
+ * A character of [laidOut] that is not the next one of [original] was put in, and only one of
+ * the two invisible characters ever is.
+ */
+internal fun spokenText(laidOut: AnnotatedString, original: String): AnnotatedString {
+    if (laidOut.text == original) return laidOut
+    val out = AnnotatedString.Builder(laidOut.length)
+    var next = 0
+    var keptFrom = 0
+    for (index in laidOut.indices) {
+        val char = laidOut[index]
+        if (next < original.length && char == original[next]) {
+            next++
+        } else if (char == WORD_JOINER || char == ZERO_WIDTH_SPACE) {
+            if (keptFrom < index) out.append(laidOut.subSequence(keptFrom, index))
+            keptFrom = index + 1
+        } else {
+            // Something else changed the string (an inline placeholder); say it as laid out.
+            return laidOut
+        }
+    }
+    if (keptFrom < laidOut.length) out.append(laidOut.subSequence(keptFrom, laidOut.length))
+    return out.toAnnotatedString()
+}
+
 internal fun breakText(text: String, mode: BreakMode): BrokenText {
     if (mode == BreakMode.Normal || text.length < 2) return BrokenText(text, null)
     val out = StringBuilder(text.length + text.length / 2)
