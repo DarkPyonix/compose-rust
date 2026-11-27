@@ -4776,6 +4776,11 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
       3. 세 역할의 노드가 역할 이름을 담은 상태 설명을 갖고, `ListBox`는 자식 수를 담은 컬렉션 정보를 냅니다(`fr71_combobox_listbox_and_option_reach_the_accessibility_node`). macOS 창의 역할 매핑은 `fr71_platform_role_every_role_compose_cannot_name_has_the_platforms_own`이 확인합니다.
       4. `ActiveDescendant`가 가리키는 선택지의 이름이 콤보박스의 상태 설명 끝에 붙고 편집할 수 없는 콤보박스에서는 GraalVM macOS 창의 값으로 나가며, 선택지가 바뀌면 따라 바뀌고, 없는 id는 아무것도 붙이지 않습니다(`fr71_active_descendant_names_the_active_option`).
     - 사람 손으로 확인하는 항목: 콤보박스에 포커스를 둔 채 화살표로 가리키는 선택지를 바꾸면 VoiceOver(macOS, iOS), TalkBack, Narrator가 새 선택지의 이름을 읽는지 확인합니다.
+11. [leader 승인] (darkpyonix leader, 2026-11-27, #1092, #1093) **창이 플랫폼에 넘기는 요소의 네 규칙.** Ember 편집기 창의 macOS 실측(darkpyonix-ember#302)에서 나온 것으로, 데스크톱 창 세 곳(macOS, Windows, Linux)이 같은 요소 목록(`AppKitAccessibility.kt`의 `describe`)을 읽으므로 모두에 적용된다.
+    - **선언한 역할이 먼저.** Host가 `Semantics`로 선언한 역할(플랫폼 역할이 있는 `TreeItem`, `TabList` 등과 `Tab`)은 눌리는 컨테이너가 Compose에서 얻는 `Button` 역할보다 앞선다. 눌리는 트리 행은 아웃라인 행(`AXRow`/`AXOutlineRow`), 눌리는 탭은 탭(`AXRadioButton`/`AXTabButton`)이고, 역할과 펼침 상태는 값 텍스트가 아니라 플랫폼의 속성으로 나간다(fr71_a_pressable_tree_row_is_a_row_of_the_outline_not_a_button, fr71_a_pressable_tab_is_a_tab_not_a_button).
+    - **편집 칸은 내용으로 이름 붙지 않는다.** 편집 가능한 노드의 이름은 접근성 이름(내용 설명)뿐이고, 입력된 글은 값이다. 코드 편집기와 여러 줄 `TextField`는 여러 줄(`AccessibleState.MULTI_LINE`, macOS `AXTextArea`)이다(fr71_a_code_editor_is_a_text_area_not_named_by_its_document, fr71_a_multi_line_text_field_is_a_text_area_and_a_one_line_one_is_not).
+    - **이름 있는 영역은 그룹.** 자기 이름 말고 아무 역할이 없는 노드가 남겨진 요소를 품으면 텍스트가 아니라 그룹이다. 품은 것이 없으면 텍스트 그대로다(fr71_a_named_region_holding_controls_is_a_group_not_text).
+    - **같은 이름의 버튼은 하나.** 버튼 안의 버튼이 같은 이름이면 안쪽 것을 바깥 것에 합치고, 안쪽의 자식은 바깥 버튼의 자식이 된다. 이름이 다르면 따로 남는다(fr71_a_button_holding_a_button_of_the_same_name_is_one_button).
 
 ### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 

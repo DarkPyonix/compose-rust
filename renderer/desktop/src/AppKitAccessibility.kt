@@ -18,6 +18,7 @@ import dev.darkpyonix.composerust.ui.DeclaredActiveOption
 import dev.darkpyonix.composerust.ui.DeclaredExpanded
 import dev.darkpyonix.composerust.ui.DeclaredHasPopup
 import dev.darkpyonix.composerust.ui.DeclaredRole
+import dev.darkpyonix.composerust.ui.MultiLineText
 import dev.darkpyonix.composerust.ui.declaredStateDescription
 import org.thisisthepy.compose.window.AccessibleAction
 import org.thisisthepy.compose.window.AccessibleElement
@@ -45,9 +46,12 @@ import org.thisisthepy.compose.window.ElementRole
  * every element carries its id, its parent, its states, the actions it answers and the value
  * it is told as.
  */
-internal fun SemanticsOwner.describe(density: Float): List<AccessibleElement> {
+internal fun SemanticsOwner.describe(density: Float): List<AccessibleElement> = rootSemanticsNode.describeSubtree(density)
+
+/** What [describe] hands the platform for this node and everything below it. */
+internal fun SemanticsNode.describeSubtree(density: Float): List<AccessibleElement> {
     val found = ArrayList<AccessibleElement>()
-    describeTree(rootSemanticsNode, -1, density, found)
+    describeTree(this, null, density, found)
     return found
 }
 
@@ -87,12 +91,38 @@ internal fun expandedStates(expanded: Boolean?, hasPopup: Boolean = false): Int 
     true -> AccessibleState.EXPANDABLE or AccessibleState.EXPANDED
 }
 
-private fun describeTree(node: SemanticsNode, parentId: Int, density: Float, into: MutableList<AccessibleElement>) {
-    val element = node.describe(parentId, density)
+/**
+ * Describes [node] and everything below it into [into]. [parent] is the nearest ancestor that
+ * was kept, or null at the top.
+ *
+ * Two corrections need the tree around a node, not the node alone. A node named only by its
+ * own label is read as text, but one that holds controls is a region a reader walks into, so it
+ * is a group. And a button whose content is a pressable piece with the same name is one button
+ * to a reader: the inner one is folded into it, and its children become the outer one's.
+ */
+private fun describeTree(
+    node: SemanticsNode,
+    parent: AccessibleElement?,
+    density: Float,
+    into: MutableList<AccessibleElement>,
+) {
+    val parentId = parent?.id ?: -1
+    var element = node.describe(parentId, density)
+    if (element != null && parent != null && element.isRepeatOf(parent)) element = null
+    val at = into.size
     if (element != null) into += element
-    val childParent = element?.id ?: parentId
-    for (child in node.children) describeTree(child, childParent, density, into)
+    for (child in node.children) describeTree(child, element ?: parent, density, into)
+    if (element != null && element.role == ElementRole.TEXT && into.size > at + 1 &&
+        node.config.getOrNull(SemanticsProperties.Text) == null
+    ) {
+        into[at] = element.copy(role = ElementRole.GROUP)
+    }
 }
+
+/** Whether this button only repeats the button around it: the same name, pressed the same way. */
+private fun AccessibleElement.isRepeatOf(parent: AccessibleElement): Boolean =
+    role == ElementRole.BUTTON && parent.role == ElementRole.BUTTON &&
+        label.isNotEmpty() && label == parent.label
 
 /**
  * What one node tells a reader, or null for a node with nothing to say. [parentId] is the
@@ -111,7 +141,8 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
             ?.filter { it.isNotEmpty() }
             ?.joinToString(" ")
             ?.takeIf { it.isNotEmpty() }
-        ?: editable?.text
+    // A field is named by its label, never by what is typed in it: a code editor read out by
+    // its whole document is a reader's worst case. What it holds is its value.
     val composeRole = config.getOrNull(SemanticsProperties.Role)
     val toggle = config.getOrNull(SemanticsProperties.ToggleableState)
     val range = config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)
@@ -125,7 +156,11 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     // A role the Host declared is what the node is, even with nothing to read out: an empty
     // menu is still a menu, and a reader moving through the window has to be told so.
     val platformRole = declaredRole?.elementRole()
+    // What the Host declared comes before what a widget implies: a pressable container is a
+    // button to Compose, but a tree row or a tab the Host made pressable is still that.
     val role = when {
+        platformRole != null -> platformRole
+        declaredRole == SemanticsRole.Tab -> ElementRole.TAB
         composeRole == Role.Button -> ElementRole.BUTTON
         composeRole == Role.Checkbox -> ElementRole.CHECKBOX
         composeRole == Role.Switch -> ElementRole.SWITCH
@@ -133,7 +168,6 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
         composeRole == Role.Tab -> ElementRole.TAB
         composeRole == Role.Image -> ElementRole.IMAGE
         composeRole == Role.DropdownList -> ElementRole.COMBO_BOX
-        platformRole != null -> platformRole
         editable != null -> ElementRole.FIELD
         range != null -> if (canSetProgress) ElementRole.SLIDER else ElementRole.PROGRESS
         toggle != null -> ElementRole.CHECKBOX
@@ -166,6 +200,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     if (editable != null) {
         states = states or if (canSetText) AccessibleState.EDITABLE else AccessibleState.READ_ONLY
         if (password) states = states or AccessibleState.PASSWORD
+        if (config.getOrNull(MultiLineText) == true) states = states or AccessibleState.MULTI_LINE
     }
 
     var actions = 0
