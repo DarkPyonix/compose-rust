@@ -1090,13 +1090,10 @@ fn bar_menu(
                 );
             }
             let (close, about) = (open, about_open);
-            MenuItem!(
-                ABOUT_LABEL,
-                move || {
-                    close.set(false);
-                    about.set(true);
-                }
-            );
+            MenuItem!(ABOUT_LABEL, move || {
+                close.set(false);
+                about.set(true);
+            });
         }
     );
 }
@@ -1344,14 +1341,11 @@ fn menu_entries(
 ) {
     let id = task.id;
     let (close, draft, edit) = (*menu_open, *edit_draft, *editing);
-    MenuItem!(
-        "Edit",
-        move || {
-            close.set(None);
-            draft.set(String::new());
-            edit.set(Some(id));
-        }
-    );
+    MenuItem!("Edit", move || {
+        close.set(None);
+        draft.set(String::new());
+        edit.set(Some(id));
+    });
     let (close, swap) = (*menu_open, Rc::clone(swap_tasks));
     MenuItem!(
         "Move up",

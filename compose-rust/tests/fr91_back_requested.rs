@@ -91,7 +91,10 @@ fn fr91_back_requested_round_trips() {
     // The vector's record, byte for byte, and nothing after it that this test knows of.
     let vector = back(1, 302, BackSource::EdgeSwipe);
     assert!(EVENTS.len() >= BACK_AT + BACK_LEN);
-    assert_eq!(decode_event(&EVENTS[BACK_AT..BACK_AT + BACK_LEN]), Ok(vector.clone()));
+    assert_eq!(
+        decode_event(&EVENTS[BACK_AT..BACK_AT + BACK_LEN]),
+        Ok(vector.clone())
+    );
     let mut encoded = Vec::new();
     encode_event(&vector, &mut encoded).unwrap();
     assert_eq!(encoded, &EVENTS[BACK_AT..BACK_AT + BACK_LEN]);
@@ -135,16 +138,25 @@ fn fr91_on_back_requested_travels_as_a_handler_property() {
             Row!();
         });
     });
-    assert_eq!(tree.handled("Column", PropertyKind::OnBackRequested).len(), 1);
+    assert_eq!(
+        tree.handled("Column", PropertyKind::OnBackRequested).len(),
+        1
+    );
     assert_eq!(tree.handled("Box", PropertyKind::OnBackRequested).len(), 1);
-    assert!(tree.handled("Row", PropertyKind::OnBackRequested).is_empty());
+    assert!(
+        tree.handled("Row", PropertyKind::OnBackRequested)
+            .is_empty()
+    );
 
     let (_host, tree) = start(|| {
         Window!(|| {}, on_back_requested = Some(|_: BackRequested| {}), {
             Text!("page");
         });
     });
-    assert_eq!(tree.handled("Window", PropertyKind::OnBackRequested).len(), 1);
+    assert_eq!(
+        tree.handled("Window", PropertyKind::OnBackRequested).len(),
+        1
+    );
 }
 
 /// The handler is given the source, and what it does with `consume` is the call's result:

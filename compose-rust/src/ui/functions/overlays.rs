@@ -2,8 +2,7 @@
 
 use super::{set, set_some};
 use crate::schema::{
-    Alignment, NativeHandle, Paint, PopoverAlign, PopoverPlacement, SheetDetents,
-    SheetPresentation,
+    Alignment, NativeHandle, Paint, PopoverAlign, PopoverPlacement, SheetDetents, SheetPresentation,
 };
 use crate::ui::Modifier;
 use crate::{FileDrop, MotionFinished};
