@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import dev.darkpyonix.composerust.foundation.ChromeInsets
 import dev.darkpyonix.composerust.foundation.MessageQueue
 import dev.darkpyonix.composerust.foundation.ScrollPort
@@ -243,6 +244,9 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     fun bytes(kind: PropertyKind): ByteArray? = (props[kind] as? PropertyValue.Bytes)?.value
 }
 
+/** One node that hears a request to go back, and the handler it is sent to. */
+data class BackTarget(val nodeId: Int, val handlerId: Long)
+
 /**
  * A request to move keyboard focus into a platform view ([focus] true) or out of it. The
  * revision makes a second request of the same kind a new one.
@@ -436,6 +440,97 @@ class NodeTable {
     private val nativeHandles = HashMap<Long, Int>()
 
     /**
+     * The nodes that hear a request to go back. Kept beside the tree so that asking whether
+     * a window has one, which a platform back hook does in every composition, is not a walk
+     * of the tree.
+     */
+    private val backNodes = LinkedHashSet<Int>()
+
+    /** Moves whenever [backNodes] or where one of them sits can have changed. */
+    private var backRevision by mutableStateOf(0L)
+
+    /**
+     * Whether a node drawn in the window [windowId] hears a request to go back. Read in
+     * composition, so what follows it is told when the answer changes.
+     */
+    internal fun hearsBack(windowId: Int): Boolean {
+        // The read that subscribes. The set is not snapshot state, and the walk up from
+        // each node is kept out of the reader's subscriptions: every change that can move
+        // the answer moves the revision.
+        val revision = backRevision
+        return Snapshot.withoutReadObservation { revision >= 0L && backNodes.any { hearsBackIn(it, windowId) } }
+    }
+
+    /**
+     * The handlers a request to go back in the window [windowId] is offered to, in order:
+     * the innermost node that has one, then each of its ancestors that has one. Innermost
+     * is deepest in the tree, and among equally deep nodes the one that comes last.
+     */
+    internal fun backChain(windowId: Int): List<BackTarget> {
+        var innermost: Int? = null
+        var innermostPath: List<Int>? = null
+        for (candidate in backNodes) {
+            if (!hearsBackIn(candidate, windowId)) continue
+            val path = pathOf(candidate) ?: continue
+            val best = innermostPath
+            if (best == null || path.size > best.size || (path.size == best.size && comesAfter(path, best))) {
+                innermost = candidate
+                innermostPath = path
+            }
+        }
+        val chain = mutableListOf<BackTarget>()
+        var current = innermost ?: return chain
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val node = nodes[current] ?: break
+            node.handler(PropertyKind.OnBackRequested)?.let { chain += BackTarget(current, it) }
+            current = node.parentId
+        }
+        return chain
+    }
+
+    /**
+     * Whether [nodeId] is in the tree of the window [windowId] and on screen as far as the
+     * tree says: a node under an overlay that is not open is not heard, because nothing of
+     * it is drawn.
+     */
+    private fun hearsBackIn(nodeId: Int, windowId: Int): Boolean {
+        if ((windowOf(nodeId) ?: ROOT_ID) != windowId) return false
+        var current = nodes[nodeId]?.parentId ?: return false
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val ancestor = nodes[current] ?: return false
+            if (ancestor.widget in OVERLAYS && !ancestor.flag(PropertyKind.Open, default = false)) return false
+            current = ancestor.parentId
+        }
+        return true
+    }
+
+    /** Where [nodeId] sits: the index of each node on the way down from the root to it. */
+    private fun pathOf(nodeId: Int): List<Int>? {
+        val path = ArrayList<Int>()
+        var current = nodeId
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val parent = nodes[current]?.parentId ?: return null
+            val index = childrenOf(parent)?.indexOf(current) ?: return null
+            if (index < 0) return null
+            path.add(index)
+            current = parent
+        }
+        path.reverse()
+        return path
+    }
+
+    /** Whether the path [a] comes after [b] in the order the tree is drawn in. */
+    private fun comesAfter(a: List<Int>, b: List<Int>): Boolean {
+        for (index in 0 until minOf(a.size, b.size)) {
+            if (a[index] != b[index]) return a[index] > b[index]
+        }
+        return a.size > b.size
+    }
+
+    /**
      * Increments on each `RequestFocus` for a node that is not a platform view, so a
      * platform view holding keyboard focus gives it back to the scene first.
      */
@@ -560,6 +655,8 @@ class NodeTable {
         windowThemes.clear()
         focusRequests.clear()
         nativeHandles.clear()
+        backNodes.clear()
+        backRevision++
         assets.clear()
         messages.clear()
         theme = null
@@ -1285,6 +1382,12 @@ class NodeTable {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.OnBackRequested) {
+            val changed = if (mutation.value is PropertyValue.Integer) backNodes.add(node.id) else backNodes.remove(node.id)
+            if (changed) backRevision++
+        }
+        // A node under an overlay is heard only while the overlay is open.
+        if (mutation.property == PropertyKind.Open && backNodes.isNotEmpty()) backRevision++
         if (mutation.property == PropertyKind.FontFeatureSettings) {
             node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
                 fontFeatureSettings(bytes) { why ->
@@ -1429,6 +1532,8 @@ class NodeTable {
         }
         siblings.add(position, nodeId)
         nodes[nodeId]?.parentId = parentId
+        // A node that hears back may have moved into or out of a window, or under an overlay.
+        if (backNodes.isNotEmpty()) backRevision++
     }
 
     private fun remove(nodeId: Int) {
@@ -1452,6 +1557,7 @@ class NodeTable {
             }
         }
         node.scroll?.let(scrolls::forget)
+        if (backNodes.remove(nodeId)) backRevision++
         if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1557,6 +1663,26 @@ class NodeTable {
         internal val SCROLL_CONTAINERS: Set<WidgetKind> =
             LAZY_CONTAINERS + setOf(WidgetKind.ScrollColumn, WidgetKind.ScrollRow, WidgetKind.CodeEditor)
 
+        /** The widgets that draw their children only while they are open. */
+        internal val OVERLAYS: Set<WidgetKind> =
+            setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Menu, WidgetKind.Popover)
+
+        /** The widgets that can hear a request to go back: the layout containers and a window. */
+        internal val BACK_LISTENERS: Set<WidgetKind> = setOf(
+            WidgetKind.Column,
+            WidgetKind.Row,
+            WidgetKind.Box,
+            WidgetKind.Card,
+            WidgetKind.Surface,
+            WidgetKind.ScrollColumn,
+            WidgetKind.ScrollRow,
+            WidgetKind.SelectionContainer,
+            WidgetKind.Spacer,
+            WidgetKind.FlowRow,
+            WidgetKind.AbsoluteBox,
+            WidgetKind.Window,
+        )
+
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
                 // The name assistive technology reads can be given to any node.
@@ -1610,6 +1736,10 @@ class NodeTable {
 
                 // The scroll report belongs to the widgets that scroll.
                 PropertyKind.OnScrollChanged -> widget in SCROLL_CONTAINERS
+
+                // A request to go back is heard by the containers a screen is built from,
+                // and by the window they are in.
+                PropertyKind.OnBackRequested -> widget in BACK_LISTENERS
 
                 // Whether a platform view shows, and who hears its focus move.
                 PropertyKind.NativeVisible,

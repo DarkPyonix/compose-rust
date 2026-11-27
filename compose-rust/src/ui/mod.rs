@@ -77,7 +77,7 @@ pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{MotionFinished, OverflowWrap, WordBreak};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
 pub use rich::{RichTextState, remember_rich_text_state};
 pub use text_handle::{TextFieldHandle, use_text_field_handle};

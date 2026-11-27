@@ -92,7 +92,8 @@ pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{
-    FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest, pointer_button,
+    BackRequested, FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest,
+    pointer_button,
 };
 pub use message::{Message, show_message};
 pub use notification::{
@@ -126,6 +127,7 @@ pub use schema::{
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{FormatOp, ListKind, ParagraphRole};
 pub use schema::{MinimapSide, WordWrapMode};
+pub use schema::BackSource;
 pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,

@@ -1834,6 +1834,24 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
 - 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
 
+#### 21.3.4 시트의 멈춤 높이와 끌어서 닫기 (`Agreed`, 이슈 #309, [leader, 2026-11-22])
+
+휴대폰 폭의 동작 시트와 거르기 시트는 화면 절반에서 멈췄다가 끌어 올리면 거의 전체로 펴집니다(iOS의 medium·large detent, Material의 partially expanded·expanded). 지금의 가장자리 시트는 한 높이뿐이고, 끌어서 닫기는 늘 켜져 있습니다.
+
+- **새 속성 `SheetDetents`**(속성 태그 224, u32 비트 집합): `Medium = 1`, `Large = 2`. 둘 다 켜면 시트는 `Medium`에서 열리고, 사용자가 끌어 올리면 `Large`로, 내리면 `Medium`으로 돌아갑니다. 하나만 켜면 그 높이 하나입니다. 보내지 않으면(0) 지금처럼 디자인 시스템이 정한 한 높이입니다. 모르는 비트는 `ProtocolError`입니다.
+- `Medium`은 창 높이의 절반, `Large`는 창 높이에서 위쪽 안전 영역과 디자인 시스템의 위쪽 여백을 뺀 높이입니다. 정확한 여백은 `ComponentRules`의 답입니다(FR-14.1).
+- **지금 어느 높이에 있는지는 Renderer의 상태입니다(D5).** 끄는 동안과 멈춘 뒤에도 경계를 넘는 것은 없습니다. 21.3의 "끌기는 경계를 넘지 않는다"와 같습니다.
+- **새 속성 `SheetDragToDismiss`**(속성 태그 225, Bool). 기본값은 참이고 지금의 동작입니다. 거짓이면 아래로 끌어도 가장 낮은 멈춤 높이에서 멈추고 `OnDismiss`를 보내지 않습니다. Esc, Android Back, 바깥 누르기의 `OnDismiss`(21.3, 21.3.2)는 이 값과 상관없이 그대로입니다. 저장하지 않은 입력이 있는 시트를 실수로 끌어 닫지 않게 하는 값이고, 닫는 다른 길까지 막는 값이 아닙니다.
+- `Presentation=Centered`(21.3.1)와 데스크톱의 옆 시트에는 멈춤 높이가 없습니다. 두 속성은 그 표현에서 무시되고 오류가 아닙니다. 같은 선언이 창 폭에 따라 표현을 바꾸기 때문입니다.
+- **Rust API**: `Sheet!`의 `detents: SheetDetents`(`SheetDetents::MEDIUM | SheetDetents::LARGE`)와 `drag_to_dismiss: bool` 매개변수. 보내지 않으면 속성을 쓰지 않습니다.
+
+수용 기준:
+
+1. 두 속성이 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다. 모르는 비트는 `ProtocolError`입니다(`fr21_3_4_sheet_detents_round_trip`).
+2. `Medium | Large`인 가장자리 시트가 창 높이의 절반으로 열리고, 위로 끌면 `Large` 높이에서 멈추며, 다시 내리면 `Medium`에서 멈춥니다. 그동안 Host는 아무 사건도 받지 않습니다(렌더러 테스트, `fr21_3_4_a_sheet_rests_at_its_detents`).
+3. `drag_to_dismiss = false`인 시트는 끝까지 끌어도 `OnDismiss`를 보내지 않고, Esc는 여전히 한 번 보냅니다(`fr21_3_4_drag_to_dismiss_off_keeps_the_sheet`).
+4. 두 속성을 보내지 않은 시트의 그림과 동작은 이 변경 전과 같습니다(기존 시트 테스트가 그대로 통과).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -1915,6 +1933,7 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
   - `CompactNavigation::Default`(와이어 0): 디자인 시스템의 답입니다(21.2, 21.2.1). 고르지 않은 것과 같고 속성을 보내지 않습니다.
   - `CompactNavigation::Sidebar`(1): 토글 뒤로 치워진 사이드바입니다(21.2.1의 치워둠). 일곱 디자인 시스템 전부에서 같은 뜻이고, 나와 있을 때의 모양(폭, 색, 선택 표시)은 그 디자인 시스템의 서랍과 같습니다.
   - `CompactNavigation::None`(2): Compact에서 목적지가 화면에 없고 부르는 버튼도 없습니다. 목적지로 가는 길은 애플리케이션이 직접 그립니다(FR-22.3의 6번). 이름은 Compose의 `NavigationSuiteType.None`을 따릅니다.
+  - `CompactNavigation::Floating`(3, 이슈 #311, `Agreed`, [leader, 2026-11-22]): Compact에서 목적지들이 창 아래쪽에 떠 있는 알약 모양의 막대가 됩니다. 페이지는 막대 밑까지 이어지고 막대 뒤로 비칩니다. 막대는 아래쪽 안전 영역과 디자인 시스템의 여백만큼 창 가장자리에서 떨어지고, 바탕은 23.3.1의 `Backdrop`과 같은 길로 그 디자인 시스템이 정한 흐림과 색입니다(Liquid Glass와 Cupertino는 유리, 나머지는 그 시스템의 떠 있는 표면). 페이지의 스크롤 컨테이너는 마지막 내용이 막대에 가리지 않도록 막대 높이만큼 아래 여백을 받습니다. 앱이 안전 영역을 직접 읽어야 하는 경우는 `window_size().safe_area`가 위·아래·양옆을 모두 줍니다. 모바일의 위쪽 값도 Compose의 `safeDrawing`에서 오므로 따로 읽을 길을 더하지 않습니다.
 - **고르는 것은 Compact 하나입니다.** Medium과 Expanded의 레일과 서랍은 21.2 그대로 디자인 시스템이 답합니다. 앱은 크기 클래스를 읽지 않고(FR-22) 값을 한 번 보내며, 그 값이 어느 폭에서 쓰이는지는 Renderer가 정합니다.
 - **와이어**: 새 속성 `CompactNavigation`(추가 전용 태그 **185**, u32)을 `Navigation`에만 싣습니다. 값은 새 역할 열거형 `CompactNavigation`(`Sidebar = 1`, `None = 2`)의 태그이고, 0은 보내지 않은 것과 같습니다. 스키마 해시가 움직입니다. 21.2.1의 "와이어에 새로 실리는 것이 없습니다"는 기본에 대해 여전히 참입니다.
 - **사이드바가 나와 있는지는 여전히 Renderer의 상태입니다(D5).** 21.2.1과 같이, 사용자가 토글을 여닫는 동안 경계를 넘는 것은 없습니다.
@@ -1928,6 +1947,9 @@ tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 4. 치워둠의 토글은 페이지 내용과 겹치지 않습니다. `Navigation`이 페이지를 직접 들 때와 `Scaffold`의 하단 슬롯에 있을 때, 페이지가 막대로 시작할 때와 그렇지 않을 때, 그 넷 모두에서 일곱 디자인 시스템 전부의 토글 경계가 페이지 첫 내용의 경계와 겹치지 않습니다(`fr21_2_3_the_toggle_never_overlaps_the_page`). 창 캡션이 있을 때 막대의 내용이 토글 뒤에서 시작하는 것도 확인합니다(`fr21_2_3_a_bar_on_the_caption_starts_after_the_toggle`).
 5. 값을 고르지 않은 `Navigation`은 이 변경 전과 같은 표현으로 그려집니다(`fr21_2_3_without_a_choice_the_design_system_answers_as_before`).
 6. Rust API가 `Sidebar`와 `None`을 태그 185의 1과 2로 쓰고, 고르지 않으면 이 속성을 보내지 않습니다(`fr21_2_3_compact_navigation_writes_its_tag`).
+7. `Floating`을 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 떠 있는 막대 하나를 그리고, 막대의 아래 경계가 창 아래 경계에서 아래쪽 안전 영역 이상 떨어지며, 페이지가 막대 밑까지 이어집니다. Medium과 Expanded는 바뀌지 않습니다(`fr21_2_3_a_chosen_floating_bar_floats_on_every_design_system`).
+8. `Floating` 막대 밑의 `ScrollColumn`을 끝까지 내리면 마지막 자식의 아래 경계가 막대의 위 경계보다 위에 있습니다(`fr21_2_3_the_floating_bar_never_hides_the_last_item`).
+9. 위쪽 안전 영역이 있는 창(테스트에서 주입한 inset)에서 `window_size().safe_area.top`이 그 값입니다(`fr21_2_3_safe_area_top_is_reported`).
 
 #### 21.5.1 참조 화면이 요구하는 의미들 (`Agreed`)
 
@@ -2221,6 +2243,24 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 해석은 디자인 시스템의 몫입니다. Cupertino와 Liquid Glass는 흐림이고, Material 3는 고도와 톤 얹기이며, GNOME은 불투명 표면입니다. 같은 선언이 시스템마다 자기 모습으로 나오는 것이 FR-14의 전부입니다.
 - 14.1이 정한 것을 뒤집지 않습니다. 흉내 낸 반투명을 "Liquid Glass를 구현했다"고 말하지 않는다는 규칙은 그대로이고, 이것은 그 주장이 아니라 흐림을 말할 어휘입니다.
 - 수용 기준: 같은 `Material(Regular)` 선언이 여섯 시스템에서 서로 다른 픽셀을 냅니다. 흐림을 지원하지 않는 환경에서 대비를 지키는 불투명 대체가 나옵니다(14.1의 3번 그대로).
+
+#### 23.3.1 앱이 고르는 흐림: `Backdrop` (`Agreed`, 이슈 #300, [leader, 2026-11-22])
+
+`Material(role)`은 흐림을 디자인 시스템에 맡깁니다. Material 3는 불투명한 색을 칠하므로, 모든 플랫폼에서 Liquid Glass처럼 보여야 하는 앱의 떠 있는 막대, 위 막대, 팝오버, 시트는 그 모습을 말할 수 없습니다. 색에서 `Paint::Role`이 기본이고 `Paint::Literal`이 탈출구이듯(FR-41.2의 같은 논리), 흐림에도 역할 옆에 값으로 말하는 탈출구를 둡니다.
+
+- **수정자 `Backdrop { blur_dp: f32, saturation: f32, tint: Paint }`**(수정자 태그 47, 16바이트 칸 하나: `f32` 둘과 `Paint` 하나). 이 노드의 모양 안에서, 이 앱이 그 노드 뒤에 그린 내용을 `blur_dp`만큼 흐리고 채도를 `saturation`배(1이면 그대로)로 바꾼 뒤 `tint`를 얹습니다. 디자인 시스템과 상관없이 같은 값입니다.
+- 흐리는 대상은 14.1·23.3의 유리와 같이 **이 앱이 그린 내용**입니다. 창 뒤의 바탕 화면은 흐리지 않습니다. 같은 기록 층(Liquid Glass의 backdrop 층)을 씁니다.
+- **흐리는 것은 Renderer가 그 노드와 따로 기록해 둔 내용입니다**(`[leader, 2026-11-22]`). 세 경우입니다. 같은 `Box` 안에서 그 노드보다 먼저 그려진 형제, `Scaffold`의 막대 아래에 놓인 페이지, 시트, 다이얼로그, 팝오버 아래에 놓인 창의 페이지입니다. 그 밖의 자리에 놓인 `Backdrop` 노드는 `tint`를 불투명도 1로 칠합니다(바로 아래 줄과 같은 결과). 이유: 노드는 자기를 그리는 기록 안에 있어서 자기 뒤의 모든 것을 따로 떼어 낼 수 없고, 흐릴 수 있는 것은 Renderer가 이미 별도 층으로 기록한 내용뿐입니다. 떠 있는 막대, 위 막대, 팝오버, 시트라는 이 요구사항의 쓰임은 세 경우에 모두 들어갑니다.
+- **흐릴 수 없으면 `tint`만 칠합니다.** 투명도 감소가 켜졌거나(14.1의 3번) 그 렌더러가 흐림을 그릴 수 없으면, `tint`를 불투명도 1로 칠합니다. 대비는 앱이 고른 `tint`의 책임입니다. 역할 `tint`는 테마의 값이므로 대비를 지킵니다.
+- 한 노드에 `Material`과 `Backdrop`이 함께 있으면 `Backdrop`이 이깁니다. 값 범위: `blur_dp`는 0 이상 유한, `saturation`은 0 이상 유한. 그 밖은 `ProtocolError`이고 그 노드는 `tint`만 칠합니다.
+- **Rust API**: `Modifier::backdrop(blur_dp, saturation, tint)`. dioxus-compose의 `backdrop` 속성은 그쪽 일입니다.
+
+수용 기준:
+
+1. `Backdrop`이 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 벡터에 덧붙고 기존 수정자 벡터는 그대로, `fr23_3_1_backdrop_round_trips`). 음수나 NaN 값은 `ProtocolError`입니다.
+2. 줄무늬 위에 놓인 `Backdrop(20, 1, 반투명 흰색)` 노드의 픽셀이 Material 3을 포함한 일곱 디자인 시스템 모두에서 같고, 줄무늬가 흐려져 그 노드 안의 인접 픽셀 차이가 흐림 없는 경우보다 작습니다(`fr23_3_1_backdrop_blurs_the_same_on_every_design_system`).
+3. 투명도 감소가 켜지면 같은 노드가 `tint`를 불투명하게 칠하고 흐림 층을 그리지 않습니다(`fr23_3_1_reduced_transparency_draws_the_tint_only`).
+4. `Material`과 `Backdrop`이 함께 있으면 `Backdrop`의 결과와 같습니다.
 
 ### FR-24 모션 (`Draft`)
 
@@ -3251,6 +3291,32 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 #### 39.6 이행
 
 이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+
+### FR-91 앱 수준의 뒤로 가기: `BackRequested` (`Agreed`, 이슈 #302, [leader, 2026-11-22])
+
+휴대폰 폭에서 목록과 상세를 오가는 화면은 앱이 자기 탐색 스택을 갖고, 시스템의 뒤로 가기가 그 스택을 꺼내야 합니다. 지금은 열린 오버레이만 Esc와 Android Back으로 닫히고(21.3.2), 열린 오버레이가 없을 때의 뒤로 가기는 앱에 닿지 않습니다. 앱이 그것을 들을 방법이 없습니다.
+
+- **사건 하나, 출처 넷.** 새 이벤트 `BackRequested`는 다음 넷 가운데 하나가 일어났고 열린 오버레이가 그것을 가져가지 않았을 때 옵니다.
+  - Android의 시스템 뒤로 가기(제스처와 버튼). 21.3.2가 열린 오버레이에 먼저 줍니다.
+  - Esc. 포커스된 컨트롤이 쓰지 않고(IME 조합 취소, 편집기의 제안 닫기 등, 21.3.2의 "안쪽 컨트롤이 먼저") 열린 오버레이도 없을 때입니다. `KeyDown` 핸들러가 Esc를 소비하면(FR-12) 오지 않습니다.
+  - 마우스의 뒤로 버튼(버튼 4). 데스크톱과 웹입니다.
+  - iOS의 왼쪽 가장자리 밀기. Compose의 플랫폼 `BackHandler`가 받는 것과 같은 제스처입니다.
+- **받는 쪽은 노드입니다.** 핸들러 속성 `OnBackRequested`를 레이아웃 컨테이너와 `Window`가 받습니다. 사건은 그 창에서 이 속성을 가진 노드 가운데 **가장 안쪽**(트리 순서에서 가장 깊고, 같은 깊이면 나중의 것)에 먼저 가고, 소비되지 않으면 바깥 조상으로 올라갑니다. 화면이 바뀌어 상세 화면의 노드가 사라지면 그 핸들러도 자동으로 빠집니다. Compose의 `BackHandler`가 가장 나중에 구성된 것을 먼저 부르는 것과 같은 모델이고, 앱이 등록 순서를 손으로 맞출 일이 없습니다.
+- **처리했는지는 동기 반환값입니다(FR-12).** 핸들러가 소비 표시를 남기면 처리한 것이고 사건은 거기서 끝납니다. 아무 핸들러도 소비하지 않으면 Renderer가 플랫폼의 기본 동작을 합니다. Android는 그 콜백을 잠시 끄고 다시 보내 시스템이 처리하게 합니다(첫 창이면 앱을 뒤로 보내고, 첫 창이 아니면 FR-53의 `WindowCloseRequested`). 데스크톱의 Esc와 버튼 4, iOS의 밀기에는 기본 동작이 없으므로 아무 일도 일어나지 않습니다. 웹의 버튼 4는 소비되지 않으면 브라우저의 뒤로 가기입니다.
+- **켜고 끄는 값은 없습니다.** 핸들러가 있으면 켜진 것입니다. 끄려면 앱이 속성을 보내지 않습니다. Android에서 시스템이 예측 뒤로 가기 애니메이션을 미리 보이려면 "이 뒤로 가기를 앱이 가져가는가"를 사건 전에 알아야 하므로, Renderer는 그 창에 `OnBackRequested`를 가진 노드가 하나라도 있는 동안 콜백을 켜 둡니다. 예측 애니메이션 자체(진행도 전달)는 이 항목에 없고, 뒤로 가기가 끝났을 때 사건 하나만 옵니다.
+- **와이어**: 이벤트 `BackRequested`(이벤트 태그 70), 페이로드 형식 `Back`(45) `source: u32`(`SystemBack = 1`, `Escape = 2`, `PointerBack = 3`, `EdgeSwipe = 4`, 모르는 값은 `ProtocolError`), 20바이트. 핸들러 속성 `OnBackRequested`(속성 태그 223). 경계 진입점은 늘지 않습니다. 스키마 해시가 움직입니다.
+- **Rust API**: 레이아웃 컨테이너와 `Window!`의 `on_back_requested` 매개변수. 핸들러가 받는 `BackRequested`는 `source()`와 `consume()`을 가집니다. dioxus-compose의 `use_back_handler`와 탐색 스택은 그쪽 일입니다.
+
+수용 기준:
+
+1. `BackRequested`와 `OnBackRequested`가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩되며(체크인된 프로토콜 벡터에 덧붙고 기존 레코드는 그대로), 모르는 `source`는 `ProtocolError`입니다(`fr91_back_requested_round_trips`).
+2. 바깥 `Column`과 그 안의 `Box`가 모두 `OnBackRequested`를 가질 때, Esc는 `Box`에만 가고, `Box`가 소비하지 않으면 `Column`에 갑니다. 둘 다 소비하지 않으면 사건은 끝납니다(`fr91_back_goes_to_the_innermost_handler_first`).
+3. 열린 `Sheet`가 있으면 Esc와 Android Back은 21.3.2대로 시트의 `OnDismiss`만 보내고 `BackRequested`는 오지 않습니다(`fr91_an_open_overlay_takes_back_first`).
+4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `BackRequested`는 오지 않습니다. `KeyDown`에서 Esc를 소비한 노드가 있어도 오지 않습니다(`fr91_escape_used_by_a_control_is_not_back`).
+5. 마우스 버튼 4가 `PointerBack` 출처로 옵니다(데스크톱 렌더러 테스트, `fr91_pointer_back_button_is_back`).
+6. Android: 소비된 Back은 Activity를 끝내지 않고, 소비되지 않은 Back은 시스템 기본 동작으로 갑니다(Android 계측 테스트 또는 Robolectric, `fr91_android_unhandled_back_falls_through`). `OnBackRequested`가 없는 창에서는 콜백이 꺼져 있습니다.
+7. iOS의 가장자리 밀기가 `EdgeSwipe`로 오는 것은 시뮬레이터에서 손으로 확인하고 이 항목에 적습니다.
+8. 핸들러를 가진 노드가 지워지면 다음 뒤로 가기는 그 노드에 가지 않습니다(`fr91_a_removed_handler_no_longer_hears_back`).
 
 ### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #933, #23)
 
