@@ -92,7 +92,8 @@ pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{
-    FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest, pointer_button,
+    BackRequested, FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest,
+    pointer_button,
 };
 pub use message::{Message, show_message};
 pub use notification::{
@@ -106,6 +107,8 @@ pub use rich_text::{
     CharacterRun, Format, ParagraphFormat, RichDocument, RichTextError, TextFormat, Toggle, Tri,
 };
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
+pub use schema::BackSource;
+pub use schema::SheetDetents;
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
     ColorRole, ColorScheme, CompactNavigation, ContentScale, DecorationKind, DesignSystem,

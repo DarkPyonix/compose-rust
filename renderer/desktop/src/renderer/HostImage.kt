@@ -14,7 +14,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -187,6 +191,31 @@ internal fun RoleIcon(
 
 /** Only one role is needed to ask the design system what an icon's optical size is. */
 private val fallbackRole = IconRole.Back
+
+/**
+ * The design system's icons as pixels for an operating system menu, in [tint], for a
+ * platform that has no symbol of its own for a role.
+ *
+ * Each icon is drawn the way [RoleIcon] draws it, scaled so the design system's optical
+ * size fills the square it is asked for, strokes included, so it keeps its proportions at
+ * any size a platform asks for.
+ */
+internal fun roleIconArt(theme: ResolvedTheme, tint: Color): OsMenuIconArt = OsMenuIconArt { role, sizePx ->
+    if (sizePx <= 0) return@OsMenuIconArt null
+    val style = theme.rules.icon(role, theme)
+    if (style.size.value <= 0f) return@OsMenuIconArt null
+    val bitmap = ImageBitmap(sizePx, sizePx)
+    val square = Size(sizePx.toFloat(), sizePx.toFloat())
+    CanvasDrawScope().draw(
+        Density(sizePx / style.size.value),
+        LayoutDirection.Ltr,
+        androidx.compose.ui.graphics.Canvas(bitmap),
+        square,
+    ) {
+        drawRole(role, style, tint)
+    }
+    bitmap
+}
 
 /**
  * Tells the Host once that the id names nothing.

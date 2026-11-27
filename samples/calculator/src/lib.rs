@@ -601,6 +601,7 @@ pub fn app() {
                     Button!(
                         "",
                         || {},
+                        accessible_name = "Calculator mode",
                         icon = IconRole::Calculator,
                         variant = ButtonVariant::Text
                     );
@@ -609,6 +610,7 @@ pub fn app() {
                     Button!(
                         "",
                         move || open.set(true),
+                        accessible_name = "History",
                         icon = IconRole::History,
                         variant = ButtonVariant::Text
                     );

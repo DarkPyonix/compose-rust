@@ -20,6 +20,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
+import androidx.compose.foundation.layout.padding
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
+import dev.darkpyonix.composerust.foundation.rememberBackdropSource
 import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
@@ -100,7 +105,11 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.ui.accessibility
+import dev.darkpyonix.composerust.ui.activeOptionName
+import dev.darkpyonix.composerust.ui.declaredSemanticsRole
+import dev.darkpyonix.composerust.foundation.behindModal
 import dev.darkpyonix.composerust.ui.offersFocusAction
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
@@ -210,6 +219,13 @@ private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
 /**
+ * The widgets whose content is drawn in a window of its own over the page. One that carries
+ * the modal bit is modal through that window and the overlay stack, never as a node of the
+ * page.
+ */
+private val OVERLAY_KINDS = setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Popover, WidgetKind.Menu)
+
+/**
  * Interprets one node of the table into real Compose widgets.
  *
  * Only the node's own state is read here, so a `SetProp` on a sibling cannot invalidate this
@@ -231,9 +247,20 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // Outermost of all: a node beside the path down to the modal on top leaves the
+    // accessibility tree with everything under it. A node with the modal bit holds Tab and
+    // Shift+Tab inside itself. An overlay with the bit is modal through its own window
+    // instead, so it is not recorded here.
+    val modalStack = dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack.current
+    val behind = modalStack.isBesideInTreeModal(nodeId, node.parentId)
+    val holdsFocus = if (node.widget in OVERLAY_KINDS) {
+        Modifier
+    } else {
+        dev.darkpyonix.composerust.foundation.inTreeModal(node, table)
+    }
     // Outside everything else the node has, so the larger area is centred on the box the
     // node is drawn in and its neighbours are laid out against that box as before.
-    val profiled = measured.sticky(node).minTouchTarget(node, dispatcher)
+    val profiled = measured.behindModal(behind).then(holdsFocus).sticky(node).minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -370,6 +397,11 @@ fun RenderNode(
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
             onFocusAction = { table.requestNodeFocus(nodeId) },
+            activeOption = if (node.declaredSemanticsRole() == SemanticsRole.ComboBox) {
+                table.activeOptionName(node)
+            } else {
+                null
+            },
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
@@ -516,15 +548,21 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 val snap = rememberItemStartSnap(node, scrollState, vertical = true)
+                // Under a bar that floats over the page the content ends lower by what the
+                // bar covers, so its last line can be scrolled clear of the bar. The room
+                // is used up here: a scroll container inside this one gets none.
+                val barReserve = LocalFloatingBarReserve.current
                 Column(
                     modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
-                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling)
+                        .then(if (barReserve > 0.dp) Modifier.padding(bottom = barReserve) else Modifier),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) {
                     CompositionLocalProvider(
                         LocalScrollState provides scrollState,
                         LocalScrollIsHorizontal provides false,
+                        LocalFloatingBarReserve provides 0.dp,
                     ) {
                         Children(node, table, dispatcher, snap)
                     }
@@ -1443,13 +1481,30 @@ private fun RowScope.WeightedChild(
  */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId ->
+    // A child that asked for a `Backdrop` blurs the children drawn before it, so those are
+    // recorded for it. A box without such a child, or with it first, records nothing.
+    val lastBackdrop = node.children.indexOfLast { childId ->
+        table.node(childId)?.modifiers?.any { it is ProtocolModifier.Backdrop } == true
+    }
+    val behind = if (lastBackdrop > 0) rememberBackdropSource() else null
+    node.children.forEachIndexed { index, childId ->
         key(childId) {
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
-                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
+                val modifiers = table.node(childId)?.modifiers
+                val matchesParent = modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                val placed = if (matchesParent) Modifier.matchParentSize() else Modifier
+                when {
+                    behind == null -> RenderNode(childId, table, dispatcher, placed)
+                    modifiers?.any { it is ProtocolModifier.Backdrop } == true ->
+                        CompositionLocalProvider(LocalAppBackdrop provides behind) {
+                            RenderNode(childId, table, dispatcher, placed)
+                        }
+                    index < lastBackdrop ->
+                        RenderNode(childId, table, dispatcher, placed.recordsBackdrop(behind, index))
+                    else -> RenderNode(childId, table, dispatcher, placed)
+                }
             }
         }
     }

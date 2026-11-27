@@ -146,10 +146,10 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     assert_eq!(native_records(&written), expected);
 
     // The two events sit at their place in the event vector, byte for byte. The rich text
-    // events and then the font request's 20 bytes come after them.
+    // events, the font request's 20 bytes and the back request's 20 bytes come after them.
     assert_eq!(
         EVENTS.len(),
-        FOCUS_AT + FOCUS_LEN + RICH_TEXT_EVENTS_LEN + 20
+        FOCUS_AT + FOCUS_LEN + RICH_TEXT_EVENTS_LEN + 20 + 20
     );
     for (at, len, event) in [
         (PARENT_AT, PARENT_LEN, vector_parent()),

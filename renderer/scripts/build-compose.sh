@@ -51,14 +51,20 @@ set -euo pipefail
 # scrolled before (fork #240). Everything the window pin below held past the ext.4 tag (fork
 # #232, #235, #239, #236, #234, #237) is in the tag as well, and so is the AT-SPI readback tool
 # matching roles by number (fork #241, a test tool).
-# It is now the commit the fork's v1.11.1-ext.6 tag goes on (the merge of fork #300), which
-# publishes as 1.11.1-ext.6. Past ext.5 the Compose sources change in the desktop paragraph line
+# It is now the merge of fork #314, past the v1.11.1-ext.6 tag (the merge of fork #300), and it
+# still publishes as 1.11.1-ext.6. #314 lets CI name a Maven mirror the fork's own repository
+# lists ask before Central (COMPOSE_MAVEN_MIRROR, which this script exports on CI), so
+# buildSrc's script plugins stop meeting Central's 429s; past the tag the fork also holds the
+# entry menus as each OS's own and the macOS accessibility frame fix (fork #279), the macOS
+# window's GPU memory held back while idle (fork #280), one drag order on the composition route
+# (fork #266), the remaining window gaps (fork #294), the packaging templates (fork #305) and
+# the fork's own navigationevent-compose. Past ext.5 the Compose sources change in the desktop paragraph line
 # height (fork #284), web absolute alignment (fork #285), the JS DOM API (fork #288) and the
 # mingwX64 targets of animation-graphics and material-navigation, which are dropped because no
 # one used them (fork #286; the renderer uses neither). compose-fork.changes lists what this commit
 # must hold at every path it changes, and scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
+REVISION="c7fc0146067460cb641c8d07a1c64d7906802f54"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
@@ -138,15 +144,15 @@ REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
 # Win32Notifications.kt), UI Automation patterns (fork #261), Windows and Linux native views
 # (fork #262, #268), the GDI route as the Windows default with a composition wait per drag step
 # (fork #259, #277) and the GraalVM vertical resize sync (fork #273).
-WINDOW_REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
+WINDOW_REVISION="c7fc0146067460cb641c8d07a1c64d7906802f54"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
 # Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so it is the Compose
-# pin's commit, the one the v1.11.1-ext.6 tag goes on, as the window pin is.
+# pin's commit, as the window pin is: the merge of fork #314, after the v1.11.1-ext.6 tag.
 # The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="328f40fbe81e25c1c1861dec10c309d8c081c2cf"
+MINGW_REVISION="c7fc0146067460cb641c8d07a1c64d7906802f54"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned

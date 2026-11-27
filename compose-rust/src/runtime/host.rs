@@ -477,6 +477,11 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             viewport_width_px: *viewport_width_px,
             viewport_height_px: *viewport_height_px,
         }),
+        (EventCallback::Back(handler), EventPayload::BackRequested { source }) => {
+            let event = crate::BackRequested::new(*source);
+            (*handler.borrow_mut())(event.clone());
+            return Ok(i64::from(event.consumed()));
+        }
         (EventCallback::Window(handler), payload) => {
             let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {
                 return Err(ProtocolError::InvalidValueKind(0));

@@ -165,6 +165,7 @@ private object IosRendererSession {
         // are already the application's own.
         dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { UserDefaultsZoomLevel }
         NativeViewPlatform.available = true
+        installIosBack()
     }
 
     fun ensureHost(): ComposeRustHost {
