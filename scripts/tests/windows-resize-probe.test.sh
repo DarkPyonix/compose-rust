@@ -181,7 +181,7 @@ missing=""
 for edge in right bottom corner left states; do
     grep -qE "\\\$Edges = @\\(.*'$edge'" "$kit_script" || missing="$missing $edge"
 done
-for flag in "'--markers'" "'--frames'" "'--edge'" "'--no-animation'" "DXC_RESIZE_MARKER = '1'" "resize-contact-sheet.ps1"; do
+for flag in "'--markers'" "'--frames'" "'--edge'" "'--no-animation'" "DXC_RESIZE_MARKER = '1'" "if (\$path -eq 'new') { \$env:DXC_REPORT_LATENCY = '1' }" "resize-contact-sheet.ps1"; do
     grep -qF -- "$flag" "$kit_script" || missing="$missing $flag"
 done
 for edge in right left bottom corner states; do
