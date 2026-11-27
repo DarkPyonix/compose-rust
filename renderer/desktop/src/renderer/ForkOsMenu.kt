@@ -43,12 +43,16 @@ fun forkPopupMenuEntries(request: OsMenuRequest, iconPixels: Int): List<PopupMen
                 icon = icon(entry.icon),
             )
             OsMenuEntry.Separator -> PopupMenuEntry.Separator
-            is OsMenuEntry.Submenu -> PopupMenuEntry.Submenu(
-                label = entry.label,
-                children = map(entry.children),
-                enabled = entry.enabled,
-                icon = icon(entry.icon),
-            )
+            is OsMenuEntry.Submenu -> {
+                // The submenu's own picture is drawn before its children's, in menu order.
+                val submenuIcon = icon(entry.icon)
+                PopupMenuEntry.Submenu(
+                    label = entry.label,
+                    children = map(entry.children),
+                    enabled = entry.enabled,
+                    icon = submenuIcon,
+                )
+            }
         }
     }
     return map(request.entries)
