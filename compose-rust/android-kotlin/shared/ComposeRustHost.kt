@@ -50,6 +50,8 @@ import dev.darkpyonix.composerust.foundation.pointerBackButton
 import dev.darkpyonix.composerust.foundation.recordsBackdrop
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.draw.drawWithContent
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
@@ -976,6 +978,7 @@ private fun ComposeRustTree(
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier
+                    .holdForFonts(host.table.assets)
                     .then(measured)
                     .then(dragStrip)
                     .onKeyEvent { event ->
@@ -1520,4 +1523,39 @@ var platformKeyboardInset: @Composable () -> Dp = {
 /** One window's way of serving the clipboard and file operations: [install] wires them to it. */
 internal class ClipboardServer {
     var install: () -> Unit = {}
+}
+
+/** The longest a window keeps its picture for a font none of whose faces has arrived: long enough for the Host's next batch, short enough that a font that never comes cannot freeze the window. */
+internal const val FONT_HOLD_MILLIS = 300L
+
+/**
+ * Keeps the picture drawn last while a text waits for a font it has no face of, at most
+ * [FONT_HOLD_MILLIS] counted in frames from the first one that waited.
+ *
+ * A theme can name a font whose bytes the Host sends only when a text first needs them. The
+ * frame that finds the text has nothing to draw its letters in, and drawing it would show
+ * boxes for the frames until the batch with the bytes comes back. So the window shows what
+ * it showed before (nothing, for its first picture) and draws again when they arrive. Laying
+ * out, events and the Host's frames go on meanwhile; only the picture waits. A font that
+ * never comes ends the wait, and its letters are drawn as missing glyphs.
+ */
+@Composable
+private fun Modifier.holdForFonts(assets: dev.darkpyonix.composerust.ui.node.AssetCache): Modifier {
+    val waiting = assets.holdingFrame
+    LaunchedEffect(assets, waiting) {
+        if (!waiting) return@LaunchedEffect
+        val start = withFrameNanos { it }
+        var now = start
+        while (now - start < FONT_HOLD_MILLIS * 1_000_000L) now = withFrameNanos { it }
+        assets.endHold()
+    }
+    val picture = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val drawn = remember { BooleanArray(1) }
+    return this.drawWithContent {
+        if (!assets.holdingFrame) {
+            picture.record { this@drawWithContent.drawContent() }
+            drawn[0] = true
+        }
+        if (drawn[0]) drawLayer(picture)
+    }
 }
