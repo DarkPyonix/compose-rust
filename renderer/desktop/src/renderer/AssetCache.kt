@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.Brush as ComposeBrush
 import androidx.compose.ui.graphics.ImageBitmap
@@ -108,6 +109,21 @@ class AssetCache {
     /** Ids asked for and not yet sent to the Host, oldest first. */
     private val wanted = ArrayList<Int>()
 
+    /**
+     * Ids a text waits for with no face of its font to draw in: the first family of the font
+     * it is set in has not arrived, so the window waits for it rather than show boxes. State, because the window's drawing reads
+     * it: while any is here the window keeps the picture it drew last.
+     */
+    private val holding = mutableStateListOf<Int>()
+
+    /** Whether a text is waiting for a font it has no face of, so the window holds its picture. */
+    val holdingFrame: Boolean get() = holding.isNotEmpty()
+
+    /** Stops waiting for every font asked for so far: they took too long, and the letters are drawn as missing glyphs. */
+    internal fun endHold() {
+        holding.clear()
+    }
+
     /** Stacks with a family whose bytes are still on the Host, by id, made again as they arrive. */
     private val lazyStacks = HashMap<Int, LazyStack>()
 
@@ -130,7 +146,11 @@ class AssetCache {
      * top of the next frame ([drainWanted]), never from inside the composition or the measure
      * call that found the letter, because the Host answers with a batch of its own.
      */
-    internal fun want(assetId: Int) {
+    internal fun want(assetId: Int, hold: Boolean = false) {
+        if (hold && !entries.containsKey(assetId) && assetId !in holding && assetId !in heldOnce) {
+            holding += assetId
+            heldOnce += assetId
+        }
         if (entries.containsKey(assetId) || !requested.add(assetId)) return
         wanted += assetId
         wake()
@@ -140,6 +160,9 @@ class AssetCache {
     internal fun drainWanted(send: (Int) -> Unit) {
         while (wanted.isNotEmpty()) send(wanted.removeAt(0))
     }
+
+    /** Ids the window has already waited for: a font that took too long is not waited for again. */
+    private val heldOnce = HashSet<Int>()
 
     /** Registered ids, for tests that check what the cache is holding. */
     internal val size: Int get() = entries.size
@@ -177,6 +200,7 @@ class AssetCache {
             return TableError(TableError.UNREADABLE_ASSET, "asset $assetId $reason")
         }
         entries[assetId] = asset
+        holding.remove(assetId)
         if (kind == AssetKind.Font) {
             if (isFontStack(bytes)) {
                 val faces = fontStackLazyFaces(bytes)
@@ -206,6 +230,8 @@ class AssetCache {
         requested.clear()
         wanted.clear()
         lazyStacks.clear()
+        holding.clear()
+        heldOnce.clear()
     }
 
     internal fun release(assetId: Int): TableError? {
@@ -217,6 +243,7 @@ class AssetCache {
         }
         // A face let go of is asked for again the next time a letter needs it.
         requested.remove(assetId)
+        heldOnce.remove(assetId)
         lazyStacks.remove(assetId)
         remakeStacksNaming(assetId)
         return null
@@ -397,7 +424,9 @@ class FontChain(val members: List<Member>) {
         if (pending != null) {
             // A letter reached a family whose bytes are not here. It is not handed on to a
             // later family or to the machine: it is drawn as a missing glyph until they arrive.
-            pending.request()
+            // A letter of the first family has no face at all to be drawn in: the window
+            // waits a moment for it rather than show boxes.
+            pending.request(hold = member == 0)
             val family = MissingGlyphFaces.family(codePointsIn(text, start, end)) ?: drawn.family
             return AnnotatedString.Range(SpanStyle(fontFamily = family), start, end)
         }
@@ -418,10 +447,11 @@ class FontChain(val members: List<Member>) {
  */
 class PendingFace(
     val assetIds: IntArray,
-    private val want: (Int) -> Unit,
+    private val want: (Int, Boolean) -> Unit,
 ) {
-    fun request() {
-        for (id in assetIds) want(id)
+    /** Asks for the bytes; [hold] when a text has no other face to draw these letters in. */
+    fun request(hold: Boolean = false) {
+        for (id in assetIds) want(id, hold)
     }
 }
 
@@ -1063,7 +1093,7 @@ internal fun isFontStack(bytes: ByteArray): Boolean =
 internal fun decodeFontStack(
     bytes: ByteArray,
     lookup: (Int) -> Asset?,
-    want: (Int) -> Unit = {},
+    want: (Int, Boolean) -> Unit = { _, _ -> },
 ): Asset.Font {
     fun word(at: Int): Int {
         require(at + 4 <= bytes.size) { "the font stack ends early" }
