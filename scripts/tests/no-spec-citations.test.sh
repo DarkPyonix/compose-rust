@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Code must not cite the planning documents (CLAUDE.md, Writing rule 3).
+# Code must not cite the planning documents (AGENTS.md, Writing rule 3).
 #
 # A citation like "(SPEC PR-4)" in an error message explains nothing to the person who
 # hits it, points at a file that is stripped from the published branch, and goes stale
@@ -35,7 +35,7 @@ while IFS= read -r file; do
 done < <(git ls-files)
 
 # One pass over every file, then drop test function names, which keep their requirement
-# ids on purpose (CLAUDE.md, TDD rule 2).
+# ids on purpose (AGENTS.md, TDD rule 2).
 hits="$(grep -nE "$pattern" "${files[@]}" 2>/dev/null |
     grep -viE '(fn|fun) +(fr|nfr|pr)[0-9]' || true)"
 
