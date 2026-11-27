@@ -116,6 +116,22 @@ var platformModalOverlayWindow: @Composable (
 }
 
 /**
+ * [platformModalOverlayWindow] with the window's page offered to what is inside as its
+ * backdrop: a sheet or a dialog covers the page, so the page is what is behind it.
+ */
+@Composable
+internal fun ModalOverlayWindow(
+    onDismissRequest: () -> Unit,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val page = LocalWindowBackdrop.current
+    platformModalOverlayWindow(onDismissRequest, onBack) {
+        CompositionLocalProvider(LocalAppBackdrop provides page, content = content)
+    }
+}
+
+/**
  * Where the default overlay popup goes: at the corner of the application's window, whatever
  * node opened it.
  *
@@ -392,7 +408,7 @@ internal fun HostSheet(
     }
     val handleGap = style.handleGap ?: contentPadding
 
-    platformModalOverlayWindow(close, onEscape) {
+    ModalOverlayWindow(close, onEscape) {
         val focusManager = LocalFocusManager.current
         val menuEntries = menuEntriesIn(node, node.children, table)
         val menuKeys = if (menuEntries != null) {

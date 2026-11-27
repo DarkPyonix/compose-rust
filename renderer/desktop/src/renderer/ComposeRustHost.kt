@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
 import dev.darkpyonix.composerust.foundation.navigationFor
 import dev.darkpyonix.composerust.foundation.pointerBackButton
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -796,10 +797,11 @@ private fun ComposeRustTree(
     // The strips a phone's system draws in. Zero on a desktop, where a title bar is the
     // caption above instead. The keyboard is not one of them: it is reported on its own
     // below, because the page stops above it but nothing grows into it.
-    val safeBars = with(LocalDensity.current) {
+    val measuredBars = with(LocalDensity.current) {
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    val safeBars = systemBarsOverride ?: measuredBars
     // How much of the window's bottom the on-screen keyboard covers. The window is not
     // panned for it (the platform layer asks for that), so this is where the page is
     // told: it ends above the keyboard, the bar at the top stays where it is, and the
@@ -845,12 +847,15 @@ private fun ComposeRustTree(
     // and with the keyboard left out, so it is the navigation bar or the home indicator
     // whether or not a keyboard is up. A desktop window has no such strip and sends 0.
     val safeBottom = safeBars.bottom.value
-    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(bottom = safeBottom) else {
+    // The top is the system's strip at the top edge, a status bar or a notch, and where the
+    // window has a caption of its own, that as well.
+    val safeTop = safeBars.top.value
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(top = safeTop, bottom = safeBottom) else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
         val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
             captionStyle.side == CaptionSide.Start
-        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
+        WindowSafeArea(caption.height.value + safeTop, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
     }
     // Read through a derived state so a recomposition does not repeat the map lookup (which
     // boxes the node id) and the read only runs again when the property itself changes.
@@ -905,6 +910,8 @@ private fun ComposeRustTree(
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     // Who in this window hears a request to go back, and what becomes of one nobody consumed.
+    // The page as the overlays over it see it, recorded only while one of them blurs it.
+    val pageBackdrop = dev.darkpyonix.composerust.foundation.rememberBackdropSource()
     val backRequests = remember(host, windowNodeId) {
         dev.darkpyonix.composerust.foundation.BackRequests(host.table, windowNodeId, host)
     }
@@ -932,6 +939,7 @@ private fun ComposeRustTree(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
+        dev.darkpyonix.composerust.foundation.LocalWindowBackdrop provides pageBackdrop,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -979,7 +987,7 @@ private fun ComposeRustTree(
                     .pointerBackButton(backRequests)
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
-                Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
+                Box(Modifier.padding(top = pageTop, bottom = pageBottom).recordsBackdrop(pageBackdrop, 0)) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)
@@ -1035,6 +1043,13 @@ private fun ComposeRustTree(
  * `ColorScheme.FollowSystem` reads the platform; nothing else consults this.
  */
 var systemDarkOverride: Boolean? = null
+
+/**
+ * Overrides the strips the system draws in at the top and the bottom of the window, for
+ * tests: a desktop test window has none, and what a phone's status bar and gesture bar do
+ * to the page has to be checked somewhere.
+ */
+var systemBarsOverride: SystemBars? = null
 
 /**
  * Overrides which platform this is, for tests and for the dev harness.

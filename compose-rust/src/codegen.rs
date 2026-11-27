@@ -4729,6 +4729,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::SheetDragToDismiss,
             value: PropertyValue::Bool(false),
         },
+        // And is made of the application's own glass: a blur, a saturation and a tint that
+        // is half clear.
+        Mutation::SetModifier {
+            node_id: 26,
+            index: 0,
+            modifier: Modifier::Backdrop {
+                blur_dp: 20.0,
+                saturation: 1.8,
+                tint: Paint::Literal(Color::argb(0x66ff_ffff)),
+            },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -5295,7 +5306,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 164,
+    "recordCount": 165,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

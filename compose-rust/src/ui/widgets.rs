@@ -3857,9 +3857,10 @@ impl<'a> NavigationScope<'a> {
     ///
     /// Without it the design system answers, which is a bottom bar on most of them. An
     /// application whose own reference draws a compact window differently says so here:
-    /// `Sidebar` puts the sidebar away behind a toggle on every design system, and `None`
+    /// `Sidebar` puts the sidebar away behind a toggle on every design system, `None`
     /// leaves the destinations off a compact window so the screen can reach them its own
-    /// way. Medium and Expanded windows keep the design system's rail and drawer whatever
+    /// way, and `Floating` draws them as a pill-shaped bar floating over the bottom of the
+    /// page. Medium and Expanded windows keep the design system's rail and drawer whatever
     /// this says, and the screen still never asks how wide the window is.
     pub(crate) fn compact(mut self, compact: CompactNavigation) -> Self {
         self.compact = compact;

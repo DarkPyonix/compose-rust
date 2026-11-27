@@ -20,6 +20,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
+import androidx.compose.foundation.layout.padding
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
+import dev.darkpyonix.composerust.foundation.rememberBackdropSource
 import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
@@ -516,15 +521,21 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 val snap = rememberItemStartSnap(node, scrollState, vertical = true)
+                // Under a bar that floats over the page the content ends lower by what the
+                // bar covers, so its last line can be scrolled clear of the bar. The room
+                // is used up here: a scroll container inside this one gets none.
+                val barReserve = LocalFloatingBarReserve.current
                 Column(
                     modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
-                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling)
+                        .then(if (barReserve > 0.dp) Modifier.padding(bottom = barReserve) else Modifier),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) {
                     CompositionLocalProvider(
                         LocalScrollState provides scrollState,
                         LocalScrollIsHorizontal provides false,
+                        LocalFloatingBarReserve provides 0.dp,
                     ) {
                         Children(node, table, dispatcher, snap)
                     }
@@ -1443,13 +1454,30 @@ private fun RowScope.WeightedChild(
  */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId ->
+    // A child that asked for a `Backdrop` blurs the children drawn before it, so those are
+    // recorded for it. A box without such a child, or with it first, records nothing.
+    val lastBackdrop = node.children.indexOfLast { childId ->
+        table.node(childId)?.modifiers?.any { it is ProtocolModifier.Backdrop } == true
+    }
+    val behind = if (lastBackdrop > 0) rememberBackdropSource() else null
+    node.children.forEachIndexed { index, childId ->
         key(childId) {
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
-                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
+                val modifiers = table.node(childId)?.modifiers
+                val matchesParent = modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                val placed = if (matchesParent) Modifier.matchParentSize() else Modifier
+                when {
+                    behind == null -> RenderNode(childId, table, dispatcher, placed)
+                    modifiers?.any { it is ProtocolModifier.Backdrop } == true ->
+                        CompositionLocalProvider(LocalAppBackdrop provides behind) {
+                            RenderNode(childId, table, dispatcher, placed)
+                        }
+                    index < lastBackdrop ->
+                        RenderNode(childId, table, dispatcher, placed.recordsBackdrop(behind, index))
+                    else -> RenderNode(childId, table, dispatcher, placed)
+                }
             }
         }
     }

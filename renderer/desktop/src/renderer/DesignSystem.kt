@@ -1248,6 +1248,13 @@ data class NavigationStyle(
      * says they are, and a list whose rows are two heights has no rhythm.
      */
     val destinationHeight: Dp? = null,
+    /**
+     * Whether the bar floats over the page rather than standing under it: a capsule held
+     * off the window's edges by [floatingInset], with the page running on beneath it. Set
+     * where the application chose a floating bar for a compact window, never by a design
+     * system's own answer.
+     */
+    val floating: Boolean = false,
 )
 
 /** The edge a sheet comes in from. */

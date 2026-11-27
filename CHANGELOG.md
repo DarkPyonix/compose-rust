@@ -122,6 +122,20 @@ On the wire this is the event `BackRequested` (tag 70, 20 bytes: the header and 
 
 `Sheet!` takes `detents` and `drag_to_dismiss`. `detents = SheetDetents::MEDIUM | SheetDetents::LARGE` opens a bottom sheet at half the window; pulling it up opens it out to the window's height less the top safe area and the design system's margin, and pulling it down brings it back to half. One of the two alone is that one height. Which height the sheet is at is the renderer's state and is never reported. `drag_to_dismiss = false` stops a pull at the lowest resting height and sends no dismissal for it, so a sheet holding unsaved input is not closed by a stray drag; Escape, the platform's back and a press outside still call `on_dismiss`. A centered sheet and one that comes from the side take neither. They travel as the properties `SheetDetents` (tag 224, the bits of the set) and `SheetDragToDismiss` (tag 225, a boolean), each sent only when it differs from the default, so a sheet that sets neither writes what it did before. Bits that name no height are a protocol error. The schema hash changes.
 
+### `Modifier::backdrop`: a blur the application chooses
+
+`Modifier.backdrop(blur_dp, saturation, tint)` blurs what the application drew behind a node, inside the node's outline, multiplies its saturation and lays `tint` over it. The values are the application's and draw the same on all seven design systems, where `material` leaves the look to the design system. It is for a bar, a popover or a sheet that has to look like glass everywhere, Material 3 included.
+
+The renderer can only blur what it recorded apart from the node. That is the earlier children of the same `Box`, a `Scaffold`'s page under its bars, and the window's page under a sheet, a dialog or a popover. A node with a backdrop anywhere else is painted with `tint` at full opacity. The same happens under reduced transparency, where the build cannot blur (Android before 12), and for a blur or a saturation that is negative or not a number, which is also reported as a protocol error. The desktop behind the window is never blurred. On a node that has a `material` as well, the backdrop is what is drawn.
+
+On the wire it is the modifier `Backdrop` (tag 47, two words: the blur and the saturation, then the tint). The schema hash changes.
+
+### `CompactNavigation::Floating`, and the top of the safe area
+
+`Navigation!(.., compact = CompactNavigation::Floating)` draws the destinations of a compact window as a pill-shaped bar floating over the bottom of the page, on all seven design systems. The bar is held off the sides of the window and off its bottom by the design system's margin and the bottom safe area. The page runs on under it and shows through it: where the design system's floating surfaces are glass (Liquid Glass and Cupertino) the page behind is blurred the way `Modifier::backdrop` blurs it, and elsewhere the bar is the system's own bar colour, lifted off the page. A `ScrollColumn`, a `LazyColumn` and a `LazyGrid` in the page end their content lower by what the bar covers, so the last row scrolls clear of it. It works where the `Navigation` holds its page and where it sits in a `Scaffold`'s bottom slot. Medium and Expanded windows keep the design system's rail and drawer. It travels as tag 3 of the `CompactNavigation` property (185). The schema hash changes.
+
+**Behavior change.** `window_size().safe_area.top` now carries the strip the system keeps at the top of the window, a status bar or a notch, where it used to carry only a desktop window's caption. On a phone it was 0 before. A window with both reports their sum. An application that added its own status bar padding on a phone now gets that room twice: remove its own padding and use `safe_area.top`.
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues
