@@ -1666,6 +1666,8 @@ private fun FieldSurface(
                                 }
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
+                                // A document of lines: a reader is told a text area.
+                                .semantics { this[dev.darkpyonix.composerust.ui.MultiLineText] = true }
                                 .onPreviewKeyEvent { event ->
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
