@@ -539,6 +539,16 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(27, PropertyKind.SheetDragToDismiss, PropertyValue.Bool(false)) in mutations)
     }
 
+    /** The application's own blur, read from the bytes the Host wrote: two floats in one word and a paint. */
+    @Test
+    fun fr23_3_1_backdrop_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(
+            Mutation.SetModifier(26, 0, ProtocolModifier.Backdrop(20f, 1.8f, Paint.Literal(0x66ffffff))) in mutations,
+            "${mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 26 }}",
+        )
+    }
+
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
     @Test
     fun fr81_native_view_records_that_cannot_be_read_are_protocol_errors() {

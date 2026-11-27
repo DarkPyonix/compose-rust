@@ -20,6 +20,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
+import dev.darkpyonix.composerust.foundation.rememberBackdropSource
 import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
@@ -1443,13 +1446,30 @@ private fun RowScope.WeightedChild(
  */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId ->
+    // A child that asked for a `Backdrop` blurs the children drawn before it, so those are
+    // recorded for it. A box without such a child, or with it first, records nothing.
+    val lastBackdrop = node.children.indexOfLast { childId ->
+        table.node(childId)?.modifiers?.any { it is ProtocolModifier.Backdrop } == true
+    }
+    val behind = if (lastBackdrop > 0) rememberBackdropSource() else null
+    node.children.forEachIndexed { index, childId ->
         key(childId) {
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
-                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
+                val modifiers = table.node(childId)?.modifiers
+                val matchesParent = modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                val placed = if (matchesParent) Modifier.matchParentSize() else Modifier
+                when {
+                    behind == null -> RenderNode(childId, table, dispatcher, placed)
+                    modifiers?.any { it is ProtocolModifier.Backdrop } == true ->
+                        CompositionLocalProvider(LocalAppBackdrop provides behind) {
+                            RenderNode(childId, table, dispatcher, placed)
+                        }
+                    index < lastBackdrop ->
+                        RenderNode(childId, table, dispatcher, placed.recordsBackdrop(behind, index))
+                    else -> RenderNode(childId, table, dispatcher, placed)
+                }
             }
         }
     }

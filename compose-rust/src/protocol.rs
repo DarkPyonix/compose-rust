@@ -4100,6 +4100,14 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
             44,
             two_words(paint.to_bits(), pack_floats(*width_dp, *offset_dp)),
         ),
+        Modifier::Backdrop {
+            blur_dp,
+            saturation,
+            tint,
+        } => (
+            47,
+            two_words(pack_floats(*blur_dp, *saturation), tint.to_bits()),
+        ),
         Modifier::PressStyle { tint, press_easing } => {
             // A NaN first point is no curve, the one value a curve can never start at.
             let [x1, y1, x2, y2] = press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]);
@@ -4444,6 +4452,20 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             width_dp: unpack_low(second),
             offset_dp: unpack_high(second),
         }),
+        47 => {
+            let (blur_dp, saturation) = (unpack_low(first), unpack_high(first));
+            // A blur or a saturation below zero, or one that is not a number, is nothing
+            // that can be drawn. Zero is: no blur, and no colour left.
+            let drawable = |value: f32| value.is_finite() && value >= 0.0;
+            if !drawable(blur_dp) || !drawable(saturation) {
+                return Err(ProtocolError::InvalidModifier(47));
+            }
+            Ok(Modifier::Backdrop {
+                blur_dp,
+                saturation,
+                tint: decode_paint(second)?,
+            })
+        }
         45 => Ok(Modifier::PressStyle {
             tint: decode_optional_paint(first)?,
             press_easing: if unpack_low(second).is_nan() {
