@@ -94,6 +94,9 @@ foreach ($app in $all) {
                 $env:DXC_METRICS = '1'; $env:DXC_REAL_DRAG = 'external'; $env:DXC_RESIZE_TRACE = '1'
                 $env:DXC_RESIZE_MARKER = '1'
                 if ($path -eq 'old') { $env:DXC_RASTER_RESIZE = '0' } else { Remove-Item Env:DXC_RASTER_RESIZE -ErrorAction SilentlyContinue }
+                # The CPU path prints each step's window rect and client size, so a frame that
+                # faults can be matched to the size the window had when it was drawn.
+                if ($path -eq 'new') { $env:DXC_REPORT_LATENCY = '1' } else { Remove-Item Env:DXC_REPORT_LATENCY -ErrorAction SilentlyContinue }
                 if ($path -eq 'late') { $env:DXC_RESIZE_PRESENT_DELAY_MS = '50' } else { Remove-Item Env:DXC_RESIZE_PRESENT_DELAY_MS -ErrorAction SilentlyContinue }
                 $process = Start-Process -PassThru -FilePath $app.Exe -WorkingDirectory (Split-Path -Parent $app.Exe) `
                     -RedirectStandardOutput $appLog -RedirectStandardError "$appLog.err"
@@ -118,7 +121,7 @@ foreach ($app in $all) {
         }
     }
 }
-Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:DXC_RESIZE_MARKER -ErrorAction SilentlyContinue
+Remove-Item Env:DXC_RASTER_RESIZE, Env:DXC_METRICS, Env:DXC_REAL_DRAG, Env:DXC_RESIZE_TRACE, Env:DXC_RESIZE_PRESENT_DELAY_MS, Env:DXC_RESIZE_MARKER, Env:DXC_REPORT_LATENCY -ErrorAction SilentlyContinue
 
 # The table: every drag's verdict, what it saw, how far the window lagged the cursor, and what
 # the verdict means here given the control's in the same drag at the same rate.
