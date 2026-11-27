@@ -57,7 +57,8 @@ pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetDetents,
+    SheetPresentation,
     Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
     WindowHeightClass, WindowSizeClass,
 };

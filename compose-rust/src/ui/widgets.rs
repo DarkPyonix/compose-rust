@@ -23,7 +23,7 @@ use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
     HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
-    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    SheetDetents, SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
     VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
@@ -3067,6 +3067,8 @@ pub(crate) struct ModalScope {
     presentation: SheetPresentation,
     max_width: Option<u32>,
     handle: bool,
+    detents: SheetDetents,
+    drag_to_dismiss: bool,
     on_dismiss: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -3084,6 +3086,8 @@ pub(crate) fn Dialog(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         handle: true,
+        detents: SheetDetents::NONE,
+        drag_to_dismiss: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -3102,6 +3106,8 @@ pub(crate) fn Sheet(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         handle: true,
+        detents: SheetDetents::NONE,
+        drag_to_dismiss: true,
         on_dismiss: None,
         on_motion_finished: None,
         done: false,
@@ -3160,9 +3166,36 @@ impl ModalScope {
         self
     }
 
+    /// The heights a bottom sheet rests at. `MEDIUM | LARGE` opens at half the window and
+    /// is pulled up to nearly all of it and back; one of them is that one height; `NONE`
+    /// leaves the height to the design system. A centered sheet and one that comes from
+    /// the side have no resting heights and ignore it. Only a `Sheet` sends it.
+    pub(crate) fn detents(mut self, detents: SheetDetents) -> Self {
+        self.detents = detents;
+        self
+    }
+
+    /// Whether pulling a bottom sheet down closes it. On by default.
+    ///
+    /// Turned off, the pull stops at the lowest resting height and no dismissal is sent,
+    /// so a sheet holding unsaved input is not closed by a stray drag. Escape, the
+    /// platform's back and a press outside still ask to close it.
+    pub(crate) fn drag_to_dismiss(mut self, enabled: bool) -> Self {
+        self.drag_to_dismiss = enabled;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
+        // Each is sent only when it says something other than the default, so a sheet
+        // that sets neither writes what it always did.
+        let detents = if widget == WidgetKind::Sheet {
+            self.detents.bits()
+        } else {
+            0
+        };
+        let keep_on_drag = widget == WidgetKind::Sheet && !self.drag_to_dismiss;
         let max_height_fraction = self
             .max_height_fraction
             .filter(|_| widget == WidgetKind::Sheet);
@@ -3200,6 +3233,12 @@ impl ModalScope {
                 }
                 if hide_handle {
                     attrs.push(("sheet_handle", OwnedAttr::Bool(false)));
+                }
+                if detents != 0 {
+                    attrs.push(("sheet_detents", OwnedAttr::Int(i64::from(detents))));
+                }
+                if keep_on_drag {
+                    attrs.push(("sheet_drag_to_dismiss", OwnedAttr::Bool(false)));
                 }
             },
             with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),
