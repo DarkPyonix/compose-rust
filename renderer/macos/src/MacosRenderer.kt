@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.getOrNull
 import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.ui.DeclaredRole
+import dev.darkpyonix.composerust.foundation.MacosOsMenuLoop
+import dev.darkpyonix.composerust.foundation.ProvideOsMenu
 import dev.darkpyonix.composerust.ui.node.Asset
 import kotlinx.coroutines.delay
 import org.thisisthepy.compose.window.DockIcon
@@ -189,6 +191,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         ?: !IdleSoakSetting.requested()
     window.leaveRightClickMenuToCompose()
     val nativeViews = MacosNativeViewWindow(window)
+    // The window's entry menus are `NSMenu`s, put up between its frames.
+    val osMenu = MacosOsMenuLoop({ window.window }, window::requestFrame)
     @Suppress("DEPRECATION")
     window.setContent {
         CompositionLocalProvider(
@@ -213,17 +217,19 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                 }
             }
             val strip = window.caption.value
-            WindowContent(
-                host,
-                caption = WindowCaption(
-                    height = strip.height,
-                    buttonsWidth = strip.buttonsWidth,
-                    buttonsAtStart = strip.buttonsAtStart,
-                    insetTop = strip.insetTop,
-                    cornerRadius = strip.cornerRadius,
-                    fullSize = asked?.chrome == Chrome.FullSize,
-                ),
-            )
+            ProvideOsMenu(osMenu.presenter) {
+                WindowContent(
+                    host,
+                    caption = WindowCaption(
+                        height = strip.height,
+                        buttonsWidth = strip.buttonsWidth,
+                        buttonsAtStart = strip.buttonsAtStart,
+                        insetTop = strip.insetTop,
+                        cornerRadius = strip.cornerRadius,
+                        fullSize = asked?.chrome == Chrome.FullSize,
+                    ),
+                )
+            }
         }
     }
     configureSingleMacosWindow(window, asked)
@@ -239,7 +245,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         WindowStartReport.frameDrawn(width, height)
         window.host?.describeForReaders(drew = true)
     }
-    startSingleWindowTurns(window)
+    startSingleWindowTurns(window, osMenu)
     // The made-up input of a parity run, when `DXC_SYNTH` asks for it.
     startParityRun(window)
 
@@ -291,13 +297,17 @@ internal fun installMacosDeclaredElementRoles() {
  * or menu tracking) takes one turn per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
  * populated from the first frame for VoiceOver and external `AXUIElement` / `System Events`
  * clients without waiting for an in-process `accessibilityChildren()` call.
+ *
+ * [osMenu] is told after every frame and every turn, so an entry menu the content asked for
+ * goes up right after the frame that asked, never from inside it.
  */
-internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
+internal fun startSingleWindowTurns(window: MacosWindow, osMenu: MacosOsMenuLoop? = null): NSTimer {
     window.listenForReader()
     val previousOnFrameDrawn = window.onFrameDrawn
     window.onFrameDrawn = { width, height ->
         previousOnFrameDrawn?.invoke(width, height)
         window.host?.describeForReaders(drew = true)
+        osMenu?.afterFrame()
     }
     var turning = false
     val timer = NSTimer.timerWithTimeInterval(interval = SINGLE_WINDOW_TURN_SECONDS, repeats = true) { _: NSTimer? ->
@@ -308,6 +318,8 @@ internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
             } finally {
                 turning = false
             }
+            // After the turn has returned: the menu goes up from a timer of its own.
+            osMenu?.afterFrame()
         }
     }
     NSRunLoop.mainRunLoop.addTimer(timer, forMode = NSRunLoopCommonModes)

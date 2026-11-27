@@ -59,6 +59,12 @@ internal class WindowsWindowBackend(
     /** The handles of the open windows, for a check that counts them. */
     val handles: List<COpaquePointer> get() = windows.map { it.handle }
 
+    /**
+     * Whether a window has an entry menu waiting to go up. The loop then does not wait on the
+     * message queue, as for a frame that is due: the menu goes up in that window's next turn.
+     */
+    val osMenuWaiting: Boolean get() = windows.any { !it.closed && it.osMenuWaiting }
+
     /** The window of `Window` node [nodeId], or null. */
     fun find(nodeId: Int): WindowsPlatformWindow? = windows.firstOrNull { it.nodeId == nodeId }
 
@@ -175,6 +181,9 @@ internal class WindowsPlatformWindow(
 
     /** How many pixels a point is on the monitor the window is on. */
     val pixelsPerPoint: Float get() = window.pixelsPerPoint()
+
+    /** Whether this window has an entry menu waiting to go up after its next frame. */
+    val osMenuWaiting: Boolean get() = window.osMenuWaiting
 
     /** The flags the window's own text edit menu was last given, 0 while it is off. For the checks. */
     val editMenuFlags: Int get() = window.editMenuFlags

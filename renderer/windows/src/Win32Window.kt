@@ -15,6 +15,9 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.foundation.BlockingOsMenuPresenter
+import dev.darkpyonix.composerust.foundation.WindowsBlockingOsMenu
+import dev.darkpyonix.composerust.foundation.runOsMenuAfterFrame
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
@@ -155,6 +158,16 @@ internal class Win32Window private constructor(
     /** How many pixels a point is on the monitor the window is on. */
     fun pixelsPerPoint(): Float = native.measure().scale
 
+    /**
+     * This window's entry menus as Windows' own popup menus, anchored in its pixels. Its content
+     * is given this as `LocalOsMenuPresenter` ([WindowsPlatformLocals]), and [step] and [turn]
+     * put a waiting menu up after the frame, once the frame has been presented.
+     */
+    val osMenu = BlockingOsMenuPresenter(WindowsBlockingOsMenu({ native.window }, { pixelsPerPoint() }))
+
+    /** Whether an entry menu waits to go up, so the loop must not wait on the message queue. */
+    val osMenuWaiting: Boolean get() = osMenu.waiting
+
     private val windowInfo = object : WindowInfo {
         override val isWindowFocused: Boolean get() = focused.value
         override val containerSize: IntSize get() = size
@@ -291,7 +304,7 @@ internal class Win32Window private constructor(
         drew = false
         // The window's own turn, before anything is read from it. This thread is the one
         // Windows delivers to, so the messages of this frame arrive here or not at all.
-        Win32Loop.pump(if (busy) 0.0 else FRAME_SECONDS)
+        Win32Loop.pump(if (busy || osMenu.waiting) 0.0 else FRAME_SECONDS)
         deliverWindowsFileDialogs()
         work.runPending()
         if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
@@ -333,7 +346,10 @@ internal class Win32Window private constructor(
         updateEditMenu(changed = heard || drew)
         // After the drawing, because that is when what is in the window has been placed.
         semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
-        return heard || drew
+        // Last, with the frame presented and nothing of the scene's on the stack:
+        // `TrackPopupMenuEx` runs the system's menu loop until the menu closes.
+        val menu = runOsMenuAfterFrame(osMenu)
+        return heard || drew || menu
     }
 
     /**
@@ -378,7 +394,11 @@ internal class Win32Window private constructor(
         if (gone) return true
         updateEditMenu(changed = heard || drew)
         semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
-        return heard || drew
+        // Last, with the frame presented and nothing of the scene's on the stack:
+        // `TrackPopupMenuEx` runs the system's menu loop until the menu closes. The other
+        // windows' messages arrive meanwhile and wait in their records for their turns.
+        val menu = runOsMenuAfterFrame(osMenu)
+        return heard || drew || menu
     }
 
     /**
