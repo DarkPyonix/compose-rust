@@ -14,5 +14,6 @@ pub mod flatpak;
 pub mod icons;
 pub mod metadata;
 pub mod rpm;
+pub mod templates;
 
 pub use metadata::{AppMetadata, BuildFacts, MetadataError};
