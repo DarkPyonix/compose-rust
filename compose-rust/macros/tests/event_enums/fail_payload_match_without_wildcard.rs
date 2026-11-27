@@ -67,6 +67,7 @@ fn handle(payload: &EventPayload<'_>) {
         EventPayload::TextFormatAtSelection(_) => {}
         EventPayload::RichTextChanged { .. } => {}
         EventPayload::AssetWanted { .. } => {}
+        EventPayload::BackRequested { .. } => {}
     }
 }
 

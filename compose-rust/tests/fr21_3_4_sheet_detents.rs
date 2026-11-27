@@ -55,24 +55,26 @@ fn sheet_records(
             })
             .expect("every property is written on a node the frame created")
     };
-    let records = mutations
-        .iter()
-        .filter_map(|mutation| match mutation {
-            Mutation::SetProp {
-                node_id,
-                property: property @ (PropertyKind::SheetDetents | PropertyKind::SheetDragToDismiss),
-                value,
-            } => {
-                let value = match value {
-                    PropertyValue::Integer(bits) => PropertyValue::Integer(*bits),
-                    PropertyValue::Bool(flag) => PropertyValue::Bool(*flag),
-                    other => panic!("{property:?} travelled as {other:?}"),
-                };
-                Some((widget_of(*node_id), *property, value))
-            }
-            _ => None,
-        })
-        .collect();
+    let records =
+        mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property:
+                        property @ (PropertyKind::SheetDetents | PropertyKind::SheetDragToDismiss),
+                    value,
+                } => {
+                    let value = match value {
+                        PropertyValue::Integer(bits) => PropertyValue::Integer(*bits),
+                        PropertyValue::Bool(flag) => PropertyValue::Bool(*flag),
+                        other => panic!("{property:?} travelled as {other:?}"),
+                    };
+                    Some((widget_of(*node_id), *property, value))
+                }
+                _ => None,
+            })
+            .collect();
     DETENTS.with(|cell| cell.set(SheetDetents::NONE));
     DRAG_TO_DISMISS.with(|cell| cell.set(true));
     records

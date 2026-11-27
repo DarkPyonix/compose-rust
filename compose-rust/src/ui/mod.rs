@@ -58,9 +58,8 @@ pub use crate::schema::{
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
     MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetDetents,
-    SheetPresentation,
-    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
-    WindowHeightClass, WindowSizeClass,
+    SheetPresentation, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole,
+    VerticalAlignment, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
@@ -74,11 +73,11 @@ pub fn theme() -> ThemeHandle {
 pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::windows::{WindowDragEvent, WindowDragOver, WindowFrame};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
 pub use rich::{RichTextState, remember_rich_text_state};
 pub use text_handle::{TextFieldHandle, use_text_field_handle};
@@ -92,8 +91,8 @@ pub use functions::{
     IndeterminateProgressIndicator, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, Menu,
     MenuItem, NativeView, Navigation, NavigationItem, Popover, ProgressIndicator, RadioButton, Row,
     Scaffold, ScrollColumn, ScrollRow, Select, SelectionContainer, Separator, Sheet, Slider,
-    Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
-    Window,
+    Spacer, SplitPane, Submenu, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip,
+    TopAppBar, Window,
 };
 pub use lazy::LazyListScope;
 pub use widgets::{ScrollState, remember_scroll_state};

@@ -141,7 +141,10 @@ fn fr23_3_1_modifier_backdrop_writes_the_record() {
             Modifier
         };
         Box!(modifier = modifier, {});
-        Row!(modifier = Modifier.backdrop(8.0, 1.5, ColorRole::Surface), {});
+        Row!(
+            modifier = Modifier.backdrop(8.0, 1.5, ColorRole::Surface),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(

@@ -107,6 +107,8 @@ pub use rich_text::{
     CharacterRun, Format, ParagraphFormat, RichDocument, RichTextError, TextFormat, Toggle, Tri,
 };
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
+pub use schema::BackSource;
+pub use schema::SheetDetents;
 pub use schema::{
     Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
     ColorRole, ColorScheme, CompactNavigation, ContentScale, DecorationKind, DesignSystem,
@@ -127,8 +129,6 @@ pub use schema::{
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{FormatOp, ListKind, ParagraphRole};
 pub use schema::{MinimapSide, WordWrapMode};
-pub use schema::BackSource;
-pub use schema::SheetDetents;
 pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,

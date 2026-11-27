@@ -2976,6 +2976,7 @@ pub(crate) struct MenuItemScope {
     selected: bool,
     enabled: bool,
     color: Option<Paint>,
+    shortcut_label: Option<String>,
     on_click: Option<Box<dyn FnMut()>>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
@@ -2983,6 +2984,9 @@ pub(crate) struct MenuItemScope {
 
 /// A single row in a `Menu` or action list: left-aligned label, optional leading icon,
 /// and optional selected state.
+///
+/// On the wire it is a `Button` marked as a menu entry, so a Renderer that puts menus up
+/// as the operating system's own can tell it from any other button.
 pub(crate) fn MenuItem(text: impl Into<String>) -> MenuItemScope {
     MenuItemScope {
         modifier: Modifier::new(),
@@ -2991,6 +2995,7 @@ pub(crate) fn MenuItem(text: impl Into<String>) -> MenuItemScope {
         selected: false,
         enabled: true,
         color: None,
+        shortcut_label: None,
         on_click: None,
         on_motion_finished: None,
         done: false,
@@ -3021,6 +3026,13 @@ impl MenuItemScope {
         self
     }
 
+    /// The text shown at the row's trailing edge for the key that does the same thing,
+    /// such as "Ctrl+S". Text only: the key itself stays the application's to handle.
+    pub(crate) fn shortcut_label(mut self, label: impl Into<String>) -> Self {
+        self.shortcut_label = Some(label.into());
+        self
+    }
+
     pub(crate) fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -3030,6 +3042,7 @@ impl MenuItemScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
+        let shortcut_label = self.shortcut_label.take();
         let mut listeners = vec![("onclick", unit(self.on_click.take()))];
         motion_input(self.on_motion_finished.take(), &mut listeners);
         emit(
@@ -3044,6 +3057,11 @@ impl MenuItemScope {
                 attrs.push(("text_align", role_or_zero(Some(TextAlign::Start))));
                 attrs.push(("checked", OwnedAttr::Bool(selected)));
                 attrs.push(("color", super::paint(color)));
+                attrs.push((
+                    "shortcut_label",
+                    shortcut_label.map_or(OwnedAttr::None, OwnedAttr::Text),
+                ));
+                attrs.push(("menu_entry", OwnedAttr::Bool(true)));
             },
             listeners,
             content,
@@ -3053,6 +3071,81 @@ impl MenuItemScope {
 
 composed_on_drop!(MenuItemScope);
 motion_handler!(MenuItemScope);
+
+/// A `Submenu` and its builder.
+pub(crate) struct SubmenuScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    enabled: bool,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    done: bool,
+}
+
+/// An entry of a `Menu` that opens a menu of its own: a row named `text` whose content is
+/// the entries it opens. Compose Desktop's nested `Menu` in a menu bar.
+///
+/// On the wire it is a `Menu` marked as a menu entry, whose first child is the `MenuItem`
+/// that names it. Whether it is open is the Renderer's, as it is in every platform's menu,
+/// so opening and closing it sends nothing to the Host.
+pub(crate) fn Submenu(text: impl Into<String>) -> SubmenuScope {
+    SubmenuScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        enabled: true,
+        on_motion_finished: None,
+        done: false,
+    }
+}
+
+impl SubmenuScope {
+    /// Leading semantic icon for the submenu's row.
+    pub(crate) fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// A disabled submenu shows its row greyed and does not open.
+    pub(crate) fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = std::mem::take(&mut self.modifier);
+        let text = std::mem::take(&mut self.text);
+        let (icon, enabled) = (self.icon, self.enabled);
+        let motion = self.on_motion_finished.take();
+        emit(
+            widget_key("compose_rust::ui::Submenu"),
+            WidgetKind::Menu,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("menu_entry", OwnedAttr::Bool(true)));
+            },
+            with_motion(Vec::new(), motion),
+            || {
+                {
+                    let _anchor = crate::runtime::group_guard(widget_key(
+                        "compose_rust::ui::Submenu::anchor",
+                    ));
+                    let mut row = MenuItem(text).enabled(enabled);
+                    if let Some(icon) = icon {
+                        row = row.icon(icon);
+                    }
+                    drop(row);
+                }
+                let _entries =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Submenu::entries"));
+                content();
+            },
+        );
+    }
+}
+
+container!(SubmenuScope);
+motion_handler!(SubmenuScope);
 
 // ----- surfaces that come and go ----------------------------------------------------------
 

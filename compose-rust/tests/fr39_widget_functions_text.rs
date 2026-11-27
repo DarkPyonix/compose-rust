@@ -292,6 +292,7 @@ mod functions {
             None::<fn(WindowDragEvent)>,
             None::<fn()>,
             None::<fn()>,
+            None::<fn(compose_rust::BackRequested)>,
             || {},
         );
         Window(
@@ -314,6 +315,7 @@ mod functions {
             Some(|_: WindowDragEvent| {}),
             Some(|| {}),
             Some(|| {}),
+            None::<fn(compose_rust::BackRequested)>,
             || {
                 Text!("inside");
             },

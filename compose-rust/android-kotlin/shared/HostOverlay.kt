@@ -34,7 +34,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -56,6 +61,7 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.declaredSemanticsRole
+import dev.darkpyonix.composerust.ui.declaresModal
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.isDeclaredSelected
@@ -72,6 +78,12 @@ import androidx.compose.runtime.CompositionLocalProvider
  * inside it has declined the key. Android's back gesture and button take the same path, so
  * a back closes the same overlay Escape would. When the overlay closes, focus returns to the
  * control that had it before the overlay opened.
+ *
+ * It also knows which modal is on top, for assistive technology: the topmost of the open
+ * modal overlays (a `Dialog`, a `Sheet`, a `Popover` that declared itself modal) and the
+ * nodes in the tree that carry the modal bit, whichever opened last. Everything outside that
+ * one modal leaves the accessibility tree while it is up. A node with the modal bit is kept
+ * apart from the overlays: Escape, Back and focus return belong to overlays alone.
  */
 class OverlayFocusStack {
     private class Entry(
@@ -79,17 +91,57 @@ class OverlayFocusStack {
         var onEscape: () -> Unit,
         val opener: FocusRequester?,
         val isModal: Boolean,
+        val order: Long,
     )
 
+    /** A node with the modal bit: its id, every node above it up to the root, and when. */
+    private class InTreeModal(
+        val nodeId: Int,
+        val ancestors: Set<Int>,
+        val inOverlay: Boolean,
+        val order: Long,
+    )
+
+    /** The modal on top, as the readers of this stack need it. */
+    private data class TopModal(
+        val nodeId: Int,
+        val order: Long,
+        val inTree: Boolean,
+        val inOverlay: Boolean,
+        val ancestors: Set<Int>,
+        val overlayOrders: Map<Int, Long>,
+    )
+
+    /**
+     * The topmost modal when it is a node with the modal bit, the one fact every node of the
+     * page reads. Kept as its own state so that opening a `Dialog`, which leaves it null,
+     * recomposes no node of the page.
+     */
+    private data class InTreeTop(val nodeId: Int, val ancestors: Set<Int>)
+
     private val entries = mutableListOf<Entry>()
+    private val inTree = mutableListOf<InTreeModal>()
+    private var nextOrder = 0L
     private var openCount by mutableStateOf(0)
-    private var modalCount by mutableStateOf(0)
+    private var top by mutableStateOf<TopModal?>(null)
+    private var inTreeTop by mutableStateOf<InTreeTop?>(null)
 
     /** Whether any overlay is open, read in composition so a platform back hook follows it. */
     val hasOpen: Boolean get() = openCount > 0
 
-    /** Whether any modal overlay (Dialog or Sheet) is open, hiding background nodes from accessibility. */
-    val hasOpenModal: Boolean get() = modalCount > 0
+    /** Whether any modal is up: an open `Dialog` or `Sheet`, a modal `Popover`, or a node with the modal bit. */
+    val hasOpenModal: Boolean get() = top != null
+
+    /**
+     * Whether the page of the window leaves the accessibility tree: a modal is up and it is
+     * not a node drawn in the page itself, which hides only what is outside it.
+     */
+    val hidesPage: Boolean
+        get() {
+            val current = top ?: return false
+            return !current.inTree || current.inOverlay
+        }
+
     private var currentFocused: FocusRequester? = null
 
     internal fun noteFocused(requester: FocusRequester, focused: Boolean) {
@@ -103,9 +155,8 @@ class OverlayFocusStack {
     internal fun push(nodeId: Int, onEscape: () -> Unit, isModal: Boolean = true): FocusRequester? {
         entries.removeAll { it.nodeId == nodeId }
         val opener = currentFocused
-        entries += Entry(nodeId, onEscape, opener, isModal)
-        openCount = entries.size
-        modalCount = entries.count { it.isModal }
+        entries += Entry(nodeId, onEscape, opener, isModal, nextOrder++)
+        changed()
         return opener
     }
 
@@ -117,8 +168,7 @@ class OverlayFocusStack {
         val index = entries.indexOfFirst { it.nodeId == nodeId }
         if (index < 0) return
         val removed = entries.removeAt(index)
-        openCount = entries.size
-        modalCount = entries.count { it.isModal }
+        changed()
         val target = if (entries.isEmpty()) removed.opener else null
         if (target != null) {
             try {
@@ -127,6 +177,61 @@ class OverlayFocusStack {
                 // The opener left the tree while the overlay was open.
             }
         }
+    }
+
+    /**
+     * Records a node with the modal bit. [ancestors] is every node above it up to the root,
+     * the root included, and [inOverlay] whether one of them is an overlay, whose content is
+     * drawn apart from the page.
+     */
+    internal fun pushInTree(nodeId: Int, ancestors: Set<Int>, inOverlay: Boolean) {
+        inTree.removeAll { it.nodeId == nodeId }
+        inTree += InTreeModal(nodeId, ancestors, inOverlay, nextOrder++)
+        changed()
+    }
+
+    internal fun popInTree(nodeId: Int) {
+        if (inTree.removeAll { it.nodeId == nodeId }) changed()
+    }
+
+    private fun changed() {
+        openCount = entries.size
+        val overlay = entries.lastOrNull { it.isModal }
+        val node = inTree.maxByOrNull { it.order }
+        val orders = entries.associate { it.nodeId to it.order }
+        top = when {
+            node != null && (overlay == null || node.order > overlay.order) ->
+                TopModal(node.nodeId, node.order, inTree = true, node.inOverlay, node.ancestors, orders)
+            overlay != null ->
+                TopModal(overlay.nodeId, overlay.order, inTree = false, inOverlay = false, emptySet(), orders)
+            else -> null
+        }
+        val current = top
+        inTreeTop = if (current != null && current.inTree) InTreeTop(current.nodeId, current.ancestors) else null
+    }
+
+    /**
+     * Whether the overlay [nodeId] stays in the accessibility tree: no modal is up, or it is
+     * the modal on top, or it holds the node with the modal bit that is on top, or it opened
+     * after the modal on top, as a popover opened from inside a dialog does.
+     */
+    internal fun exposesOverlay(nodeId: Int): Boolean {
+        val current = top ?: return true
+        if (nodeId == current.nodeId) return true
+        if (current.inTree && nodeId in current.ancestors) return true
+        val order = current.overlayOrders[nodeId] ?: return true
+        return order > current.order
+    }
+
+    /**
+     * Whether the node [nodeId], whose parent is [parentId], is outside the node with the
+     * modal bit that is on top while sitting beside the path down to it: a sibling of that
+     * node or of one of its ancestors. Hiding those hides everything outside the modal, each
+     * one with all that is under it.
+     */
+    internal fun isBesideInTreeModal(nodeId: Int, parentId: Int): Boolean {
+        val current = inTreeTop ?: return false
+        return parentId in current.ancestors && nodeId != current.nodeId && nodeId !in current.ancestors
     }
 
     internal fun handleEscape(event: KeyEvent, fromNodeId: Int? = null): Boolean {
@@ -147,6 +252,58 @@ class OverlayFocusStack {
         top.onEscape()
         return true
     }
+}
+
+/**
+ * Leaves this node, and everything under it, out of the accessibility tree when [hidden]:
+ * what sits behind the modal on top. The node is still drawn and still takes presses; only
+ * assistive technology stops seeing it.
+ */
+internal fun Modifier.behindModal(hidden: Boolean): Modifier =
+    if (hidden) this.clearAndSetSemantics { hideFromAccessibility() } else this
+
+/** The overlays whose content a node with the modal bit is drawn apart from the page in. */
+private val OVERLAY_WIDGETS = setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Popover, WidgetKind.Menu)
+
+/**
+ * Keeps [node] in the window's modal stack while it carries the modal bit, and keeps Tab and
+ * Shift+Tab from moving focus out of it. Returns the modifier that does the second; a node
+ * without the bit gets [Modifier] back and nothing is recorded for it.
+ *
+ * Focus asked for in any other way (a press, the Host's focus request) still leaves: only
+ * the two keys that walk the focus order are held at the edge.
+ */
+@Composable
+internal fun inTreeModal(node: Node, table: NodeTable): Modifier {
+    if (!node.declaresModal()) return Modifier
+    val stack = LocalOverlayFocusStack.current
+    val parentId = node.parentId
+    DisposableEffect(stack, node.id, parentId) {
+        val ancestors = HashSet<Int>()
+        var inOverlay = false
+        var current = parentId
+        var steps = 0
+        while (current != NodeTable.ROOT_ID && steps++ < 4096) {
+            ancestors += current
+            val above = table.node(current) ?: break
+            if (above.widget in OVERLAY_WIDGETS) inOverlay = true
+            current = above.parentId
+        }
+        ancestors += NodeTable.ROOT_ID
+        stack.pushInTree(node.id, ancestors, inOverlay)
+        onDispose { stack.popInTree(node.id) }
+    }
+    return Modifier
+        .focusProperties {
+            onExit = {
+                if (requestedFocusDirection == FocusDirection.Next ||
+                    requestedFocusDirection == FocusDirection.Previous
+                ) {
+                    cancelFocusChange()
+                }
+            }
+        }
+        .focusGroup()
 }
 
 val LocalOverlayFocusStack = staticCompositionLocalOf { OverlayFocusStack() }
@@ -242,7 +399,7 @@ internal fun HostDialog(
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    platformModalOverlayWindow(
+    ModalOverlayWindow(
         {
             open.set(false)
             dismiss(node, dispatcher)
@@ -259,9 +416,12 @@ internal fun HostDialog(
         // The scrim covers the whole window; the dialog is centred in what the keyboard
         // leaves, so a field inside it is not under the keyboard.
         val keyboard = overlayKeyboardInset()
+        val exposed = LocalOverlayFocusStack.current.exposesOverlay(node.id)
         CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
             Box(
                 Modifier
+                    // A modal opened over this one hides it, as this one hides the page.
+                    .behindModal(!exposed)
                     .fillMaxSize()
                     // A scrim that dims the window dims a platform view too: it is covered.
                     .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
@@ -292,6 +452,12 @@ internal fun HostDialog(
  * The Host never learns a screen coordinate: where the popup sits relative to its anchor is
  * the design system's placement rule. Choosing an entry is that entry's own click, so the
  * menu needs no event of its own.
+ *
+ * Where the window has an [OsMenuPresenter] the entries go up as the operating system's
+ * menu instead of a popup drawn here, and a node among them that no such menu can show is
+ * reported rather than drawn ([ReportNotAnEntry]). A menu the Host marked as an entry is a
+ * submenu: its open state is the Renderer's alone and its anchor's press opens it, because
+ * that is how every platform's submenu behaves and the Host has nothing to decide.
  */
 @Composable
 internal fun HostMenu(
@@ -301,14 +467,59 @@ internal fun HostMenu(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
-    val open = rememberOverlayOpen(node)
+    val submenu = node.isMenuEntry()
+    val hostOpen = rememberOverlayOpen(node)
+    var ownOpen by remember(node.id) { mutableStateOf(false) }
+    val open = if (submenu) OverlayOpen(ownOpen) { ownOpen = it } else hostOpen
     val style = theme.rules.container(ContainerRole.Menu, theme)
     val anchorId = node.children.firstOrNull()
     val entries = node.children.drop(1)
     val anchorRequester = remember(node.id) { FocusRequester() }
+    // A submenu's row opens it here and is not a click the Host hears.
+    val anchorDispatcher = if (submenu && anchorId != null) {
+        remember(dispatcher, anchorId) {
+            EventDispatcher { event ->
+                if (event is HostEvent.Clicked && event.nodeId == anchorId) {
+                    ownOpen = !ownOpen
+                    true
+                } else {
+                    dispatcher.dispatch(event)
+                }
+            }
+        }
+    } else {
+        dispatcher
+    }
+    val presenter = LocalOsMenuPresenter.current
+    if (presenter != null) {
+        val read = table.menuEntries(node.id, entries)
+        ReportNotAnEntry(node.id, read, dispatcher)
+        val anchor = rememberMenuAnchor(node.id)
+        Box(modifier.then(anchor.modifier)) {
+            if (anchorId != null) {
+                key(anchorId) { RenderNode(anchorId, table, anchorDispatcher, Modifier.focusRequester(anchorRequester)) }
+            }
+            if (open.value && read.notAnEntry == null) {
+                OsEntryMenu(
+                    presenter = presenter,
+                    entries = read.entries,
+                    anchor = anchor,
+                    onChosen = { item ->
+                        open.set(false)
+                        table.clickEntry(item.id, dispatcher)
+                    },
+                    onDismissed = {
+                        open.set(false)
+                        dismiss(node, dispatcher)
+                    },
+                )
+            }
+        }
+        return
+    }
     Box(modifier) {
         if (anchorId != null) {
-            key(anchorId) { RenderNode(anchorId, table, dispatcher, Modifier.focusRequester(anchorRequester)) }
+            key(anchorId) { RenderNode(anchorId, table, anchorDispatcher, Modifier.focusRequester(anchorRequester)) }
         }
         if (open.value) {
             Popup(

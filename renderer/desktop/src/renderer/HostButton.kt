@@ -14,6 +14,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -294,6 +296,7 @@ internal fun HostButton(
         baseLabel
     }
     val text = node.text(PropertyKind.Text)
+    val shortcut = node.text(PropertyKind.ShortcutLabel)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val ellipsis = node.overflow(ComposeOverflow.Ellipsis)
     // A button with a glyph and no word is still a button with a name. The role is what
@@ -316,6 +319,21 @@ internal fun HostButton(
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
+    fun PlainLabel() {
+        if (icon == null) {
+            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RoleIcon(icon, tint, theme)
+                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+            }
+        }
+    }
+
+    @Composable
     fun ButtonLabelContent() {
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
@@ -332,16 +350,22 @@ internal fun HostButton(
                     Children(node, table, dispatcher)
                 }
             }
-        } else if (icon == null) {
-            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
-        } else {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RoleIcon(icon, tint, theme)
-                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+        } else if (shortcut.isNotEmpty()) {
+            // A menu entry's shortcut sits at the row's trailing edge, quieter than the
+            // label, as every platform's menu sets it. It is only text: the key is the
+            // application's to handle.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f, fill = false)) { PlainLabel() }
+                Spacer(Modifier.width(theme.space(SpaceRole.Lg)))
+                ThemedText(
+                    text = shortcut,
+                    style = label.copy(color = tint.copy(alpha = tint.alpha * SHORTCUT_ALPHA)),
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
+        } else {
+            PlainLabel()
         }
     }
 
@@ -389,6 +413,9 @@ private fun contentInset(first: Float, second: Float): Dp {
 
 // Slightly above 3:1 so anti-aliased glyph edges still measure 3:1.
 private const val MIN_DISABLED_LABEL_CONTRAST = 3.3f
+
+/** How much of the label's colour a menu entry's shortcut text keeps: quieter, still legible. */
+private const val SHORTCUT_ALPHA = 0.6f
 
 /**
  * How a button of this variant and kind looks under this design system.
