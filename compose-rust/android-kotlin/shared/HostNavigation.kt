@@ -36,6 +36,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.Spacer
+import dev.darkpyonix.composerust.ui.node.RenderNodeObserver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -209,6 +212,9 @@ internal fun HostNavigation(
                     label = destination.text(PropertyKind.Text),
                     icon = destination.role(PropertyKind.Icon, IconRole.entries.toTypedArray()),
                     enabled = destination.flag(PropertyKind.Enabled, default = true),
+                    badge = (destination.property(PropertyKind.Count) as? PropertyValue.Integer)
+                        ?.value
+                        ?.let { theme.rules.badge(theme).label(it) },
                 )
             }
         }
@@ -727,12 +733,20 @@ private fun Screen(content: List<Int>, table: NodeTable, dispatcher: EventDispat
     content.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
 }
 
+/** Test tag of a destination's count, the number at the end of its row or the badge on its icon. */
+fun navigationCountTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-count"
+
 /**
  * One destination.
  *
  * A bar and a rail stack the label under the icon; a drawer sets it beside, and is the only
  * one wide enough to do so. The mark on the selected one is the design system's: a filled
  * pill, a bar along the leading edge, or nothing but the colour of the label.
+ *
+ * A destination that carries a count shows it where the platform puts one: at the end of a
+ * drawer's row in the secondary ink, or as the design system's badge on the icon of a bar
+ * or a rail, which has no room at the end of anything. Only this destination reads its
+ * count, so a new one composes this destination again and none of its neighbours.
  */
 @Composable
 internal fun Destination(
@@ -744,9 +758,12 @@ internal fun Destination(
     modifier: Modifier,
     onSelect: () -> Unit,
 ) {
+    RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(node.id) } }
     val label = node.text(PropertyKind.Text)
     val role = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val enabled = node.flag(PropertyKind.Enabled, default = true)
+    // Read raw, as a badge reads it: a count of zero is a count, not the absence of one.
+    val count = (node.property(PropertyKind.Count) as? PropertyValue.Integer)?.value
     // The design system decides what "selected" looks like, unless the node names a
     // colour itself. A unified sample is what needs the exception: its reference bar is
     // white icons on black with no accent anywhere, and asking the active system instead
@@ -800,6 +817,13 @@ internal fun Destination(
             ) {
                 DestinationIcon(role, tint, theme)
                 DestinationLabel(node, label, showLabel, tint, style, theme)
+                if (count != null) {
+                    // The count stands at the row's far end, however long the label is.
+                    Spacer(Modifier.weight(1f))
+                    val countInk = named
+                        ?: if (selected) style.selectedCountContent else style.countContent
+                    DestinationCount(node, count, countInk, style, theme)
+                }
             }
         } else {
             Column(
@@ -807,7 +831,18 @@ internal fun Destination(
                 verticalArrangement = Arrangement.spacedBy(style.itemSpacing),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                DestinationIcon(role, tint, theme)
+                if (count == null) {
+                    DestinationIcon(role, tint, theme)
+                } else {
+                    val badge = theme.rules.badge(theme)
+                    BadgedLayout(
+                        style = badge,
+                        modifier = Modifier,
+                        attached = { Box { DestinationIcon(role, tint, theme) } },
+                    ) {
+                        CountMark(count, badge, theme, Modifier.testTag(navigationCountTestTag(node.id)))
+                    }
+                }
                 DestinationLabel(node, label, showLabel, tint, style, theme)
             }
         }
@@ -890,6 +925,27 @@ private fun DestinationIcon(role: IconRole?, tint: Color, theme: ResolvedTheme) 
     if (role != null) {
         RoleIcon(role, tint, theme, Modifier)
     }
+}
+
+/**
+ * The count at the end of a drawer's row: written out in full, in the row's own type and
+ * the ink the design system gives a count, which reads on the selected row's mark too.
+ */
+@Composable
+private fun DestinationCount(
+    node: Node,
+    count: Long,
+    ink: Color,
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+) {
+    ThemedText(
+        text = count.toString(),
+        modifier = Modifier.testTag(navigationCountTestTag(node.id)),
+        style = node.textStyle(theme, style.typeRole).copy(color = ink),
+        maxLines = 1,
+        softWrap = false,
+    )
 }
 
 @Composable
@@ -1004,7 +1060,12 @@ internal fun ResolvedTheme.navigationFor(node: Node?, sizeClass: WindowSizeClass
                 rules.navigation(WindowSizeClass.Expanded, this)
                     .copy(presentation = NavigationPresentation.PutAway)
             }
-        CompactNavigation.None -> answer.copy(presentation = NavigationPresentation.Hidden)
+        CompactNavigation.None -> answer.copy(
+            presentation = NavigationPresentation.Hidden,
+            pageGradientStart = null,
+            pageGradientEnd = null,
+            pageCornerGlow = null,
+        )
     }
 }
 

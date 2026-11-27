@@ -41,22 +41,14 @@ fn fr43_density_event_round_trips() {
         .expect("DensityChanged is in the event schema");
     assert_eq!(schema.tag, 53);
     assert_eq!(schema.payload, EventPayloadType::Density);
-    // The table is append only: the density report keeps the place it was added at, and
-    // what came later comes after it.
+    let at = EVENT_SCHEMA
+        .iter()
+        .position(|event| event.name == "DensityChanged")
+        .unwrap();
     assert_eq!(
-        EVENT_SCHEMA
-            .iter()
-            .position(|event| event.name == "DensityChanged"),
-        Some(59),
-        "the event table is append only"
-    );
-    assert_eq!(
-        EVENT_SCHEMA[60..]
-            .iter()
-            .map(|event| event.name)
-            .collect::<Vec<_>>(),
-        ["BackRequested"],
-        "the event table is append only"
+        EVENT_SCHEMA[at - 1].name,
+        "SelectionsChanged",
+        "the event table is append only, so the density stays where it was appended"
     );
     assert_eq!(
         EVENT_SCHEMA.iter().filter(|event| event.tag == 53).count(),
@@ -78,7 +70,7 @@ fn fr43_density_event_round_trips() {
     }
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1759 + 20 + 32 + 24 + 20);
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20);
     assert_eq!(decode_event(&events[1759..1779]), Ok(density_changed(2.0)));
     let mut encoded = Vec::new();
     encode_event(&density_changed(2.0), &mut encoded).unwrap();

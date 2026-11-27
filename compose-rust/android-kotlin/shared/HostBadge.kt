@@ -23,6 +23,7 @@ import androidx.compose.ui.node.SemanticsModifierNode
 import androidx.compose.ui.node.invalidateSemantics
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -198,24 +199,44 @@ internal fun HostBadge(
             }
         }
     }
+    BadgedLayout(style, modifier, attached) {
+        BadgeMark(node, style, theme, Modifier, standalone = false)
+    }
+}
+
+/**
+ * Something with a badge on it, placed where this design system places one: centred on
+ * its top trailing corner, or at the end of its line.
+ *
+ * Shared by the `Badge` widget and by anything else that carries a count as a badge, so a
+ * count on a destination's icon sits exactly where the same count on a `Badge` would.
+ * [attached] has to be one layout node, because the corner is that node's corner.
+ */
+@Composable
+internal fun BadgedLayout(
+    style: BadgeStyle,
+    modifier: Modifier,
+    attached: @Composable () -> Unit,
+    mark: @Composable () -> Unit,
+) {
     when (style.placement) {
         BadgePlacement.Overlap -> Layout(
             content = {
                 attached()
-                BadgeMark(node, style, theme, Modifier, standalone = false)
+                mark()
             },
             modifier = modifier,
         ) { measurables, constraints ->
             val child = measurables[0].measure(constraints)
-            val mark = measurables[1].measure(Constraints())
+            val badge = measurables[1].measure(Constraints())
             // Centred on the child's top trailing corner, then moved by the system's
             // offset. It is allowed to hang outside the child's bounds, which is what an
             // overlapping badge does, and it does not grow the space the child takes.
-            val x = child.width - mark.width / 2 + style.offsetX.roundToPx()
-            val y = -mark.height / 2 + style.offsetY.roundToPx()
+            val x = child.width - badge.width / 2 + style.offsetX.roundToPx()
+            val y = -badge.height / 2 + style.offsetY.roundToPx()
             layout(child.width, child.height) {
                 child.place(0, 0)
-                mark.place(x, y, zIndex = 1f)
+                badge.place(x, y, zIndex = 1f)
             }
         }
 
@@ -225,7 +246,7 @@ internal fun HostBadge(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             attached()
-            BadgeMark(node, style, theme, Modifier, standalone = false)
+            mark()
         }
     }
 }
@@ -243,18 +264,65 @@ private fun BadgeMark(
     standalone: Boolean,
 ) {
     val content = node.badgeContent()
+    MarkOf(
+        content = content,
+        role = node.badgeRole(),
+        // On its own the mark is the only thing to read; attached, the child reads it.
+        spoken = if (standalone) content.description() else null,
+        style = style,
+        theme = theme,
+        modifier = modifier.testTag(badgeMarkTestTag(node.id)),
+    )
+}
+
+/**
+ * A count drawn as this design system's badge, on something that is not a `Badge` node.
+ *
+ * The same mark a `Badge` with this count draws: its shape, its fill, and the count cut at
+ * the same ceiling. The mark reads out the count in full, since nothing else carries it.
+ */
+@Composable
+internal fun CountMark(count: Long, style: BadgeStyle, theme: ResolvedTheme, modifier: Modifier) {
+    val content = BadgeContent.Count(count)
+    MarkOf(
+        content = content,
+        role = ColorRole.Error,
+        spoken = content.description(),
+        style = style,
+        theme = theme,
+        modifier = modifier,
+    )
+}
+
+/**
+ * What a badge's mark shows, written where a test can read it and no accessibility
+ * service does. The mark's own text is hidden, because a reader hears the count in full
+ * rather than the shortened label.
+ */
+internal val BadgeLabel = SemanticsPropertyKey<String>("BadgeLabel")
+
+/**
+ * The mark: a dot, or a pill carrying a label.
+ *
+ * [spoken] is what the mark is read as, or null where something else reads it. [modifier]
+ * carries the test tag, which has to stay outside the cleared semantics: clearAndSetSemantics
+ * drops every semantics modifier after it on the chain, a test tag included.
+ */
+@Composable
+private fun MarkOf(
+    content: BadgeContent?,
+    role: ColorRole,
+    spoken: String?,
+    style: BadgeStyle,
+    theme: ResolvedTheme,
+    modifier: Modifier,
+) {
     val label = content.label(style)
-    val role = node.badgeRole()
     val fill = theme.color(role)
     val ink = theme.color(contentOn(role))
-    // The tag goes outside the semantics that are cleared: clearAndSetSemantics drops every
-    // semantics modifier after it on the chain, a test tag included.
-    val tag = modifier.testTag(badgeMarkTestTag(node.id))
-    val tagged = if (standalone) {
-        val spoken = content.description()
-        tag.clearAndSetSemantics { contentDescription = spoken }
-    } else {
-        tag.clearAndSetSemantics { }
+    val tagged = modifier.clearAndSetSemantics {
+        if (spoken != null) contentDescription = spoken
+        if (label != null) this[BadgeLabel] = label
     }
     val ringed = if (style.ringWidth > 0.dp) {
         tagged.border(style.ringWidth, style.ring, style.shape)

@@ -3,7 +3,7 @@
 # its own (COMPOSE_AS in renderer/scripts/build-compose.sh), and every module names its siblings
 # at that version. A sibling that is not there, because a build stopped half way or a module was
 # left off the fork's publish-local.sh, sends the Kotlin toolchain to the network for a coordinate
-# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.5.pom", kept in
+# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.6.pom", kept in
 # its own cache after that.
 #
 # This runs build-compose.sh in a copy of the tree with git stubbed and a fake fork checkout
@@ -39,6 +39,8 @@ material3_as="$(sed -n 's/^MATERIAL3_AS="\([^"]*\)"$/\1/p' "$compose_script")"
 tree="$work/tree"
 mkdir -p "$tree/renderer/scripts" "$tree/bin"
 cp "$repo"/renderer/scripts/*.sh "$tree/renderer/scripts/"
+# build-compose.sh installs this file as a Gradle init script when a mirror is configured.
+cp "$repo/renderer/scripts/maven-central-mirror.gradle" "$tree/renderer/scripts/"
 for module in macos desktop linux; do
     mkdir -p "$tree/renderer/$module"
     cp "$repo/renderer/$module/module.yaml" "$tree/renderer/$module/"

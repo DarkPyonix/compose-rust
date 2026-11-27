@@ -26,6 +26,7 @@ install-notes.txt), but once it is open nothing else differs.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -135,7 +136,8 @@ def make_icns(source, destination):
     if width < 1024:
         print(
             f"warning: {source} is {width} pixels wide and is scaled up to the 1024 pixels "
-            f"a Retina Dock and Finder draw it at; give a 1024 pixel icon to keep it sharp."
+            f"a Retina Dock and Finder draw it at; give a 1024 pixel icon to keep it sharp.",
+            file=sys.stderr,
         )
     with tempfile.TemporaryDirectory() as scratch:
         iconset = Path(scratch) / "AppIcon.iconset"
@@ -261,6 +263,66 @@ def dmg(app, out, volume_name):
             ]
         )
     return out
+
+
+def pkg(app, out, *, sign_identity=None):
+    """Build a Mac App Store component installer `.pkg` from `app` using `productbuild`."""
+    app = Path(app)
+    if not app.exists():
+        raise PackagingError(f"no application bundle at {app}")
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        out.unlink()
+    command = ["productbuild", "--component", str(app), "/Applications"]
+    if sign_identity:
+        command.extend(["--sign", sign_identity])
+    command.append(str(out))
+    run(command)
+    return out
+
+
+def verify_pkg(pkg_path, *, expect_signed=False):
+    """Inspect a `.pkg` with `pkgutil --payload-files` and `pkgutil --check-signature`."""
+    pkg_path = Path(pkg_path)
+    if not pkg_path.is_file():
+        raise PackagingError(f"no installer package at {pkg_path}")
+
+    payload_output = run(["pkgutil", "--payload-files", str(pkg_path)]).stdout
+    payload_files = [line.strip() for line in payload_output.splitlines() if line.strip()]
+    if not payload_files:
+        raise PackagingError(f"{pkg_path} has an empty payload")
+
+    try:
+        signature = subprocess.run(
+            ["pkgutil", "--check-signature", str(pkg_path)],
+            text=True,
+            capture_output=True,
+        )
+    except FileNotFoundError as error:
+        raise PackagingError(f"pkgutil is not installed: {error}") from error
+
+    combined = (signature.stdout + signature.stderr).strip()
+    signed = signature.returncode == 0
+    unsigned_status = any(
+        marker in combined.lower() for marker in ("no signature", "not signed")
+    )
+    if expect_signed and not signed:
+        raise PackagingError(
+            f"expected {pkg_path} to be signed, but pkgutil --check-signature exited "
+            f"{signature.returncode}:\n{combined}"
+        )
+    if not expect_signed and not signed and not unsigned_status:
+        raise PackagingError(
+            f"pkgutil --check-signature failed on {pkg_path} with status "
+            f"{signature.returncode}:\n{combined}"
+        )
+
+    return {
+        "payload_files": payload_files,
+        "signed": signed,
+        "signature_output": combined,
+    }
 
 
 def absolute_references(app):

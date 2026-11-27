@@ -12,6 +12,9 @@ use packager_linux::appimage::{
     AppDirInputs, appimage_arch, appimage_file_name, apprun, assemble_appdir, file_safe,
 };
 use packager_linux::appstream::{appdata_file_name, metainfo, metainfo_file_name};
+use packager_linux::deb::{
+    DebInputs, assemble_deb, control_file, deb_arch, deb_file_name, deb_package_name,
+};
 use packager_linux::desktop::{desktop_entry, desktop_file_name};
 use packager_linux::flatpak::{
     DEFAULT_RUNTIME_VERSION, FlatpakOptions, Json, Payload, SourceRef, finish_args, manifest,
@@ -19,6 +22,9 @@ use packager_linux::flatpak::{
 };
 use packager_linux::icons::{Icon, IconKind, best, check_for_flathub, png_size};
 use packager_linux::metadata::{check_app_id, check_screenshot_url, paragraphs, release_date};
+use packager_linux::rpm::{
+    RpmInputs, assemble_rpm, rpm_arch, rpm_package_name, rpm_spec, spec_file_name,
+};
 use packager_linux::{AppMetadata, BuildFacts};
 
 const DIOXUS_TOML: &str = r##"
@@ -701,4 +707,154 @@ fn fr22_6_3_screenshots_are_pinned_to_a_tag_or_commit() {
     }
     let overlay = "[linux.store]\nscreenshots = [{ url = \"https://raw.githubusercontent.com/a/b/develop/s.png\" }]";
     assert!(resolve_error(DIOXUS_TOML, &[overlay]).contains("pin it to a tag"));
+}
+
+#[test]
+fn fr22_6_6_deb_control_matches_dioxus_toml() {
+    let meta = meta();
+    assert_eq!(deb_arch("x86_64"), Some("amd64"));
+    assert_eq!(deb_arch("aarch64"), Some("arm64"));
+    assert_eq!(deb_arch("riscv64"), None);
+    assert_eq!(deb_package_name(&meta), "sample-calculator");
+    assert_eq!(
+        deb_file_name(&meta, "amd64"),
+        "sample-calculator_1.2.3_amd64.deb"
+    );
+
+    let control = control_file(&meta, "amd64");
+    for expected in [
+        "Package: sample-calculator\n",
+        "Version: 1.2.3\n",
+        "Section: utils\n",
+        "Priority: optional\n",
+        "Architecture: amd64\n",
+        "Maintainer: Example & Sons <dev@example.dev>\n",
+        "Homepage: https://example.dev/calculator\n",
+        "Description: A calculator built with compose-rust\n",
+        " Dense button grids, nested Row and Column, keyboard input.\n",
+        " .\n",
+        " Memory keys that <really> remember.\n",
+    ] {
+        assert!(
+            control.contains(expected),
+            "missing {expected} in\n{control}"
+        );
+    }
+}
+
+#[test]
+fn fr22_6_6_rpm_spec_matches_dioxus_toml() {
+    let meta = meta();
+    let icons = icons_256();
+    assert_eq!(rpm_arch("x86_64"), Some("x86_64"));
+    assert_eq!(rpm_arch("aarch64"), Some("aarch64"));
+    assert_eq!(rpm_arch("riscv64"), None);
+    assert_eq!(rpm_package_name(&meta), "sample-calculator");
+    assert_eq!(spec_file_name(&meta), "sample-calculator.spec");
+
+    let spec = rpm_spec(&meta, &icons);
+    for expected in [
+        "Name:           sample-calculator\n",
+        "Version:        1.2.3\n",
+        "Release:        1\n",
+        "Summary:        A calculator built with compose-rust\n",
+        "License:        Apache-2.0\n",
+        "URL:            https://example.dev/calculator\n",
+        "Packager:       Example & Sons\n",
+        "%description\nDense button grids, nested Row and Column, keyboard input.\n\nMemory keys that <really> remember.\n",
+        "install -m 0755 %{_sourcedir}/sample-calculator %{buildroot}/usr/bin/sample-calculator\n",
+        "install -m 0644 %{_sourcedir}/dev.example.Calculator.desktop %{buildroot}/usr/share/applications/dev.example.Calculator.desktop\n",
+        "install -m 0644 %{_sourcedir}/dev.example.Calculator.metainfo.xml %{buildroot}/usr/share/metainfo/dev.example.Calculator.metainfo.xml\n",
+        "install -m 0644 %{_sourcedir}/icons/256x256/dev.example.Calculator.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/dev.example.Calculator.png\n",
+        "/usr/bin/sample-calculator\n",
+        "/usr/share/applications/dev.example.Calculator.desktop\n",
+        "/usr/share/metainfo/dev.example.Calculator.metainfo.xml\n",
+        "/usr/share/icons/hicolor/256x256/apps/dev.example.Calculator.png\n",
+    ] {
+        assert!(spec.contains(expected), "missing {expected} in\n{spec}");
+    }
+}
+
+#[test]
+fn fr22_6_5_deb_and_rpm_stage_single_executable_icon_and_metadata() {
+    let dir = scratch("deb_and_rpm");
+    let meta = meta();
+    let binary = dir.join("sample-calculator");
+    std::fs::write(&binary, b"#!/bin/sh\necho 1.2.3\n").unwrap();
+    let icon_path = dir.join("icon-256.png");
+    std::fs::write(&icon_path, png(256)).unwrap();
+    let icons = vec![Icon::classify(&icon_path, &png(256)).unwrap()];
+
+    let epoch = 1_790_985_600u64;
+    let deb_out = dir.join("deb-stage");
+    let deb_written = assemble_deb(
+        &DebInputs {
+            meta: &meta,
+            payload: &binary,
+            icons: &icons,
+            arch: "amd64",
+            source_date_epoch: Some(epoch),
+        },
+        &deb_out,
+    )
+    .unwrap();
+    assert_eq!(
+        deb_written,
+        vec![
+            PathBuf::from("DEBIAN/control"),
+            PathBuf::from("usr/bin/sample-calculator"),
+            PathBuf::from("usr/share/applications/dev.example.Calculator.desktop"),
+            PathBuf::from("usr/share/metainfo/dev.example.Calculator.metainfo.xml"),
+            PathBuf::from("usr/share/icons/hicolor/256x256/apps/dev.example.Calculator.png"),
+        ]
+    );
+    for rel in &deb_written {
+        let full = deb_out.join(rel);
+        assert!(full.is_file(), "missing {}", rel.display());
+        let modified = std::fs::metadata(&full)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(modified, epoch, "timestamp mismatch on {}", rel.display());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(deb_out.join("usr/bin/sample-calculator"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "deb binary is not executable");
+    }
+
+    let rpm_out = dir.join("rpm-topdir");
+    let rpm_written = assemble_rpm(
+        &RpmInputs {
+            meta: &meta,
+            payload: &binary,
+            icons: &icons,
+            source_date_epoch: Some(epoch),
+        },
+        &rpm_out,
+    )
+    .unwrap();
+    assert_eq!(
+        rpm_written,
+        vec![
+            PathBuf::from("SPECS/sample-calculator.spec"),
+            PathBuf::from("SOURCES/sample-calculator"),
+            PathBuf::from("SOURCES/dev.example.Calculator.desktop"),
+            PathBuf::from("SOURCES/dev.example.Calculator.metainfo.xml"),
+            PathBuf::from("SOURCES/icons/256x256/dev.example.Calculator.png"),
+        ]
+    );
+    for subdir in ["BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS"] {
+        assert!(rpm_out.join(subdir).is_dir(), "missing {subdir}");
+    }
+    for rel in &rpm_written {
+        assert!(rpm_out.join(rel).is_file(), "missing {}", rel.display());
+    }
 }
