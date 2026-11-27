@@ -530,6 +530,15 @@ class ProtocolVectorsTest {
         assertEquals(listOf("SystemBack" to 1, "Escape" to 2, "PointerBack" to 3, "EdgeSwipe" to 4), words)
     }
 
+    /** A sheet's resting heights and whether a pull closes it, read from the bytes the Host wrote. */
+    @Test
+    fun fr21_3_4_sheet_detents_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(27, WidgetKind.Sheet) in mutations)
+        assertTrue(Mutation.SetProp(27, PropertyKind.SheetDetents, PropertyValue.Integer(3L)) in mutations)
+        assertTrue(Mutation.SetProp(27, PropertyKind.SheetDragToDismiss, PropertyValue.Bool(false)) in mutations)
+    }
+
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
     @Test
     fun fr81_native_view_records_that_cannot_be_read_are_protocol_errors() {

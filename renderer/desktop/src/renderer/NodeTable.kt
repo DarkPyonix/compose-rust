@@ -12,6 +12,7 @@ import dev.darkpyonix.composerust.foundation.MessageQueue
 import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
+import dev.darkpyonix.composerust.foundation.SHEET_DETENT_MASK
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.FormatOp
@@ -1361,6 +1362,21 @@ class NodeTable {
                 return
             }
         }
+        if (mutation.property == PropertyKind.SheetDetents) {
+            val bits = (mutation.value as? PropertyValue.Integer)?.value
+            if (bits != null && bits and SHEET_DETENT_MASK.toLong().inv() != 0L) {
+                // A resting height this renderer has no meaning for is a newer or a broken
+                // Host. Resting at some of what was asked would put the sheet at a height
+                // nobody chose, so the sheet keeps the design system's one height.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "sheet ${node.id} was given resting heights $bits, which sets bits other than " +
+                        "Medium (1) and Large (2); it keeps the design system's height",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.property == PropertyKind.TextAlign) {
             val tag = (mutation.value as? PropertyValue.Integer)?.value
             if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
@@ -2169,6 +2185,9 @@ class NodeTable {
                 PropertyKind.MaxWidth,
                 // Whether a bottom sheet draws its drag handle.
                 PropertyKind.SheetHandle,
+                // The heights a bottom sheet rests at, and whether a pull can close it.
+                PropertyKind.SheetDetents,
+                PropertyKind.SheetDragToDismiss,
                 -> widget == WidgetKind.Sheet
 
                 // Whether a text field rejects edits while keeping focus, selection and copy.
