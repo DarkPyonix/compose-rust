@@ -10,7 +10,7 @@ import org.thisisthepy.compose.window.graalvm.macos.closePopupMenu
 import org.thisisthepy.compose.window.graalvm.macos.showPopupMenu
 import org.thisisthepy.compose.window.graalvm.windows.Win32GraalWindow
 
-// The GraalVM windows' entry menus (FR-33.2 criterion 6: the same list on both paths), through
+// The GraalVM windows' entry menus (the same list on both paths), through
 // the same C the Kotlin/Native windows call (dxc_native_popup_menu). [BlockingOsMenuPresenter]
 // calls [BlockingOsMenu.show] between frames; [scale] is the window's pixels per point, for the
 // size the entries' icons are drawn at.

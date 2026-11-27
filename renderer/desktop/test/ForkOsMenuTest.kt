@@ -29,7 +29,7 @@ import kotlin.test.assertSame
 
 /**
  * The OS menus of the macOS and Windows windows go up through the Compose fork's
- * `PopupMenuEntry` list (FR-33.2): [forkPopupMenuEntries] and [forkPopupMenuAnchor] are the
+ * `PopupMenuEntry` list: [forkPopupMenuEntries] and [forkPopupMenuAnchor] are the
  * whole translation, shared by the Kotlin/Native and GraalVM windows of both systems.
  */
 class ForkOsMenuTest {

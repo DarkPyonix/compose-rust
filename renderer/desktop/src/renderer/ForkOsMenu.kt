@@ -9,7 +9,7 @@ import org.thisisthepy.compose.window.PopupMenuIcon
 import kotlin.math.roundToInt
 
 // The Compose fork's window modules put an entry menu up as the operating system's own
-// (`org.thisisthepy.compose.window.PopupMenuEntry`, FR-33.2): `NSMenu` on macOS and
+// (`org.thisisthepy.compose.window.PopupMenuEntry`): `NSMenu` on macOS and
 // `TrackPopupMenuEx` on Windows, on the Kotlin/Native windows and the GraalVM ones alike. The
 // fork's list has the shape of [OsMenuEntry] and its anchor the space of [OsMenuRequest.anchor],
 // so the four [BlockingOsMenu]s over it share this mapping and differ only in the call.
