@@ -557,3 +557,25 @@ internal fun blurredShadowPaint(brush: Brush, size: Size, sigma: Float): Paint =
     brush.applyTo(size, it, 1f)
     it.asFrameworkPaint().maskFilter = MaskFilter.makeBlur(FilterBlurMode.NORMAL, sigma, true)
 }
+
+/**
+ * Where a line of [text] may end, as offsets after 0 in increasing order, the end of the
+ * text last: the line breaker's own opportunities, which are the ones Skia's paragraph
+ * breaks at. A word joiner forbids one and a zero width space makes one, as they do there.
+ */
+internal fun lineBreakOpportunities(text: String): IntArray {
+    if (text.isEmpty()) return IntArray(0)
+    val breaks = org.jetbrains.skia.BreakIterator.makeLineInstance()
+    try {
+        breaks.setText(text)
+        val out = ArrayList<Int>()
+        var at = breaks.next()
+        while (at != org.jetbrains.skia.BreakIterator.DONE) {
+            if (at > 0) out += at
+            at = breaks.next()
+        }
+        return out.toIntArray()
+    } finally {
+        breaks.close()
+    }
+}
