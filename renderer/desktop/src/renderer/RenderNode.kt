@@ -21,6 +21,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
 import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
+import androidx.compose.foundation.layout.padding
 import dev.darkpyonix.composerust.foundation.recordsBackdrop
 import dev.darkpyonix.composerust.foundation.rememberBackdropSource
 import dev.darkpyonix.composerust.foundation.hostCursor
@@ -519,15 +521,21 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 val snap = rememberItemStartSnap(node, scrollState, vertical = true)
+                // Under a bar that floats over the page the content ends lower by what the
+                // bar covers, so its last line can be scrolled clear of the bar. The room
+                // is used up here: a scroll container inside this one gets none.
+                val barReserve = LocalFloatingBarReserve.current
                 Column(
                     modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
-                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling)
+                        .then(if (barReserve > 0.dp) Modifier.padding(bottom = barReserve) else Modifier),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) {
                     CompositionLocalProvider(
                         LocalScrollState provides scrollState,
                         LocalScrollIsHorizontal provides false,
+                        LocalFloatingBarReserve provides 0.dp,
                     ) {
                         Children(node, table, dispatcher, snap)
                     }

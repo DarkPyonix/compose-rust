@@ -1968,9 +1968,15 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
 // design system. `None` leaves the destinations off a compact window altogether, with
 // nothing to call them: the application draws its own way to them. The name is Compose's
 // `NavigationSuiteType.None`.
+//
+// `Floating` is a pill-shaped bar floating over the bottom of the page, held off the
+// window's edges and above the bottom safe area. The page runs on under it and shows
+// through it, and a scroll container in the page is given room at its end so its last
+// content is not left behind the bar.
 define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     Sidebar = 1,
     None = 2,
+    Floating = 3,
 } unlisted {
     Default = 0,
 });
