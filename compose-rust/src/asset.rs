@@ -28,6 +28,10 @@ thread_local! {
     static QUEUE: RefCell<Vec<PendingAsset>> = const { RefCell::new(Vec::new()) };
     /// Ids the application let go of, waiting for the batch that tells the Renderer.
     static RELEASES: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    /// Fonts set aside by [`lazy_asset`]: an id handed out, the bytes kept here until the
+    /// Renderer asks for them. An entry stays after its bytes have been sent, so a font
+    /// let go of and needed again goes out again under the same id.
+    static LAZY: RefCell<Vec<(&'static [u8], u32, AssetKind)>> = const { RefCell::new(Vec::new()) };
     /// The last id handed out. Counted here and not read off the registry's length,
     /// because a released id leaves a hole and the next registration must not reuse it:
     /// a stale `Paint` would then silently name a different brush.
@@ -57,11 +61,17 @@ pub fn asset(kind: AssetKind, bytes: &'static [u8]) -> u32 {
     if let Some(id) = REGISTERED.with_borrow(|registered| registered_id(registered, bytes)) {
         return id;
     }
+    // Bytes set aside by `lazy_asset` already have their id, and font lists name them by
+    // it, so registering them now sends them under that id rather than a new one.
+    let set_aside = LAZY.with_borrow(|lazy| registered_id(lazy, bytes));
     // Ids start at one. Zero is what a node with no asset property reads as, so handing it
     // out would make "no picture" and "the first picture" the same value on the wire.
     let asset_id = REGISTERED.with_borrow_mut(|registered| {
-        let asset_id = LAST_ID.get() + 1;
-        LAST_ID.set(asset_id);
+        let asset_id = set_aside.unwrap_or_else(|| {
+            let asset_id = LAST_ID.get() + 1;
+            LAST_ID.set(asset_id);
+            asset_id
+        });
         registered.push((bytes, asset_id, kind));
         asset_id
     });
@@ -73,6 +83,87 @@ pub fn asset(kind: AssetKind, bytes: &'static [u8]) -> u32 {
         });
     });
     asset_id
+}
+
+/// Sets a font aside: returns the id [`asset`] would give the same bytes, and sends
+/// nothing until the Renderer asks for it.
+///
+/// A Korean face is over a megabyte and an application's screens use a small part of it.
+/// Named as `FontRef::LazyAsset(id)` in a font list, or as a family of a
+/// [`FontStack::lazy_family`](crate::FontStack::lazy_family), the face is looked for only
+/// where a letter is missing from every font before it. The Renderer then asks for the
+/// bytes, and they go out on the batch that answers. Until they arrive, such a letter is
+/// drawn as a missing glyph, never in a face of the machine's own.
+///
+/// ```ignore
+/// static SUBSET: &[u8] = include_bytes!("../assets/fonts/Pretendard-KSX1001.otf");
+/// static FULL: &[u8] = include_bytes!("../assets/fonts/Pretendard-Regular.otf");
+///
+/// let fonts = FontRefs::new([
+///     FontRef::Asset(asset(AssetKind::Font, SUBSET)),
+///     FontRef::LazyAsset(lazy_asset(AssetKind::Font, FULL)),
+/// ]);
+/// ```
+///
+/// Bytes already registered with [`asset`] give that registration's id, and the candidate
+/// is a font the Renderer already holds. Calling [`asset`] with these bytes later sends
+/// them under the id this returned. Like [`asset`], the same bytes give the same id every
+/// time, so this can run in a component body.
+pub fn lazy_asset(kind: AssetKind, bytes: &'static [u8]) -> u32 {
+    if let Some(id) = REGISTERED.with_borrow(|registered| registered_id(registered, bytes)) {
+        return id;
+    }
+    if let Some(id) = LAZY.with_borrow(|lazy| registered_id(lazy, bytes)) {
+        return id;
+    }
+    let asset_id = LAST_ID.get() + 1;
+    LAST_ID.set(asset_id);
+    LAZY.with_borrow_mut(|lazy| lazy.push((bytes, asset_id, kind)));
+    asset_id
+}
+
+/// The Renderer needs the bytes of `asset_id`: queues its registration for the next batch.
+///
+/// Returns false for an id the Host has nothing for, which is the Renderer's mistake and
+/// queues nothing. An id whose registration is already waiting for its batch queues
+/// nothing more. An id the Host has sent before is sent again: the Renderer asks only for
+/// what it does not hold, as after a release.
+pub(crate) fn want(asset_id: u32) -> bool {
+    let registered = REGISTERED.with_borrow(|registered| {
+        registered
+            .iter()
+            .find(|(_, id, _)| *id == asset_id)
+            .map(|(bytes, _, kind)| (*bytes, *kind))
+    });
+    let (bytes, kind) = match registered {
+        Some(found) => found,
+        None => {
+            let Some(set_aside) = LAZY.with_borrow(|lazy| {
+                lazy.iter()
+                    .find(|(_, id, _)| *id == asset_id)
+                    .map(|(bytes, _, kind)| (*bytes, *kind))
+            }) else {
+                return false;
+            };
+            REGISTERED.with_borrow_mut(|registered| {
+                registered.push((set_aside.0, asset_id, set_aside.1));
+            });
+            set_aside
+        }
+    };
+    QUEUE.with_borrow_mut(|queue| {
+        if !queue.iter().any(|pending| pending.asset_id == asset_id) {
+            queue.push(PendingAsset {
+                asset_id,
+                kind,
+                bytes,
+            });
+        }
+    });
+    // A release of the same id still waiting would follow the registration in the batch
+    // and take the font straight back out.
+    RELEASES.with_borrow_mut(|releases| releases.retain(|id| *id != asset_id));
+    true
 }
 
 /// Registers bytes this process built rather than bytes it was compiled with.
@@ -178,6 +269,36 @@ pub(crate) fn release(asset_id: u32, kind: AssetKind) -> bool {
     true
 }
 
+/// Lets go of a registered font or picture, so the Renderer drops its copy.
+///
+/// ```ignore
+/// let codicon = asset(AssetKind::Font, CODICON);
+/// // ... the editor closes and nothing draws with it any more:
+/// release_asset(codicon);
+/// ```
+///
+/// The release rides out on the next batch as `ReleaseAsset`. Returns false for an id that
+/// was never registered or was already released. A registration still waiting for its batch
+/// is dropped instead, because the Renderer never heard of it. The id is not handed out
+/// again: text that still names it falls back to the next font in its list, and the
+/// Renderer reports a protocol error once. Registering the same bytes again gives a new id.
+///
+/// A font set aside with [`lazy_asset`] keeps its id and its bytes on the Host. Released
+/// once it was sent, it goes out again under the same id when the Renderer next asks for
+/// it. Released before it was ever asked for, it has nothing to let go of and returns false.
+pub fn release_asset(asset_id: AssetId) -> bool {
+    let kind = REGISTERED.with_borrow(|registered| {
+        registered
+            .iter()
+            .find(|(_, id, _)| *id == asset_id)
+            .map(|(_, _, kind)| *kind)
+    });
+    match kind {
+        Some(kind) => release(asset_id, kind),
+        None => false,
+    }
+}
+
 /// Hands every queued release to `emit` and empties the queue.
 pub(crate) fn drain_releases(mut emit: impl FnMut(u32)) {
     let mut taken = RELEASES.with_borrow_mut(std::mem::take);
@@ -200,6 +321,7 @@ pub(crate) fn drain_releases(mut emit: impl FnMut(u32)) {
 /// Bytes that live for the whole program, ids and kinds, so it can go to another thread.
 pub(crate) struct Registrations {
     registered: Vec<(&'static [u8], u32, AssetKind)>,
+    lazy: Vec<(&'static [u8], u32, AssetKind)>,
     last_id: u32,
 }
 
@@ -213,6 +335,7 @@ pub(crate) struct Registrations {
 pub(crate) fn registrations() -> Registrations {
     Registrations {
         registered: REGISTERED.with_borrow(Clone::clone),
+        lazy: LAZY.with_borrow(Clone::clone),
         last_id: LAST_ID.get(),
     }
 }
@@ -227,6 +350,7 @@ pub(crate) fn adopt(registrations: Registrations) {
     }
     LAST_ID.set(registrations.last_id);
     REGISTERED.with_borrow_mut(|registered| *registered = registrations.registered);
+    LAZY.with_borrow_mut(|lazy| *lazy = registrations.lazy);
     requeue_all();
 }
 
@@ -236,6 +360,7 @@ pub fn reset_assets() {
     REGISTERED.with_borrow_mut(Vec::clear);
     QUEUE.with_borrow_mut(Vec::clear);
     RELEASES.with_borrow_mut(Vec::clear);
+    LAZY.with_borrow_mut(Vec::clear);
     LAST_ID.set(0);
 }
 

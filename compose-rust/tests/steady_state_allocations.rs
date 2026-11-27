@@ -88,3 +88,60 @@ fn nfr9_boundary_encoding_does_not_allocate() {
 
     assert_eq!(allocations, 0, "warm arena encoding allocated");
 }
+
+// A debug build warns on standard error when a Host frame takes over 1 ms. A loaded machine
+// makes any frame slow, so the warning must not allocate either, or a steady-state
+// allocation count depends on how busy the machine was.
+static SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn steady_frames(
+    host: &mut compose_rust::ComposeHost,
+    count: compose_rust::runtime::MutableState<i32>,
+    from: u64,
+) -> usize {
+    let measurement = AllocationMeasurement::start();
+    for frame in from..from + 20 {
+        count.set(frame as i32);
+        host.render_frame(frame).unwrap();
+    }
+    measurement.finish()
+}
+
+#[test]
+fn nfr9_a_slow_frame_allocates_no_more_than_a_fast_one() {
+    use compose_rust::runtime::*;
+    use compose_rust::ui::*;
+    use std::sync::atomic::Ordering;
+
+    let count = mutable_state_of(0);
+    let state = count;
+    let mut host = compose_rust::ComposeHost::with_content(move || {
+        let _ = state.get();
+        if SLOW.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        Column!({
+            Box!(modifier = Modifier.padding(4.0), {});
+        });
+    });
+    host.rebuild().unwrap();
+    for frame in 1..10u64 {
+        count.set(frame as i32);
+        host.render_frame(frame).unwrap();
+    }
+    // One slow frame first, so whatever standard error sets up on first use is not counted.
+    SLOW.store(true, Ordering::Relaxed);
+    count.set(-1);
+    host.render_frame(10).unwrap();
+    SLOW.store(false, Ordering::Relaxed);
+
+    let fast = steady_frames(&mut host, count, 100);
+    SLOW.store(true, Ordering::Relaxed);
+    let slow = steady_frames(&mut host, count, 200);
+    SLOW.store(false, Ordering::Relaxed);
+
+    assert_eq!(
+        slow, fast,
+        "slow frames allocated {slow} where fast ones took {fast}"
+    );
+}

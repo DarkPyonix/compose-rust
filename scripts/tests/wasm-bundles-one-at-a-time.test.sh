@@ -21,9 +21,10 @@ fail() { echo "  FAIL: $1" >&2; failures=$((failures + 1)); }
 echo "wasm bundles one at a time"
 
 # The renderer job's steps, in order: the line of the app bundle step has to come before
-# the shared build step, and that step has to be limited to the wasmJs leg.
-app_line="$(grep -nF "run: ./kotlin task $app_task" "$workflow" | head -1 | cut -d: -f1)"
-build_line="$(grep -nF 'run: ./kotlin build -p ${{ matrix.platform }}' "$workflow" |
+# the shared build step, and that step has to be limited to the wasmJs leg. Either may run
+# through renderer/scripts/retry-resolution.sh (dependency-download-retries.test.sh).
+app_line="$(grep -nE "run: (\./scripts/retry-resolution\.sh )?\./kotlin task $app_task" "$workflow" | head -1 | cut -d: -f1)"
+build_line="$(grep -nE 'run: (\./scripts/retry-resolution\.sh )?\./kotlin build -p \$\{\{ matrix\.platform \}\}' "$workflow" |
     head -1 | cut -d: -f1)"
 if [[ -z "$app_line" ]]; then
     fail "test.yml no longer builds $app_task on its own before the wasmJs build"

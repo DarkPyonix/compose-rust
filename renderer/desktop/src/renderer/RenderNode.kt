@@ -25,6 +25,7 @@ import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
 import androidx.compose.foundation.layout.padding
 import dev.darkpyonix.composerust.foundation.recordsBackdrop
 import dev.darkpyonix.composerust.foundation.rememberBackdropSource
+import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
@@ -70,7 +71,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.boundsInWindow
@@ -175,6 +175,7 @@ import dev.darkpyonix.composerust.ui.motionFinishedListener
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
 import dev.darkpyonix.composerust.ui.verticalArrangement
+import dev.darkpyonix.composerust.ui.ChildWeight
 import dev.darkpyonix.composerust.ui.weightOf
 
 /**
@@ -365,6 +366,7 @@ fun RenderNode(
             ),
         )
         .testTag(nodeTestTag(nodeId))
+        .hostCursor(node)
         .accessibility(
             node,
             dispatcher,
@@ -1216,7 +1218,7 @@ private fun WeightedStack(
     dispatcher: EventDispatcher,
     modifier: Modifier,
     horizontal: Boolean,
-    weights: List<Float?>,
+    weights: List<ChildWeight?>,
     intrinsicSafe: List<Boolean>,
     horizontalArrangement: Arrangement.Horizontal,
     verticalArrangement: Arrangement.Vertical,
@@ -1233,14 +1235,14 @@ private fun WeightedStack(
                 node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
             }
         },
-        modifier = modifier.clipToBounds(),
+        modifier = modifier,
         measurePolicy = policy,
     )
 }
 
 private class WeightedStackPolicy(
     private val horizontal: Boolean,
-    private val weights: List<Float?>,
+    private val weights: List<ChildWeight?>,
     private val intrinsicSafe: List<Boolean>,
     private val horizontalArrangement: Arrangement.Horizontal,
     private val verticalArrangement: Arrangement.Vertical,
@@ -1274,17 +1276,22 @@ private class WeightedStackPolicy(
         }
         val target = if (mainMax == Constraints.Infinity) mainMin else mainMax
         val remaining = (target - fixed - gaps).coerceAtLeast(0)
-        val totalWeight = weights.filterNotNull().sum()
+        val totalWeight = weights.mapNotNull { it?.value }.sum()
         var distributed = 0
         var remainingWeight = totalWeight
         measurables.forEachIndexed { index, measurable ->
             val weight = weights[index] ?: return@forEachIndexed
-            val share = if (remainingWeight == weight) remaining - distributed else (remaining * weight / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
+            val share = if (remainingWeight == weight.value) remaining - distributed else (remaining * weight.value / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
             distributed += share
-            remainingWeight -= weight
-            val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
-            val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
-            places[index] = measurable.measure(childConstraints(size, size))
+            remainingWeight -= weight.value
+            places[index] = if (weight.fill) {
+                val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
+                val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(size, size))
+            } else {
+                val max = if (mainMax == Constraints.Infinity && mainMin == 0) Constraints.Infinity else share.coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(0, max))
+            }
         }
         val children = places.map { it!! }
         val sizes = children.map { if (horizontal) it.width else it.height }.toIntArray()
@@ -1312,14 +1319,14 @@ private class WeightedStackPolicy(
                 if (min) child.minIntrinsicHeight(cross) else child.maxIntrinsicHeight(cross)
             }
         } }
-        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!! } ?: 0f
-        val weighted = (unit * weights.filterNotNull().sum()).roundToInt()
+        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!!.value } ?: 0f
+        val weighted = (unit * weights.mapNotNull { it?.value }.sum()).roundToInt()
         return (sizes.indices.filter { weights[it] == null }.sumOf { sizes[it].toLong() } + weighted + gap)
             .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
-        val total = weights.filterNotNull().sum()
+        val total = weights.mapNotNull { it?.value }.sum()
         val remaining = if (main == Constraints.Infinity || total <= 0f) {
             Constraints.Infinity
         } else {
@@ -1336,9 +1343,13 @@ private class WeightedStackPolicy(
             val size = if (weight == null || remaining == Constraints.Infinity) {
                 Constraints.Infinity
             } else {
-                val available = (remaining * weight / total).roundToInt()
-                val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
-                maxOf(available, minimum)
+                val available = (remaining * weight.value / total).roundToInt()
+                if (weight.fill) {
+                    val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+                    maxOf(available, minimum)
+                } else {
+                    available
+                }
             }
             intrinsic(index) { if (horizontal) {
                 if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
@@ -1408,7 +1419,7 @@ private fun ColumnScope.WeightedChild(
     // Its own composable, so reading the child's modifier list subscribes this scope alone
     // and a `SetModifier` on one child cannot invalidate its siblings.
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1430,7 +1441,7 @@ private fun RowScope.WeightedChild(
     snap: ItemStartSnap?,
 ) {
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1563,7 +1574,9 @@ private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Mo
         !enabled -> null
         node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
             {
-                val checked = node.flag(PropertyKind.Checked, default = false)
+                // A press on a mixed box asks for checked, as the box itself does.
+                val checked = node.flag(PropertyKind.Checked, default = false) &&
+                    !node.flag(PropertyKind.Indeterminate, default = false)
                 dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
             }
         }

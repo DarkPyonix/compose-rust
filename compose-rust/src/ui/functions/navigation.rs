@@ -126,7 +126,10 @@ pub fn Navigation<'a>(
 /// `text` is the destination's label and `on_click` runs when the user picks it. `icon`
 /// and `color` are its icon and the colour it is drawn in, the design system's when they
 /// are unset. `enabled` set to false shows it and keeps it from being picked. `section`
-/// is the named group of the strip this destination belongs to.
+/// is the named group of the strip this destination belongs to. `count` is how many
+/// things the destination holds, drawn where the design system puts a destination's
+/// count: at the end of a sidebar row, or as a badge on the icon of a bar or a rail. Left
+/// out, the destination shows no count; 0 is a count of nothing and is shown.
 ///
 /// `on_motion_finished` runs once when the node's size motion comes to rest, with the size
 /// it settled at in dp; the node needs `Modifier::motion` for its size to move.
@@ -139,6 +142,7 @@ pub fn NavigationItem<'a>(
     #[default(None::<::compose_rust::ui::Paint>)] color: impl Into<Option<Paint>>,
     #[default(true)] enabled: bool,
     #[default(None::<&str>)] section: impl Into<Option<&'a str>>,
+    #[default(None::<u32>)] count: impl Into<Option<u32>>,
     #[default(None::<fn(::compose_rust::MotionFinished)>)] on_motion_finished: Option<
         impl FnMut(MotionFinished) + 'static,
     >,
@@ -148,7 +152,7 @@ pub fn NavigationItem<'a>(
         .on_click(on_click);
     set!(scope; icon, color);
     scope = scope.enabled(enabled);
-    set!(scope; section);
+    set!(scope; section, count);
     set_some!(scope; on_motion_finished);
     drop(scope);
 }

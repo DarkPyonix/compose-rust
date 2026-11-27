@@ -35,7 +35,7 @@ private const val ASSUMED_TAB_BAR_HEIGHT = 49f
  * name. A role with no good symbol gets none and the tab shows its label alone, which is a
  * legal tab bar item and not a missing one.
  */
-private fun symbolName(role: IconRole?): String? = when (role) {
+internal fun symbolName(role: IconRole?): String? = when (role) {
     IconRole.Back -> "chevron.backward"
     IconRole.Forward -> "chevron.forward"
     IconRole.Close -> "xmark"
@@ -224,6 +224,8 @@ internal class IosNavigationShell(
             tag = 0,
         )
         item.enabled = destination.enabled
+        // The tab bar's own badge, carrying the count as the design system writes it.
+        item.badgeValue = destination.badge
         navigation.tabBarItem = item
         return navigation
     }

@@ -369,6 +369,9 @@ struct Node {
 }
 
 /// The Renderer's node table, as far as the tree it describes goes.
+///
+/// Node 0 is the virtual root. Its children are the table's roots: every node created and
+/// not yet placed under a parent, in creation order, and every node inserted under node 0.
 #[derive(Clone, Debug, Default)]
 pub struct Model {
     nodes: HashMap<u32, Node>,
@@ -392,13 +395,25 @@ impl Model {
         for record in &batch.records {
             match record {
                 Record::Create { node, widget } => {
+                    // A node the Host creates and never inserts is a root, drawn under the
+                    // virtual root in the order it was created, until an Insert or a Move
+                    // places it under a parent. The Renderer's node table does the same:
+                    // no record attaches the application's top node, so the Dioxus path
+                    // only ever creates it, while the slot table path also inserts it under
+                    // node 0. Either way it lands in the same place, and this adds no
+                    // record of its own.
+                    let new = !self.nodes.contains_key(node);
                     self.nodes.insert(
                         *node,
                         Node {
                             widget: widget.clone(),
+                            parent: new.then_some(0),
                             ..Node::default()
                         },
                     );
+                    if new && let Some(root) = self.nodes.get_mut(&0) {
+                        root.children.push(*node);
+                    }
                 }
                 Record::SetProp {
                     node,
@@ -475,10 +490,10 @@ impl Model {
 
     fn detach(&mut self, node: u32) {
         let parent = self.nodes.get(&node).and_then(|entry| entry.parent);
-        if let Some(parent) = parent {
-            if let Some(entry) = self.nodes.get_mut(&parent) {
-                entry.children.retain(|child| *child != node);
-            }
+        if let Some(parent) = parent
+            && let Some(entry) = self.nodes.get_mut(&parent)
+        {
+            entry.children.retain(|child| *child != node);
         }
         if let Some(entry) = self.nodes.get_mut(&node) {
             entry.parent = None;
@@ -496,7 +511,10 @@ impl Model {
     /// The tree under the root, in a form that does not depend on node or handler ids.
     ///
     /// Event properties carry handler ids, which each path allocates in its own order, so
-    /// they are written as present or absent. Everything else is written as it is.
+    /// they are written as present or absent. A node's Modifiers are written in slot order
+    /// without their slot numbers, which belong to the protocol version that wrote them:
+    /// the Renderer applies the slots that are set in order, so the order is what the tree
+    /// holds. Everything else is written as it is.
     pub fn dump(&self) -> String {
         let mut out = String::new();
         self.dump_node(0, 0, &mut out);
@@ -518,8 +536,10 @@ impl Model {
                 out.push_str(&format!(" {name}={value:?}"));
             }
         }
-        for (index, modifier) in &entry.modifiers {
-            out.push_str(&format!(" m{index}={modifier}"));
+        // In slot order, without the slot's number: the number is the wire's, and the
+        // protocol renumbered the slots between the two revisions compared here.
+        for modifier in entry.modifiers.values() {
+            out.push_str(&format!(" modifier={modifier}"));
         }
         out.push('\n');
         for child in &entry.children {
@@ -640,6 +660,28 @@ impl Model {
                 })
             }
             Step::FramesUntilIdle { .. } => Err("frames are not an event".to_owned()),
+        }
+    }
+}
+
+/// The first line at which two dumps differ: its number from 1, and the line on each side.
+///
+/// A side that has run out of lines gives an empty line. `None` when the dumps are equal.
+pub fn first_difference(baseline: &str, candidate: &str) -> Option<(usize, String, String)> {
+    let mut left = baseline.lines();
+    let mut right = candidate.lines();
+    let mut number = 1;
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return None,
+            (a, b) if a == b => number += 1,
+            (a, b) => {
+                return Some((
+                    number,
+                    a.unwrap_or("").trim_start().to_owned(),
+                    b.unwrap_or("").trim_start().to_owned(),
+                ));
+            }
         }
     }
 }
@@ -810,16 +852,53 @@ pub struct Comparison {
     pub candidate_mutations: usize,
     pub baseline_bytes: usize,
     pub candidate_bytes: usize,
+    /// Set when the trees are equal but the candidate sent more records or more bytes.
+    #[serde(default)]
+    pub record_violation: Option<RecordViolation>,
+}
+
+/// Equal trees, but more records or bytes than the baseline: the timings still compare the
+/// same work, so the run goes on, and the verdict cannot be met.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecordViolation {
+    pub scenario: String,
+    pub candidate_records: usize,
+    pub baseline_records: usize,
+    pub excess_records: usize,
+    pub candidate_bytes: usize,
+    pub baseline_bytes: usize,
+    pub excess_bytes: usize,
+}
+
+impl std::fmt::Display for RecordViolation {
+    /// One line that starts with `violation <scenario>:`, which the scripts read back.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "violation {}: breaks the rule that the candidate sends no more records or bytes \
+             than the baseline: {} records against the baseline's {} (+{}), {} bytes against \
+             the baseline's {} (+{})",
+            self.scenario,
+            self.candidate_records,
+            self.baseline_records,
+            self.excess_records,
+            self.candidate_bytes,
+            self.baseline_bytes,
+            self.excess_bytes
+        )
+    }
 }
 
 /// Compares one scenario's two runs by whole-interaction time.
 ///
-/// Invalid when the trees differ after any step, or when the candidate sent more records
-/// or more bytes than the baseline. An invalid comparison has no ratio worth reading, and
-/// the summary does not count it as passing.
+/// Invalid when the trees differ after any step: the two paths did not do the same work,
+/// so no ratio is worth reading. A candidate that built the same trees but sent more
+/// records or bytes is valid and carries a [`RecordViolation`] instead. Neither counts as
+/// passing in the verdict.
 pub fn compare(baseline: &ScenarioRun, candidate: &ScenarioRun) -> Comparison {
     let mut reasons = Vec::new();
-    if baseline.step_trees != candidate.step_trees {
+    let trees_differ = baseline.step_trees != candidate.step_trees;
+    if trees_differ {
         let step = baseline
             .step_trees
             .iter()
@@ -844,10 +923,25 @@ pub fn compare(baseline: &ScenarioRun, candidate: &ScenarioRun) -> Comparison {
     let b99 = quantile(&baseline.frame_ns, 0.99);
     let c50 = quantile(&candidate.frame_ns, 0.50);
     let c99 = quantile(&candidate.frame_ns, 0.99);
+    // With equal trees the only reasons left are the counts, which make a violation and
+    // not an invalid run. With differing trees the message stays whole.
+    let excess = !trees_differ && !reasons.is_empty();
+    if excess {
+        reasons.clear();
+    }
     Comparison {
         name: baseline.name.clone(),
-        valid: reasons.is_empty(),
+        valid: !trees_differ,
         reason: reasons.join("; "),
+        record_violation: excess.then(|| RecordViolation {
+            scenario: baseline.name.clone(),
+            candidate_records: candidate.mutations,
+            baseline_records: baseline.mutations,
+            excess_records: candidate.mutations.saturating_sub(baseline.mutations),
+            candidate_bytes: candidate.bytes,
+            baseline_bytes: baseline.bytes,
+            excess_bytes: candidate.bytes.saturating_sub(baseline.bytes),
+        }),
         baseline_p50_ns: b50,
         baseline_p99_ns: b99,
         baseline_max_ns: baseline.frame_ns.iter().copied().max().unwrap_or(0),
@@ -876,13 +970,16 @@ pub fn geometric_mean(ratios: &[f64]) -> f64 {
 }
 
 /// The target: p50 ratios' geometric mean at least 10, p99 ratios' at least 5, every
-/// comparison valid, and no scenario slower than the baseline at p50 or p99.
+/// comparison valid and without a record violation, and no scenario slower than the
+/// baseline at p50 or p99.
 pub fn verdict(comparisons: &[Comparison]) -> (bool, f64, f64) {
     let p50: Vec<f64> = comparisons.iter().map(|c| c.p50_ratio).collect();
     let p99: Vec<f64> = comparisons.iter().map(|c| c.p99_ratio).collect();
     let g50 = geometric_mean(&p50);
     let g99 = geometric_mean(&p99);
-    let all_valid = comparisons.iter().all(|c| c.valid);
+    let all_valid = comparisons
+        .iter()
+        .all(|c| c.valid && c.record_violation.is_none());
     let none_slower = comparisons
         .iter()
         .all(|c| c.p50_ratio >= 1.0 && c.p99_ratio >= 1.0);
@@ -952,4 +1049,400 @@ pub fn main_for(path: &mut dyn Path, path_name: &str, apps: &[App]) {
     }
     let text = serde_json::to_string_pretty(&runs).expect("runs serialize");
     std::fs::write(&args.out, text).expect("the run file could not be written");
+}
+
+#[cfg(test)]
+mod tests {
+    //! The model's roots, against what the Renderer's node table
+    //! (`renderer/desktop/src/renderer/NodeTable.kt`) does with the same records. Each test
+    //! names the NodeTable behaviour it copies.
+
+    use super::*;
+
+    fn create(node: u32, widget: &str) -> Record {
+        Record::Create {
+            node,
+            widget: widget.to_owned(),
+        }
+    }
+
+    fn text(node: u32, value: &str) -> Record {
+        Record::SetProp {
+            node,
+            property: "Text".to_owned(),
+            value: Value::Text(value.to_owned()),
+        }
+    }
+
+    fn on_click(node: u32, handler: i64) -> Record {
+        Record::SetProp {
+            node,
+            property: "OnClick".to_owned(),
+            value: Value::Int(handler),
+        }
+    }
+
+    fn insert(parent: u32, node: u32, index: u32) -> Record {
+        Record::Insert {
+            parent,
+            node,
+            index,
+        }
+    }
+
+    fn batch(records: Vec<Record>) -> Batch {
+        Batch {
+            bytes: records.len() * 16,
+            records,
+        }
+    }
+
+    fn model(batches: &[Vec<Record>]) -> Model {
+        let mut model = Model::new();
+        for records in batches {
+            model.apply(&batch(records.clone()));
+        }
+        model
+    }
+
+    /// The sweep screen's shape the way the Dioxus path sends it at the pinned revision: the
+    /// column is created and filled, and never inserted anywhere.
+    fn only_created(column: u32, label: u32, button: u32, handler: i64) -> Vec<Record> {
+        vec![
+            create(column, "Column"),
+            create(label, "Text"),
+            text(label, "0-0"),
+            insert(column, label, 0),
+            create(button, "Button"),
+            text(button, "Increment"),
+            on_click(button, handler),
+            insert(column, button, 1),
+        ]
+    }
+
+    /// The same screen the way the slot table path sends it: the column is also inserted
+    /// under node 0.
+    fn inserted_under_the_root(column: u32, label: u32, button: u32, handler: i64) -> Vec<Record> {
+        let mut records = only_created(column, label, button, handler);
+        records.push(insert(0, column, 0));
+        records
+    }
+
+    // A parity failure has to say what differs, so the first differing line is found
+    // without its indentation and with its line number.
+    #[test]
+    fn fr39_first_difference_names_the_line_and_both_sides() {
+        let baseline = "Root\n  Column\n    Button Text=Text(\"a\")\n";
+        let candidate = "Root\n  Column\n    Button Kind=Int(0) Text=Text(\"a\")\n";
+        assert_eq!(
+            first_difference(baseline, candidate),
+            Some((
+                3,
+                "Button Text=Text(\"a\")".to_owned(),
+                "Button Kind=Int(0) Text=Text(\"a\")".to_owned()
+            ))
+        );
+        assert_eq!(first_difference(baseline, baseline), None);
+        assert_eq!(
+            first_difference("Root\n", "Root\n  Column\n"),
+            Some((2, String::new(), "Column".to_owned()))
+        );
+    }
+
+    fn modifier(node: u32, index: u16, modifier: &str) -> Record {
+        Record::SetModifier {
+            node,
+            index,
+            modifier: modifier.to_owned(),
+        }
+    }
+
+    // A Modifier's slot number belongs to the protocol version that wrote it. The pinned
+    // Dioxus path writes a shape in slot 5 and a padding in slot 10, and this checkout
+    // writes them in 12 and 22. NodeTable.setModifier keeps a node's Modifiers in a list
+    // indexed by slot and applies the ones that are set in that order, so what a tree
+    // holds is the Modifiers and their order.
+    #[test]
+    fn fr39_model_shows_the_same_tree_when_only_the_slot_numbers_differ() {
+        let pinned = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 10, "PaddingRole(Md)"),
+            modifier(1, 5, "ShapeRole(Large)"),
+        ]]);
+        let today = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 12, "ShapeRole(Large)"),
+            modifier(1, 22, "PaddingRole(Md)"),
+        ]]);
+        assert_eq!(pinned.dump(), today.dump());
+    }
+
+    // The order is still part of the tree: the same two Modifiers the other way round are
+    // applied the other way round.
+    #[test]
+    fn fr39_model_tells_apart_modifiers_in_another_order() {
+        let shape_first = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "ShapeRole(Large)"),
+            modifier(1, 10, "PaddingRole(Md)"),
+        ]]);
+        let padding_first = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "PaddingRole(Md)"),
+            modifier(1, 10, "ShapeRole(Large)"),
+        ]]);
+        assert_ne!(shape_first.dump(), padding_first.dump());
+    }
+
+    // Clearing a slot takes its Modifier out of the tree, whatever the slot's number.
+    #[test]
+    fn fr39_model_drops_a_cleared_modifier() {
+        let cleared = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 5, "ShapeRole(Large)"),
+            modifier(1, 10, "PaddingRole(Md)"),
+            modifier(1, 5, "Empty"),
+        ]]);
+        let never_set = model(&[vec![
+            create(1, "Surface"),
+            modifier(1, 22, "PaddingRole(Md)"),
+        ]]);
+        assert_eq!(cleared.dump(), never_set.dump());
+    }
+
+    const SWEEP_SCREEN: &str = "Root\n  Column\n    Text Text=Text(\"0-0\")\n    Button OnClick=handler Text=Text(\"Increment\")\n";
+
+    // NodeTable.create adds every created node to the root list; ResyncTest pins that a
+    // Column created and never inserted is the only root, and the Texts inserted under it
+    // in the same batch are not roots.
+    #[test]
+    fn fr39_model_keeps_a_created_never_inserted_node_as_a_root() {
+        let model = model(&[only_created(1, 2, 3, 7)]);
+        assert_eq!(model.dump(), SWEEP_SCREEN);
+    }
+
+    // NodeTable.roots is "top-level nodes, in creation order until the Host parents them":
+    // create appends to the root list, so the order is creation order, not id order.
+    #[test]
+    fn fr39_model_orders_inferred_roots_by_creation_not_by_id() {
+        let model = model(&[vec![
+            create(5, "Text"),
+            text(5, "first"),
+            create(3, "Text"),
+            text(3, "second"),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Text Text=Text(\"first\")\n  Text Text=Text(\"second\")\n"
+        );
+    }
+
+    // NodeTable.insert under the root id splices into the root list itself (childrenOf(0)
+    // is the root list), at the index the record gives, after taking the node out of it.
+    #[test]
+    fn fr39_model_places_an_insert_under_the_root_among_the_inferred_roots() {
+        let model = model(&[vec![
+            create(1, "Text"),
+            text(1, "a"),
+            create(2, "Text"),
+            text(2, "b"),
+            insert(0, 2, 0),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Text Text=Text(\"b\")\n  Text Text=Text(\"a\")\n"
+        );
+    }
+
+    // NodeTable.detach takes the node out of the root list whatever its parent, so a root
+    // that a later batch inserts under a parent is there once, under that parent.
+    #[test]
+    fn fr39_model_moves_an_inferred_root_under_the_parent_it_is_inserted_into() {
+        let mut model = model(&[vec![
+            create(1, "Column"),
+            create(2, "Text"),
+            text(2, "child"),
+        ]]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n  Text Text=Text(\"child\")\n"
+        );
+        model.apply(&batch(vec![insert(1, 2, 0)]));
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n    Text Text=Text(\"child\")\n"
+        );
+        assert_eq!(
+            model.preorder().iter().filter(|node| **node == 2).count(),
+            1
+        );
+    }
+
+    // NodeTable.remove detaches the node, which takes it out of the root list, and drops its
+    // subtree from the table.
+    #[test]
+    fn fr39_model_drops_an_inferred_root_on_remove() {
+        let mut model = model(&[
+            only_created(1, 2, 3, 7),
+            vec![create(9, "Text"), text(9, "other")],
+        ]);
+        model.apply(&batch(vec![Record::Remove { node: 9 }]));
+        assert_eq!(model.dump(), SWEEP_SCREEN);
+        model.apply(&batch(vec![Record::Remove { node: 1 }]));
+        assert_eq!(model.dump(), "Root\n");
+        assert!(
+            !model.nodes.contains_key(&3),
+            "the removed root's subtree is gone"
+        );
+    }
+
+    // NodeTable.create puts a node on the root list and NodeTable.insert takes it off again
+    // in the same batch, so a node created and inserted under a parent is never a root.
+    #[test]
+    fn fr39_model_does_not_make_roots_of_nodes_created_and_inserted_elsewhere() {
+        let model = model(&[vec![
+            create(1, "Column"),
+            create(2, "Text"),
+            text(2, "a"),
+            insert(1, 2, 0),
+            create(3, "Text"),
+            text(3, "b"),
+            insert(1, 3, u32::MAX),
+        ]]);
+        assert_eq!(model.nodes[&0].children, vec![1]);
+        assert_eq!(
+            model.dump(),
+            "Root\n  Column\n    Text Text=Text(\"a\")\n    Text Text=Text(\"b\")\n"
+        );
+    }
+
+    // NodeTable draws its root list whether a node got there by being created or by being
+    // inserted under the root id, so the two paths' trees are the same tree, and so are
+    // their hashes. Different ids and handler ids on each side do not matter.
+    #[test]
+    fn fr39_model_shows_the_same_tree_whether_the_top_node_is_inserted_or_only_created() {
+        let baseline = model(&[only_created(1, 2, 3, 7)]);
+        let candidate = model(&[inserted_under_the_root(40, 41, 42, 99)]);
+        assert_eq!(baseline.dump(), candidate.dump());
+        assert_eq!(hash(&baseline.dump()), hash(&candidate.dump()));
+
+        // An append index, and an Insert under the root sent before the children, land in
+        // the same place.
+        let mut early = vec![create(40, "Column"), insert(0, 40, u32::MAX)];
+        early.extend(only_created(40, 41, 42, 99).into_iter().skip(1));
+        assert_eq!(model(&[early]).dump(), baseline.dump());
+
+        let click = click("Button", "Increment");
+        let found = baseline
+            .event_for(&click)
+            .expect("the baseline's button is on screen");
+        assert_eq!((found.node, found.handler), (3, 7));
+        let found = candidate
+            .event_for(&click)
+            .expect("the candidate's button is on screen");
+        assert_eq!((found.node, found.handler), (42, 99));
+    }
+
+    /// A path that answers with fixed batches, so what the run counts can be checked against
+    /// what was sent.
+    struct Fixed {
+        start: Vec<Record>,
+        reply: Vec<Record>,
+        clicked: Vec<Event>,
+    }
+
+    impl Path for Fixed {
+        fn start(&mut self, _app: App) -> Batch {
+            batch(self.start.clone())
+        }
+        fn dispatch(&mut self, event: &Event) -> (Batch, Duration) {
+            self.clicked.push(event.clone());
+            (batch(self.reply.clone()), Duration::from_nanos(1))
+        }
+        fn frame(&mut self, _frame_time_nanos: u64) -> (Batch, Duration) {
+            (Batch::default(), Duration::ZERO)
+        }
+        fn frame_requested(&self) -> bool {
+            false
+        }
+    }
+
+    // The root rule changes where a node is drawn and nothing about what was sent: the
+    // driver finds the Dioxus path's button, and the records and bytes counted are exactly
+    // those of the batches the path returned.
+    #[test]
+    fn fr39_an_inferred_root_is_clickable_and_adds_no_record() {
+        let mut path = Fixed {
+            start: only_created(1, 2, 3, 7),
+            reply: vec![text(2, "1-0")],
+            clicked: Vec::new(),
+        };
+        let scenario = Scenario {
+            name: "sweep_1",
+            app: App::Sweep(1),
+            steps: vec![click("Button", "Increment"), click("Button", "Increment")],
+        };
+        let run = run(&mut path, "fixed", &scenario, 1, 0).expect("the button is found");
+        assert_eq!(path.clicked.len(), 2);
+        assert!(
+            path.clicked
+                .iter()
+                .all(|event| event.node == 3 && event.handler == 7)
+        );
+        assert_eq!(run.mutations, 2);
+        assert_eq!(run.bytes, 2 * 16);
+        assert_eq!(run.step_trees.len(), 2);
+    }
+
+    /// A run of `tab_switching` fast enough to meet the timing target on its own.
+    fn timed(frame_ns: u64, mutations: usize, bytes: usize, trees: &[u64]) -> ScenarioRun {
+        ScenarioRun {
+            name: "tab_switching".to_owned(),
+            frame_ns: vec![frame_ns],
+            mutations,
+            bytes,
+            step_trees: trees.to_vec(),
+            ..ScenarioRun::default()
+        }
+    }
+
+    // More records or bytes over the same trees is recorded with both counts and lets the
+    // run go on, and the verdict is not met even though every timing would meet it.
+    #[test]
+    fn fr39_compare_reports_a_count_excess_as_a_violation_not_a_void_run() {
+        let baseline = timed(1000, 3386, 79727, &[1, 2]);
+        let candidate = timed(10, 3401, 80339, &[1, 2]);
+        let c = compare(&baseline, &candidate);
+        assert!(c.valid);
+        assert_eq!(c.reason, "");
+        let violation = c.record_violation.clone().expect("a violation is recorded");
+        assert_eq!(
+            violation.to_string(),
+            "violation tab_switching: breaks the rule that the candidate sends no more \
+             records or bytes than the baseline: 3401 records against the baseline's 3386 \
+             (+15), 80339 bytes against the baseline's 79727 (+612)"
+        );
+        assert!(!verdict(&[c]).0);
+        let clean = compare(&baseline, &timed(10, 3386, 79727, &[1, 2]));
+        assert!(clean.valid && clean.record_violation.is_none());
+        assert!(verdict(&[clean]).0);
+    }
+
+    // Different trees mean different work: the run is void, with the message it always had,
+    // and a count excess in the same scenario does not turn it into a mere violation.
+    #[test]
+    fn fr39_compare_still_voids_a_run_whose_trees_differ() {
+        let baseline = timed(1000, 3386, 79727, &[1, 2]);
+        let c = compare(&baseline, &timed(10, 3386, 79727, &[1, 3]));
+        assert!(!c.valid && c.record_violation.is_none());
+        assert_eq!(c.reason, "the Renderer trees differ after step 1");
+        let both = compare(&baseline, &timed(10, 3401, 79727, &[1, 3]));
+        assert!(!both.valid && both.record_violation.is_none());
+        assert_eq!(
+            both.reason,
+            "the Renderer trees differ after step 1; the candidate sent 3401 records against \
+             the baseline's 3386"
+        );
+        assert!(!verdict(&[both]).0);
+    }
 }

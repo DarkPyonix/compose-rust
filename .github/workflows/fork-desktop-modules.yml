@@ -5,12 +5,21 @@
 # job that builds it needs them in ~/.m2 first. Call this as a job and download the artifact
 # `compose-fork-desktop` into ~/.m2/repository/org.
 #
+# A run holds one artifact of a name, and ci.yml calls several workflows into one run, so a
+# caller that may share a run with another one passes `artifact` to upload under a name of its
+# own, and downloads that name.
+#
 # The same steps run in the compose-desktop job of test-graalvm-renderer.yml, which keeps its
 # own copy so that its check keeps its name.
 name: Build the fork's desktop modules
 
 on:
   workflow_call:
+    inputs:
+      artifact:
+        description: The name the modules are uploaded under
+        type: string
+        default: compose-fork-desktop
 
 permissions:
   contents: read
@@ -92,7 +101,7 @@ jobs:
       - name: Keep the published modules
         uses: actions/upload-artifact@v4
         with:
-          name: compose-fork-desktop
+          name: ${{ inputs.artifact }}
           include-hidden-files: true
           path: |
             ~/.m2/repository/org/thisisthepy/compose

@@ -25,6 +25,17 @@ const LAST_OPTIONAL_PROPERTY: u16 = PropertyKind::Variant as u16;
 /// and got the Renderer's default instead. A list of runs has no such value. Empty and
 /// absent are the same state, so the first empty one is worth no record.
 const SPANS_BIT: u32 = 63;
+/// A count that is absent is not a count of 0, so only `None` is neutral for it. Its own bit:
+/// sharing one with another property outside the range would let one clear the other's.
+const COUNT_BIT: u32 = 61;
+
+/// The bit that tracks whether a button currently carries a kind.
+///
+/// Outside the range for the same reason, and safe for the same one: a button kind is a
+/// role tag, its values start at 1, and the Renderer reads both 0 and nothing as the
+/// standard button. So a button that names no kind sends no record, and one that drops
+/// its kind sends the zero once.
+const BUTTON_KIND_BIT: u32 = 62;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
@@ -477,7 +488,7 @@ impl NodeWriter {
         };
 
         let slot_of = |name: &str| match name {
-            "weight" => Some(WEIGHT),
+            "weight" | "weight_unfilled" => Some(WEIGHT),
             "fill_max_width" => Some(FILL_MAX_WIDTH),
             "match_parent_size" => Some(MATCH_PARENT_SIZE),
             "fill_max_height" => Some(FILL_MAX_HEIGHT),
@@ -597,6 +608,7 @@ impl NodeWriter {
                 )))
             }
             "weight" => Some(Some((WEIGHT, Modifier::Weight(float(value)?)))),
+            "weight_unfilled" => Some(Some((WEIGHT, Modifier::WeightUnfilled(float(value)?)))),
             "width" => Some(Some((WIDTH, Modifier::Width(float(value)?)))),
             "height" => Some(Some((HEIGHT, Modifier::Height(float(value)?)))),
             "padding" => Some(Some((PADDING, Modifier::Padding(float(value)?)))),
@@ -1042,6 +1054,10 @@ impl NodeWriter {
             u32::from(tag - FIRST_OPTIONAL_PROPERTY)
         } else if property == PropertyKind::Spans {
             SPANS_BIT
+        } else if property == PropertyKind::Count {
+            COUNT_BIT
+        } else if property == PropertyKind::ButtonKind {
+            BUTTON_KIND_BIT
         } else {
             return true;
         };
@@ -1087,7 +1103,7 @@ impl NodeWriter {
         // Letter spacing has the same problem: CSS `letter-spacing: 0` is a real 0, drawn
         // with no extra spacing, where an unset spacing takes the role's. So its unset value
         // is NaN (or nothing), and an explicit 0 is written like any other value.
-        let neutral = if property == PropertyKind::TypeRole {
+        let neutral = if matches!(property, PropertyKind::TypeRole | PropertyKind::Count) {
             matches!(value, PropertyValue::None)
         } else if property == PropertyKind::LetterSpacing {
             match value {
@@ -1266,6 +1282,8 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "windowclosed" | "onwindowclosed" => Some(PropertyKind::OnWindowClosed),
         "windowdragover" | "onwindowdragover" => Some(PropertyKind::OnWindowDragOver),
         "compositionchange" | "oncompositionchange" => Some(PropertyKind::OnCompositionChange),
+        "textformat" | "ontextformat" => Some(PropertyKind::OnTextFormat),
+        "richtextchanged" | "onrichtextchanged" => Some(PropertyKind::OnRichTextChanged),
         "change" | "onchange" => Some(PropertyKind::OnValueChange),
         _ => None,
     }
@@ -1285,6 +1303,30 @@ mod tests {
         let tab = writer.allocate_node(WidgetKind::Box);
         writer.place_after(first, tab, None);
         (writer, first, second, tab)
+    }
+
+    /// Each property kept outside the optional range has a bit of its own: a count never
+    /// sent stays unsent on a node that carries a button kind, and the other way round.
+    #[test]
+    fn fr30_1_properties_outside_the_optional_range_keep_separate_sent_bits() {
+        let bits = [SPANS_BIT, COUNT_BIT, BUTTON_KIND_BIT];
+        for (i, a) in bits.iter().enumerate() {
+            assert!(*a > u32::from(LAST_OPTIONAL_PROPERTY - FIRST_OPTIONAL_PROPERTY));
+            for b in &bits[i + 1..] {
+                assert_ne!(a, b, "two properties share a sent bit");
+            }
+        }
+        let mut writer = NodeWriter::new();
+        assert!(writer.should_write_optional_property(1, PropertyKind::ButtonKind, false));
+        assert!(
+            !writer.should_write_optional_property(1, PropertyKind::Count, true),
+            "a count never sent is not cleared because a button kind was"
+        );
+        assert!(writer.should_write_optional_property(2, PropertyKind::Count, false));
+        assert!(
+            !writer.should_write_optional_property(2, PropertyKind::ButtonKind, true),
+            "a button kind never sent is not cleared because a count was"
+        );
     }
 
     #[test]
