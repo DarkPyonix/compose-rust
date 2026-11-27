@@ -280,6 +280,12 @@ internal fun HostDialog(
  * The Host never learns a screen coordinate: where the popup sits relative to its anchor is
  * the design system's placement rule. Choosing an entry is that entry's own click, so the
  * menu needs no event of its own.
+ *
+ * Where the window has an [OsMenuPresenter] the entries go up as the operating system's
+ * menu instead of a popup drawn here, and a node among them that no such menu can show is
+ * reported rather than drawn ([ReportNotAnEntry]). A menu the Host marked as an entry is a
+ * submenu: its open state is the Renderer's alone and its anchor's press opens it, because
+ * that is how every platform's submenu behaves and the Host has nothing to decide.
  */
 @Composable
 internal fun HostMenu(
@@ -289,14 +295,59 @@ internal fun HostMenu(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
-    val open = rememberOverlayOpen(node)
+    val submenu = node.isMenuEntry()
+    val hostOpen = rememberOverlayOpen(node)
+    var ownOpen by remember(node.id) { mutableStateOf(false) }
+    val open = if (submenu) OverlayOpen(ownOpen) { ownOpen = it } else hostOpen
     val style = theme.rules.container(ContainerRole.Menu, theme)
     val anchorId = node.children.firstOrNull()
     val entries = node.children.drop(1)
     val anchorRequester = remember(node.id) { FocusRequester() }
+    // A submenu's row opens it here and is not a click the Host hears.
+    val anchorDispatcher = if (submenu && anchorId != null) {
+        remember(dispatcher, anchorId) {
+            EventDispatcher { event ->
+                if (event is HostEvent.Clicked && event.nodeId == anchorId) {
+                    ownOpen = !ownOpen
+                    true
+                } else {
+                    dispatcher.dispatch(event)
+                }
+            }
+        }
+    } else {
+        dispatcher
+    }
+    val presenter = LocalOsMenuPresenter.current
+    if (presenter != null) {
+        val read = table.menuEntries(node.id, entries)
+        ReportNotAnEntry(node.id, read, dispatcher)
+        val anchor = rememberMenuAnchor(node.id)
+        Box(modifier.then(anchor.modifier)) {
+            if (anchorId != null) {
+                key(anchorId) { RenderNode(anchorId, table, anchorDispatcher, Modifier.focusRequester(anchorRequester)) }
+            }
+            if (open.value && read.notAnEntry == null) {
+                OsEntryMenu(
+                    presenter = presenter,
+                    entries = read.entries,
+                    anchor = anchor,
+                    onChosen = { item ->
+                        open.set(false)
+                        table.clickEntry(item.id, dispatcher)
+                    },
+                    onDismissed = {
+                        open.set(false)
+                        dismiss(node, dispatcher)
+                    },
+                )
+            }
+        }
+        return
+    }
     Box(modifier) {
         if (anchorId != null) {
-            key(anchorId) { RenderNode(anchorId, table, dispatcher, Modifier.focusRequester(anchorRequester)) }
+            key(anchorId) { RenderNode(anchorId, table, anchorDispatcher, Modifier.focusRequester(anchorRequester)) }
         }
         if (open.value) {
             Popup(

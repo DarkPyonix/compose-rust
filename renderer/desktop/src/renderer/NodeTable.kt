@@ -2055,6 +2055,14 @@ class NodeTable {
                 // hairline separator underneath.
                 PropertyKind.Separator -> widget == WidgetKind.TopAppBar
 
+                // The text a menu entry shows for the key that does the same thing. Only a
+                // button can be a menu item.
+                PropertyKind.ShortcutLabel -> widget == WidgetKind.Button
+
+                // The mark that makes a node a menu entry: a button is an item, a menu is a
+                // submenu named by its first child.
+                PropertyKind.MenuEntry -> widget == WidgetKind.Button || widget == WidgetKind.Menu
+
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
                 PropertyKind.Progress -> widget == WidgetKind.LinearProgressIndicator
