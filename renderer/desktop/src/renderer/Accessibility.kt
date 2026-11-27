@@ -150,6 +150,15 @@ internal val DeclaredExpanded = SemanticsPropertyKey<Boolean>(
     mergePolicy = { parent, _ -> parent },
 )
 
+/**
+ * Whether an editable node takes more than one line: a multi-line text field or the code
+ * editor. A window tells a reader it is a text area rather than a one-line field.
+ */
+internal val MultiLineText = SemanticsPropertyKey<Boolean>(
+    name = "ComposeRustMultiLineText",
+    mergePolicy = { parent, _ -> parent },
+)
+
 /** Whether the Host declared that the node opens a popup. */
 internal val DeclaredHasPopup = SemanticsPropertyKey<Boolean>(
     name = "ComposeRustDeclaredHasPopup",
