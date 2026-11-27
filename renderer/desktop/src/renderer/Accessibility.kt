@@ -20,10 +20,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
+import dev.darkpyonix.composerust.design.HostPlatform
+import dev.darkpyonix.composerust.design.detectHostPlatform
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SemanticsRole
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
@@ -251,14 +254,22 @@ internal fun Modifier.accessibility(
     clickHandlerId: Long? = null,
     onFocusAction: (() -> Boolean)? = null,
     activeOption: String? = null,
+    platform: HostPlatform = detectHostPlatform(),
 ): Modifier {
     val name = node.text(PropertyKind.AccessibleName).takeIf { it.isNotEmpty() }
     val declared = node.modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
-    if (name == null && declared == null) return this
     val state = declared?.state ?: 0
+    val checked = state.checkedField()
+    // UIKit exposes the state description as a value. A bare indeterminate toggle gets no
+    // value from Compose's iOS bridge, so this case needs its own description.
+    val describeMixed = platform == HostPlatform.Ios && when (checked) {
+        ToggleableState.Indeterminate -> true
+        null -> node.widget == WidgetKind.Checkbox && node.flag(PropertyKind.Indeterminate, default = false)
+        else -> false
+    }
+    if (name == null && declared == null && !describeMixed) return this
     val declaredRole = declared?.role
     val role = declaredRole?.toRole()
-    val checked = state.checkedField()
     val selected = state.field(SELECTED_SHIFT)
     val expanded = state.field(EXPANDED_SHIFT)
     val isDisabled = state.field(DISABLED_SHIFT)
@@ -270,7 +281,12 @@ internal fun Modifier.accessibility(
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
     // Only a combobox points at an option; the property on any other node says nothing.
     val pointedAt = activeOption.takeIf { declaredRole == SemanticsRole.ComboBox }
-    val description = declaredStateDescription(declaredRole, expanded, hasPopup, pointedAt)
+    val declaredDescription = declaredStateDescription(declaredRole, expanded, hasPopup, pointedAt)
+    val description = if (describeMixed) {
+        declaredDescription?.let { "$it, mixed" } ?: "mixed"
+    } else {
+        declaredDescription
+    }
     // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)

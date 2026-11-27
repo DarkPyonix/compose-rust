@@ -402,6 +402,7 @@ fun RenderNode(
             } else {
                 null
             },
+            platform = theme.platform,
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.

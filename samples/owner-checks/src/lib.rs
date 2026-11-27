@@ -48,12 +48,13 @@ const LIST_WIDTH: f32 = 200.0;
 /// The height of the box that moves the window when it is dragged, in dp.
 const HANDLE_HEIGHT: f32 = 64.0;
 
-/// The names the five controls of the screen reader screen carry, in the order they stand.
+/// The names of the screen reader controls, in the order they stand.
 /// The person making the check ticks these off as the screen reader says them.
-pub const SCREEN_READER_NAMES: [&str; 5] = [
+pub const SCREEN_READER_NAMES: [&str; 6] = [
     "Test button",
     "Test switch",
     "Test checkbox",
+    "Test mixed checkbox",
     "Test slider",
     "Test text field",
 ];
@@ -497,10 +498,10 @@ fn caption_page() {
 }
 
 fn screen_reader_page(checks: Checks) {
-    let [button, switch, checkbox, slider, field] = SCREEN_READER_NAMES;
+    let [button, switch, checkbox, mixed_checkbox, slider, field] = SCREEN_READER_NAMES;
     header(
         "Screen reader",
-        "Five controls with fixed names. A screen reader has to say each name.",
+        "A screen reader has to say each control's name and state.",
     );
     steps(
         "Do this",
@@ -518,6 +519,7 @@ fn screen_reader_page(checks: Checks) {
             "Test button, a button",
             "Test switch, a switch or toggle, off",
             "Test checkbox, a check box, not checked",
+            "Test mixed checkbox, a check box, mixed",
             "Test slider, a slider, at 50 percent",
             "Test text field, an edit or text field",
         ],
@@ -536,6 +538,12 @@ fn screen_reader_page(checks: Checks) {
                 checks.ticked.get(),
                 move |ticked| checks.ticked.set(ticked),
                 accessible_name = checkbox
+            );
+            Checkbox!(
+                false,
+                |_| {},
+                indeterminate = true,
+                accessible_name = mixed_checkbox
             );
             Slider!(
                 checks.level.get(),
@@ -1003,14 +1011,15 @@ mod tests {
         compose_rust::window::reset_window_size();
     }
 
-    /// The five controls stand in one column in the fixed order, each the kind of control
+    /// The controls stand in one column in the fixed order, each the kind of control
     /// its name says, so the list the person ticks matches what the screen reader meets.
     #[test]
-    fn nfr13_the_five_controls_carry_their_names_in_order() {
+    fn nfr13_the_controls_carry_their_names_in_order() {
         let screen = Screen::on(Page::ScreenReader);
         let kinds = [
             WidgetKind::Button,
             WidgetKind::Switch,
+            WidgetKind::Checkbox,
             WidgetKind::Checkbox,
             WidgetKind::Slider,
             WidgetKind::TextField,
