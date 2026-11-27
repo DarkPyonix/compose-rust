@@ -87,6 +87,8 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainWidth
+import kotlin.math.ceil
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.floor
@@ -124,6 +126,12 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     allowPadding: Boolean = true,
     pointerEvents: Modifier? = null,
     motionFinished: ((initialValue: IntSize, targetValue: IntSize) -> Unit)? = null,
+    /**
+     * Whether a width is rounded up to whole device pixels rather than to the nearest: a
+     * text's. A Host gives a text the unrounded width it measured, and that width rounded
+     * down would wrap its last word onto a line of its own.
+     */
+    roundWidthUp: Boolean = false,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -299,9 +307,15 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
-            is ProtocolModifier.Width -> chain.width(value.value.dp)
+            is ProtocolModifier.Width ->
+                if (roundWidthUp) chain.widthRoundedUp(value.value.dp) else chain.width(value.value.dp)
             is ProtocolModifier.Height -> chain.height(value.value.dp)
-            is ProtocolModifier.Size -> chain.size(value.width.dp, value.height.dp)
+            is ProtocolModifier.Size ->
+                if (roundWidthUp) {
+                    chain.widthRoundedUp(value.width.dp).height(value.height.dp)
+                } else {
+                    chain.size(value.width.dp, value.height.dp)
+                }
             is ProtocolModifier.SizeIn -> chain.sizeIn(
                 minWidth = if (value.minWidth.isNaN()) Dp.Unspecified else value.minWidth.dp,
                 maxWidth = if (value.maxWidth.isNaN()) Dp.Unspecified else value.maxWidth.dp,
@@ -1529,3 +1543,19 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
             }
         }
     }
+
+/**
+ * Device pixels for a width of [dp]: rounded up, never down. Float arithmetic leaves a whole
+ * width a hair over (100 dp at a density of 1.1 is 110.00001), which is not rounded up.
+ */
+internal fun androidx.compose.ui.unit.Density.widthPxRoundedUp(dp: Float): Int = ceil(dp * density - WIDTH_ROUNDING_SLACK).toInt()
+
+/** How far over a whole pixel a width may come out of float arithmetic and still be that pixel. */
+private const val WIDTH_ROUNDING_SLACK = 1e-3f
+
+/** A fixed width, like `Modifier.width`, whose device pixels are rounded up instead of to the nearest. */
+internal fun Modifier.widthRoundedUp(width: Dp): Modifier = this.layout { measurable, constraints ->
+    val px = constraints.constrainWidth(widthPxRoundedUp(width.value))
+    val placeable = measurable.measure(constraints.copy(minWidth = px, maxWidth = px))
+    layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+}

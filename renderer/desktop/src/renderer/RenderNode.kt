@@ -385,6 +385,7 @@ fun RenderNode(
                 allowPadding = node.widget != WidgetKind.TextField,
                 pointerEvents = pointerEvents,
                 motionFinished = motionFinished,
+                roundWidthUp = node.widget == WidgetKind.Text,
             ),
         )
         .testTag(nodeTestTag(nodeId))

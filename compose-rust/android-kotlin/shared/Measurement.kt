@@ -40,6 +40,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+import dev.darkpyonix.composerust.ui.widthPxRoundedUp
 
 /**
  * The Renderer's half of a measure call: how big a run of text, or a node the Host already
@@ -214,12 +215,18 @@ internal class MeasureContext(
             MeasureRecords.CONSTRAINT_MAX_CONTENT -> intrinsic(resolved, minimum = false, density)
             MeasureRecords.CONSTRAINT_AT_MOST -> {
                 if (width.isNaN() || width < 0f) return Measured.MALFORMED
+                // Rounded up as a text node's width is, so the text measured here is laid out
+                // at the same pixel width it is drawn at.
                 val maxWidth = if (width.isInfinite()) {
                     Constraints.Infinity
                 } else {
-                    (width * density.density).roundToInt()
+                    density.widthPxRoundedUp(width)
                 }
-                described(layout(resolved, maxWidth, density), width = null, density)
+                val laid = layout(resolved, maxWidth, density)
+                // The width before Compose rounds it up to whole pixels: an HTML layout adds
+                // text widths up along a line, and whole pixels would add a pixel or two each.
+                val unrounded = minOf(laid.multiParagraph.intrinsics.maxIntrinsicWidth, maxWidth.toFloat())
+                described(laid, width = unrounded / density.density, density)
             }
             else -> Measured.MALFORMED
         }
