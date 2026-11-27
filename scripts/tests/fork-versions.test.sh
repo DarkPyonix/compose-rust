@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The renderer's macOS, Linux and desktop modules ask for the Compose fork's own coordinates,
+# The renderer's macOS, Linux, desktop and web modules ask for the Compose fork's own coordinates,
 # org.thisisthepy.compose.* at the versions build-compose.sh says the pinned commit publishes,
 # and for none of JetBrains' Compose modules that carry classes. If they drift, a build either
 # asks for a coordinate nobody published or resolves JetBrains' jars from a cache next to the
@@ -36,10 +36,14 @@ check renderer/macos/module.yaml "org.thisisthepy.compose.foundation:foundation:
 check renderer/macos/module.yaml "org.thisisthepy.compose.material3:material3:$material3_as"
 check renderer/linux/module.yaml "org.thisisthepy.compose.ui:ui-linuxx64:$compose_as"
 check renderer/linux/module.yaml "org.thisisthepy.compose.material3:material3-linuxarm64:$material3_as"
+for module in runtime:runtime ui:ui foundation:foundation; do
+    check renderer/web/module.yaml "org.thisisthepy.compose.${module%%:*}:${module##*:}:$compose_as"
+done
+check renderer/web/module.yaml "org.thisisthepy.compose.material3:material3:$material3_as"
 
 # JetBrains' Compose next to the fork's would be a second copy of the same classes. The runtime
 # alias stays: JetBrains' runtime is a stub that points at androidx, as the fork's is.
-for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/linux/module.yaml; do
+for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/linux/module.yaml renderer/web/module.yaml; do
     hits="$(grep -n -E '^\s*-\s*(\$compose\.(foundation|ui|material3|material|desktop|animation)|org\.jetbrains\.compose\.)' "$repo/$module" || true)"
     [ -z "$hits" ] || fail "$module names JetBrains' Compose: $hits"
 done
@@ -47,7 +51,7 @@ done
 # `compose: enabled` adds JetBrains' runtime and components-resources, and the latter brings
 # JetBrains' foundation, UI and animation. These modules apply the compiler plugin through
 # renderer/compose.module-template.yaml instead.
-for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/linux/module.yaml; do
+for module in renderer/desktop/module.yaml renderer/macos/module.yaml renderer/linux/module.yaml renderer/web/module.yaml; do
     grep -qE '^\s*compose:\s*enabled|^\s*-\s*\$compose\.' "$repo/$module" && fail "$module enables Compose or names \$compose.*, which brings JetBrains' Compose"
     grep -q 'compose.module-template.yaml' "$repo/$module" || fail "$module does not apply compose.module-template.yaml"
 done

@@ -12,14 +12,15 @@ product: wasm-js/app
 repositories:
   - https://maven-central.storage-download.googleapis.com/maven2/
 
+# The fork's published Wasm UI exposes the state of a Checkbox, Switch and RadioButton.
+apply:
+  - ../compose.module-template.yaml
+
 dependencies:
-  - $compose.runtime
-  - $compose.foundation
-  - $compose.material3
-  - $compose.ui
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.6
+  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.6
+  - org.thisisthepy.compose.material3:material3:1.11.1-ext.6
+  - org.thisisthepy.compose.ui:ui:1.11.1-ext.6
 
 test-dependencies:
   - $kotlin.test
-
-settings:
-  compose: enabled
