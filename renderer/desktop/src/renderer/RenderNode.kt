@@ -20,6 +20,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
+import androidx.compose.foundation.layout.padding
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
+import dev.darkpyonix.composerust.foundation.rememberBackdropSource
+import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
@@ -173,6 +179,7 @@ import dev.darkpyonix.composerust.ui.motionFinishedListener
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
 import dev.darkpyonix.composerust.ui.verticalArrangement
+import dev.darkpyonix.composerust.ui.ChildWeight
 import dev.darkpyonix.composerust.ui.weightOf
 
 /**
@@ -381,6 +388,7 @@ fun RenderNode(
             ),
         )
         .testTag(nodeTestTag(nodeId))
+        .hostCursor(node)
         .accessibility(
             node,
             dispatcher,
@@ -540,15 +548,21 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 val snap = rememberItemStartSnap(node, scrollState, vertical = true)
+                // Under a bar that floats over the page the content ends lower by what the
+                // bar covers, so its last line can be scrolled clear of the bar. The room
+                // is used up here: a scroll container inside this one gets none.
+                val barReserve = LocalFloatingBarReserve.current
                 Column(
                     modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
-                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling)
+                        .then(if (barReserve > 0.dp) Modifier.padding(bottom = barReserve) else Modifier),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) {
                     CompositionLocalProvider(
                         LocalScrollState provides scrollState,
                         LocalScrollIsHorizontal provides false,
+                        LocalFloatingBarReserve provides 0.dp,
                     ) {
                         Children(node, table, dispatcher, snap)
                     }
@@ -1231,7 +1245,7 @@ private fun WeightedStack(
     dispatcher: EventDispatcher,
     modifier: Modifier,
     horizontal: Boolean,
-    weights: List<Float?>,
+    weights: List<ChildWeight?>,
     intrinsicSafe: List<Boolean>,
     horizontalArrangement: Arrangement.Horizontal,
     verticalArrangement: Arrangement.Vertical,
@@ -1255,7 +1269,7 @@ private fun WeightedStack(
 
 private class WeightedStackPolicy(
     private val horizontal: Boolean,
-    private val weights: List<Float?>,
+    private val weights: List<ChildWeight?>,
     private val intrinsicSafe: List<Boolean>,
     private val horizontalArrangement: Arrangement.Horizontal,
     private val verticalArrangement: Arrangement.Vertical,
@@ -1289,17 +1303,22 @@ private class WeightedStackPolicy(
         }
         val target = if (mainMax == Constraints.Infinity) mainMin else mainMax
         val remaining = (target - fixed - gaps).coerceAtLeast(0)
-        val totalWeight = weights.filterNotNull().sum()
+        val totalWeight = weights.mapNotNull { it?.value }.sum()
         var distributed = 0
         var remainingWeight = totalWeight
         measurables.forEachIndexed { index, measurable ->
             val weight = weights[index] ?: return@forEachIndexed
-            val share = if (remainingWeight == weight) remaining - distributed else (remaining * weight / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
+            val share = if (remainingWeight == weight.value) remaining - distributed else (remaining * weight.value / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
             distributed += share
-            remainingWeight -= weight
-            val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
-            val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
-            places[index] = measurable.measure(childConstraints(size, size))
+            remainingWeight -= weight.value
+            places[index] = if (weight.fill) {
+                val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
+                val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(size, size))
+            } else {
+                val max = if (mainMax == Constraints.Infinity && mainMin == 0) Constraints.Infinity else share.coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(0, max))
+            }
         }
         val children = places.map { it!! }
         val sizes = children.map { if (horizontal) it.width else it.height }.toIntArray()
@@ -1327,14 +1346,14 @@ private class WeightedStackPolicy(
                 if (min) child.minIntrinsicHeight(cross) else child.maxIntrinsicHeight(cross)
             }
         } }
-        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!! } ?: 0f
-        val weighted = (unit * weights.filterNotNull().sum()).roundToInt()
+        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!!.value } ?: 0f
+        val weighted = (unit * weights.mapNotNull { it?.value }.sum()).roundToInt()
         return (sizes.indices.filter { weights[it] == null }.sumOf { sizes[it].toLong() } + weighted + gap)
             .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
-        val total = weights.filterNotNull().sum()
+        val total = weights.mapNotNull { it?.value }.sum()
         val remaining = if (main == Constraints.Infinity || total <= 0f) {
             Constraints.Infinity
         } else {
@@ -1351,9 +1370,13 @@ private class WeightedStackPolicy(
             val size = if (weight == null || remaining == Constraints.Infinity) {
                 Constraints.Infinity
             } else {
-                val available = (remaining * weight / total).roundToInt()
-                val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
-                maxOf(available, minimum)
+                val available = (remaining * weight.value / total).roundToInt()
+                if (weight.fill) {
+                    val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+                    maxOf(available, minimum)
+                } else {
+                    available
+                }
             }
             intrinsic(index) { if (horizontal) {
                 if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
@@ -1423,7 +1446,7 @@ private fun ColumnScope.WeightedChild(
     // Its own composable, so reading the child's modifier list subscribes this scope alone
     // and a `SetModifier` on one child cannot invalidate its siblings.
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1445,7 +1468,7 @@ private fun RowScope.WeightedChild(
     snap: ItemStartSnap?,
 ) {
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1458,13 +1481,30 @@ private fun RowScope.WeightedChild(
  */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId ->
+    // A child that asked for a `Backdrop` blurs the children drawn before it, so those are
+    // recorded for it. A box without such a child, or with it first, records nothing.
+    val lastBackdrop = node.children.indexOfLast { childId ->
+        table.node(childId)?.modifiers?.any { it is ProtocolModifier.Backdrop } == true
+    }
+    val behind = if (lastBackdrop > 0) rememberBackdropSource() else null
+    node.children.forEachIndexed { index, childId ->
         key(childId) {
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
-                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
+                val modifiers = table.node(childId)?.modifiers
+                val matchesParent = modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                val placed = if (matchesParent) Modifier.matchParentSize() else Modifier
+                when {
+                    behind == null -> RenderNode(childId, table, dispatcher, placed)
+                    modifiers?.any { it is ProtocolModifier.Backdrop } == true ->
+                        CompositionLocalProvider(LocalAppBackdrop provides behind) {
+                            RenderNode(childId, table, dispatcher, placed)
+                        }
+                    index < lastBackdrop ->
+                        RenderNode(childId, table, dispatcher, placed.recordsBackdrop(behind, index))
+                    else -> RenderNode(childId, table, dispatcher, placed)
+                }
             }
         }
     }

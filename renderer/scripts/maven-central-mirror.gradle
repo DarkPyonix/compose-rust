@@ -7,25 +7,37 @@
 // Gradle build on that runner read the mirror.
 //
 // Each Maven Central repository a build declares (mavenCentral(), or a maven { url } at
-// repo.maven.apache.org or repo1.maven.org) is pointed at the mirror where it stands, and
-// Maven Central itself is added right after it for anything the mirror does not hold yet.
-// Every other repository keeps its place, so an order a build relies on (the fork takes
-// skiko from mavenLocal before Central for mingwX64) is unchanged.
+// repo.maven.apache.org or repo1.maven.org) is pointed at the mirror where it stands. Every
+// other repository keeps its place, so an order a build relies on (the fork takes skiko from
+// mavenLocal before Central for mingwX64) is unchanged.
+//
+// Maven Central itself stays as the last repository, for anything the mirror does not hold
+// yet. Last, and not right behind the mirror: Gradle gives up on a 429 instead of asking the
+// next repository, so Central placed before google() or the plugin portal failed every
+// artifact that lives only there (run 45488752618: develocity-gradle-plugin 4.3 from the
+// portal, com.android.settings.gradle.plugin 8.12.0 from Google, both 404 on the mirror).
 def mirror = '@MIRROR@'
 def fallbackName = 'MavenCentralBehindMirror'
 def centralUrls = ['https://repo.maven.apache.org/maven2', 'https://repo1.maven.org/maven2']
 
 def mirrorCentral = { RepositoryHandler repos ->
+    def fallback = null
     repos.withType(MavenArtifactRepository).all { repo ->
         if (repo.name == fallbackName) return
         if (!centralUrls.contains(repo.url.toString().replaceAll('/+$', ''))) return
         repo.url = mirror
-        if (repos.findByName(fallbackName) == null) {
-            repos.maven {
+        if (fallback == null) {
+            fallback = repos.maven {
                 name = fallbackName
                 url = 'https://repo.maven.apache.org/maven2/'
             }
         }
+    }
+    // Whatever a build adds after the fallback goes ahead of it.
+    repos.whenObjectAdded { added ->
+        if (fallback == null || added.is(fallback) || repos.last().is(fallback)) return
+        repos.remove(fallback)
+        repos.addLast(fallback)
     }
 }
 

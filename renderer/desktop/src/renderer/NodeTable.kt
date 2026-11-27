@@ -6,15 +6,20 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import dev.darkpyonix.composerust.foundation.ChromeInsets
 import dev.darkpyonix.composerust.foundation.MessageQueue
 import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
+import dev.darkpyonix.composerust.foundation.SHEET_DETENT_MASK
+import dev.darkpyonix.composerust.foundation.backdropIsDrawable
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.ContentScale
+import dev.darkpyonix.composerust.protocol.FormatOp
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
+import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TextAlign
@@ -50,6 +55,57 @@ data class HostText(
 )
 
 /**
+ * The most the requests waiting on one rich text field may hold, in bytes: about 1 MiB.
+ *
+ * A request waits on its node until the field's rich text model takes it. Nothing takes
+ * them yet, and a field that is composing or off screen will not take them at once either,
+ * so without a limit a Host that keeps formatting or loading grows the queue for as long as
+ * the node lives. A request that does not fit behind the ones already waiting is dropped and
+ * said once, see [NodeTable.log]. A request that finds nothing waiting is always taken, so
+ * one document larger than this still loads.
+ */
+internal const val MAX_PENDING_RICH_BYTES: Long = 1024L * 1024L
+
+/** The length of a `FormatText` record. */
+private const val FORMAT_TEXT_BYTES: Long = 20L
+
+/** The length of a `SetRichText` record, without its text and its two arrays. */
+private const val SET_RICH_TEXT_BYTES: Long = 40L
+
+/**
+ * Something the Host asked of a rich text field, in the order it was asked. The field's
+ * rich text model takes them in turn; until then they wait on the node.
+ */
+internal sealed interface RichRequest {
+    /**
+     * What the request holds while it waits, which is what counts towards
+     * [MAX_PENDING_RICH_BYTES]: its record, and for a document the text at two bytes a
+     * UTF-16 unit and the two arrays.
+     */
+    val bytes: Long
+
+    /** One `FormatText`: the operation, the value it takes and, for a colour, the paint. */
+    data class Format(val op: FormatOp, val value: Int, val paint: Paint?) : RichRequest {
+        override val bytes: Long get() = FORMAT_TEXT_BYTES
+    }
+
+    /**
+     * One `SetRichText`: the document and the selection the Host gave, -1 and -1 for none.
+     * The records are as sent and are checked against the text where they are applied.
+     */
+    class Load(
+        val text: String,
+        val characters: ByteArray,
+        val paragraphs: ByteArray,
+        val selectionStart: Int,
+        val selectionEnd: Int,
+    ) : RichRequest {
+        override val bytes: Long
+            get() = SET_RICH_TEXT_BYTES + 2L * text.length + characters.size + paragraphs.size
+    }
+}
+
+/**
  * One interpreted node. Each field is its own snapshot state, so a `SetProp` on one node
  * invalidates only the composables that read that node.
  */
@@ -60,6 +116,56 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
     internal var focusRequestRevision by mutableStateOf(0L)
+
+    /** Whether a `TextField` keeps character and paragraph formatting (`RichText`). */
+    internal val rich: Boolean get() = flag(PropertyKind.RichText, default = false)
+
+    /** The handler that hears the formatting at the selection, or null. */
+    internal val onTextFormat: Long? get() = handler(PropertyKind.OnTextFormat)
+
+    /** The handler that hears the document, or null. */
+    internal val onRichTextChanged: Long? get() = handler(PropertyKind.OnRichTextChanged)
+
+    private val richQueue = ArrayList<RichRequest>()
+
+    /**
+     * What the Host asked of a rich text field and nothing has applied yet, oldest first.
+     * Only a field with `RichText` on gets any. [queueRich] adds to it and
+     * [takePendingRich] empties it.
+     */
+    internal val pendingRich: List<RichRequest> get() = richQueue
+
+    /** What [pendingRich] holds, in bytes, kept as requests come and go so it is never summed. */
+    internal var pendingRichBytes: Long = 0
+        private set
+
+    /** How many requests found no room since [pendingRich] was last taken. */
+    internal var droppedRich: Int = 0
+        private set
+
+    /**
+     * Adds [request] to the ones waiting, and answers whether it did. A request that does
+     * not fit in [MAX_PENDING_RICH_BYTES] behind the ones already waiting is dropped and
+     * counted. One that finds nothing waiting is taken whatever its size.
+     */
+    internal fun queueRich(request: RichRequest): Boolean {
+        if (richQueue.isNotEmpty() && pendingRichBytes + request.bytes > MAX_PENDING_RICH_BYTES) {
+            droppedRich++
+            return false
+        }
+        richQueue += request
+        pendingRichBytes += request.bytes
+        return true
+    }
+
+    /** Hands over the waiting requests, oldest first, and leaves room for new ones. */
+    internal fun takePendingRich(): List<RichRequest> {
+        val taken = richQueue.toList()
+        richQueue.clear()
+        pendingRichBytes = 0
+        droppedRich = 0
+        return taken
+    }
 
     /**
      * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
@@ -140,6 +246,9 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     fun bytes(kind: PropertyKind): ByteArray? = (props[kind] as? PropertyValue.Bytes)?.value
 }
 
+/** One node that hears a request to go back, and the handler it is sent to. */
+data class BackTarget(val nodeId: Int, val handlerId: Long)
+
 /**
  * A request to move keyboard focus into a platform view ([focus] true) or out of it. The
  * revision makes a second request of the same kind a new one.
@@ -205,6 +314,13 @@ class NodeTable {
     private val codeNodes = LinkedHashMap<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
+
+    /**
+     * Where a request that was dropped for want of room is said. It is a line for whoever is
+     * developing the Host, not a protocol error: the Host did nothing the protocol forbids.
+     * Tests replace it to read what was said.
+     */
+    var log: (String) -> Unit = { line -> println(line) }
 
     /**
      * The theme each `Window` node overrides the application's with. A window with
@@ -324,6 +440,97 @@ class NodeTable {
      * place at a time, so a second node asking for it is refused.
      */
     private val nativeHandles = HashMap<Long, Int>()
+
+    /**
+     * The nodes that hear a request to go back. Kept beside the tree so that asking whether
+     * a window has one, which a platform back hook does in every composition, is not a walk
+     * of the tree.
+     */
+    private val backNodes = LinkedHashSet<Int>()
+
+    /** Moves whenever [backNodes] or where one of them sits can have changed. */
+    private var backRevision by mutableStateOf(0L)
+
+    /**
+     * Whether a node drawn in the window [windowId] hears a request to go back. Read in
+     * composition, so what follows it is told when the answer changes.
+     */
+    internal fun hearsBack(windowId: Int): Boolean {
+        // The read that subscribes. The set is not snapshot state, and the walk up from
+        // each node is kept out of the reader's subscriptions: every change that can move
+        // the answer moves the revision.
+        val revision = backRevision
+        return Snapshot.withoutReadObservation { revision >= 0L && backNodes.any { hearsBackIn(it, windowId) } }
+    }
+
+    /**
+     * The handlers a request to go back in the window [windowId] is offered to, in order:
+     * the innermost node that has one, then each of its ancestors that has one. Innermost
+     * is deepest in the tree, and among equally deep nodes the one that comes last.
+     */
+    internal fun backChain(windowId: Int): List<BackTarget> {
+        var innermost: Int? = null
+        var innermostPath: List<Int>? = null
+        for (candidate in backNodes) {
+            if (!hearsBackIn(candidate, windowId)) continue
+            val path = pathOf(candidate) ?: continue
+            val best = innermostPath
+            if (best == null || path.size > best.size || (path.size == best.size && comesAfter(path, best))) {
+                innermost = candidate
+                innermostPath = path
+            }
+        }
+        val chain = mutableListOf<BackTarget>()
+        var current = innermost ?: return chain
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val node = nodes[current] ?: break
+            node.handler(PropertyKind.OnBackRequested)?.let { chain += BackTarget(current, it) }
+            current = node.parentId
+        }
+        return chain
+    }
+
+    /**
+     * Whether [nodeId] is in the tree of the window [windowId] and on screen as far as the
+     * tree says: a node under an overlay that is not open is not heard, because nothing of
+     * it is drawn.
+     */
+    private fun hearsBackIn(nodeId: Int, windowId: Int): Boolean {
+        if ((windowOf(nodeId) ?: ROOT_ID) != windowId) return false
+        var current = nodes[nodeId]?.parentId ?: return false
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val ancestor = nodes[current] ?: return false
+            if (ancestor.widget in OVERLAYS && !ancestor.flag(PropertyKind.Open, default = false)) return false
+            current = ancestor.parentId
+        }
+        return true
+    }
+
+    /** Where [nodeId] sits: the index of each node on the way down from the root to it. */
+    private fun pathOf(nodeId: Int): List<Int>? {
+        val path = ArrayList<Int>()
+        var current = nodeId
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val parent = nodes[current]?.parentId ?: return null
+            val index = childrenOf(parent)?.indexOf(current) ?: return null
+            if (index < 0) return null
+            path.add(index)
+            current = parent
+        }
+        path.reverse()
+        return path
+    }
+
+    /** Whether the path [a] comes after [b] in the order the tree is drawn in. */
+    private fun comesAfter(a: List<Int>, b: List<Int>): Boolean {
+        for (index in 0 until minOf(a.size, b.size)) {
+            if (a[index] != b[index]) return a[index] > b[index]
+        }
+        return a.size > b.size
+    }
 
     /**
      * Increments on each `RequestFocus` for a node that is not a platform view, so a
@@ -450,6 +657,8 @@ class NodeTable {
         windowThemes.clear()
         focusRequests.clear()
         nativeHandles.clear()
+        backNodes.clear()
+        backRevision++
         assets.clear()
         messages.clear()
         theme = null
@@ -468,6 +677,22 @@ class NodeTable {
             is Mutation.Move -> insert(mutation.parentId, mutation.nodeId, mutation.index)
             is Mutation.Remove -> remove(mutation.nodeId)
             is Mutation.SetText -> setText(mutation)
+            is Mutation.FormatText -> queueRich(
+                mutation.nodeId,
+                "FormatText",
+                RichRequest.Format(mutation.op, mutation.value, mutation.paint),
+            )
+            is Mutation.SetRichText -> queueRich(
+                mutation.nodeId,
+                "SetRichText",
+                RichRequest.Load(
+                    mutation.text,
+                    mutation.characters,
+                    mutation.paragraphs,
+                    mutation.selectionStart,
+                    mutation.selectionEnd,
+                ),
+            )
             is Mutation.AppendText -> appendText(mutation)
             // One record changes the whole tree's appearance. `ComposeRustContent`
             // resolves it into tokens and rules, and Compose invalidates the readers.
@@ -874,6 +1099,38 @@ class NodeTable {
         )
     }
 
+    /**
+     * The rich text field a command names, or null after reporting that it names none: no
+     * such node, not a text field, or a text field that did not turn `RichText` on.
+     */
+    private fun richNode(nodeId: Int, command: String): Node? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        if (node.widget != WidgetKind.TextField || !node.rich) {
+            fail(TableError.UNSUPPORTED_PROPERTY, "$command on ${node.widget} without RichText")
+            return null
+        }
+        return node
+    }
+
+    /**
+     * Keeps [request] waiting on the rich text field [nodeId]. Where the field already
+     * holds [MAX_PENDING_RICH_BYTES] of them the request is dropped, and the first one
+     * dropped since the field last took its requests is said to [log]. The ones after it are
+     * dropped without a line each, so a Host that floods a field does not flood the log.
+     */
+    private fun queueRich(nodeId: Int, command: String, request: RichRequest) {
+        val node = richNode(nodeId, command) ?: return
+        if (node.queueRich(request) || node.droppedRich != 1) return
+        log(
+            "compose-rust: dropped $command for node $nodeId. Its field already keeps " +
+                "${node.pendingRichBytes} bytes of rich text requests waiting and the most is " +
+                "$MAX_PENDING_RICH_BYTES. Requests are dropped until the field takes them.",
+        )
+    }
+
     /** The code editor a command names, or null after reporting that it names none. */
     private fun codeNode(nodeId: Int, command: String): Pair<Node, CodeEditorModel>? {
         val node = nodes[nodeId] ?: run {
@@ -1106,6 +1363,21 @@ class NodeTable {
                 return
             }
         }
+        if (mutation.property == PropertyKind.SheetDetents) {
+            val bits = (mutation.value as? PropertyValue.Integer)?.value
+            if (bits != null && bits and SHEET_DETENT_MASK.toLong().inv() != 0L) {
+                // A resting height this renderer has no meaning for is a newer or a broken
+                // Host. Resting at some of what was asked would put the sheet at a height
+                // nobody chose, so the sheet keeps the design system's one height.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "sheet ${node.id} was given resting heights $bits, which sets bits other than " +
+                        "Medium (1) and Large (2); it keeps the design system's height",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.property == PropertyKind.TextAlign) {
             val tag = (mutation.value as? PropertyValue.Integer)?.value
             if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
@@ -1127,6 +1399,12 @@ class NodeTable {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.OnBackRequested) {
+            val changed = if (mutation.value is PropertyValue.Integer) backNodes.add(node.id) else backNodes.remove(node.id)
+            if (changed) backRevision++
+        }
+        // A node under an overlay is heard only while the overlay is open.
+        if (mutation.property == PropertyKind.Open && backNodes.isNotEmpty()) backRevision++
         if (mutation.property == PropertyKind.FontFeatureSettings) {
             node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
                 fontFeatureSettings(bytes) { why ->
@@ -1187,6 +1465,15 @@ class NodeTable {
                     "does not know: 0x${unknown.toString(16)}",
             )
             return
+        }
+        if (modifier is ProtocolModifier.Backdrop && !backdropIsDrawable(modifier.blurDp, modifier.saturation)) {
+            // Reported and kept: the node still has a surface, and what it is drawn with is
+            // the one part of the modifier that can be honoured, its tint.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "Backdrop modifier on node ${mutation.nodeId} blurs by ${modifier.blurDp} dp at saturation " +
+                    "${modifier.saturation}; both must be numbers of zero or more, so the node is painted with its tint",
+            )
         }
         while (node.modifiers.size <= mutation.index) {
             node.modifiers.add(ProtocolModifier.Empty)
@@ -1271,6 +1558,8 @@ class NodeTable {
         }
         siblings.add(position, nodeId)
         nodes[nodeId]?.parentId = parentId
+        // A node that hears back may have moved into or out of a window, or under an overlay.
+        if (backNodes.isNotEmpty()) backRevision++
     }
 
     private fun remove(nodeId: Int) {
@@ -1294,6 +1583,7 @@ class NodeTable {
             }
         }
         node.scroll?.let(scrolls::forget)
+        if (backNodes.remove(nodeId)) backRevision++
         if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1399,6 +1689,26 @@ class NodeTable {
         internal val SCROLL_CONTAINERS: Set<WidgetKind> =
             LAZY_CONTAINERS + setOf(WidgetKind.ScrollColumn, WidgetKind.ScrollRow, WidgetKind.CodeEditor)
 
+        /** The widgets that draw their children only while they are open. */
+        internal val OVERLAYS: Set<WidgetKind> =
+            setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Menu, WidgetKind.Popover)
+
+        /** The widgets that can hear a request to go back: the layout containers and a window. */
+        internal val BACK_LISTENERS: Set<WidgetKind> = setOf(
+            WidgetKind.Column,
+            WidgetKind.Row,
+            WidgetKind.Box,
+            WidgetKind.Card,
+            WidgetKind.Surface,
+            WidgetKind.ScrollColumn,
+            WidgetKind.ScrollRow,
+            WidgetKind.SelectionContainer,
+            WidgetKind.Spacer,
+            WidgetKind.FlowRow,
+            WidgetKind.AbsoluteBox,
+            WidgetKind.Window,
+        )
+
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
                 // The name assistive technology reads can be given to any node.
@@ -1455,6 +1765,10 @@ class NodeTable {
 
                 // The scroll report belongs to the widgets that scroll.
                 PropertyKind.OnScrollChanged -> widget in SCROLL_CONTAINERS
+
+                // A request to go back is heard by the containers a screen is built from,
+                // and by the window they are in.
+                PropertyKind.OnBackRequested -> widget in BACK_LISTENERS
 
                 // Whether a platform view shows, and who hears its focus move.
                 PropertyKind.NativeVisible,
@@ -1759,9 +2073,11 @@ class NodeTable {
                 // How large an HTML island is drawn. Only the island's root has one.
                 PropertyKind.IslandZoom -> widget == WidgetKind.AbsoluteBox
 
-                // How many a badge counts, or the revision of a programmatic scroll request.
+                // How many a badge counts, how many things a destination holds, or the
+                // revision of a programmatic scroll request.
                 PropertyKind.Count ->
                     widget == WidgetKind.Badge ||
+                        widget == WidgetKind.NavigationItem ||
                         widget == WidgetKind.ScrollColumn ||
                         widget == WidgetKind.ScrollRow
 
@@ -1783,6 +2099,7 @@ class NodeTable {
                 PropertyKind.Decorations,
                 PropertyKind.SyntaxSpans,
                 PropertyKind.TabWidth,
+                PropertyKind.InsertSpaces,
                 PropertyKind.OnEditRejected,
                 PropertyKind.OnHover,
                 PropertyKind.OnSave,
@@ -1799,6 +2116,7 @@ class NodeTable {
                 PropertyKind.GutterMinWidthDp,
                 PropertyKind.GutterPaddingDp,
                 PropertyKind.TextInsetDp,
+                PropertyKind.FoldColumnWidthDp,
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
@@ -1877,10 +2195,19 @@ class NodeTable {
                 PropertyKind.MaxWidth,
                 // Whether a bottom sheet draws its drag handle.
                 PropertyKind.SheetHandle,
+                // The heights a bottom sheet rests at, and whether a pull can close it.
+                PropertyKind.SheetDetents,
+                PropertyKind.SheetDragToDismiss,
                 -> widget == WidgetKind.Sheet
 
                 // Whether a text field rejects edits while keeping focus, selection and copy.
-                PropertyKind.ReadOnly -> widget == WidgetKind.TextField
+                PropertyKind.ReadOnly,
+                // Whether it keeps character and paragraph formatting, and the two handlers
+                // that hear the formatting at the selection and the document.
+                PropertyKind.RichText,
+                PropertyKind.OnTextFormat,
+                PropertyKind.OnRichTextChanged,
+                -> widget == WidgetKind.TextField
 
                 // How a picture is laid into its box. An icon takes its design system's
                 // optical size, so only an image has a box to lay it into.

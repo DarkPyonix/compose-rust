@@ -556,6 +556,8 @@ interface ComponentRules {
             indicatorShape = theme.shape(ShapeRole.Full),
             indicatorKind = NavigationIndicator.None,
             separator = theme.color(ColorRole.OutlineVariant),
+            countContent = theme.color(ColorRole.OnSurfaceVariant),
+            selectedCountContent = theme.color(ColorRole.OnSurfaceVariant),
             barHeight = 64.dp,
             railWidth = 80.dp,
             drawerWidth = 240.dp,
@@ -980,6 +982,35 @@ internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (pla
 }
 
 /**
+ * How tall the caption strip of a window on [platform] is for [titleBar], where the renderer
+ * draws the buttons: the platform's own design system's answer under its own tokens,
+ * as [platformCaption] measures it, whatever design system the application draws in. Zero where
+ * the platform draws its own (macOS, and everywhere [captionSystemFor] names nothing).
+ *
+ * It needs no application theme, so a window can be told it before it opens: the Windows
+ * window's hit test takes the strip's height then (`dxc_native_window_configure_caption_height`).
+ */
+fun platformCaptionHeight(platform: HostPlatform, titleBar: TitleBar): Dp {
+    val system = captionSystemFor(platform) ?: return 0.dp
+    val rules = rulesFor(system)
+    val native = ResolvedTheme(system, DesignTokens.of(system), rules, dark = false, platform = platform)
+    return rules.caption(native, titleBar).height
+}
+
+/**
+ * Whether a window on [platform] leaves its bar title to the operating system's caption or
+ * draws it inside the top app bar.
+ *
+ * Only macOS provides an operating-system caption that carries the window title alongside
+ * the traffic lights. Windows and Linux draw their own caption strip inside the renderer, so
+ * every design system keeps its title in the bar there.
+ */
+internal fun captionTitlePlacementFor(platform: HostPlatform): CaptionTitlePlacement = when (platform) {
+    HostPlatform.MacOs -> CaptionTitlePlacement.SystemCaption
+    else -> CaptionTitlePlacement.Bar
+}
+
+/**
  * The window buttons a window drawn under [theme] actually gets: the operating system's, in
  * the application's colours.
  *
@@ -990,15 +1021,17 @@ internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (pla
  * middle one. So which end, how big, what shape and how far apart come from the platform's
  * own design system, measured in that system's own tokens. The fills and the glyph colours
  * are that system's rules applied to the application's palette, which is how a Fluent
- * application and a Material one already differed on Windows. Where the title goes is the
- * bar's business and stays the application's design system's.
+ * application and a Material one already differed on Windows. Whether the title sits in the
+ * bar or in the system caption also belongs to the platform (see [captionTitlePlacementFor]),
+ * while alignment inside the bar stays the application's design system's.
  *
  * Where the renderer draws no buttons (see [captionSystemFor]) this is the design system's
- * own answer, unchanged.
+ * own answer with the platform's title placement.
  */
 fun platformCaption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal): CaptionStyle {
     val own = theme.rules.caption(theme, titleBar)
-    val system = captionSystemFor(theme.platform) ?: return own
+    val placement = captionTitlePlacementFor(theme.platform)
+    val system = captionSystemFor(theme.platform) ?: return own.copy(titlePlacement = placement)
     val rules = rulesFor(system)
     // The platform's system under its own tokens, for everything that is a measurement.
     val native = ResolvedTheme(system, DesignTokens.of(system), rules, theme.dark, platform = theme.platform)
@@ -1016,7 +1049,7 @@ fun platformCaption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal):
         pressed = colours.pressed,
         closePressed = colours.closePressed,
         titleAlignment = own.titleAlignment,
-        titlePlacement = own.titlePlacement,
+        titlePlacement = placement,
     )
 }
 
@@ -1096,6 +1129,18 @@ data class NavigationStyle(
      * this and a fraction of black is not it.
      */
     val headingContent: Color? = null,
+    /**
+     * The ink a destination's count is set in at the end of a sidebar row: the platform's
+     * secondary ink, quieter than the label it follows. A bar and a rail badge the icon
+     * instead, in the design system's badge.
+     */
+    val countContent: Color,
+    /**
+     * The same count on the selected row, chosen to read on whatever marks that row: the
+     * secondary ink where the mark is faint or beside the row, the ink made for the accent
+     * where the row is filled with it.
+     */
+    val selectedCountContent: Color,
     /** The hairline between the destinations and the screen, null where there is none. */
     val separator: Color?,
     val barHeight: Dp,

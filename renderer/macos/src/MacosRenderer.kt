@@ -39,6 +39,7 @@ import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSApplicationWillTerminateNotification
 import platform.AppKit.NSWindow
+import platform.AppKit.NSWindowStyleMaskResizable
 import platform.AppKit.NSWorkspace
 import platform.AppKit.accessibilityDisplayShouldReduceMotion
 import platform.Foundation.NSNotificationCenter
@@ -46,9 +47,13 @@ import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSRunLoop
 import platform.Foundation.NSRunLoopCommonModes
 import platform.Foundation.NSTimer
+import platform.Foundation.NSUserDefaults
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ZoomLevelStore
+import dev.darkpyonix.composerust.runtime.clampZoomLevel
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run`
@@ -94,17 +99,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
     declareWindowBackdrop()
     installMacosDeclaredElementRoles()
-    // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at start
-    // and whenever the window comes back into use.
-    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
-        // A property of an AppKit category, so Kotlin/Native binds it as an extension that
-        // has to be imported by name.
-        if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
-            dev.darkpyonix.composerust.protocol.ReducedMotion.On
-        } else {
-            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
-        }
-    }
+    installMacosReducedMotion()
+    installMacosZoomLevelStore()
     // The notification centre, before the Host exists: the Host's first batch may already
     // post one. A press on the body brings this application to the front and its window
     // back from the Dock, which is what the platform does for an application it launches.
@@ -230,6 +226,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             )
         }
     }
+    configureSingleMacosWindow(window, asked)
 
     // How far the start got, in the words the native image's window uses. The scene was
     // made with the window, but its size and density are the screen's, which are known only
@@ -333,4 +330,64 @@ internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
  */
 internal fun declareWindowBackdrop() {
     dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
+}
+
+/**
+ * Wires both reduced-motion hooks to macOS's accessibility setting.
+ *
+ * Reading `accessibilityDisplayShouldReduceMotion` is an in-process AppKit property lookup,
+ * so both the setting reported to the Host and the boolean read during press feedback and
+ * motion resolution follow the live system preference.
+ */
+internal fun installMacosReducedMotion(
+    read: () -> Boolean = { NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion },
+) {
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        if (read()) {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        } else {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
+    dev.darkpyonix.composerust.ui.node.platformReducedMotion = {
+        dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting() ==
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+    }
+}
+
+/** Installs the `NSUserDefaults`-backed zoom level store for both single-window and multi-window runs. */
+internal fun installMacosZoomLevelStore(
+    store: () -> ZoomLevelStore = { UserDefaultsZoomLevel() },
+) {
+    dev.darkpyonix.composerust.runtime.platformZoomLevelStore = store
+}
+
+/** The application's zoom level in the user defaults. */
+internal class UserDefaultsZoomLevel(
+    private val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults,
+    private val key: String = KEY,
+) : ZoomLevelStore {
+    override fun load(): Int? {
+        if (defaults.objectForKey(key) == null) return null
+        return clampZoomLevel(defaults.integerForKey(key).toInt())
+    }
+
+    override fun save(level: Int) {
+        defaults.setInteger(clampZoomLevel(level).toLong(), key)
+    }
+
+    companion object {
+        internal const val KEY = "ComposeRustZoomLevel"
+    }
+}
+
+/** Applies single-window configuration that `MacosWindow` does not take as a constructor parameter. */
+internal fun configureSingleMacosWindow(window: MacosWindow, asked: Window?) {
+    val resizable = asked?.resizable ?: true
+    val native = window.window
+    native.styleMask = if (resizable) {
+        native.styleMask or NSWindowStyleMaskResizable
+    } else {
+        native.styleMask and NSWindowStyleMaskResizable.inv()
+    }
 }

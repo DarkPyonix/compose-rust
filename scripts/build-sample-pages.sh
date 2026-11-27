@@ -39,7 +39,11 @@ rm -rf "$repo_root/renderer/build/temp/skiko-js-wasm-runtime"
 # parallel, and the two unpack that runtime into the same directory at once, so one
 # fails with FileAlreadyExistsException (#494). The pages need the app bundle alone.
 echo "==> building the renderer's module once"
-(cd "$repo_root/renderer" && ./kotlin task :web:buildWasmJsAppWasmJsDebug) ||
+# Through the retry wrapper, as CI's other Amper builds are: the toolchain resolves its own
+# compiler from Maven Central, and a 429 there ended the job on its first try (run
+# 45546405467).
+export DXC_RETRY_LOG="${DXC_RETRY_LOG:-$repo_root/renderer/build/retry-resolution.log}"
+(cd "$repo_root/renderer" && ./scripts/retry-resolution.sh ./kotlin task :web:buildWasmJsAppWasmJsDebug) ||
     { echo "the renderer's wasm module did not build" >&2; exit 1; }
 
 # The directory the toolchain assembled, not the sources it assembled it from. The page

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.PaddingValues
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -99,7 +100,9 @@ internal fun HostLazyColumn(
 
     HostScroll(node, table, remember(state) { state.scrollSurface(vertical = true) })
 
-    LazyColumn(modifier = sized, state = state) {
+    // Under a bar that floats over the page the list ends lower by what the bar covers.
+    val barReserve = LocalFloatingBarReserve.current
+    LazyColumn(modifier = sized, state = state, contentPadding = PaddingValues(bottom = barReserve)) {
         items(
             count = itemCount,
             key = { index -> lazyItemKey(table, children, index - windowStart, index) },
@@ -194,7 +197,7 @@ internal fun Node.declaresOwnHeight(table: NodeTable): Boolean = modifiers.any {
     value is ProtocolModifier.Height ||
         value is ProtocolModifier.Size ||
         value is ProtocolModifier.FillMaxHeight ||
-        (value is ProtocolModifier.Weight && table.stacksVertically(parentId))
+        ((value is ProtocolModifier.Weight || value is ProtocolModifier.WeightUnfilled) && table.stacksVertically(parentId))
 }
 
 /** True when the node hosting a child stacks its children top to bottom. */

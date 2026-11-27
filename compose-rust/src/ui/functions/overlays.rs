@@ -2,7 +2,8 @@
 
 use super::{set, set_some};
 use crate::schema::{
-    Alignment, NativeHandle, Paint, PopoverAlign, PopoverPlacement, SheetPresentation,
+    Alignment, NativeHandle, Paint, PopoverAlign, PopoverPlacement, SheetDetents,
+    SheetPresentation,
 };
 use crate::ui::Modifier;
 use crate::{FileDrop, MotionFinished};
@@ -54,6 +55,13 @@ pub fn Dialog(
 /// says whether a bottom sheet draws its drag handle; without it the sheet still drags
 /// down and closes the same way.
 ///
+/// `detents` is the set of heights a bottom sheet rests at: `SheetDetents::MEDIUM |
+/// SheetDetents::LARGE` opens at half the window and is pulled up to nearly all of it and
+/// back. Which one it is at is the Renderer's state. `drag_to_dismiss = false` stops a pull
+/// at the lowest resting height and sends no dismissal for it; Escape, the platform's back
+/// and a press outside still call `on_dismiss`. A centered sheet and one that comes from
+/// the side take neither.
+///
 /// `on_motion_finished` runs once when the node's size motion comes to rest, with the size
 /// it settled at in dp; the node needs `Modifier::motion` for its size to move.
 #[Composable(widget)]
@@ -66,6 +74,8 @@ pub fn Sheet(
     #[default(::compose_rust::ui::SheetPresentation::Edge)] presentation: SheetPresentation,
     #[default(None::<u32>)] max_width: impl Into<Option<u32>>,
     #[default(true)] handle: bool,
+    #[default(::compose_rust::ui::SheetDetents::NONE)] detents: SheetDetents,
+    #[default(true)] drag_to_dismiss: bool,
     #[default(None::<fn(::compose_rust::MotionFinished)>)] on_motion_finished: Option<
         impl FnMut(MotionFinished) + 'static,
     >,
@@ -78,6 +88,7 @@ pub fn Sheet(
     scope = scope.presentation(presentation);
     set!(scope; max_width);
     scope = scope.handle(handle);
+    scope = scope.detents(detents).drag_to_dismiss(drag_to_dismiss);
     set_some!(scope; on_motion_finished);
     scope.content(content);
 }

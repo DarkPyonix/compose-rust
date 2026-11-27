@@ -38,6 +38,8 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod rich;
+pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
@@ -46,16 +48,21 @@ pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::font_features::FontFeature;
 pub use crate::message::{Message, show_message};
+pub use crate::rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, TextFormat, Toggle, Tri,
+};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetDetents,
+    SheetPresentation,
     Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
     WindowHeightClass, WindowSizeClass,
 };
+pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
 
@@ -71,8 +78,10 @@ pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{MotionFinished, OverflowWrap, WordBreak};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use rich::{RichTextState, remember_rich_text_state};
+pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so
 // without this `ui` would list the functions and none of the macros.
@@ -601,7 +610,7 @@ pub struct Modifier {
     observe_size_every_dp: bool,
     motion: Option<MotionRole>,
     material: Option<MaterialRole>,
-    weight: Option<f32>,
+    weight: Option<(f32, bool)>,
     width: Option<f32>,
     height: Option<f32>,
     padding: Option<f32>,
@@ -623,6 +632,7 @@ pub struct Modifier {
     press_feedback: Option<(f32, f32)>,
     hover_style: Option<HoverStyle>,
     focus_ring: Option<(Paint, f32, f32)>,
+    backdrop: Option<(f32, f32, Paint)>,
     press_style: Option<PressStyle>,
     semantics_role: Option<SemanticsRole>,
     semantics_label: Option<Arc<str>>,
@@ -682,6 +692,7 @@ impl Modifier {
             press_feedback: None,
             hover_style: None,
             focus_ring: None,
+            backdrop: None,
             press_style: None,
             semantics_role: None,
             semantics_label: None,
@@ -710,7 +721,14 @@ impl Modifier {
 
     /// A share of the space left in a `Row` or `Column`.
     pub const fn weight(mut self, weight: f32) -> Self {
-        self.weight = Some(weight);
+        self.weight = Some((weight, true));
+        self
+    }
+
+    /// A share of the space left in a `Row` or `Column`, without forcing a shorter child
+    /// to expand to fill its share (Compose `Modifier.weight(w, fill = false)`).
+    pub const fn weight_unfilled(mut self, weight: f32) -> Self {
+        self.weight = Some((weight, false));
         self
     }
 
@@ -1068,6 +1086,22 @@ impl Modifier {
         self
     }
 
+    /// Blurs what the application drew behind this node, inside the node's outline: by
+    /// `blur_dp`, with its saturation multiplied by `saturation` (1 leaves it as it is),
+    /// and `tint` laid over it. The same values draw the same on every design system,
+    /// which is what `material` does not promise: use this for a bar, a popover or a sheet
+    /// that has to look like glass everywhere.
+    ///
+    /// Only what this application drew is blurred, never the desktop behind the window.
+    /// Where the Renderer cannot blur, or the reader asked for reduced transparency, the
+    /// node is painted with `tint` at full opacity, so choose a `tint` the content reads
+    /// on. A colour role is the theme's and keeps its contrast. On a node that also has a
+    /// `material`, this is what is drawn.
+    pub fn backdrop(mut self, blur_dp: f32, saturation: f32, tint: impl Into<Paint>) -> Self {
+        self.backdrop = Some((blur_dp, saturation, tint.into()));
+        self
+    }
+
     /// Moves the node from where it was laid out, in dp, without moving anything else.
     pub const fn offset(mut self, x: f32, y: f32) -> Self {
         self.offset = Some((x, y));
@@ -1422,7 +1456,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(container, "observe_size_every_dp", every_dp);
     push(container, "motion", role(modifier.motion));
     push(container || scaffold, "material", role(modifier.material));
-    push(chip, "weight", float(modifier.weight));
+    // One slot, two names: whichever is not in use goes out unset, which clears nothing
+    // because only the name that wrote a slot may clear it.
+    let (weight_filled, weight_unfilled) = match modifier.weight {
+        Some((value, true)) => (float(Some(value)), OwnedAttr::None),
+        Some((value, false)) => (OwnedAttr::None, float(Some(value))),
+        None => (OwnedAttr::None, OwnedAttr::None),
+    };
+    push(chip, "weight", weight_filled);
+    push(chip, "weight_unfilled", weight_unfilled);
     push(chip, "width", float(modifier.width));
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));
@@ -1556,6 +1598,21 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                 bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
                 bytes.extend_from_slice(&width.to_le_bytes());
                 bytes.extend_from_slice(&offset.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    // The blur and the saturation, then the tint. Written whenever it is set, because the
+    // wire carries every Modifier slot on every node.
+    push(
+        false,
+        "backdrop",
+        modifier
+            .backdrop
+            .map_or(OwnedAttr::None, |(blur, saturation, tint)| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&blur.to_le_bytes());
+                bytes.extend_from_slice(&saturation.to_le_bytes());
+                bytes.extend_from_slice(&tint.to_bits().to_le_bytes());
                 OwnedAttr::Bytes(bytes)
             }),
     );

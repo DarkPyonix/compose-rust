@@ -13,6 +13,7 @@ import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.protocol.FileDelivery
 import dev.darkpyonix.composerust.protocol.FileDialogKind
 import dev.darkpyonix.composerust.protocol.FileOp
+import dev.darkpyonix.composerust.protocol.FormatOp
 import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -156,6 +157,9 @@ class ProtocolVectorsTest {
                 is Mutation.EditCodeGroup -> mutation.nodeId !in created
                 is Mutation.InsertSnippet -> mutation.nodeId !in created
                 is Mutation.SetSelections -> mutation.nodeId !in created
+                // The vector's rich text field exists and turned `RichText` on first.
+                is Mutation.FormatText -> mutation.nodeId !in created
+                is Mutation.SetRichText -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -480,7 +484,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1811 + 24, bytes.size, "the two events are the last in the vector")
+        assertEquals(1811 + 24 + 36 + 171 + 20 + 20, bytes.size, "the two rich text events, the font request and then the back request follow the two platform view events")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -498,6 +502,51 @@ class ProtocolVectorsTest {
         val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 25, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
         assertEquals(bytes.copyOfRange(1811, 1811 + 24).toList(), out.array().copyOf(focusLength).toList())
+    }
+
+    /**
+     * The back request and the handler property it is sent for, against the bytes the Host
+     * wrote: the header and one source word, 20 bytes, after every older event.
+     */
+    @Test
+    fun fr91_back_requested_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.SetProp(1, PropertyKind.OnBackRequested, PropertyValue.Integer(302L)) in mutations)
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(
+            HostEvent.BackRequested(1, 302L, dev.darkpyonix.composerust.protocol.BackSource.EdgeSwipe),
+            out,
+        )
+        assertEquals(20, length)
+        assertEquals(bytes.copyOfRange(2062, 2082).toList(), out.array().copyOf(length).toList())
+        assertEquals(70, out.getShort(0).toInt())
+        // Each source is its own word.
+        val words = dev.darkpyonix.composerust.protocol.BackSource.entries.map { source ->
+            val one = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+            Protocol.encodeEvent(HostEvent.BackRequested(1, 302L, source), one)
+            source.name to one.getInt(16)
+        }
+        assertEquals(listOf("SystemBack" to 1, "Escape" to 2, "PointerBack" to 3, "EdgeSwipe" to 4), words)
+    }
+
+    /** A sheet's resting heights and whether a pull closes it, read from the bytes the Host wrote. */
+    @Test
+    fun fr21_3_4_sheet_detents_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(27, WidgetKind.Sheet) in mutations)
+        assertTrue(Mutation.SetProp(27, PropertyKind.SheetDetents, PropertyValue.Integer(3L)) in mutations)
+        assertTrue(Mutation.SetProp(27, PropertyKind.SheetDragToDismiss, PropertyValue.Bool(false)) in mutations)
+    }
+
+    /** The application's own blur, read from the bytes the Host wrote: two floats in one word and a paint. */
+    @Test
+    fun fr23_3_1_backdrop_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(
+            Mutation.SetModifier(26, 0, ProtocolModifier.Backdrop(20f, 1.8f, Paint.Literal(0x66ffffff))) in mutations,
+            "${mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 26 }}",
+        )
     }
 
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
@@ -911,14 +960,16 @@ class ProtocolVectorsTest {
     fun fr41_the_animation_records_in_the_vector_decode_to_the_same_values() {
         val mutations = decodeVector("mutations.bin")
         val animations = mutations.filterIsInstance<Mutation.StartAnimation>().map { it.animation }
-        assertEquals(10, animations.size)
-        // The border colour came after every record that was there before it.
-        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, animations.last().property)
+        assertEquals(12, animations.size)
+        // The border colour came after every record that was there before it, and a spring
+        // and a 3D matrix after that.
+        val border = animations[animations.size - 3]
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.BorderColor, border.property)
         assertEquals(
             dev.darkpyonix.composerust.protocol.KeyframeValue.PaintValue(
                 dev.darkpyonix.composerust.protocol.Paint.Literal(0xFF336699.toInt()),
             ),
-            animations.last().keyframes.last().value,
+            border.keyframes.last().value,
         )
         val alpha = animations.first()
         assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, alpha.property)
@@ -979,6 +1030,127 @@ class ProtocolVectorsTest {
         )
     }
 
+    /**
+     * The spring segment the vector carries: timing kind 4 with its stiffness and damping
+     * ratio, read from the bytes the Host wrote, after every older record.
+     */
+    @Test
+    fun fr41_spring_timing_round_trips() {
+        val animations = decodeVector("mutations.bin").filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        val spring = animations[animations.size - 2]
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Alpha, spring.property)
+        assertEquals(11, spring.animationId)
+        assertEquals(364f, spring.durationMs)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    0f,
+                    dev.darkpyonix.composerust.protocol.Timing.Spring(1500f, 0.5f),
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(0f),
+                ),
+                dev.darkpyonix.composerust.protocol.Keyframe(
+                    1f,
+                    dev.darkpyonix.composerust.protocol.Timing.Linear,
+                    false,
+                    dev.darkpyonix.composerust.protocol.KeyframeValue.Alpha(1f),
+                ),
+            ),
+            spring.keyframes,
+        )
+    }
+
+    /**
+     * The 3D matrix animation the vector ends its animations with: property 6, no origin of
+     * its own, and sixteen column-major values in each keyframe, read from the Host's bytes.
+     */
+    @Test
+    fun fr41_2_1_transform3d_animation_round_trips() {
+        val animations = decodeVector("mutations.bin").filterIsInstance<Mutation.StartAnimation>().map { it.animation }
+        val matrix = animations.last()
+        assertEquals(dev.darkpyonix.composerust.protocol.AnimatedProperty.Transform3D, matrix.property)
+        assertEquals(12, matrix.animationId)
+        assertEquals(0f, matrix.originX)
+        assertEquals(0f, matrix.originY)
+        assertEquals(null, matrix.interpolation)
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.Matrix3D(
+                floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f),
+            ),
+            matrix.keyframes.first().value,
+        )
+        assertEquals(
+            dev.darkpyonix.composerust.protocol.KeyframeValue.Matrix3D(
+                floatArrayOf(0.75f, 0f, -0.5f, 0.00125f, 0f, 1f, 0f, 0f, 0.5f, 0f, 0.75f, -0.0025f, 12f, -6f, 3f, 1f),
+            ),
+            matrix.keyframes.last().value,
+        )
+    }
+
+    /** Where each `StartAnimation` record in the mutation vector starts, in order. */
+    private fun animationRecordOffsets(batch: ByteArray): List<Int> {
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        val offsets = mutableListOf<Int>()
+        var offset = 12
+        while (offset < recordsLength) {
+            if (view.getShort(offset).toInt() == 18) offsets += offset
+            offset += view.getShort(offset + 2).toInt()
+        }
+        return offsets
+    }
+
+    private fun assertRefused(batch: ByteArray, what: String, patch: (ByteBuffer) -> Unit) {
+        val bad = batch.copyOf()
+        patch(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN))
+        val failure = runCatching {
+            Protocol.decode(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN)) { }
+        }.exceptionOrNull()
+        assertTrue(failure is ProtocolException, "$what was read, got $failure")
+    }
+
+    /**
+     * The vector's spring with a stiffness or damping ratio that is not a finite positive
+     * number, or with anything in the numbers and the step position it does not use, is
+     * refused the way the Host refuses it.
+     */
+    @Test
+    fun fr41_spring_with_invalid_parameters_is_a_protocol_error() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val spring = animationRecordOffsets(batch).let { it[it.size - 2] }
+        val keyframe = spring + 52
+        assertEquals(4, batch[keyframe + 4].toInt(), "the vector's spring is timing kind 4")
+        for (stiffness in listOf(0f, -1500f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertRefused(batch, "stiffness $stiffness") { it.putFloat(keyframe + 8, stiffness) }
+        }
+        for (damping in listOf(0f, -0.5f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertRefused(batch, "damping ratio $damping") { it.putFloat(keyframe + 12, damping) }
+        }
+        assertRefused(batch, "a third number") { it.putFloat(keyframe + 16, 0.5f) }
+        assertRefused(batch, "a fourth number") { it.putFloat(keyframe + 20, 0.5f) }
+        assertRefused(batch, "a step position") { it.put(keyframe + 5, 2.toByte()) }
+    }
+
+    /**
+     * The vector's 3D matrix animation with a value that is not a number, or with an origin
+     * of its own, is refused the way the Host refuses it.
+     */
+    @Test
+    fun fr41_2_1_a_transform3d_record_that_cannot_be_played_is_a_protocol_error() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val matrix = animationRecordOffsets(batch).last()
+        assertEquals(6, batch[matrix + 12].toInt(), "the vector's last animation is property 6")
+        // The second keyframe's value: after the head, one 88 byte keyframe and a keyframe head.
+        val value = matrix + 52 + 88 + 24
+        for (bad in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            for (cell in listOf(0, 3, 11, 15)) {
+                assertRefused(batch, "$bad in cell $cell") { it.putFloat(value + 4 * cell, bad) }
+            }
+        }
+        assertRefused(batch, "an origin x") { it.putFloat(matrix + 40, 0.5f) }
+        assertRefused(batch, "an origin y") { it.putFloat(matrix + 44, 0.5f) }
+    }
+
     /** The animation event and the motion setting encode to the bytes the Host decodes. */
     @Test
     fun fr41_the_animation_events_encode_to_the_vector_bytes() {
@@ -1023,7 +1195,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1663, 1683).toList(), out.array().copyOf(length).toList())
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1047,7 +1219,7 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
         assertEquals(bytes.copyOfRange(1759, 1779).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
@@ -1058,6 +1230,35 @@ class ProtocolVectorsTest {
         assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
         assertEquals(20, window.getInt(4))
         assertEquals(1.25f, window.getFloat(16))
+    }
+
+    /**
+     * A `LazyAsset` font candidate decodes as it was written, kind 4 with its id, and the
+     * request for its bytes encodes to the 20 bytes the Host decodes: the header, then the
+     * id. It is the vector's last record, under event tag 71.
+     */
+    @Test
+    fun fr10_lazy_asset_font_ref_round_trips() {
+        val list = listOf(
+            dev.darkpyonix.composerust.protocol.FontRef.Asset(3),
+            dev.darkpyonix.composerust.protocol.FontRef.LazyAsset(9),
+        )
+        val blob = fontBlob(list)
+        assertEquals(4, ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN).getInt(16), "the second record's kind")
+        assertEquals(list, dev.darkpyonix.composerust.protocol.FontRefRecords.decodeBlob(blob))
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.AssetWanted(0, 0L, 42), out)
+        assertEquals(20, length)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
+        // After the two rich text events, and before the back request.
+        assertEquals(bytes.copyOfRange(2042, 2062).toList(), out.array().copyOf(length).toList())
+        assertEquals(71, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(42, out.getInt(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -1244,7 +1445,7 @@ class ProtocolVectorsTest {
             )
         }
         // The platform view events follow the density report, two records of 32 and 24 bytes.
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
     }
 
     /**
@@ -1259,7 +1460,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1443, 1467)))
-        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1383,6 +1584,62 @@ class ProtocolVectorsTest {
             ),
         )
         assertEquals(emptyList<String>(), errors)
+    }
+
+    /**
+     * The rich text records in the vectors: a field that turned `RichText` on, two formatting
+     * commands and a document with a selection, then the formatting at a selection and the
+     * document back. The text is Korean and the runs are in bytes, so a reader that counts
+     * characters, or reads a record at the wrong length, reads other numbers.
+     */
+    @Test
+    fun fr26_1_the_rich_text_records_in_the_vectors_match_the_rust_bytes() {
+        val text = "\uC81C\uBAA9\n\uAD75\uAC8C \uBCF4\uD1B5\n\uD56D\uBAA9"
+        assertEquals(27, text.toByteArray(Charsets.UTF_8).size)
+        val literal = (2L shl 32) or 0xFFCC3300L
+        val characters = ByteBuffer.allocate(72).order(ByteOrder.LITTLE_ENDIAN).also { buffer ->
+            for ((start, flags, paint) in listOf(Triple(7, 1, 0L), Triple(14, 2, literal), Triple(21, 12, 0L))) {
+                buffer.putInt(start).putInt(6).putInt(flags).putLong(paint).putInt(0)
+            }
+        }.array()
+        val paragraphs = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN).also { buffer ->
+            // Title; then a quoted, indented numbered subheading.
+            buffer.putInt(0).putShort(2).putShort(0).putShort(0).putShort(0).putInt(0)
+            buffer.putInt(21).putShort(4).putShort(3).putShort(2).putShort(1).putInt(0)
+        }.array()
+
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(26, WidgetKind.TextField) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.RichText, PropertyValue.Bool(true)) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.OnTextFormat, PropertyValue.Integer(34L)) in mutations)
+        assertTrue(Mutation.SetProp(26, PropertyKind.OnRichTextChanged, PropertyValue.Integer(35L)) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.FormatText(26, FormatOp.Bold, 2, null),
+                Mutation.FormatText(26, FormatOp.Color, 0, Paint.Literal(0xFF3366CC.toInt())),
+            ),
+            mutations.filterIsInstance<Mutation.FormatText>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetRichText(26, text, characters, paragraphs, 7, 13)),
+            mutations.filterIsInstance<Mutation.SetRichText>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val out = ByteBuffer.allocate(256)
+            val length = Protocol.encodeEvent(event, out)
+            return out.array().copyOf(length)
+        }
+        // Bold on all of it, italic on part, strikethrough on all; a Heading in a numbered
+        // list indented twice and quoted in part; the colour all of it shares.
+        val format = encoded(HostEvent.TextFormatAtSelection(26, 34L, 1 or (2 shl 2) or (1 shl 6), 3, 3, 2, 2, literal))
+        assertEquals(36, format.size)
+        assertEquals(bytes.copyOfRange(1835, 1871).toList(), format.toList())
+        val document = encoded(HostEvent.RichTextChanged(26, 35L, text, characters, paragraphs))
+        assertEquals(171, document.size)
+        assertEquals(bytes.copyOfRange(1871, 1871 + 171).toList(), document.toList())
+        assertEquals(1871 + 171 + 20, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

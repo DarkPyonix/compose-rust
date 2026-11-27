@@ -10,7 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
@@ -43,6 +46,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
 import dev.darkpyonix.composerust.foundation.navigationFor
+import dev.darkpyonix.composerust.foundation.pointerBackButton
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -210,6 +215,13 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.clipboardReads.drain()
         table.fileCalls.drain()
         table.storage.drain()
+        // Fonts the last frame found letters for and has no bytes of. Asked here and not
+        // where the letter was found, inside a composition or a measure call, because the
+        // Host answers each with a batch that registers the font. The text set in it is
+        // composed again when it arrives.
+        table.assets.drainWanted { assetId ->
+            dispatch(HostEvent.AssetWanted(nodeId = 0, handlerId = 0, assetId = assetId))
+        }
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -541,6 +553,9 @@ private fun ComposeRustTree(
     SideEffect { host.table.fileCalls.wake = frames::request }
     // A storage answer from the browser is delivered at the top of the frame it asks for.
     SideEffect { host.table.storage.wake = frames::request }
+    // A font the Host has not sent is asked for at the top of the frame after the one that
+    // found a letter for it.
+    SideEffect { host.table.assets.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares the system's clipboard, so one window serves it: the one that opened last, and
     // when it goes, the one before it. A window of several draws its own node
@@ -783,10 +798,11 @@ private fun ComposeRustTree(
     // The strips a phone's system draws in. Zero on a desktop, where a title bar is the
     // caption above instead. The keyboard is not one of them: it is reported on its own
     // below, because the page stops above it but nothing grows into it.
-    val safeBars = with(LocalDensity.current) {
+    val measuredBars = with(LocalDensity.current) {
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    val safeBars = systemBarsOverride ?: measuredBars
     // How much of the window's bottom the on-screen keyboard covers. The window is not
     // panned for it (the platform layer asks for that), so this is where the page is
     // told: it ends above the keyboard, the bar at the top stays where it is, and the
@@ -832,12 +848,15 @@ private fun ComposeRustTree(
     // and with the keyboard left out, so it is the navigation bar or the home indicator
     // whether or not a keyboard is up. A desktop window has no such strip and sends 0.
     val safeBottom = safeBars.bottom.value
-    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(bottom = safeBottom) else {
+    // The top is the system's strip at the top edge, a status bar or a notch, and where the
+    // window has a caption of its own, that as well.
+    val safeTop = safeBars.top.value
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(top = safeTop, bottom = safeBottom) else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
         val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
             captionStyle.side == CaptionSide.Start
-        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
+        WindowSafeArea(caption.height.value + safeTop, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
     }
     // Read through a derived state so a recomposition does not repeat the map lookup (which
     // boxes the node id) and the read only runs again when the property itself changes.
@@ -891,6 +910,12 @@ private fun ComposeRustTree(
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
+    // Who in this window hears a request to go back, and what becomes of one nobody consumed.
+    // The page as the overlays over it see it, recorded only while one of them blurs it.
+    val windowBackdrop = dev.darkpyonix.composerust.foundation.rememberBackdropSource()
+    val backRequests = remember(host, windowNodeId) {
+        dev.darkpyonix.composerust.foundation.BackRequests(host.table, windowNodeId, host)
+    }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
     // The platform views of this window, and the surfaces drawn above them.
@@ -915,6 +940,7 @@ private fun ComposeRustTree(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
+        dev.darkpyonix.composerust.foundation.LocalWindowBackdrop provides windowBackdrop,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -936,19 +962,30 @@ private fun ComposeRustTree(
             platformWindowMaterial(asked)
             drawnMenuPresenter?.theme = theme
         }
-        // Android's back closes the topmost overlay, as Escape does, and is left to the app
-        // when none is open. Where no platform installs a back hook this does nothing.
-        dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
-            overlayFocusStack.handleBack()
+        // The platform's back closes the topmost overlay, as Escape does. With none open it
+        // goes to the nodes that asked to hear it, and where none of them consumed it, on to
+        // the platform. A window with no overlay open and no such node does not claim back
+        // at all, so the system can show what it will do before the gesture ends. Where no
+        // platform installs a back hook this does nothing.
+        dev.darkpyonix.composerust.foundation.platformBackHandler(
+            overlayFocusStack.hasOpen || (backRequests.hasListener && !backRequests.passing),
+        ) {
+            if (!overlayFocusStack.handleBack()) backRequests.platformBack()
         }
+        dev.darkpyonix.composerust.foundation.PassUnhandledBack(backRequests)
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier
                     .then(measured)
                     .then(dragStrip)
                     .onKeyEvent { event ->
-                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                        // Escape is heard here on the way back up from the focused node, so a
+                        // control that used it, and a key handler that consumed it, kept it.
+                        overlayFocusStack.handleEscape(event) ||
+                            backRequests.handleEscape(event) ||
+                            sidebarShortcuts.handle(event, platform)
                     }
+                    .pointerBackButton(backRequests)
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
                 // While a modal overlay is up, the page behind it leaves the accessibility
@@ -958,6 +995,7 @@ private fun ComposeRustTree(
                 Box(
                     Modifier
                         .padding(top = pageTop, bottom = pageBottom)
+                        .recordsBackdrop(windowBackdrop, 0)
                         .behindModal(overlayFocusStack.hidesPage),
                 ) {
                     // Beside the roots, under the same locals, so a node measured here is
@@ -1015,6 +1053,13 @@ private fun ComposeRustTree(
  * `ColorScheme.FollowSystem` reads the platform; nothing else consults this.
  */
 var systemDarkOverride: Boolean? = null
+
+/**
+ * Overrides the strips the system draws in at the top and the bottom of the window, for
+ * tests: a desktop test window has none, and what a phone's status bar and gesture bar do
+ * to the page has to be checked somewhere.
+ */
+var systemBarsOverride: SystemBars? = null
 
 /**
  * Overrides which platform this is, for tests and for the dev harness.
@@ -1394,12 +1439,14 @@ private const val BAR_SEARCH_DEPTH = 4
  * setting directly assigns to this at startup instead; a platform that cannot leaves the
  * reader with a way to say so, which is better than no way at all.
  */
-var reduceTransparency: Boolean = run {
-    val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
-        ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
-        ?: return@run false
-    !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
-}
+var reduceTransparency: Boolean by mutableStateOf(
+    run {
+        val raw = System.getenv("DXC_REDUCE_TRANSPARENCY")
+            ?: System.getProperty("dev.darkpyonix.composerust.reduceTransparency")
+            ?: return@run false
+        !raw.equals("0", ignoreCase = true) && !raw.equals("false", ignoreCase = true)
+    },
+)
 
 /**
  * The strips of the window the system draws its own things in.

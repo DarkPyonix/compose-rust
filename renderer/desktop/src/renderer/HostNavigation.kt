@@ -17,6 +17,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import dev.darkpyonix.composerust.design.glassLift
 import dev.darkpyonix.composerust.design.glassSurface
+import dev.darkpyonix.composerust.design.glassFill
+import dev.darkpyonix.composerust.design.LocalBlurAvailable
+import dev.darkpyonix.composerust.design.LocalReduceTransparency
+import dev.darkpyonix.composerust.design.SurfaceMaterial
+import dev.darkpyonix.composerust.protocol.MaterialRole
+import androidx.compose.runtime.compositionLocalOf
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.runtime.LocalStripTakesTheTop
 import dev.darkpyonix.composerust.runtime.LocalWindowCaption
@@ -36,6 +42,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.Spacer
+import dev.darkpyonix.composerust.ui.node.RenderNodeObserver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -180,7 +189,10 @@ internal fun HostNavigation(
     // or Fluent would answer a question nobody asked. An application on this platform that
     // said nothing gets Apple's anyway, because the default theme follows the platform.
     val apple = theme.system == DesignSystem.Cupertino || theme.system == DesignSystem.LiquidGlass
+    // A bar the application asked to float is drawn here on every platform, so that it
+    // floats the same way everywhere and the page under it is given the same room.
     val offered = style.presentation == NavigationPresentation.Bar &&
+        !style.floating &&
         node.id in table.roots &&
         apple
     val shell = platformNavigationShell?.takeIf { it.drawsStrip && offered }
@@ -209,6 +221,9 @@ internal fun HostNavigation(
                     label = destination.text(PropertyKind.Text),
                     icon = destination.role(PropertyKind.Icon, IconRole.entries.toTypedArray()),
                     enabled = destination.flag(PropertyKind.Enabled, default = true),
+                    badge = (destination.property(PropertyKind.Count) as? PropertyValue.Integer)
+                        ?.value
+                        ?.let { theme.rules.badge(theme).label(it) },
                 )
             }
         }
@@ -249,7 +264,31 @@ internal fun HostNavigation(
         style.presentation
     }
     when (presentation) {
-        NavigationPresentation.Bar -> Column(
+        NavigationPresentation.Bar -> if (style.floating) {
+            if (holdsAPage) {
+                // The page takes the whole of the navigation's box and the bar is laid
+                // over its bottom. The page is recorded so the bar can blur it, and its
+                // scroll containers are told how much of their end the bar covers.
+                val page = rememberBackdropSource()
+                val reserve = floatingBarReserve(style, LocalSystemBars.current.bottom)
+                Box(modifier.fillMaxSize().pageBackdrop(style)) {
+                    CompositionLocalProvider(LocalFloatingBarReserve provides reserve) {
+                        Box(Modifier.fillMaxSize().recordsBackdrop(page, 0)) {
+                            Screen(content, table, dispatcher)
+                        }
+                    }
+                    CompositionLocalProvider(LocalAppBackdrop provides page) {
+                        FloatingBarStrip(
+                            node.id, destinations, selected, style, theme, table,
+                            Modifier.align(Alignment.BottomCenter), choose,
+                        )
+                    }
+                }
+            } else {
+                // Only the bar: whatever holds this navigation lays it over its page.
+                FloatingBarStrip(node.id, destinations, selected, style, theme, table, modifier, choose)
+            }
+        } else Column(
             modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier),
         ) {
             // Same reason as the rail below: with nothing to show above it, this is a
@@ -727,12 +766,20 @@ private fun Screen(content: List<Int>, table: NodeTable, dispatcher: EventDispat
     content.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
 }
 
+/** Test tag of a destination's count, the number at the end of its row or the badge on its icon. */
+fun navigationCountTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-count"
+
 /**
  * One destination.
  *
  * A bar and a rail stack the label under the icon; a drawer sets it beside, and is the only
  * one wide enough to do so. The mark on the selected one is the design system's: a filled
  * pill, a bar along the leading edge, or nothing but the colour of the label.
+ *
+ * A destination that carries a count shows it where the platform puts one: at the end of a
+ * drawer's row in the secondary ink, or as the design system's badge on the icon of a bar
+ * or a rail, which has no room at the end of anything. Only this destination reads its
+ * count, so a new one composes this destination again and none of its neighbours.
  */
 @Composable
 internal fun Destination(
@@ -744,9 +791,12 @@ internal fun Destination(
     modifier: Modifier,
     onSelect: () -> Unit,
 ) {
+    RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(node.id) } }
     val label = node.text(PropertyKind.Text)
     val role = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val enabled = node.flag(PropertyKind.Enabled, default = true)
+    // Read raw, as a badge reads it: a count of zero is a count, not the absence of one.
+    val count = (node.property(PropertyKind.Count) as? PropertyValue.Integer)?.value
     // The design system decides what "selected" looks like, unless the node names a
     // colour itself. A unified sample is what needs the exception: its reference bar is
     // white icons on black with no accent anywhere, and asking the active system instead
@@ -800,6 +850,13 @@ internal fun Destination(
             ) {
                 DestinationIcon(role, tint, theme)
                 DestinationLabel(node, label, showLabel, tint, style, theme)
+                if (count != null) {
+                    // The count stands at the row's far end, however long the label is.
+                    Spacer(Modifier.weight(1f))
+                    val countInk = named
+                        ?: if (selected) style.selectedCountContent else style.countContent
+                    DestinationCount(node, count, countInk, style, theme)
+                }
             }
         } else {
             Column(
@@ -807,7 +864,18 @@ internal fun Destination(
                 verticalArrangement = Arrangement.spacedBy(style.itemSpacing),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                DestinationIcon(role, tint, theme)
+                if (count == null) {
+                    DestinationIcon(role, tint, theme)
+                } else {
+                    val badge = theme.rules.badge(theme)
+                    BadgedLayout(
+                        style = badge,
+                        modifier = Modifier,
+                        attached = { Box { DestinationIcon(role, tint, theme) } },
+                    ) {
+                        CountMark(count, badge, theme, Modifier.testTag(navigationCountTestTag(node.id)))
+                    }
+                }
                 DestinationLabel(node, label, showLabel, tint, style, theme)
             }
         }
@@ -890,6 +958,27 @@ private fun DestinationIcon(role: IconRole?, tint: Color, theme: ResolvedTheme) 
     if (role != null) {
         RoleIcon(role, tint, theme, Modifier)
     }
+}
+
+/**
+ * The count at the end of a drawer's row: written out in full, in the row's own type and
+ * the ink the design system gives a count, which reads on the selected row's mark too.
+ */
+@Composable
+private fun DestinationCount(
+    node: Node,
+    count: Long,
+    ink: Color,
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+) {
+    ThemedText(
+        text = count.toString(),
+        modifier = Modifier.testTag(navigationCountTestTag(node.id)),
+        style = node.textStyle(theme, style.typeRole).copy(color = ink),
+        maxLines = 1,
+        softWrap = false,
+    )
 }
 
 @Composable
@@ -1010,6 +1099,107 @@ internal fun ResolvedTheme.navigationFor(node: Node?, sizeClass: WindowSizeClass
             pageGradientEnd = null,
             pageCornerGlow = null,
         )
+        // The design system's own colours, heights and marks, as a capsule over the page.
+        // Where its answer for this width is not a bar, the strip it has is redrawn as
+        // one: the destinations are the same and only where they sit was chosen.
+        CompactNavigation.Floating -> answer.copy(
+            presentation = NavigationPresentation.Bar,
+            floating = true,
+            stripShape = shape(ShapeRole.Full),
+            floatingInset = maxOf(answer.floatingInset, FLOATING_BAR_MARGIN),
+        )
+    }
+}
+
+/** How far a floating bar stands off the window's edges where the design system names no distance. */
+internal val FLOATING_BAR_MARGIN: Dp = 12.dp
+
+/** How far a floating bar is lifted off the page in a design system whose surfaces are opaque. */
+private val FLOATING_BAR_ELEVATION: Dp = 6.dp
+
+/**
+ * The room a floating bar covers at the bottom of the page under it: its own height, the
+ * distance it stands off the bottom edge, the same again above it, and the system's strip
+ * at the bottom ([systemBottom]) it stays clear of.
+ */
+internal fun floatingBarReserve(style: NavigationStyle, systemBottom: Dp): Dp =
+    style.barHeight + style.floatingInset * 2 + systemBottom
+
+/**
+ * The room at the bottom of the page that a floating bar covers, for the scroll containers
+ * in that page: each one ends its content that much lower, so its last line can be
+ * scrolled clear of the bar. Zero wherever no bar floats over the page.
+ */
+val LocalFloatingBarReserve = compositionLocalOf { 0.dp }
+
+/**
+ * The destinations as a capsule floating over the bottom of the page.
+ *
+ * Held off both sides and off the bottom, above the system's strip there rather than grown
+ * into it. What it is made of is the design system's: where its floating surfaces are
+ * glass, the page behind is blurred by the system's own radius under the system's own tint,
+ * the way an application's `Backdrop` is drawn, and where they are opaque it is the bar's
+ * own colour, lifted off the page.
+ */
+@Composable
+private fun FloatingBarStrip(
+    navigationId: Int,
+    destinations: List<Int>,
+    selected: Int,
+    style: NavigationStyle,
+    theme: ResolvedTheme,
+    table: NodeTable,
+    modifier: Modifier,
+    choose: (Int, Int) -> Unit,
+) {
+    val systemBottom = LocalSystemBars.current.bottom
+    val inset = style.floatingInset
+    val shape = style.stripShape
+    val material = style.stripMaterial ?: theme.rules.material(MaterialRole.Chrome, theme)
+    val glass = material is SurfaceMaterial.Glass
+    val blur = if (material is SurfaceMaterial.Glass) material.blurRadius.value else 0f
+    val tint = if (glass) {
+        glassFill(material, LocalReduceTransparency.current, LocalBlurAvailable.current)
+    } else {
+        style.container
+    }
+    val lifted = if (glass) {
+        Modifier.glassLift(material, shape)
+    } else {
+        theme.rules.elevation(Modifier, FLOATING_BAR_ELEVATION, shape, theme)
+    }
+    Row(
+        modifier
+            .padding(start = inset, end = inset, top = inset, bottom = inset + systemBottom)
+            // The tag is on the capsule rather than on the room around it, so the strip a
+            // test measures is the one on the screen.
+            .testTag(navigationStripTestTag(navigationId))
+            .fillMaxWidth()
+            .height(style.barHeight)
+            .then(lifted)
+            .hostBackdrop(blur, 1f, tint, shape)
+            .clip(shape)
+            .padding(horizontal = theme.space(SpaceRole.Xs)),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OnGlass(glass) {
+            destinations.forEachIndexed { index, childId ->
+                key(childId) {
+                    table.node(childId)?.let { destination ->
+                        Destination(
+                            node = destination,
+                            selected = index == selected,
+                            style = style,
+                            presentation = style.presentation,
+                            theme = theme,
+                            modifier = Modifier.weight(1f),
+                            onSelect = { choose(index, childId) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
