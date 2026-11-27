@@ -7,7 +7,7 @@ use compose_rust::protocol::HostEvent;
 use compose_rust::schema::{
     EventPayload, POPOVER_ALIGN_SCHEMA, POPOVER_PLACEMENT_SCHEMA, PropertyKind, WidgetKind,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use support::Tree;
 
@@ -149,11 +149,7 @@ fn fr77_popover_dismiss_calls_the_handler_and_leaves_open_alone() {
     });
     let (node_id, handler_id) = tree.handled("Popover", PropertyKind::OnDismiss)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the dismissal is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);

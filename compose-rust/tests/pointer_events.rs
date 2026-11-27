@@ -13,7 +13,7 @@ use compose_rust::schema::{
     EventPayload, LoopMode, PROTOCOL_VERSION, PointerKind, PointerType, PropertyKind, SCHEMA_HASH,
     WheelDeltaMode,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Cursor, UserSelect};
 use std::cell::RefCell;
 use std::sync::{Mutex, MutexGuard};
@@ -115,10 +115,10 @@ fn Screen() {
 }
 
 fn pointer(kind: PointerKind, node_id: u32, handler_id: u64) -> HostEvent<'static> {
-    HostEvent {
+    HostEvent::new(
         node_id,
         handler_id,
-        payload: EventPayload::Pointer {
+        EventPayload::Pointer {
             kind,
             pointer_id: 1,
             pointer_type: PointerType::Mouse,
@@ -133,7 +133,7 @@ fn pointer(kind: PointerKind, node_id: u32, handler_id: u64) -> HostEvent<'stati
             delta_mode: WheelDeltaMode::Pixel,
             timestamp_nanos: 42,
         },
-    }
+    )
 }
 
 fn batch_of(output: &MutationBatch) -> Vec<u8> {
@@ -351,10 +351,10 @@ fn fr46_row_hears_double_press_context_menu_and_wheel() {
         // The button, the buttons held, the click count and the modifiers, then the wheel.
         let send =
             |kind: PointerKind, press: (u32, u32, u32, u32), wheel: (f32, f32, WheelDeltaMode)| {
-                dispatch(&HostEvent {
+                dispatch(&HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::Pointer {
+                    EventPayload::Pointer {
                         kind,
                         pointer_id: 1,
                         pointer_type: PointerType::Mouse,
@@ -369,7 +369,7 @@ fn fr46_row_hears_double_press_context_menu_and_wheel() {
                         delta_mode: wheel.2,
                         timestamp_nanos: 7,
                     },
-                })
+                ))
             };
         let still = (0.0, 0.0, WheelDeltaMode::Pixel);
         let results = [

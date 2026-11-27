@@ -88,10 +88,18 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
     </figure>
 
     <p>
-      <code>cargo build</code> 가 대상에 필요한 렌더러를 알아냅니다. 크레이트의 정확한 버전에 맞는
-      릴리스 아티팩트를 내려받아 함께 게시된 <code>.sha256</code> 으로 확인하고, <code>target/</code>
-      바깥의 캐시에 풀어 링크합니다. 설정할 환경 변수도, 실행할 스크립트도 없습니다. 캐시는 버전과
-      대상으로 구분되므로 <code>cargo clean</code> 뒤에도 남고 프로젝트끼리 공유됩니다.
+      <code>cargo build</code> 가 대상에 필요한 렌더러를 알아냅니다. 크레이트 버전의 릴리스
+      아티팩트를 내려받아 함께 게시된 <code>.sha256</code> 으로 확인하고, <code>target/</code>
+      바깥의 캐시에 풀어 링크합니다. 설정할 환경 변수도, 실행할 스크립트도 없습니다.
+    </p>
+    <p>
+      맞아야 하는 것은 버전 번호가 아니라 크레이트가 생성된 스키마입니다. 릴리스 뒤의 git 리비전은
+      그 릴리스의 버전을 그대로 둔 채 스키마가 바뀝니다. 릴리스의 렌더러가 다른 스키마로 빌드됐으면
+      빌드는 <code>develop</code> 이 크레이트의 스키마로 게시한 렌더러를 <code>renderer-dev</code>
+      릴리스에서 대신 받습니다. 둘 다 맞지 않으면 빌드가 멈추고 크레이트의 스키마 해시, 각 렌더러의
+      해시, 시도한 두 주소를 알려 줍니다. 캐시는 스키마 해시와 대상으로 구분되므로
+      <code>cargo clean</code> 뒤에도 남고, 프로젝트끼리 공유되며, 스키마가 같은 크레이트 버전끼리도
+      공유됩니다.
     </p>
     <p>
       macOS(arm64)와 Linux(x64, arm64)에서 렌더러는 Kotlin/Native 정적 아카이브이므로
@@ -109,6 +117,7 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
         <tbody>
           <tr><td><code>COMPOSE_RUST_RENDERER_DIR</code></td><td>이 디렉터리의 렌더러를 씁니다. 가장 먼저 확인하고, 설정되어 있으면 아무것도 내려받지 않습니다. 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이것으로 됩니다. 빌드 스크립트는 자기 패키지 디렉터리에서 실행되므로 경로는 절대 경로여야 합니다.</td></tr>
           <tr><td><code>COMPOSE_RUST_CACHE_DIR</code></td><td>캐시 위치를 <code>$HOME/.cache/compose-rust</code>(Windows는 <code>%LOCALAPPDATA%\compose-rust</code>)에서 옮깁니다.</td></tr>
+          <tr><td><code>COMPOSE_RUST_RENDERER_URL</code></td><td><code>https://github.com/DarkPyonix/compose-rust/releases</code> 대신 이 주소에서 내려받습니다. 미러나 GitHub에 닿지 않는 CI 기계를 위한 것입니다. 두 렌더러 모두 그 아래에서 같은 경로로 찾습니다.</td></tr>
         </tbody>
       </table>
     </div>
@@ -146,16 +155,14 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">app</span>() {
     <span class="k">let</span> name = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="ty">String</span>::<span class="f">new</span>()));
-    <span class="k">let</span> typed = name.<span class="f">clone</span>();
-    <span class="f">Column</span>()
-        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg))
-        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Md)
-        .<span class="f">content</span>(|| {
-            <span class="f">TextField</span>()
-                .<span class="f">placeholder</span>(<span class="s">"Your name"</span>)
-                .<span class="f">on_value_change</span>(<span class="k">move</span> |text| typed.<span class="f">set</span>(text));
-            <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
-        });
+    <span class="f">Column!</span>(
+        modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg),
+        space_role = <span class="ty">SpaceRole</span>::Md,
+        {
+            <span class="f">TextField!</span>(<span class="s">""</span>, <span class="k">move</span> |text| name.<span class="f">set</span>(text), placeholder = <span class="s">"Your name"</span>);
+            <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
+        }
+    );
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {

@@ -9,7 +9,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{CompactNavigation, DesignSystem, PropertyKind, Theme, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::Cell;
 
 thread_local! {
@@ -75,9 +75,11 @@ fn fr21_2_3_compact_navigation_writes_its_tag() {
     assert_eq!(u16::from(CompactNavigation::Default), 0);
     assert_eq!(u16::from(CompactNavigation::Sidebar), 1);
     assert_eq!(u16::from(CompactNavigation::None), 2);
+    assert_eq!(u16::from(CompactNavigation::Floating), 3);
 
     assert_eq!(compact_records(CompactNavigation::Sidebar), vec![1]);
     assert_eq!(compact_records(CompactNavigation::None), vec![2]);
+    assert_eq!(compact_records(CompactNavigation::Floating), vec![3]);
     assert_eq!(
         compact_records(CompactNavigation::Default),
         Vec::<i64>::new(),
@@ -85,22 +87,27 @@ fn fr21_2_3_compact_navigation_writes_its_tag() {
     );
 }
 
-/// The value's name is the one the wire knows, and only the two real choices are in the
-/// table the Renderer's enum is generated from: tag 0 is "not sent", as it is for every
-/// other role.
+/// The value's name is the one the wire knows, and only the real choices are in the table
+/// the Renderer's enum is generated from: tag 0 is "not sent", as it is for every other
+/// role. The table is appended to, so `Floating` comes after the two that were there.
 #[test]
-fn fr21_2_3_only_the_two_choices_are_in_the_generated_table() {
+fn fr21_2_3_only_the_real_choices_are_in_the_generated_table() {
     assert_eq!(
         CompactNavigation::try_from(1),
         Ok(CompactNavigation::Sidebar)
     );
     assert_eq!(CompactNavigation::try_from(2), Ok(CompactNavigation::None));
+    assert_eq!(
+        CompactNavigation::try_from(3),
+        Ok(CompactNavigation::Floating)
+    );
     assert_eq!(CompactNavigation::try_from(0), Err(()));
+    assert_eq!(CompactNavigation::try_from(4), Err(()));
     assert_eq!(
         compose_rust::schema::COMPACT_NAVIGATION_SCHEMA
             .iter()
             .map(|variant| (variant.name, variant.tag))
             .collect::<Vec<_>>(),
-        vec![("Sidebar", 1), ("None", 2)],
+        vec![("Sidebar", 1), ("None", 2), ("Floating", 3)],
     );
 }

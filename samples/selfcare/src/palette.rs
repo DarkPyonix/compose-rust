@@ -11,7 +11,7 @@
 //! because the reference's panel is paler than the face drawn on it. They live here rather
 //! than beside the widgets that use them so the sample has one place to change.
 
-use compose_rust::ui::next::{Color, Paint};
+use compose_rust::ui::{Color, Paint};
 
 /// The page. Black, as the check-in and the worry picker both are.
 pub const PAGE: Paint = Paint::Literal(Color::rgb(0x00_0000));

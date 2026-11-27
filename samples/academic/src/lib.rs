@@ -15,7 +15,7 @@ mod school;
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use school::{
     LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, reached, stage,
 };
@@ -41,8 +41,9 @@ const ICON_TAP: f32 = 44.0;
 /// small capitals next to them rather than at a control's size.
 const CHEVRON_SIDE: f32 = 16.0;
 
-/// The picture in the top corner of the subjects page.
+/// The picture in the top corner of the subjects page, and its larger size on the profile.
 const AVATAR_SIDE: f32 = 52.0;
+const PROFILE_AVATAR_SIDE: f32 = 96.0;
 
 /// The coral dots: the one on the destination you are on and the one beside "RECENT".
 const DOT: f32 = 6.0;
@@ -134,6 +135,7 @@ fn capitals(label: &'static str, ink: Paint) {
 /// One subject as a tile: the mark, and the name centred under it.
 fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
     let name = subject.name;
+    let open_tile = Rc::clone(on_open);
     Box!(
         modifier = Modifier
             .fill_max_width()
@@ -141,6 +143,7 @@ fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
             .background(subject.fill)
             .shape_role(ShapeRole::Large)
             .padding_role(SpaceRole::Md),
+        on_click = Some(move || open_tile(name)),
         {
             Column!(
                 modifier = Modifier.fill_max_size(),
@@ -181,12 +184,17 @@ fn skills_page(on_open: &OpenSubject, destination: MutableState<Destination>) {
                 modifier = Modifier.fill_max_width(),
                 arrangement = Arrangement::End,
                 {
-                    Image!(
-                        compose_rust::asset(AssetKind::Svg, AVATAR),
-                        modifier = Modifier
-                            .size(AVATAR_SIDE, AVATAR_SIDE)
-                            .shape_role(ShapeRole::Full)
-                            .clip(true)
+                    Box!(
+                        on_click = Some(move || destination.set(Destination::Profile)),
+                        {
+                            Image!(
+                                compose_rust::asset(AssetKind::Svg, AVATAR),
+                                modifier = Modifier
+                                    .size(AVATAR_SIDE, AVATAR_SIDE)
+                                    .shape_role(ShapeRole::Full)
+                                    .clip(true)
+                            );
+                        }
                     );
                 }
             );
@@ -557,13 +565,86 @@ fn progress_page() {
     );
 }
 
-/// The profile destination, which the reference leaves as a name.
+/// The profile destination: the pupil's picture and a summary of how far through the
+/// course they are, drawn from the sample's own palette.
 fn profile_page() {
-    Box!(
+    let overall = overall_progress();
+    let done = LESSONS.iter().filter(|lesson| lesson.open).count();
+    let stages_reached = STAGES.iter().filter(|&&number| reached(number)).count();
+    let percent = (overall * 100.0).round() as i32;
+
+    Column!(
         modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
-        alignment = Alignment::Center,
+        space_role = SpaceRole::Md,
         {
-            Text!("Profile", type_role = TypeRole::Body, color = palette::TEXT);
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
+                    Image!(
+                        compose_rust::asset(AssetKind::Svg, AVATAR),
+                        modifier = Modifier
+                            .size(PROFILE_AVATAR_SIDE, PROFILE_AVATAR_SIDE)
+                            .shape_role(ShapeRole::Full)
+                            .clip(true)
+                    );
+                    Text!(
+                        "Profile",
+                        type_role = TypeRole::Headline,
+                        font_weight = 600,
+                        color = palette::TEXT
+                    );
+                    Text!(
+                        "Drum school pupil",
+                        type_role = TypeRole::Body,
+                        color = palette::MUTED
+                    );
+                }
+            );
+
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::LOCKED)
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Sm,
+                {
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        alignment = Alignment::CenterStart,
+                        {
+                            Text!(
+                                "Course progress",
+                                type_role = TypeRole::BodyStrong,
+                                color = palette::TEXT,
+                                modifier = Modifier.weight(1.0)
+                            );
+                            Text!(
+                                format!("{percent}%"),
+                                type_role = TypeRole::Label,
+                                color = palette::ACCENT
+                            );
+                        }
+                    );
+                    ProgressIndicator!(
+                        overall,
+                        color = palette::ACCENT,
+                        track_color = palette::PAGE,
+                        modifier = Modifier.fill_max_width()
+                    );
+                    Text!(
+                        format!(
+                            "{done} of {} lessons open \u{00b7} {stages_reached} of {} stages reached",
+                            LESSONS.len(),
+                            STAGES.len()
+                        ),
+                        type_role = TypeRole::Caption,
+                        color = palette::MUTED
+                    );
+                }
+            );
         }
     );
 }
@@ -897,17 +978,39 @@ mod tests {
                 })
         }
 
+        /// The live `Image` node displaying `bytes`.
+        fn image_showing(&self, bytes: &[u8]) -> Option<u32> {
+            let asset_id = self
+                .mutations()
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::RegisterAsset {
+                        asset_id,
+                        bytes: registered,
+                        ..
+                    } if *registered == bytes => Some(*asset_id),
+                    _ => None,
+                })?;
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Asset,
+                        value: PropertyValue::Integer(id),
+                    } if *id as u32 == asset_id => Some(*node_id),
+                    _ => None,
+                })
+        }
+
         /// Presses a node, or the nearest thing around it that answers a press: a label
         /// written inside a pressable row is pressed through the row.
         fn press_node(&mut self, node: u32) -> bool {
             let mut at = Some(node);
             while let Some(candidate) = at {
                 if let Some(handler_id) = self.handler_of(candidate) {
-                    self.send(HostEvent {
-                        node_id: candidate,
-                        handler_id,
-                        payload: EventPayload::Clicked,
-                    });
+                    self.send(HostEvent::new(candidate, handler_id, EventPayload::Clicked));
                     return true;
                 }
                 at = self.parent_of(candidate);
@@ -956,11 +1059,11 @@ mod tests {
                     .collect()
             };
             for (node_id, handler_id) in lists {
-                self.send(HostEvent {
+                self.send(HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::RangeRequested { start: 0, count },
-                });
+                    EventPayload::RangeRequested { start: 0, count },
+                ));
             }
         }
 
@@ -1331,10 +1434,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -1344,7 +1447,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");
@@ -1382,6 +1485,73 @@ mod tests {
             app,
             |_| {},
         );
+    }
+
+    /// Pressing the mark inside a subject tile (not only its text label) opens the lesson
+    /// plan because the outer tile box handles clicks too.
+    #[test]
+    fn subject_tile_is_clickable_across_the_whole_tile() {
+        let mut screen = Screen::new();
+        let mark = screen
+            .image_showing(SUBJECTS[0].mark)
+            .expect("the first subject mark is not on the skills page");
+        assert!(
+            screen.press_node(mark),
+            "pressing a subject tile outside its text label did not open the lessons"
+        );
+        let recent = LESSONS
+            .iter()
+            .find(|lesson| lesson.recent)
+            .expect("no recent lesson");
+        let showing = screen.latest_texts();
+        assert!(
+            showing.iter().any(|text| text == recent.title),
+            "pressing the tile mark did not reach the lessons: {showing:?}"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Tapping the avatar on the skills page opens the profile, which shows the avatar
+    /// and the pupil's course progress summary.
+    #[test]
+    fn profile_opens_from_avatar_and_displays_course_progress() {
+        let mut screen = Screen::new();
+        let avatar = screen
+            .image_showing(AVATAR)
+            .expect("the skills page has no avatar");
+        assert!(
+            screen.press_node(avatar),
+            "tapping the avatar on the skills page did not open Profile"
+        );
+
+        let texts = screen.latest_texts();
+        assert!(
+            texts.iter().any(|text| text == "Profile"),
+            "the profile heading did not appear: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|text| text == "Course progress"),
+            "the course progress summary did not appear: {texts:?}"
+        );
+
+        let done = LESSONS.iter().filter(|lesson| lesson.open).count();
+        let lessons_line = format!("{done} of {} lessons open", LESSONS.len());
+        assert!(
+            texts.iter().any(|text| text.contains(&lessons_line)),
+            "the open lesson count did not appear on Profile: {texts:?}"
+        );
+
+        let percent = format!("{}%", (overall_progress() * 100.0).round() as i32);
+        assert!(
+            texts.iter().any(|text| text == &percent),
+            "the overall progress percentage did not appear on Profile: {texts:?}"
+        );
+
+        assert!(
+            screen.image_showing(AVATAR).is_some(),
+            "the profile page does not display the pupil avatar"
+        );
+        compose_rust::window::reset_window_size();
     }
 
     /// The lesson plan, which is where an open lesson and a locked one sit next to each

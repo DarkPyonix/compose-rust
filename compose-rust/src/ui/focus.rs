@@ -17,7 +17,7 @@ pub(crate) struct FocusTarget {
 
 /// A way to put keyboard focus on one widget. Compose's `FocusRequester`.
 ///
-/// Make one with [`use_focus_handle`], give it to a widget with `.focus_handle(&handle)`,
+/// Make one with [`use_focus_handle`], give it to a widget with `focus_handle = &handle`,
 /// and call [`FocusHandle::request`] from a handler or an effect. Cloning is cheap: every
 /// clone is the same handle. The handle follows its widget's node across re-renders, and
 /// when the widget is replaced by a new node, it follows the new one.
@@ -34,24 +34,23 @@ pub(crate) struct FocusTarget {
 ///     let open = remember(|| mutable_state_of(false));
 ///     let opener = use_focus_handle();
 ///     let drawer = use_focus_handle();
-///     Column().content(|| {
-///         Button("Menu")
-///             .focus_handle(&opener)
-///             .on_click(move || open.set(true));
+///     Column!({
+///         Button!("Menu", move || open.set(true), focus_handle = &opener);
 ///         if open.get() {
 ///             let back = opener.clone();
-///             Column()
-///                 .focus_handle(&drawer)
-///                 .on_key_down(move |key| {
+///             Column!(
+///                 focus_handle = &drawer,
+///                 on_key_down = Some(move |key: KeyEvent| {
 ///                     if key.text() == "Escape" {
 ///                         key.consume();
 ///                         open.set(false);
 ///                         back.request();
 ///                     }
-///                 })
-///                 .content(|| {
-///                     Text("Drawer");
-///                 });
+///                 }),
+///                 {
+///                     Text!("Drawer");
+///                 }
+///             );
 ///         }
 ///     });
 ///     // The drawer's node exists once the composition that opened it is applied, so
@@ -96,6 +95,11 @@ impl FocusHandle {
     /// counts until another widget takes the handle.
     pub fn is_bound(&self) -> bool {
         self.target.node.get() != 0
+    }
+
+    /// The node the handle is bound to now, 0 for none.
+    pub(crate) fn bound_node(&self) -> u32 {
+        self.target.node.get()
     }
 
     pub(crate) fn target(&self) -> Rc<FocusTarget> {

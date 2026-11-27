@@ -14,7 +14,7 @@
 //! so the message growing at the bottom does not disturb the ones above it.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 mod assistant;
@@ -412,9 +412,12 @@ pub fn app() {
             TopAppBar!(modifier = Modifier.fill_max_width(), {
                 Spacer!(modifier = Modifier.weight(1.0));
                 let start = Rc::clone(&start_conversation);
+                // Icon-only actions carry a name: it is what assistive technology reads,
+                // and what the bar's overflow menu calls them when the bar is too narrow.
                 Button!(
                     "",
                     move || start(),
+                    accessible_name = "New conversation",
                     icon = IconRole::Compose,
                     variant = ButtonVariant::Text,
                     color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -427,6 +430,7 @@ pub fn app() {
                         Button!(
                             "",
                             move || open.set(true),
+                            accessible_name = "More",
                             icon = IconRole::More,
                             variant = ButtonVariant::Text,
                             color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -434,26 +438,19 @@ pub fn app() {
                     }),
                     {
                         let (more, settings_open) = (more_open, settings_open);
-                        Button!(
-                            "Assistant settings",
-                            move || {
-                                more.set(false);
-                                settings_open.set(true);
-                            },
-                            variant = ButtonVariant::Text,
-                            modifier = Modifier.fill_max_width()
-                        );
+                        MenuItem!("Assistant settings", move || {
+                            more.set(false);
+                            settings_open.set(true);
+                        });
                         let (more, delete) = (more_open, Rc::clone(&delete_current));
-                        Button!(
+                        MenuItem!(
                             "Delete conversation",
                             move || {
                                 more.set(false);
                                 delete();
                             },
-                            variant = ButtonVariant::Text,
-                            color = Paint::Role(ColorRole::Error),
-                            modifier = Modifier.fill_max_width(),
-                            enabled = conversation_count > 1
+                            enabled = conversation_count > 1,
+                            color = Paint::Role(ColorRole::Error)
                         );
                     }
                 );
@@ -765,6 +762,7 @@ fn composer_row(
                     Button!(
                         "",
                         move || open.set(true),
+                        accessible_name = "More",
                         icon = IconRole::Add,
                         variant = ButtonVariant::Text,
                         color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -772,27 +770,23 @@ fn composer_row(
                 }),
                 {
                     let (more, search) = (*more_open, *search_open);
-                    Button!(
+                    MenuItem!(
                         "Search conversations",
                         move || {
                             more.set(false);
                             search.set(true);
                         },
-                        icon = IconRole::Search,
-                        variant = ButtonVariant::Text,
-                        modifier = Modifier.fill_max_width()
+                        icon = IconRole::Search
                     );
-                    Divider!();
+                    Separator!(None);
                     let (more, settings_open) = (*more_open, *settings_open);
-                    Button!(
+                    MenuItem!(
                         "Settings",
                         move || {
                             more.set(false);
                             settings_open.set(true);
                         },
-                        icon = IconRole::Settings,
-                        variant = ButtonVariant::Text,
-                        modifier = Modifier.fill_max_width()
+                        icon = IconRole::Settings
                     );
                 }
             );
@@ -821,15 +815,14 @@ fn composer_row(
                     for length in Length::ALL {
                         let (close, settings) = (*length_open, *settings);
                         key(length.label(), || {
-                            Button!(
+                            MenuItem!(
                                 length.label(),
                                 move || {
                                     close.set(false);
                                     let current = settings.get_untracked();
                                     settings.set(Settings { length, ..current });
                                 },
-                                variant = ButtonVariant::Text,
-                                modifier = Modifier.fill_max_width()
+                                selected = length == current_settings.length
                             );
                         });
                     }
@@ -1335,11 +1328,7 @@ mod tests {
 
         fn encode(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) {
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                },
+                &HostEvent::new(node_id, handler_id, payload),
                 &mut self.event,
             )
             .expect("the event did not encode");
@@ -1592,10 +1581,10 @@ mod tests {
         compose_rust::window::reset_window_size();
         let mut host = ComposeHost::new(app);
         host.rebuild().expect("the first frame failed to encode");
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
+        let event = HostEvent::new(
+            0,
+            0,
+            EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
@@ -1605,7 +1594,7 @@ mod tests {
                 safe_area_trailing: 0.0,
                 safe_area_bottom: 0.0,
             },
-        };
+        );
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).expect("the resize did not encode");
         let (batch, _) = host.dispatch_event(&bytes).expect("the resize failed");
@@ -1924,10 +1913,10 @@ mod tests {
                 .rebuild()
                 .expect("the first frame failed to encode")
                 .to_vec();
-            let event = HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            let event = HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 900.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1937,7 +1926,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            };
+            );
             let mut bytes = Vec::new();
             encode_event(&event, &mut bytes).expect("the resize did not encode");
             let resized = host
@@ -2342,11 +2331,7 @@ mod tests {
         let mut event = Vec::new();
         let mut press = |host: &mut ComposeHost, tab: usize| {
             encode_event(
-                &HostEvent {
-                    node_id: children[tab],
-                    handler_id: handlers[tab],
-                    payload: EventPayload::Clicked,
-                },
+                &HostEvent::new(children[tab], handlers[tab], EventPayload::Clicked),
                 &mut event,
             )
             .expect("the press did not encode");

@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use support::{Tree, kinds};

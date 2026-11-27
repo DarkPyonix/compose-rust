@@ -14,7 +14,7 @@
 //! Each value was read off the reference picture. A few come as a `Color` as well, because
 //! a gradient's stops are colours rather than paints.
 
-use compose_rust::ui::next::{Color, Paint};
+use compose_rust::ui::{Color, Paint};
 
 /// The sheet, and the ink on anything filled black or dark grey.
 pub const PAGE: Paint = Paint::Literal(PAGE_COLOR);

@@ -90,10 +90,19 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
 
     <p>
       <code>cargo build</code> works out which renderer the target needs. It downloads the release
-      artifact for the crate's exact version, checks it against the published <code>.sha256</code>,
+      artifact for the crate's version, checks it against the published <code>.sha256</code>,
       unpacks it into a cache outside <code>target/</code>, and links it. There is no environment
-      variable to set and no script to run. The cache is keyed by version and target, so it
-      survives <code>cargo clean</code> and is shared between projects.
+      variable to set and no script to run.
+    </p>
+    <p>
+      What has to match is the schema the crate was generated from, not the version number. A git
+      revision after a release keeps that release's version while its schema moves on. When the
+      release's renderer was built from another schema, the build fetches the renderer
+      <code>develop</code> published for the crate's schema from the <code>renderer-dev</code>
+      release instead. When neither matches, the build stops and names the crate's schema hash,
+      each renderer's hash and both addresses it tried. The cache is keyed by schema hash and
+      target, so it survives <code>cargo clean</code>, is shared between projects, and is shared by
+      every crate version with the same schema.
     </p>
     <p>
       On macOS (arm64) and Linux (x64 and arm64) the renderer is a Kotlin/Native static archive, so
@@ -111,6 +120,7 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
         <tbody>
           <tr><td><code>COMPOSE_RUST_RENDERER_DIR</code></td><td>Use the renderer in this directory. It is checked first, and nothing is downloaded when it is set. A renderer you built yourself, a vendored copy and an offline build all work through it. The path must be absolute, because a build script runs in its package's directory.</td></tr>
           <tr><td><code>COMPOSE_RUST_CACHE_DIR</code></td><td>Moves the cache off <code>$HOME/.cache/compose-rust</code> (<code>%LOCALAPPDATA%\compose-rust</code> on Windows).</td></tr>
+          <tr><td><code>COMPOSE_RUST_RENDERER_URL</code></td><td>Downloads from this address instead of <code>https://github.com/DarkPyonix/compose-rust/releases</code>, for a mirror or a CI machine without access to GitHub. Both renderers are looked up under it with the same paths.</td></tr>
         </tbody>
       </table>
     </div>
@@ -148,16 +158,14 @@ compose-rust = <span class="s">"0.0.12"</span></code></pre>
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">app</span>() {
     <span class="k">let</span> name = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="ty">String</span>::<span class="f">new</span>()));
-    <span class="k">let</span> typed = name.<span class="f">clone</span>();
-    <span class="f">Column</span>()
-        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg))
-        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Md)
-        .<span class="f">content</span>(|| {
-            <span class="f">TextField</span>()
-                .<span class="f">placeholder</span>(<span class="s">"Your name"</span>)
-                .<span class="f">on_value_change</span>(<span class="k">move</span> |text| typed.<span class="f">set</span>(text));
-            <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
-        });
+    <span class="f">Column!</span>(
+        modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_size</span>().<span class="f">padding_role</span>(<span class="ty">SpaceRole</span>::Lg),
+        space_role = <span class="ty">SpaceRole</span>::Md,
+        {
+            <span class="f">TextField!</span>(<span class="s">""</span>, <span class="k">move</span> |text| name.<span class="f">set</span>(text), placeholder = <span class="s">"Your name"</span>);
+            <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Hello, {}"</span>, name.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
+        }
+    );
 }
 
 <span class="k">fn</span> <span class="f">main</span>() {

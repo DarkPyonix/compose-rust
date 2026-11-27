@@ -8,7 +8,7 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, ZoomHandle, zoom};
 use support::Tree;
 
@@ -30,11 +30,7 @@ fn start() -> (ComposeHost, Tree) {
 }
 
 fn zoom_changed(k: f32, os: f32, level: i32) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ZoomChanged { k, os, level },
-    }
+    HostEvent::new(0, 0, EventPayload::ZoomChanged { k, os, level })
 }
 
 /// The report the Renderer makes is readable by the application, and a window record that
@@ -71,11 +67,7 @@ fn fr43_app_zoom_steps_and_persists() {
     let (mut host, tree) = start();
     let (node_id, handler_id) = tree.find("Button", Some("in twice"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .unwrap();
     let levels: Vec<_> = decode_batch(batch)
         .unwrap()

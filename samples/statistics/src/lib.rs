@@ -17,7 +17,7 @@ mod spending;
 use charts::Bar;
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use spending::{
     ALL_TIME_CENTS, MOBILE_SHARE, RETURNING_SHARE, SOURCES, Source, TODAY, WEEK, YESTERDAY, cost,
     dearest, peak, whole_cost,
@@ -279,7 +279,7 @@ fn day_total(day: &'static str, count: u32, ink: Paint) {
 /// The overview: the dial, the costs panel with a second reading beside it, and the days
 /// at the foot. Nothing else: the reference keeps the services for the costs page.
 #[Composable]
-fn today_page() {
+fn today_page(page: MutableState<Page>) {
     Column!(
         modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
         space_role = SpaceRole::Md,
@@ -291,7 +291,11 @@ fn today_page() {
                 space_role = SpaceRole::Sm,
                 alignment = Alignment::TopStart,
                 {
-                    Box!(modifier = Modifier.weight(2.0), content = costs_panel);
+                    Box!(
+                        modifier = Modifier.weight(2.0),
+                        on_click = Some(move || page.set(Page::Costs)),
+                        content = costs_panel
+                    );
                     Box!(modifier = Modifier.weight(1.0), content = returning_column);
                 }
             );
@@ -403,14 +407,9 @@ fn sources_strip() {
 #[Composable]
 fn costs_page() {
     Column!(
-        modifier = Modifier
-            .fill_max_width()
-            .fill_max_height()
-            .padding_role(SpaceRole::Md),
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
         space_role = SpaceRole::Md,
         {
-            Spacer!(modifier = Modifier.weight(1.0));
-
             Box!(
                 modifier = Modifier.fill_max_width(),
                 alignment = Alignment::Center,
@@ -544,7 +543,7 @@ pub fn app() {
         }),
         {
             Box!(
-                modifier = Modifier.fill_max_width().weight(1.0),
+                modifier = Modifier.fill_max_size(),
                 alignment = Alignment::TopCenter,
                 {
                     Column!(
@@ -556,10 +555,15 @@ pub fn app() {
                             Page::Today => {
                                 ScrollColumn!(
                                     modifier = Modifier.fill_max_width().fill_max_height(),
-                                    content = today_page
+                                    content = || today_page(page)
                                 );
                             }
-                            Page::Costs => costs_page(),
+                            Page::Costs => {
+                                ScrollColumn!(
+                                    modifier = Modifier.fill_max_width().fill_max_height(),
+                                    content = costs_page
+                                );
+                            }
                         }
                     );
                 }
@@ -676,10 +680,10 @@ mod tests {
                 frames: vec![first],
             };
             let height_dp = 780.0;
-            screen.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            screen.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -689,7 +693,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
             screen
         }
 
@@ -740,11 +744,7 @@ mod tests {
                 }
                 found.expect("nothing in the bar can be pressed")
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         }
     }
 
@@ -1197,6 +1197,54 @@ mod tests {
         let words = texts(&screen.live());
         assert!(words.iter().any(|text| text == "Popular\nCosts"));
         assert!(!words.iter().any(|text| text == "Product\nStatistics"));
+    }
+
+    /// Clicking the costs panel on the overview opens the costs page.
+    #[test]
+    fn clicking_costs_panel_opens_costs_page() {
+        let mut screen = Screen::at(420.0);
+        let (node_id, handler_id) = {
+            let live = screen.live();
+            let tree = Tree::of(&live);
+            let title = live
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                    } if *text == Page::Costs.title() => Some(*node_id),
+                    _ => None,
+                })
+                .expect("the overview has no costs panel");
+            let mut current = Some(title);
+            let mut clickable = None;
+            while let Some(node) = current {
+                if let Some(&handler) = tree.integers.get(&(node, PropertyKind::OnClick as u16)) {
+                    clickable = Some((node, handler as u64));
+                    break;
+                }
+                current = tree.parents.get(&node).map(|(parent, _)| *parent);
+            }
+            clickable.expect("the costs panel is not clickable")
+        };
+        screen.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
+        let live = screen.live();
+        let frame = created(&live, WidgetKind::Scaffold);
+        assert_eq!(
+            background_of(&live, frame[0]),
+            Some(palette::SAGE),
+            "clicking the costs panel did not switch to the costs page"
+        );
+        let words = texts(&live);
+        assert!(
+            words.iter().any(|text| text == Page::Costs.title()),
+            "clicking the costs panel did not show the costs page title"
+        );
+        assert!(
+            !words.iter().any(|text| text == Page::Today.title()),
+            "the overview title is still shown after clicking the costs panel"
+        );
     }
 
     /// The overview, in the design system it ships, in both schemes, at all three widths.

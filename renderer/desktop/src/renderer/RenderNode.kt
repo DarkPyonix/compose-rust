@@ -20,6 +20,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.LocalAppBackdrop
+import dev.darkpyonix.composerust.foundation.LocalFloatingBarReserve
+import androidx.compose.foundation.layout.padding
+import dev.darkpyonix.composerust.foundation.recordsBackdrop
+import dev.darkpyonix.composerust.foundation.rememberBackdropSource
+import dev.darkpyonix.composerust.foundation.hostCursor
 import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
@@ -48,6 +54,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -64,7 +71,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.boundsInWindow
@@ -99,7 +105,11 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.ui.accessibility
+import dev.darkpyonix.composerust.ui.activeOptionName
+import dev.darkpyonix.composerust.ui.declaredSemanticsRole
+import dev.darkpyonix.composerust.foundation.behindModal
 import dev.darkpyonix.composerust.ui.offersFocusAction
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
@@ -169,6 +179,7 @@ import dev.darkpyonix.composerust.ui.motionFinishedListener
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
 import dev.darkpyonix.composerust.ui.verticalArrangement
+import dev.darkpyonix.composerust.ui.ChildWeight
 import dev.darkpyonix.composerust.ui.weightOf
 
 /**
@@ -208,6 +219,13 @@ private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
 /**
+ * The widgets whose content is drawn in a window of its own over the page. One that carries
+ * the modal bit is modal through that window and the overlay stack, never as a node of the
+ * page.
+ */
+private val OVERLAY_KINDS = setOf(WidgetKind.Dialog, WidgetKind.Sheet, WidgetKind.Popover, WidgetKind.Menu)
+
+/**
  * Interprets one node of the table into real Compose widgets.
  *
  * Only the node's own state is read here, so a `SetProp` on a sibling cannot invalidate this
@@ -229,9 +247,20 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // Outermost of all: a node beside the path down to the modal on top leaves the
+    // accessibility tree with everything under it. A node with the modal bit holds Tab and
+    // Shift+Tab inside itself. An overlay with the bit is modal through its own window
+    // instead, so it is not recorded here.
+    val modalStack = dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack.current
+    val behind = modalStack.isBesideInTreeModal(nodeId, node.parentId)
+    val holdsFocus = if (node.widget in OVERLAY_KINDS) {
+        Modifier
+    } else {
+        dev.darkpyonix.composerust.foundation.inTreeModal(node, table)
+    }
     // Outside everything else the node has, so the larger area is centred on the box the
     // node is drawn in and its neighbours are laid out against that box as before.
-    val profiled = measured.sticky(node).minTouchTarget(node, dispatcher)
+    val profiled = measured.behindModal(behind).then(holdsFocus).sticky(node).minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -295,7 +324,23 @@ fun RenderNode(
     // focus target that reports it is focused and whose keys pass the node's handlers.
     val menuKeyboard = LocalMenuKeyboard.current
     val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
-        keyed.then(menuKeyboard.entry(nodeId))
+        val highlight = if (menuKeyboard.isKeyboardFocused(nodeId)) {
+            val fill = theme.color(ColorRole.SurfaceVariant).copy(alpha = 0.65f)
+            val ring = theme.color(ColorRole.Primary).copy(alpha = 0.85f)
+            Modifier.drawWithContent {
+                val radius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                drawRoundRect(color = fill, cornerRadius = radius)
+                drawContent()
+                drawRoundRect(
+                    color = ring,
+                    cornerRadius = radius,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+                )
+            }
+        } else {
+            Modifier
+        }
+        keyed.then(menuKeyboard.entry(nodeId)).then(highlight)
     } else {
         keyed
     }
@@ -343,6 +388,7 @@ fun RenderNode(
             ),
         )
         .testTag(nodeTestTag(nodeId))
+        .hostCursor(node)
         .accessibility(
             node,
             dispatcher,
@@ -351,6 +397,11 @@ fun RenderNode(
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
             onFocusAction = { table.requestNodeFocus(nodeId) },
+            activeOption = if (node.declaredSemanticsRole() == SemanticsRole.ComboBox) {
+                table.activeOptionName(node)
+            } else {
+                null
+            },
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
@@ -497,15 +548,21 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 val snap = rememberItemStartSnap(node, scrollState, vertical = true)
+                // Under a bar that floats over the page the content ends lower by what the
+                // bar covers, so its last line can be scrolled clear of the bar. The room
+                // is used up here: a scroll container inside this one gets none.
+                val barReserve = LocalFloatingBarReserve.current
                 Column(
                     modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
-                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling)
+                        .then(if (barReserve > 0.dp) Modifier.padding(bottom = barReserve) else Modifier),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) {
                     CompositionLocalProvider(
                         LocalScrollState provides scrollState,
                         LocalScrollIsHorizontal provides false,
+                        LocalFloatingBarReserve provides 0.dp,
                     ) {
                         Children(node, table, dispatcher, snap)
                     }
@@ -1188,7 +1245,7 @@ private fun WeightedStack(
     dispatcher: EventDispatcher,
     modifier: Modifier,
     horizontal: Boolean,
-    weights: List<Float?>,
+    weights: List<ChildWeight?>,
     intrinsicSafe: List<Boolean>,
     horizontalArrangement: Arrangement.Horizontal,
     verticalArrangement: Arrangement.Vertical,
@@ -1205,14 +1262,14 @@ private fun WeightedStack(
                 node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
             }
         },
-        modifier = modifier.clipToBounds(),
+        modifier = modifier,
         measurePolicy = policy,
     )
 }
 
 private class WeightedStackPolicy(
     private val horizontal: Boolean,
-    private val weights: List<Float?>,
+    private val weights: List<ChildWeight?>,
     private val intrinsicSafe: List<Boolean>,
     private val horizontalArrangement: Arrangement.Horizontal,
     private val verticalArrangement: Arrangement.Vertical,
@@ -1246,17 +1303,22 @@ private class WeightedStackPolicy(
         }
         val target = if (mainMax == Constraints.Infinity) mainMin else mainMax
         val remaining = (target - fixed - gaps).coerceAtLeast(0)
-        val totalWeight = weights.filterNotNull().sum()
+        val totalWeight = weights.mapNotNull { it?.value }.sum()
         var distributed = 0
         var remainingWeight = totalWeight
         measurables.forEachIndexed { index, measurable ->
             val weight = weights[index] ?: return@forEachIndexed
-            val share = if (remainingWeight == weight) remaining - distributed else (remaining * weight / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
+            val share = if (remainingWeight == weight.value) remaining - distributed else (remaining * weight.value / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
             distributed += share
-            remainingWeight -= weight
-            val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
-            val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
-            places[index] = measurable.measure(childConstraints(size, size))
+            remainingWeight -= weight.value
+            places[index] = if (weight.fill) {
+                val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
+                val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(size, size))
+            } else {
+                val max = if (mainMax == Constraints.Infinity && mainMin == 0) Constraints.Infinity else share.coerceAtMost(Constraints.Infinity - 1)
+                measurable.measure(childConstraints(0, max))
+            }
         }
         val children = places.map { it!! }
         val sizes = children.map { if (horizontal) it.width else it.height }.toIntArray()
@@ -1284,14 +1346,14 @@ private class WeightedStackPolicy(
                 if (min) child.minIntrinsicHeight(cross) else child.maxIntrinsicHeight(cross)
             }
         } }
-        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!! } ?: 0f
-        val weighted = (unit * weights.filterNotNull().sum()).roundToInt()
+        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!!.value } ?: 0f
+        val weighted = (unit * weights.mapNotNull { it?.value }.sum()).roundToInt()
         return (sizes.indices.filter { weights[it] == null }.sumOf { sizes[it].toLong() } + weighted + gap)
             .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
-        val total = weights.filterNotNull().sum()
+        val total = weights.mapNotNull { it?.value }.sum()
         val remaining = if (main == Constraints.Infinity || total <= 0f) {
             Constraints.Infinity
         } else {
@@ -1308,9 +1370,13 @@ private class WeightedStackPolicy(
             val size = if (weight == null || remaining == Constraints.Infinity) {
                 Constraints.Infinity
             } else {
-                val available = (remaining * weight / total).roundToInt()
-                val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
-                maxOf(available, minimum)
+                val available = (remaining * weight.value / total).roundToInt()
+                if (weight.fill) {
+                    val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+                    maxOf(available, minimum)
+                } else {
+                    available
+                }
             }
             intrinsic(index) { if (horizontal) {
                 if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
@@ -1380,7 +1446,7 @@ private fun ColumnScope.WeightedChild(
     // Its own composable, so reading the child's modifier list subscribes this scope alone
     // and a `SetModifier` on one child cannot invalidate its siblings.
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1402,7 +1468,7 @@ private fun RowScope.WeightedChild(
     snap: ItemStartSnap?,
 ) {
     val weight = table.node(childId)?.modifiers?.weightOf()
-    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight.value, fill = weight.fill)
     RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
@@ -1415,13 +1481,30 @@ private fun RowScope.WeightedChild(
  */
 @Composable
 private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId ->
+    // A child that asked for a `Backdrop` blurs the children drawn before it, so those are
+    // recorded for it. A box without such a child, or with it first, records nothing.
+    val lastBackdrop = node.children.indexOfLast { childId ->
+        table.node(childId)?.modifiers?.any { it is ProtocolModifier.Backdrop } == true
+    }
+    val behind = if (lastBackdrop > 0) rememberBackdropSource() else null
+    node.children.forEachIndexed { index, childId ->
         key(childId) {
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
-                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
+                val modifiers = table.node(childId)?.modifiers
+                val matchesParent = modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                val placed = if (matchesParent) Modifier.matchParentSize() else Modifier
+                when {
+                    behind == null -> RenderNode(childId, table, dispatcher, placed)
+                    modifiers?.any { it is ProtocolModifier.Backdrop } == true ->
+                        CompositionLocalProvider(LocalAppBackdrop provides behind) {
+                            RenderNode(childId, table, dispatcher, placed)
+                        }
+                    index < lastBackdrop ->
+                        RenderNode(childId, table, dispatcher, placed.recordsBackdrop(behind, index))
+                    else -> RenderNode(childId, table, dispatcher, placed)
+                }
             }
         }
     }
@@ -1518,7 +1601,9 @@ private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Mo
         !enabled -> null
         node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
             {
-                val checked = node.flag(PropertyKind.Checked, default = false)
+                // A press on a mixed box asks for checked, as the box itself does.
+                val checked = node.flag(PropertyKind.Checked, default = false) &&
+                    !node.flag(PropertyKind.Indeterminate, default = false)
                 dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
             }
         }

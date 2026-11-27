@@ -33,6 +33,10 @@ else
     row resize_stale_ratio "FAIL $ratio of the frames were drawn at a size other than the window's"
 fi
 row system_theme "$(sed -nE 's/.*parity system_theme ([a-z]+).*/\1/p' "$err" | tail -1)"
+row shortcuts "$(value shortcuts || true)"
+row clipboard "$(value clipboard || true)"
+row min_size "$(value min_size || true)"
+row icon "$(value icon || true)"
 
 }
 

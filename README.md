@@ -42,7 +42,7 @@ compose-rust is four things put together:
 What the 0.0.2 crate contains:
 
 - **The authoring API.** `#[Composable]`, `remember`, the states and effects, the `Recomposer`,
-  `launch` and one function per widget
+  `launch`, and one function and one call macro per widget
   ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   It is new in 0.0.2, with animation: `Modifier.graphics_layer`, `Modifier.alpha`, and
   `animate_float_as_state`, `animate_color_as_state` and `animate_offset_as_state`, whose
@@ -79,10 +79,9 @@ use compose_rust::ui::*;
 #[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
-    Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
-        Text(format!("Count: {}", count.get())).type_role(TypeRole::Title);
-        let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+    Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
+        Text!(format!("Count: {}", count.get()), type_role = TypeRole::Title);
+        Button!("Increment", move || count.update(|count| *count += 1));
     });
 }
 
@@ -91,8 +90,10 @@ fn main() {
 }
 ```
 
-A widget is a statement: `Text("Hello")` describes a widget, its methods set what Compose takes
-as named arguments, and a container's children are the closure given to `content`.
+A widget is a statement: `Text!("Hello")` composes a text where the call stands. Every widget is
+a function and a call macro of the same name. The macro takes what the widget cannot do without
+and its handler by position, what Compose takes as named arguments as `name = value`, and a
+container's children as a trailing `{ ... }` block.
 `#[Composable]` inserts the groups, so you never write them by hand, and they close correctly
 through branches, early `return`, `?` and unwinding. Names follow Compose. The widget vocabulary
 is the one in the schema; nothing is defined twice. The
@@ -217,11 +218,29 @@ default, and `org.thisisthepy.compose.designsystem` for the contract both layers
 cargo add compose-rust@0.0.12
 ```
 
+The programs in this README are written for the version after 0.0.12, in which every widget is
+a function and a call macro (`Column!(..)`). 0.0.12 does not build them as they are. Until that
+version ships, take the crate from the `develop` branch:
+
+```toml
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "develop" }
+```
+
 `cargo build` works out which renderer the target needs, downloads the release artifact for the
-crate's exact version, checks it against the published `.sha256`, unpacks it into a cache
-outside `target/`, and links it. There is no environment variable to set and no script to run.
-The cache is keyed by version and target, so it survives `cargo clean` and is shared between
-projects.
+crate's version, checks it against the published `.sha256`, unpacks it into a cache outside
+`target/`, and links it. There is no environment variable to set and no script to run.
+
+What has to match is the schema the crate was generated from, not the version number. Every
+renderer artifact says which schema it was built from, and the crate knows its own. A git
+revision after a release keeps that release's version while its schema moves on, so when the
+release's renderer was built from another schema, the build fetches the renderer `develop`
+published for the crate's schema instead, from the `renderer-dev` release. When neither
+matches, the build stops and names the crate's schema hash, each renderer's hash and both
+addresses it tried.
+
+The cache is keyed by schema hash and target, so it survives `cargo clean`, is shared between
+projects, and is shared by every crate version with the same schema. Two revisions of one
+version with different schemas never share an entry.
 
 Where the artifact is the static archive (macOS and Linux from 0.0.2), what `cargo
 build` produces is **one executable**: the renderer, Compose, Skia and ICU are inside it, nothing
@@ -235,6 +254,7 @@ the Windows Kotlin/Native renderer is already one executable.
 |---|---|
 | `COMPOSE_RUST_RENDERER_DIR` | Use the renderer in this directory: an unpacked artifact, or the directory a renderer build wrote. It may hold the static archive or a shared library, and whichever it holds is linked. Checked first, and nothing is downloaded when it is set, so a renderer you built yourself, a vendored copy or an offline build all work through it |
 | `COMPOSE_RUST_CACHE_DIR` | Move the cache off `$HOME/.cache/compose-rust` (`%LOCALAPPDATA%\compose-rust` on Windows) |
+| `COMPOSE_RUST_RENDERER_URL` | Download from this address instead of `https://github.com/DarkPyonix/compose-rust/releases`, for a mirror or a CI machine without access to GitHub. Both renderers are looked up under it with the same paths: `download/v<version>/...` and `download/renderer-dev/...` |
 
 `default-features = false` builds with no renderer at all, for a headless or documentation
 build. A binary built that way says what is missing and exits non-zero rather than opening no

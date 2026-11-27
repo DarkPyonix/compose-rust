@@ -1,11 +1,12 @@
-//! The slot table path's runs of every scenario: the samples ported to composables, through
-//! the composable Host, at this checkout.
+//! The slot table path's runs of every scenario: the sample screens the scenarios were
+//! frozen against, written in today's call form (`../screens`), through the composable Host,
+//! at this checkout.
 
 use compose_rust::ComposeHost as Host;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, WindowHeightClass, WindowSizeClass};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{RendererApi, install_renderer_api};
 use fr39_scenarios::{App, Batch, Event, Path, Payload, Record, SLOT_SWEEP, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -34,7 +35,7 @@ fn sweep() {
                 Text!(format!("{}-{slot}", count.get()));
             });
         }
-        let more = count.clone();
+        let more = count;
         Button!("Increment", move || more.update(|count| *count += 1));
     });
 }
@@ -46,10 +47,10 @@ fn root(app: App) -> fn() {
             SLOTS.store(slots, Ordering::Relaxed);
             sweep
         }
-        App::Calculator => sample_calculator::app,
-        App::Todo => sample_todo::app,
-        App::Chat => sample_chat::app,
-        App::Minimal => sample_minimal::app,
+        App::Calculator => fr39_screen_calculator::app,
+        App::Todo => fr39_screen_todo::app,
+        App::Chat => fr39_screen_chat::app,
+        App::Minimal => fr39_screen_minimal::app,
     }
 }
 
@@ -95,11 +96,7 @@ impl Path for ComposePath {
                 safe_area_bottom: 0.0,
             },
         };
-        let event = HostEvent {
-            node_id: event.node,
-            handler_id: event.handler,
-            payload,
-        };
+        let event = HostEvent::new(event.node, event.handler, payload);
         let host = self.host();
         let started = Instant::now();
         let (bytes, _) = host.dispatch(event).expect("the event is accepted");
@@ -195,9 +192,8 @@ fn convert(bytes: &[u8]) -> Batch {
 }
 
 fn main() {
-    // The todo sample keeps its list in the application's storage only once its launch
-    // turns that on, which nothing here does, so every run starts from an empty list and
-    // writes nothing.
+    // The todo screen keeps its list in memory and starts it empty, so every run starts
+    // from an empty list and writes nothing, as the Dioxus path does here.
     let _ = install_renderer_api(RendererApi {
         run,
         request_frame,
@@ -207,4 +203,134 @@ fn main() {
     let mut apps: Vec<App> = SLOT_SWEEP.iter().map(|slots| App::Sweep(*slots)).collect();
     apps.extend([App::Calculator, App::Todo, App::Chat, App::Minimal]);
     fr39_scenarios::main_for(&mut path, "compose", &apps);
+}
+
+#[cfg(test)]
+mod tests {
+    //! The screens the candidate draws answer every step of the frozen scenarios that use
+    //! them. Each test runs its scenario once, on the composable Host with the mock
+    //! renderer, through the same model of the Renderer's node table the measurement uses:
+    //! a step whose control is not on screen when the step comes fails the run, with the
+    //! step it failed at. Whether the trees equal the Dioxus path's is `parity.sh`'s
+    //! question, which needs the pinned baseline built beside this.
+
+    use super::*;
+    use fr39_scenarios::{ScenarioRun, scenarios};
+    use std::sync::Mutex;
+
+    /// The frame flag and the installed renderer table are process-wide, so the scenarios
+    /// run one at a time even when the test harness runs the tests on several threads.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Runs the scenario called `name` once, start to finish, and returns what it recorded.
+    fn run_scenario(name: &str) -> ScenarioRun {
+        let _turn = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = install_renderer_api(RendererApi {
+            run,
+            request_frame,
+            measure: compose_rust::measure::fake_measure,
+        });
+        let scenario = scenarios()
+            .into_iter()
+            .find(|scenario| scenario.name == name)
+            .unwrap_or_else(|| panic!("the scenarios have none called {name}"));
+        let mut path = ComposePath { host: None };
+        let recorded = fr39_scenarios::run(&mut path, "compose", &scenario, 1, 0)
+            .unwrap_or_else(|error| panic!("{name} stopped on the candidate: {error}"));
+        assert_eq!(
+            recorded.step_trees.len(),
+            scenario.steps.len(),
+            "{name} recorded a tree for some of its steps only"
+        );
+        recorded
+    }
+
+    #[test]
+    fn fr39_screen_calculator_answers_every_step_of_calculator_input() {
+        let recorded = run_scenario("calculator_input");
+        // The pad with `C` is the one the scenario keys on, and in an expanded window the
+        // tape stands beside it.
+        assert!(
+            recorded.final_tree.contains("Text=Text(\"Standard\")"),
+            "the calculator is not showing the pad the scenario keys on:\n{}",
+            recorded.final_tree
+        );
+        assert!(
+            recorded.final_tree.contains("Text=Text(\"History\")"),
+            "the tape is not beside the keys in an expanded window:\n{}",
+            recorded.final_tree
+        );
+    }
+
+    #[test]
+    fn fr39_screen_minimal_answers_every_step_of_tab_switching() {
+        let recorded = run_scenario("tab_switching");
+        // The last click is Parts, so the sheet ends on the controls group.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Everything a person can operate.\")"),
+            "the sheet did not end on the Parts group:\n{}",
+            recorded.final_tree
+        );
+        for tab in ["Panels", "Colour", "Parts"] {
+            assert!(
+                recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{tab}\")")),
+                "the strip has no {tab} segment:\n{}",
+                recorded.final_tree
+            );
+        }
+    }
+
+    #[test]
+    fn fr39_screen_todo_answers_every_step_of_todo_add_delete() {
+        let recorded = run_scenario("todo_add_delete");
+        // Call the bank and Buy milk were deleted through their row menus; Water the plants
+        // was added before the list window opened and stays in it.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Water the plants\")"),
+            "the task that was never deleted is not on screen:\n{}",
+            recorded.final_tree
+        );
+        for gone in ["Buy milk", "Call the bank"] {
+            assert!(
+                !recorded
+                    .final_tree
+                    .contains(&format!("Text=Text(\"{gone}\")")),
+                "{gone} is still on screen after its row menu deleted it:\n{}",
+                recorded.final_tree
+            );
+        }
+    }
+
+    #[test]
+    fn fr39_screen_todo_answers_every_step_of_long_list_scroll() {
+        let recorded = run_scenario("long_list_scroll");
+        // The window ends back at the top of the five thousand generated rows.
+        assert!(
+            recorded
+                .final_tree
+                .contains("Text=Text(\"Generated task 1\")"),
+            "the list window is not back at the top:\n{}",
+            recorded.final_tree
+        );
+    }
+
+    #[test]
+    fn fr39_screen_chat_answers_every_step_of_chat_streaming() {
+        let recorded = run_scenario("chat_streaming");
+        // While a reply streams its text ends in a block caret; once the frames stop, the
+        // reply is whole and the caret is gone.
+        assert!(
+            !recorded.final_tree.contains('\u{2589}'),
+            "a reply was still streaming when the frames stopped:\n{}",
+            recorded.final_tree
+        );
+    }
 }

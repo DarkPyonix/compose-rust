@@ -51,6 +51,8 @@ import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.FontTracking
+import dev.darkpyonix.composerust.ui.node.MissingGlyphFaces
+import dev.darkpyonix.composerust.ui.node.PendingFace
 import dev.darkpyonix.composerust.ui.node.fontTracking
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
@@ -362,7 +364,8 @@ internal fun resolveFontFamily(
  * names fonts it may not find is what a font list is for. An installed or a generic family
  * takes every letter left, so the list stops there. Nothing resolving is a sans serif.
  * A letter none of them has is looked for in the fallback faces the renderer carries, where
- * it carries any.
+ * it carries any. A font the Host has not sent yet (`LazyAsset`) takes every letter left as
+ * well, as a missing glyph, until its bytes arrive.
  */
 internal fun resolveFontChain(
     refs: List<FontRef>,
@@ -370,6 +373,16 @@ internal fun resolveFontChain(
     problems: MutableList<String>,
 ): FontChain {
     val members = ArrayList<FontChain.Member>()
+    /** Adds a registered font's families, and says whether the list stops at it. */
+    fun add(font: Asset.Font): Boolean {
+        val chain = font.chain
+        if (chain != null) {
+            members += chain.members
+            return false
+        }
+        members += FontChain.Member(font.family, font.face?.hasGlyph)
+        return font.face == null
+    }
     for (ref in refs) {
         when (ref) {
             is FontRef.Asset -> {
@@ -378,12 +391,27 @@ internal fun resolveFontChain(
                     problems += "font asset ${ref.assetId} is not a registered font; the next font in the list is used"
                     continue
                 }
-                val chain = font.chain
-                if (chain != null) {
-                    members += chain.members
-                } else {
-                    members += FontChain.Member(font.family, font.face?.hasGlyph)
-                    if (font.face == null) break
+                if (add(font)) break
+            }
+            // A font the Host has not sent is a candidate all the same. Until its bytes are
+            // here it takes every letter that reaches it, drawn as a missing glyph, and asks
+            // for them; nothing after it is reached, so no letter falls to the machine's own
+            // fonts in the meantime. Once they are here it is what an `Asset` would be.
+            is FontRef.LazyAsset -> {
+                when (val loaded = assets.asset(ref.assetId)) {
+                    null -> {
+                        members += FontChain.Member(
+                            MissingGlyphFaces.empty,
+                            hasGlyph = null,
+                            pending = PendingFace(intArrayOf(ref.assetId), assets::want),
+                        )
+                        break
+                    }
+                    is Asset.Font -> if (add(loaded)) break
+                    else -> {
+                        problems += "font asset ${ref.assetId} is not a registered font; the next font in the list is used"
+                        continue
+                    }
                 }
             }
             is FontRef.System -> {
@@ -402,15 +430,18 @@ internal fun resolveFontChain(
 }
 
 /**
- * The chain member for an installed or a generic [family]: one whose letters are not known,
- * which takes every letter that reaches it.
+ * The chain member for an installed or a generic [family].
  *
- * The exception is the default family where the renderer carries it itself. Its letters
- * are known, so the member is the one of [platformDefaultChain], and a letter it lacks goes
- * on to the fallback faces the renderer carries.
+ * On platforms with system fonts ([platformDefaultChain] is null), the family's letters are
+ * not known here, so it takes every letter that reaches it and lets the machine fall back.
+ * Where the renderer carries its own default family and fallback faces, the default family
+ * reuses [platformDefaultChain]'s member, and other generic or named families share its
+ * glyph check so symbols it lacks still reach the bundled fallback faces.
  */
-private fun platformMember(family: FontFamily): FontChain.Member =
-    platformDefaultChain?.members?.first()?.takeIf { it.family === family } ?: FontChain.Member(family, null)
+private fun platformMember(family: FontFamily): FontChain.Member {
+    val default = platformDefaultChain?.members?.first() ?: return FontChain.Member(family, null)
+    return if (default.family === family) default else FontChain.Member(family, default::has)
+}
 
 /**
  * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this
@@ -510,6 +541,33 @@ internal class BrokenText(val text: String, private val map: IntArray?) {
         }
         return low
     }
+}
+
+/**
+ * [laidOut] without the characters [breakText] put in to steer line breaking, its spans kept:
+ * what a reader is told and what a test finds by name. [original] is the string the Host sent.
+ * A character of [laidOut] that is not the next one of [original] was put in, and only one of
+ * the two invisible characters ever is.
+ */
+internal fun spokenText(laidOut: AnnotatedString, original: String): AnnotatedString {
+    if (laidOut.text == original) return laidOut
+    val out = AnnotatedString.Builder(laidOut.length)
+    var next = 0
+    var keptFrom = 0
+    for (index in laidOut.indices) {
+        val char = laidOut[index]
+        if (next < original.length && char == original[next]) {
+            next++
+        } else if (char == WORD_JOINER || char == ZERO_WIDTH_SPACE) {
+            if (keptFrom < index) out.append(laidOut.subSequence(keptFrom, index))
+            keptFrom = index + 1
+        } else {
+            // Something else changed the string (an inline placeholder); say it as laid out.
+            return laidOut
+        }
+    }
+    if (keptFrom < laidOut.length) out.append(laidOut.subSequence(keptFrom, laidOut.length))
+    return out.toAnnotatedString()
 }
 
 internal fun breakText(text: String, mode: BreakMode): BrokenText {

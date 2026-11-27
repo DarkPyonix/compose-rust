@@ -6,7 +6,7 @@ mod support;
 use compose_rust::protocol::{HostEvent, ProtocolError, decode_event, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{ColorScheme, EventPayload, Theme};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{
     ComposeHost, SystemColorScheme, ThemeHandle, resolved_color_scheme,
     subscribe_system_color_scheme, system_color_scheme,
@@ -29,11 +29,7 @@ fn start() -> (ComposeHost, Tree) {
 }
 
 fn scheme_changed(scheme: SystemColorScheme) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ColorSchemeChanged(scheme),
-    }
+    HostEvent::new(0, 0, EventPayload::ColorSchemeChanged(scheme))
 }
 
 /// The record is 20 bytes, the header and one word, and both values come back as they went.
@@ -55,7 +51,7 @@ fn fr44_color_scheme_event_round_trips() {
     assert_eq!(u16::from(SystemColorScheme::Dark), 1);
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24 + 36 + 171 + 20 + 20);
     assert_eq!(
         decode_event(&events[1663..1683]),
         Ok(scheme_changed(SystemColorScheme::Dark))

@@ -33,8 +33,9 @@ class SampleIconRolesTest {
             IconRole.CompactOverlay,
             IconRole.Calculator,
             IconRole.Refresh,
+            IconRole.Delete,
         )
-        assertEquals(18, roles.distinct().size)
+        assertEquals(19, roles.distinct().size)
         for (role in roles) {
             val geometry = iconGeometry(role)
             assertTrue(geometry.strokes.isNotEmpty() || geometry.dots.isNotEmpty(), "$role has no artwork")

@@ -54,7 +54,7 @@ fn fr14_generated_kotlin_carries_the_roles_and_token_tables() {
         "enum class TypeRole { Display, Headline, Title, Subtitle, Body, BodyStrong, Label, Caption, Mono }",
         "enum class ShapeRole { None, ExtraSmall, Small, Medium, Large, Full }",
         "enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }",
-        "enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator }",
+        "enum class ButtonVariant { Filled, Tonal, Outlined, Text, Operator, Neutral, NeutralSecondary }",
         "enum class DesignSystem { Material3, Cupertino, Fluent, Gnome, Breeze, Deepin, LiquidGlass }",
         "enum class ColorScheme { Light, Dark, FollowSystem }",
     ] {
@@ -108,10 +108,10 @@ fn fr12_keydown_roundtrips_through_vectors() {
     assert_eq!(&key_down[0..4], &[6, 0, 32, 0]);
     assert_eq!(key_down[18], 0x0f);
 
-    let expected = HostEvent {
-        node_id: 9,
-        handler_id: 15,
-        payload: EventPayload::KeyDown {
+    let expected = HostEvent::new(
+        9,
+        15,
+        EventPayload::KeyDown {
             key: Key::Enter,
             shift_key: true,
             ctrl_key: true,
@@ -121,7 +121,7 @@ fn fr12_keydown_roundtrips_through_vectors() {
             code: 0x28,
             text: "Enter",
         },
-    };
+    );
     assert_eq!(decode_event(key_down).unwrap(), expected);
 
     let mut encoded = Vec::new();
@@ -135,14 +135,14 @@ fn fr8_range_requested_roundtrips_through_vectors() {
     let range_requested = &bytes[162..186];
     assert_eq!(&range_requested[0..4], &[7, 0, 24, 0]);
 
-    let expected = HostEvent {
-        node_id: 10,
-        handler_id: 16,
-        payload: EventPayload::RangeRequested {
+    let expected = HostEvent::new(
+        10,
+        16,
+        EventPayload::RangeRequested {
             start: 100,
             count: 20,
         },
-    };
+    );
     assert_eq!(decode_event(range_requested).unwrap(), expected);
 
     let mut encoded = Vec::new();

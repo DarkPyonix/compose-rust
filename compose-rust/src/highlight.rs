@@ -245,7 +245,7 @@ mod tests {
 
         let mut host = crate::ComposeHost::with_content(move || {
             let encoded_spans = TextSpans::new(spans.clone());
-            crate::ui::Text(source).spans(encoded_spans);
+            crate::ui::widgets::Text(source).spans(encoded_spans);
         });
         let wire = host.rebuild().expect("the batch encodes").to_vec();
         let mutations = decode_batch(&wire).expect("the batch decodes");
@@ -440,16 +440,16 @@ mod tests {
         );
         assert_eq!(
             PROPERTY_SCHEMA.len(),
-            153,
+            168,
             "the number of properties moved: {on_purpose}"
         );
         assert_eq!(
             MODIFIER_SCHEMA.len(),
-            44,
+            46,
             "the number of modifiers moved: {on_purpose}"
         );
         assert_eq!(
-            tables_hash, 0xa456_8b07_c280_6ef0,
+            tables_hash, 0x8e0c_ecd0_9128_63a9,
             "the names, tags or modifier fields of the widget, property and modifier tables \
              moved, and now hash to {tables_hash:#018x}: {on_purpose}"
         );

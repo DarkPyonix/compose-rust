@@ -1,0 +1,38 @@
+[package]
+name = "sample-owner-checks"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# Three shapes of the same sample, as every sample has. The rlib is what the binary and the
+# tests use; the cdylib is what an Android Activity loads and what a browser page fetches;
+# the staticlib is iOS, where the renderer is a Kotlin/Native archive linked into one
+# executable with it.
+[lib]
+name = "sample_owner_checks"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
+bench = false
+
+# compose-rust alone. The one platform view the native view page makes is made through the
+# Objective-C runtime the system already has, so there is no binding crate either.
+[dependencies]
+compose-rust = { path = "../../compose-rust" }
+
+# Velopack installs and updates the desktop build, and starts it with hook arguments
+# while it does; main answers them first. Not on Android, iOS or the web, which Velopack
+# does not package.
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_family = "wasm")))'.dependencies]
+velopack.workspace = true
+
+[dev-dependencies]
+sample-frames = { path = "../frames" }
+
+# The sample is an application, not a benchmark. Without this `cargo bench` runs the
+# binary with Criterion's flags, which its plain test harness rejects.
+[[bin]]
+name = "sample-owner-checks"
+path = "src/main.rs"
+bench = false

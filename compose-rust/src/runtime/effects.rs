@@ -421,7 +421,7 @@ impl CoroutineScope {
 ///
 /// ```ignore
 /// let scope = remember_coroutine_scope();
-/// Button("Refresh").on_click(move || scope.launch(async move {
+/// Button!("Refresh", move || scope.launch(async move {
 ///     let fresh = with_worker(fetch).await;
 ///     items.set(fresh);
 /// }));

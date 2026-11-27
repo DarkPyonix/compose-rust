@@ -111,6 +111,7 @@ import dev.darkpyonix.composerust.protocol.MinimapSide
 import dev.darkpyonix.composerust.protocol.WordWrapMode
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -240,17 +241,31 @@ class CodeEditorLook(
      * be folded and no line is changed, so the text starts at the same place in every file.
      */
     val fixedGutterColumns: Boolean = false,
+    /** Width of the fold column when shown, or null to default to one row height (`rowPx`). */
+    val foldColumnWidth: Dp? = null,
     /** The gutter on the caret's row, or Unspecified where the gutter keeps its own colour there. */
     val currentLineGutter: Color = Color.Unspecified,
+    /** Whether pressing Tab inserts spaces to the next tab stop (true) or a literal tab (false). */
+    val insertSpaces: Boolean = true,
+    /**
+     * The OpenType features line numbers are set with. The node's features are for the text
+     * (an editor turning a coding font's ligatures off), and the numbers keep the design
+     * system's, so a list meant for code does not change how the gutter's digits are drawn.
+     */
+    val lineNumberFeatures: String? = textStyle.fontFeatureSettings,
 )
 
 /** The room above the first line and below the last, in whole pixels. */
 internal fun Density.contentPaddingPx(look: CodeEditorLook): Pair<Int, Int> =
     look.contentPaddingTop.roundToPx() to look.contentPaddingBottom.roundToPx()
 
-/** The width of the fold column: a row's height where anything can be folded or the look keeps it, and none otherwise. */
-internal fun foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
-    if (model.folds.isNotEmpty() || look.fixedGutterColumns) rowPx else 0
+/** The width of the fold column: [CodeEditorLook.foldColumnWidth] or a row's height where anything can be folded or the look keeps it, and none otherwise. */
+internal fun Density.foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
+    if (model.folds.isNotEmpty() || look.fixedGutterColumns) {
+        look.foldColumnWidth?.roundToPx() ?: rowPx
+    } else {
+        0
+    }
 
 /** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
 data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
@@ -355,6 +370,31 @@ internal fun Modifier.changeSemantics(model: CodeEditorModel, look: CodeEditorLo
     val revision = model.overlayRevision
     val text = remember(model, revision, look) { changeDescription(model, look) } ?: return this
     return semantics { stateDescription = text }
+}
+
+/**
+ * Sends what the model has queued: the first time from a coroutine, and from then on
+ * straight away.
+ *
+ * The first time is the editor being put on screen, and that can happen inside a measure
+ * pass: a split pane and a lazy list compose what they hold while they are measured, and
+ * the effects and the first focus state of what they composed are delivered there. A Host
+ * that answers an event by laying its page out asks this side to measure nodes before the
+ * call returns, and Compose refuses to measure one while a measure pass is running. The
+ * coroutine runs once that pass is over. Everything after it comes from recomposition or
+ * from input, outside any pass, and is sent at once, so a key's echo waits for nothing.
+ *
+ * Whatever is sent is drained from the model in the order it was queued, so sending the
+ * first lot later never puts it behind what was queued after it.
+ */
+internal class FirstOutputLater(private val scope: CoroutineScope) {
+    private var first = true
+
+    fun send(callbacks: CodeEditorCallbacks) {
+        if (!first) return callbacks.onOutput()
+        first = false
+        scope.launch { callbacks.onOutput() }
+    }
 }
 
 /** What a surface tells the editor that holds it. All of them are called on the UI thread. */
@@ -1423,7 +1463,7 @@ private fun FieldSurface(
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
     val markColumnPx = if (hasMarks) rowPx else 0
-    val foldColumnPx = foldColumnWidthPx(model, look, rowPx)
+    val foldColumnPx = density.foldColumnWidthPx(model, look, rowPx)
     // The room above the first line and below the last. The document is drawn this much
     // lower than the scroll offset says, so the room scrolls away with the first line.
     val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
@@ -1498,6 +1538,7 @@ private fun FieldSurface(
     val reportPlaces: () -> Unit = remember(places, scope) {
         { if (places.report()) scope.launch { currentCallbacks.onOutput() } }
     }
+    val focusOutput = remember(scope) { FirstOutputLater(scope) }
     DisposableEffect(model, places) {
         onDispose { if (model.locator === places.locate) model.locator = null }
     }
@@ -1626,10 +1667,13 @@ private fun FieldSurface(
                                 .onFocusChanged { focusState ->
                                     overlayFocusStack.noteFocused(focus, focusState.hasFocus)
                                     model.focusChanged(focusState.hasFocus)
-                                    callbacks.onOutput()
+                                    // The first state is told as the field is attached.
+                                    focusOutput.send(callbacks)
                                 }
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
+                                // A document of lines: a reader is told a text area.
+                                .semantics { this[dev.darkpyonix.composerust.ui.MultiLineText] = true }
                                 .onPreviewKeyEvent { event ->
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
@@ -1746,6 +1790,8 @@ private fun Sync(
     val firstVisible = rows.lineAtPx(docTop, rowPx)
     val lastVisible = rows.lineAtPx(scroll - padTopPx + max(viewportHeight, rowPx), rowPx)
     val composing = window.state.composition != null
+    val scope = rememberCoroutineScope()
+    val output = remember(scope) { FirstOutputLater(scope) }
     SideEffect {
         // The start of a composition is said before anything else this pass does; its end
         // after the text it committed, so the Host reads the change and then the signal.
@@ -1769,7 +1815,7 @@ private fun Sync(
             // it draws with. The offset is read in this pass, so a frame says it once.
             window.model.reportGeometry(rowPx, scroll)
         }
-        callbacks.onOutput()
+        output.send(callbacks)
     }
 }
 
@@ -2016,7 +2062,7 @@ private fun handleKey(
                 callbacks.onOutput()
                 return true
             }
-            insertIndentation(window, look.tabWidth)
+            insertIndentation(window, look.tabWidth, look.insertSpaces)
             return true
         }
     }
@@ -2072,19 +2118,20 @@ private fun isTyping(event: KeyEvent): Boolean = when (event.key) {
 }
 
 /**
- * Indents at the caret: a tab where the line is already indented with tabs, and spaces to
- * the next stop otherwise, so a file keeps the indentation it was written with.
+ * Indents at the caret: spaces to the next tab stop when [insertSpaces] is true, or a
+ * literal tab character when [insertSpaces] is false.
  */
-private fun insertIndentation(window: FieldWindow, tabWidth: Int) {
+private fun insertIndentation(window: FieldWindow, tabWidth: Int, insertSpaces: Boolean) {
     val selection = window.state.selection
-    val text = window.state.text
-    var lineStart = selection.min
-    while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
-    var indentEnd = lineStart
-    while (indentEnd < text.length && (text[indentEnd] == ' ' || text[indentEnd] == '\t')) indentEnd += 1
-    val usesTabs = (lineStart until indentEnd).any { text[it] == '\t' }
-    val column = selection.min - lineStart
-    val indent = if (usesTabs) "\t" else " ".repeat(tabWidth - column % tabWidth)
+    val indent = if (!insertSpaces) {
+        "\t"
+    } else {
+        val text = window.state.text
+        var lineStart = selection.min
+        while (lineStart > 0 && text[lineStart - 1] != '\n') lineStart -= 1
+        val column = selection.min - lineStart
+        " ".repeat(tabWidth - column % tabWidth)
+    }
     window.state.edit {
         replace(selection.min, selection.max, indent)
         this.selection = TextRange(selection.min + indent.length)

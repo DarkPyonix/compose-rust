@@ -71,7 +71,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
     reset_notifications();
 
     let mut host = ComposeHost::with_content(|| {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("idle");
     });
     host.rebuild().expect("the initial tree builds");
@@ -133,11 +133,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
         fn drop(&mut self) {
             let mut start_wire = Vec::new();
             if encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::LifecycleStart,
-                },
+                &HostEvent::new(0, 0, EventPayload::LifecycleStart),
                 &mut start_wire,
             )
             .is_ok()
@@ -150,11 +146,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
 
     let mut stop_wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::LifecycleStop,
-        },
+        &HostEvent::new(0, 0, EventPayload::LifecycleStop),
         &mut stop_wire,
     )
     .expect("the stop event encodes");

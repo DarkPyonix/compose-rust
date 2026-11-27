@@ -10,7 +10,7 @@
 //! rather than an approximation of it. They live here rather than beside the widgets that
 //! use them so the screen has one place to change.
 
-use compose_rust::ui::next::{Color, Paint};
+use compose_rust::ui::{Color, Paint};
 
 /// The page under everything on the overview, and the disc in the middle of the dial.
 pub const PAGE: Paint = Paint::Literal(Color::rgb(0xf1_f1f1));

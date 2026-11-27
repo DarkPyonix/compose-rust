@@ -1,6 +1,6 @@
 //! The shows, the episodes, and the two drawings a podcast screen is made of.
 
-use compose_rust::ui::next::{DrawList, DrawListBuilder, Paint};
+use compose_rust::ui::{DrawList, DrawListBuilder, Paint};
 
 /// The covers, drawn.
 ///

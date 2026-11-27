@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
@@ -145,11 +145,7 @@ fn fr67_dropping_a_colour_or_size_sends_a_removal() {
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let mut batches = vec![batch.to_vec()];
     batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
@@ -315,4 +311,128 @@ fn fr67_slider_thumb_size() {
         })
         .collect();
     assert_eq!(sizes, [(sliders[0], PropertyValue::Float(12.0))]);
+}
+
+#[Composable]
+fn Mixing() {
+    let mixed = remember(|| mutable_state_of(true));
+    Column!({
+        let flip = mixed;
+        Row!(on_click = Some(move || flip.update(|m| *m = !*m)), {
+            Text!("flip");
+        });
+        // Each widget is finished by its own statement, so they compose in source order.
+        let mixed = mixed.get();
+        Checkbox!(
+            false,
+            |_| {},
+            indeterminate = mixed,
+            outline_color = mixed.then_some(INK),
+        );
+        Checkbox!(true, |_| {}, indeterminate = false);
+        Checkbox!(true, |_| {});
+    });
+}
+
+/// The `property` records of the first frame of `Mixing`, by Checkbox in source order, and
+/// the removals of it the frame after the flip.
+fn mixing_records(
+    property: compose_rust::schema::PropertyKind,
+) -> (
+    Vec<(usize, compose_rust::protocol::PropertyValue<'static>)>,
+    usize,
+) {
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+
+    let mut host = ComposeHost::with_content(Mixing);
+    let first = host.rebuild().expect("the first batch encodes").to_vec();
+    let mutations = decode_batch(&first).expect("the batch decodes");
+    let boxes: Vec<u32> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::Create {
+                node_id,
+                widget: WidgetKind::Checkbox,
+            } => Some(*node_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(boxes.len(), 3);
+    let sent: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: found,
+                value,
+            } if *found == property => {
+                let index = boxes.iter().position(|id| id == node_id)?;
+                let value = match value {
+                    PropertyValue::Bool(on) => PropertyValue::Bool(*on),
+                    PropertyValue::Integer(bits) => PropertyValue::Integer(*bits),
+                    other => panic!("unexpected value {other:?}"),
+                };
+                Some((index, value))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let mut tree = Tree::default();
+    tree.apply(&first);
+    let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
+    let (batch, _) = host
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
+        .expect("the click is accepted");
+    let batches = [
+        batch.to_vec(),
+        host.render_frame(0).expect("the frame encodes").to_vec(),
+    ];
+    let mut removed = 0;
+    for batch in &batches {
+        for mutation in decode_batch(batch).expect("the batch decodes") {
+            if let Mutation::SetProp {
+                node_id,
+                property: found,
+                value: PropertyValue::None,
+            } = mutation
+            {
+                if found == property {
+                    assert_eq!(node_id, boxes[0], "only the first box ever sent it");
+                    removed += 1;
+                }
+            }
+        }
+    }
+    (sent, removed)
+}
+
+/// A Checkbox sends `Indeterminate` (property 216) only while it is mixed, as `true`;
+/// `false` and leaving it out send nothing, and a box that stops being mixed sends one
+/// removal.
+#[test]
+fn fr67_checkbox_sends_indeterminate_only_when_mixed() {
+    use compose_rust::protocol::PropertyValue;
+    use compose_rust::schema::PropertyKind;
+
+    assert_eq!(PropertyKind::Indeterminate as u16, 216);
+    assert_eq!(PropertyKind::try_from(216), Ok(PropertyKind::Indeterminate));
+    let (sent, removed) = mixing_records(PropertyKind::Indeterminate);
+    assert_eq!(sent, [(0, PropertyValue::Bool(true))]);
+    assert_eq!(removed, 1);
+}
+
+/// A Checkbox sends `OutlineColor` (property 217) only when it was given one, and a box
+/// that drops it sends one removal.
+#[test]
+fn fr67_checkbox_sends_outline_color_only_when_given() {
+    use compose_rust::schema::PropertyKind;
+
+    assert_eq!(PropertyKind::OutlineColor as u16, 217);
+    assert_eq!(PropertyKind::try_from(217), Ok(PropertyKind::OutlineColor));
+    let (sent, removed) = mixing_records(PropertyKind::OutlineColor);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].0, 0, "{sent:?}");
+    assert_eq!(removed, 1);
 }

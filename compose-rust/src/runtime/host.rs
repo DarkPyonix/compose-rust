@@ -27,7 +27,7 @@ use std::sync::Arc;
 /// The slot table runtime for one root: what composes the tree and runs its handlers.
 ///
 /// Every method enters the composition for its own length, so it may be called from any
-/// Host call on the UI thread. The tree's records go into [`Recomposer::writer`]'s batch,
+/// Host call on the UI thread. The tree's records go into the composer's `writer` batch,
 /// between whatever the Host writes before and after them.
 pub struct Recomposer {
     content: Rc<dyn Fn()>,
@@ -189,9 +189,12 @@ impl Recomposer {
         effects::apply_effects();
         drain_graveyard();
         effects::poll_woken();
-        // Focus asked for by the handlers, the composition or its effects goes out last,
-        // once every node it may name has been placed.
+        // A text given to a field and focus asked for by the handlers, the composition or
+        // its effects go out last, once every node they may name has been placed.
+        with_composer(Composer::flush_text_requests);
         with_composer(Composer::flush_focus_requests);
+        // Formatting asked of rich text fields goes out with it, for the same reason.
+        with_composer(Composer::flush_rich_requests);
         // Whatever was written during this round, by the composition, an effect or a
         // future, is the next frame's.
         let pending = with_composer(|composer| {
@@ -246,6 +249,21 @@ impl ComposeHost {
             Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
         }))
     }
+
+    /// A Host for a closure in the given theme (used by offscreen preview rendering).
+    pub fn with_content_and_theme(
+        content: impl Fn() + Send + Sync + 'static,
+        theme: Theme,
+    ) -> Self {
+        let content = Arc::new(content);
+        Self(Host::with_theme(
+            move || {
+                let content = Arc::clone(&content);
+                Box::new(Recomposer::new(move || content())) as Box<dyn Runtime>
+            },
+            theme,
+        ))
+    }
 }
 
 impl std::ops::Deref for ComposeHost {
@@ -275,7 +293,7 @@ impl crate::LaunchBuilder {
     /// ```ignore
     /// #[Composable]
     /// fn app() {
-    ///     Text("Hello");
+    ///     Text!("Hello");
     /// }
     ///
     /// fn main() {
@@ -305,7 +323,7 @@ impl crate::LaunchBuilder {
 /// fn counter() {
 ///     let count = remember(|| mutable_state_of(0));
 ///     let more = count.clone();
-///     Button(format!("{}", count.get())).on_click(move || more.update(|count| *count += 1));
+///     Button!(format!("{}", count.get()), move || more.update(|count| *count += 1));
 /// }
 ///
 /// fn main() {
@@ -425,6 +443,45 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
             width_dp: *width_dp,
             height_dp: *height_dp,
         }),
+        (EventCallback::TextFormat(handler), EventPayload::TextFormatAtSelection(format)) => {
+            (*handler.borrow_mut())(*format)
+        }
+        (
+            EventCallback::RichText(handler),
+            EventPayload::RichTextChanged {
+                text,
+                characters,
+                paragraphs,
+            },
+        ) => {
+            let document = crate::rich_text::RichDocument::from_wire(text, characters, paragraphs)
+                .map_err(ProtocolError::InvalidRichText)?;
+            (*handler.borrow_mut())(document)
+        }
+        (
+            EventCallback::Scroll(handler),
+            EventPayload::ScrollChanged {
+                x_px,
+                y_px,
+                max_x_px,
+                max_y_px,
+                viewport_width_px,
+                viewport_height_px,
+                ..
+            },
+        ) => (*handler.borrow_mut())(super::composer::ScrollReport {
+            x_px: *x_px,
+            y_px: *y_px,
+            max_x_px: *max_x_px,
+            max_y_px: *max_y_px,
+            viewport_width_px: *viewport_width_px,
+            viewport_height_px: *viewport_height_px,
+        }),
+        (EventCallback::Back(handler), EventPayload::BackRequested { source }) => {
+            let event = crate::BackRequested::new(*source);
+            (*handler.borrow_mut())(event.clone());
+            return Ok(i64::from(event.consumed()));
+        }
         (EventCallback::Window(handler), payload) => {
             let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {
                 return Err(ProtocolError::InvalidValueKind(0));

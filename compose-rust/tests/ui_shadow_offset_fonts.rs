@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::runtime::*;
 use compose_rust::schema::{OverflowWrap, Paint, WordBreak};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, FontRef, FontRefs};
 use support::Tree;
 

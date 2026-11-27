@@ -5,7 +5,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{OverflowWrap, PropertyKind, WordBreak};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 const KINDS: [PropertyKind; 3] = [

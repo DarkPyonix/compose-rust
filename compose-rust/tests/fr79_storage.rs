@@ -14,9 +14,11 @@ use compose_rust::protocol::{
 use compose_rust::runtime::*;
 use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, IoStatus, PropertyKind, StorageOp, Theme,
+    WEB_EVENT_BUFFER_BYTES,
 };
 use compose_rust::storage::{self, Backend, Platform, StorageError, testing};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
+use compose_rust::web_event_buffer::LentEventBuffer;
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::PathBuf;
@@ -168,15 +170,15 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
         Err(ProtocolError::InvalidValueKind(9))
     );
 
-    let answer = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::IoAnswer {
+    let answer = HostEvent::new(
+        0,
+        0,
+        EventPayload::IoAnswer {
             request: 11,
             status: IoStatus::Ok,
             data: &[0xea, 0xb0, 0x92, 0x00, 0xff],
         },
-    };
+    );
     let mut encoded = Vec::new();
     encode_event(&answer, &mut encoded).unwrap();
     assert_eq!(u16::from_le_bytes([encoded[0], encoded[1]]), 57, "event 57");
@@ -198,13 +200,11 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
         "the Host still answers"
     );
 
-    let location = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::StorageLocation(
-            "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
-        ),
-    };
+    let location = HostEvent::new(
+        0,
+        0,
+        EventPayload::StorageLocation("/data/user/0/dev.darkpyonix.composerust.samples.todo/files"),
+    );
     encode_event(&location, &mut encoded).unwrap();
     assert_eq!(u16::from_le_bytes([encoded[0], encoded[1]]), 59, "event 59");
     assert_eq!(decode_event(&encoded).unwrap(), location);
@@ -661,15 +661,15 @@ fn calls(batch: &[u8]) -> Vec<(u32, StorageOp, String, String, Vec<u8>)> {
 }
 
 fn answer(request: u32, status: IoStatus, data: &[u8]) -> HostEvent<'_> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::IoAnswer {
+    HostEvent::new(
+        0,
+        0,
+        EventPayload::IoAnswer {
             request,
             status,
             data,
         },
-    }
+    )
 }
 
 struct Session {
@@ -684,11 +684,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         let batch = batch.to_vec();
         self.tree.apply(&batch);
@@ -778,6 +774,59 @@ fn fr79_every_storage_request_gets_exactly_one_answer() {
     assert_eq!(testing::waiting(), 0, "every request was answered");
 }
 
+/// A web storage read whose value is larger than the 4 KiB initial event buffer grows the
+/// lent event buffer and delivers the full 1 MiB value intact to the awaiting caller.
+#[test]
+fn fr79_web_reads_a_value_larger_than_the_event_buffer() {
+    let _serial = serial();
+    testing::reset(Some(ID), Backend::Renderer);
+    RESULTS.with_borrow_mut(Vec::clear);
+    let mut host = ComposeHost::with_theme(Savers, Theme::unified(DesignSystem::Material3));
+    let mut tree = Tree::default();
+    let first = host.rebuild().unwrap().to_vec();
+    tree.apply(&first);
+    let mut session = Session { host, tree };
+    let loader = calls(&first);
+    assert!(session.press("hide").is_empty());
+    session.answer(answer(loader[0].0, IoStatus::NotFound, &[]));
+
+    let load = session.press("load");
+    assert_eq!(load.len(), 1);
+    let request = load[0].0;
+
+    let value: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
+    let event = answer(request, IoStatus::Ok, &value);
+    let mut wire = Vec::new();
+    encode_event(&event, &mut wire).expect("the 1 MiB IoAnswer encodes");
+    assert!(
+        wire.len() > WEB_EVENT_BUFFER_BYTES as usize,
+        "the encoded answer must exceed the 4 KiB startup event buffer"
+    );
+
+    let mut lender = LentEventBuffer::new();
+    let needed = u32::try_from(wire.len()).expect("the event length fits in u32");
+    let ptr = lender
+        .lend(needed)
+        .expect("the Host lends a buffer large enough for a 1 MiB answer");
+    assert!(lender.len() >= wire.len());
+    // SAFETY: `lender.lend(needed)` returned a writable buffer of at least `wire.len()` bytes
+    // owned by `lender`, and nothing else accesses it while we copy and read it back.
+    let carried = unsafe {
+        let lent = std::slice::from_raw_parts_mut(ptr, wire.len());
+        lent.copy_from_slice(&wire);
+        lent.to_vec()
+    };
+    let decoded = decode_event(&carried).expect("the lent buffer holds a valid IoAnswer");
+    session.answer(decoded);
+
+    let expected: Result<Option<Vec<u8>>, StorageError> = Ok(Some(value));
+    assert_eq!(
+        results().last().cloned(),
+        Some(("load", format!("{expected:?}")))
+    );
+    assert_eq!(testing::waiting(), 0);
+}
+
 /// A read whose value is larger than the largest event the web carries gets one too-large
 /// answer carrying its length, and the application hears how large it was and what one
 /// answer could carry: the largest event buffer the Host lends, less the answer's record.
@@ -823,12 +872,8 @@ fn fr79_android_storage_waits_for_its_location() {
     let mut host = ComposeHost::with_content(|| {});
     host.rebuild().unwrap();
     let path = files_dir.to_string_lossy().into_owned();
-    host.dispatch(HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::StorageLocation(&path),
-    })
-    .expect("the location dispatches");
+    host.dispatch(HostEvent::new(0, 0, EventPayload::StorageLocation(&path)))
+        .expect("the location dispatches");
     assert_eq!(testing::held(), 0);
 
     assert_eq!(block_on(early_write), Ok(()));

@@ -179,11 +179,11 @@ fn encoded(event: HostEvent<'_>) -> Vec<u8> {
 }
 
 fn typed_event(text: &str) -> Vec<u8> {
-    encoded(HostEvent {
-        node_id: FIELD,
-        handler_id: ON_VALUE_CHANGE,
-        payload: EventPayload::TextChanged(text),
-    })
+    encoded(HostEvent::new(
+        FIELD,
+        ON_VALUE_CHANGE,
+        EventPayload::TextChanged(text),
+    ))
 }
 
 /// The text the batch puts on screen, whether it replaced the whole property or the node's
@@ -306,10 +306,10 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
     let _launch = launch_guard();
     start();
     let dispatch = |node_id, handler_id, shift_key, output: &mut MutationBatch| {
-        let bytes = encoded(HostEvent {
+        let bytes = encoded(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::KeyDown {
+            EventPayload::KeyDown {
                 key: Key::Enter,
                 shift_key,
                 ctrl_key: false,
@@ -319,7 +319,7 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
                 code: 0x28,
                 text: "Enter",
             },
-        });
+        ));
         // SAFETY: The encoded event and output storage remain live for the call.
         let status =
             unsafe { compose_rust_host_dispatch_event(bytes.as_ptr(), bytes.len() as u32, output) };

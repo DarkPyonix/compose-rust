@@ -1,0 +1,21 @@
+{
+  "os": "windows",
+  "application": "blank-window.exe",
+  "window": "800x600 client pixels",
+  "launches": 3,
+  "readings_s": [10, 60],
+  "metric": "private_kb",
+  "method": "private working set from \\Process(<name>)\\Working Set - Private, or PrivateMemorySize64 where the counter could not be read",
+  "columns": [
+    {"key": "private_kb", "label": "Private working set"},
+    {"key": "working_set_kb", "label": "Working set (reference)"}
+  ],
+  "samples": [
+    {"launch": 1, "at_s": 10, "pid": 21, "private_kb": 153600, "method": "counter: Working Set - Private", "working_set_kb": 204800},
+    {"launch": 1, "at_s": 60, "pid": 21, "private_kb": 148480, "method": "counter: Working Set - Private", "working_set_kb": 199680},
+    {"launch": 2, "at_s": 10, "pid": 22, "private_kb": 163840, "method": "fallback: PrivateMemorySize64 (private bytes)", "working_set_kb": 209920},
+    {"launch": 2, "at_s": 60, "pid": 22, "private_kb": 150528, "method": "counter: Working Set - Private", "working_set_kb": 201728},
+    {"launch": 3, "at_s": 10, "pid": 23, "private_kb": 158720, "method": "counter: Working Set - Private", "working_set_kb": 207872},
+    {"launch": 3, "at_s": 60, "pid": 23, "private_kb": 152576, "method": "counter: Working Set - Private", "working_set_kb": 203776}
+  ]
+}

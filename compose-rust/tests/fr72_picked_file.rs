@@ -17,7 +17,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDelivery, FileDialogStatus, FileOp, IoStatus,
     PropertyKind, Theme,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Delivery, FileDialog, FileDialogResult, FileError, PickedFile};
 use std::cell::RefCell;
 use std::future::Future;
@@ -69,11 +69,7 @@ impl Session {
                 .find("Button", Some("open"), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         let asked: Vec<u32> = decode_batch(batch)
             .unwrap()
@@ -92,11 +88,7 @@ impl Session {
     fn answer(&mut self, payload: EventPayload<'_>) -> Vec<String> {
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload,
-            })
+            .dispatch(HostEvent::new(0, 0, payload))
             .expect("the answer dispatches");
         file_records(batch)
     }
@@ -238,15 +230,15 @@ fn fr72_web_file_records_round_trip() {
     );
 
     // The answers, both ways, and what is not one.
-    let answer = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::IoAnswer {
+    let answer = HostEvent::new(
+        0,
+        0,
+        EventPayload::IoAnswer {
             request: 0x8000_0011,
             status: IoStatus::Ok,
             data: &[0x00, 0xff, 0x7f, 0x80],
         },
-    };
+    );
     let mut answer_bytes = Vec::new();
     encode_event(&answer, &mut answer_bytes).unwrap();
     assert_eq!(answer_bytes.len(), 36);
@@ -257,11 +249,11 @@ fn fr72_web_file_records_round_trip() {
         assert!(decode_event(&patched).is_err(), "status {unknown}");
     }
 
-    let chosen = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        // Filter 1 in use, as in the vector both sides test against.
-        payload: EventPayload::FileHandles {
+    // Filter 1 in use, as in the vector both sides test against.
+    let chosen = HostEvent::new(
+        0,
+        0,
+        EventPayload::FileHandles {
             request: 7,
             status: FileDialogStatus::Chosen,
             filter: 1,
@@ -270,7 +262,7 @@ fn fr72_web_file_records_round_trip() {
             names: "문서.txt\0사진",
             kinds: "fd",
         },
-    };
+    );
     let mut chosen_bytes = Vec::new();
     encode_event(&chosen, &mut chosen_bytes).unwrap();
     assert_eq!(chosen_bytes.len(), 71);
@@ -288,11 +280,7 @@ fn fr72_web_file_records_round_trip() {
         "a kind letter that is neither f nor d"
     );
     for (names, kinds) in [("a\0b", "f"), ("a", "fd"), ("a\0\0b", "fff"), ("", "f")] {
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: handles(1, FileDelivery::Upload, 1, names, kinds),
-        };
+        let event = HostEvent::new(0, 0, handles(1, FileDelivery::Upload, 1, names, kinds));
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
         assert!(
@@ -300,11 +288,7 @@ fn fr72_web_file_records_round_trip() {
             "{names:?} with kinds {kinds:?} does not line up"
         );
     }
-    let empty = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: handles(1, FileDelivery::Handle, 1, "", ""),
-    };
+    let empty = HostEvent::new(0, 0, handles(1, FileDelivery::Handle, 1, "", ""));
     let mut bytes = Vec::new();
     encode_event(&empty, &mut bytes).unwrap();
     assert_eq!(
@@ -416,11 +400,11 @@ fn fr72_web_every_request_gets_exactly_one_answer() {
     assert!(
         session
             .host
-            .dispatch(HostEvent {
-                node_id: 9,
-                handler_id: 0,
-                payload: handles(chosen, FileDelivery::Handle, 400, "d.txt", "f"),
-            })
+            .dispatch(HostEvent::new(
+                9,
+                0,
+                handles(chosen, FileDelivery::Handle, 400, "d.txt", "f")
+            ))
             .is_err()
     );
 }
@@ -534,7 +518,27 @@ fn fr72_web_files_come_from_references_and_release_their_handles() {
     assert_eq!(inside[0].name(), "안.txt");
     assert_eq!(results().len(), 1, "a listing is not a dialog's answer");
 
-    // An error the Renderer answers with is the file's error.
+    // An error the Renderer answers with is the file's error. A TooLarge answer carries the
+    // actual file length as four little-endian bytes when the Renderer knows it.
+    {
+        let mut failing = std::pin::pin!(inside[0].read());
+        assert!(poll_once(failing.as_mut()).is_pending());
+        let asked = session.frame();
+        let reported_len: u32 = 100_000_000;
+        session.answer(EventPayload::IoAnswer {
+            request: request_of(&asked[0]),
+            status: IoStatus::TooLarge,
+            data: &reported_len.to_le_bytes(),
+        });
+        let Poll::Ready(Err(FileError::TooLarge { len, limit })) = poll_once(failing.as_mut())
+        else {
+            panic!("a read over the event buffer is too large");
+        };
+        assert_eq!(len, reported_len as u64);
+        assert!(len > limit);
+    }
+
+    // Without a four-byte length payload, TooLarge still reports a length past the limit.
     {
         let mut failing = std::pin::pin!(inside[0].read());
         assert!(poll_once(failing.as_mut()).is_pending());

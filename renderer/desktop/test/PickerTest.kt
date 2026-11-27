@@ -218,6 +218,8 @@ class PickerTest {
             PropertyKind.AccessibleName,
             // Hearing a size animation finish can be asked of any node, like the name above.
             PropertyKind.OnMotionFinished,
+            // The option a combobox points at, which goes on any node that declared the role.
+            PropertyKind.ActiveDescendant,
         )
         listOf(WidgetKind.DatePicker, WidgetKind.TimePicker).forEach { widget ->
             PropertyKind.entries.forEach { property ->

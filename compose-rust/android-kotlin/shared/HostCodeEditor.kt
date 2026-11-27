@@ -94,12 +94,15 @@ internal fun HostCodeEditor(
         node.property(PropertyKind.WordWrap),
         node.bytes(PropertyKind.ContentPaddingDp),
         node.property(PropertyKind.FixedGutterColumns),
+        node.property(PropertyKind.FoldColumnWidthDp),
+        node.property(PropertyKind.InsertSpaces),
+        node.fontFeatures,
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
-            onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher) },
+            onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher, table.scrolls) },
             onSave = {
                 val handler = node.handler(PropertyKind.OnSave)
                 if (handler != null) {
@@ -167,6 +170,7 @@ internal fun HostCodeEditor(
 /** The editor's own offset down its document, as an axis a scroll request can move. */
 private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     state = scrollable,
+    reversed = true,
     value = { offset },
     max = { max },
     viewport = viewport,
@@ -247,7 +251,14 @@ internal fun codeEditorLook(
     // monospace rung of the type ladder where it does not.
     val type = node.textStyle(theme, TypeRole.Mono)
     return CodeEditorLook(
-        textStyle = type.copy(color = style.text, fontFamily = fontChain?.primary ?: type.fontFamily),
+        // The node's OpenType features follow the style's own, so a tag both name takes the
+        // node's value, as in a `Text`. The string was made when the property arrived.
+        textStyle = type.copy(
+            color = style.text,
+            fontFamily = fontChain?.primary ?: type.fontFamily,
+            fontFeatureSettings = appendFontFeatures(type.fontFeatureSettings, node.fontFeatures),
+        ),
+        lineNumberFeatures = type.fontFeatureSettings,
         container = colors?.container?.let { theme.color(it) } ?: style.container,
         gutter = colors?.gutter?.let { theme.color(it) } ?: style.gutter,
         lineNumber = colors?.lineNumber?.let { theme.color(it) } ?: style.lineNumber,
@@ -287,7 +298,9 @@ internal fun codeEditorLook(
         contentPaddingTop = padding?.first?.dp ?: 0.dp,
         contentPaddingBottom = padding?.second?.dp ?: 0.dp,
         fixedGutterColumns = node.flag(PropertyKind.FixedGutterColumns, default = false),
+        foldColumnWidth = node.lengthOrNull(PropertyKind.FoldColumnWidthDp),
         currentLineGutter = colors?.currentLineGutter?.let { theme.color(it) } ?: Color.Unspecified,
+        insertSpaces = node.flag(PropertyKind.InsertSpaces, default = true),
     )
 }
 
@@ -481,7 +494,7 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
 }
 
 /** Sends what the surface made the model queue, straight away, on the UI thread. */
-private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDispatcher) {
+private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDispatcher, scrolls: ScrollReports) {
     val events = codeEvents(outputs) { message ->
         dispatcher.dispatch(
             HostEvent.ProtocolError(
@@ -492,7 +505,8 @@ private fun Node.sendCodeOutput(outputs: List<EditorOutput>, dispatcher: EventDi
             ),
         )
     }
-    for (event in events) dispatcher.dispatch(event)
+    // The scroll report for a move the editor has just told goes out right behind it.
+    for (event in scrolls.paired(scroll, events)) dispatcher.dispatch(event)
 }
 
 /** The protocol error code a code editor reports a record it could not honour with. */

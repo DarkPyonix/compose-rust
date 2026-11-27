@@ -62,9 +62,9 @@
       <span class="label">What exists today</span>
       <p>
         Every widget below exists in 0.0.2, with its schema, its renderer half and the Rust
-        function you call to write it, such as <code>Column()</code> and <code>Text("...")</code>
-        <span class="pill works">Works</span>. The functions add no widget of their own, so this page is also the list you
-        write with. <a href="#calls">How each widget is written</a> gives the call for each.
+        function and call macro you write it with, such as <code>Column!({ ... })</code> and
+        <code>Text!("...")</code> <span class="pill works">Works</span>. They add no widget of their
+        own, so this page is also the list you write with. <a href="#calls">How each widget is written</a> gives the call for each.
       </p>
     </div>
 
@@ -115,48 +115,49 @@
 
     <h2 id="calls">How each widget is written</h2>
     <p>
-      Each widget is a function with its Compose name that takes what the widget cannot do
-      without. Methods set the rest, and a container takes its children with
-      <code>content(|| ...)</code>. <a href="writing-ui.html#widgets">Writing UI</a> explains the
+      Each widget is a function with its Compose name and a call macro of the same name. The
+      call takes what the widget cannot do without and its handler by position, the other
+      parameters as <code>name = value</code>, and a container's children as a trailing
+      <code>{ ... }</code> block. <a href="writing-ui.html#parameters">Writing UI</a> explains the
       shape.
     </p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th scope="col">Call</th><th scope="col">Main methods</th></tr></thead>
+        <thead><tr><th scope="col">Call</th><th scope="col">Main named parameters</th></tr></thead>
         <tbody>
-          <tr><td><code>Column()</code>, <code>Row()</code></td><td><code>arrangement</code>, <code>spacing</code>, <code>space_role</code>, <code>alignment</code>, <code>content</code></td></tr>
-          <tr><td><code>Box()</code></td><td><code>alignment</code>, <code>content</code></td></tr>
-          <tr><td><code>ScrollColumn()</code>, <code>ScrollRow()</code>, <code>Card()</code>, <code>Surface()</code>, <code>SelectionContainer()</code>, <code>Spacer()</code></td><td><code>modifier</code>, <code>content</code></td></tr>
-          <tr><td><code>Text(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, and one method per type axis</td></tr>
-          <tr><td><code>TextField()</code></td><td><code>text</code> (the starting text), <code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_value_change</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code></td></tr>
-          <tr><td><code>Button(label)</code></td><td><code>variant</code>, <code>kind</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>, <code>on_click</code>. An empty label with an icon is an icon button.</td></tr>
-          <tr><td><code>Checkbox(checked)</code>, <code>RadioButton(selected)</code>, <code>Switch(checked)</code></td><td><code>enabled</code>, <code>on_change</code></td></tr>
-          <tr><td><code>Slider(value)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code>, <code>on_change</code></td></tr>
-          <tr><td><code>Dropdown(selected_index)</code></td><td><code>enabled</code>, <code>on_change</code>; each child is one option</td></tr>
-          <tr><td><code>DatePicker(days)</code>, <code>TimePicker(minutes)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code>, <code>on_change</code></td></tr>
-          <tr><td><code>Chip(label)</code></td><td><code>selected</code>, <code>icon</code>, <code>enabled</code>, <code>on_click</code></td></tr>
-          <tr><td><code>ProgressIndicator(fraction)</code>, <code>IndeterminateProgressIndicator()</code></td><td><code>circular</code></td></tr>
-          <tr><td><code>Divider()</code>, <code>Separator(color)</code></td><td><code>vertical</code></td></tr>
-          <tr><td><code>TopAppBar()</code></td><td><code>title</code>, <code>content</code></td></tr>
-          <tr><td><code>Scaffold()</code></td><td><code>top_bar</code>, <code>bottom_bar</code>, <code>floating_action</code>, <code>content</code></td></tr>
-          <tr><td><code>Navigation(selected_index)</code>, <code>NavigationItem(label)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>; an item takes <code>icon</code>, <code>section</code>, <code>on_click</code></td></tr>
-          <tr><td><code>Tabs(selected_index)</code></td><td><code>content</code>; each child is one tab</td></tr>
-          <tr><td><code>Dialog(open)</code>, <code>Sheet(open)</code></td><td><code>on_dismiss</code>, <code>content</code></td></tr>
-          <tr><td><code>Menu(expanded)</code></td><td><code>anchor</code>, <code>on_dismiss</code>, <code>content</code></td></tr>
-          <tr><td><code>Popover(open)</code></td><td><code>anchor</code>, <code>placement</code>, <code>align</code>, <code>offset</code>, <code>scrim</code>, <code>on_dismiss</code>, <code>content</code>. Any content in a floating box on its anchor. The renderer keeps the box inside the window. The application owns <code>open</code>: a press outside or Escape only calls <code>on_dismiss</code>.</td></tr>
-          <tr><td><code>Tooltip(text)</code>, <code>Badge()</code></td><td><code>content</code>; a badge takes <code>value</code>, <code>text</code>, <code>color</code></td></tr>
-          <tr><td><code>FloatingAction(label)</code></td><td><code>icon</code>, <code>on_click</code></td></tr>
-          <tr><td><code>SplitPane()</code></td><td><code>value</code>, <code>min</code>, <code>max</code>, <code>collapsible</code>, <code>on_change</code>, <code>content</code> with exactly two children</td></tr>
-          <tr><td><code>FileDropTarget()</code></td><td><code>on_files_entered</code>, <code>on_files_dropped</code>, <code>content</code></td></tr>
-          <tr><td><code>LazyColumn()</code>, <code>LazyRow()</code>, <code>LazyGrid()</code></td><td><code>columns</code> or <code>min_column_width</code> for a grid, and <code>content(|list| ...)</code>. See <a href="lists-and-streaming.html#windowing">Lists &amp; streaming</a>.</td></tr>
-          <tr><td><code>Image(asset_id)</code>, <code>Icon(asset_id)</code></td><td><code>color</code></td></tr>
-          <tr><td><code>Canvas(draw_list)</code></td><td><code>modifier</code></td></tr>
-          <tr><td><code>LinearProgressIndicator(progress)</code></td><td>The extension widget. See <a href="#extensions">Extensions</a>.</td></tr>
+          <tr><td><code>Column!(..)</code>, <code>Row!(..)</code></td><td><code>arrangement</code>, <code>spacing</code>, <code>space_role</code>, <code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>Box!(..)</code></td><td><code>alignment</code>, <code>content</code></td></tr>
+          <tr><td><code>ScrollColumn!(..)</code>, <code>ScrollRow!(..)</code>, <code>Card!(..)</code>, <code>Surface!(..)</code>, <code>SelectionContainer!(..)</code>, <code>Spacer!(..)</code></td><td><code>modifier</code>, <code>content</code>. The two scroll containers also take <code>scroll_state</code>, from <code>remember_scroll_state()</code>: its <code>offset()</code>, <code>max_offset()</code> and <code>viewport_size()</code> are in dp along the axis they scroll on, and <code>scroll_to</code> moves them.</td></tr>
+          <tr><td><code>Text!(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, and one parameter per type axis</td></tr>
+          <tr><td><code>TextField!(text, on_value_change)</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code>. <code>text</code> is only the starting text.</td></tr>
+          <tr><td><code>Button!(label, on_click)</code></td><td><code>variant</code>, <code>kind</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>. An empty label with an icon is an icon button.</td></tr>
+          <tr><td><code>Checkbox!(checked, on_change)</code>, <code>RadioButton!(selected, on_change)</code>, <code>Switch!(checked, on_change)</code></td><td><code>enabled</code>. <code>Checkbox!</code> also takes <code>indeterminate</code> (a mixed box, drawn filled with a dash; a press asks for <code>true</code>) and <code>outline_color</code> (the box's border); its corners follow the modifier's <code>corner_radius</code>. A switch also takes <code>track_color</code>, <code>thumb_color</code>, <code>size</code>, <code>thumb_elevation</code> (a soft shadow under the thumb, in dp) and <code>track_border</code> (<code>(width, paint)</code>, a line around the track). Each one left out keeps the design system's look.</td></tr>
+          <tr><td><code>Slider!(value, on_change)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code></td></tr>
+          <tr><td><code>Dropdown!(selected_index, on_change)</code></td><td><code>enabled</code>; each child is one option</td></tr>
+          <tr><td><code>DatePicker!(days, on_change)</code>, <code>TimePicker!(minutes, on_change)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code></td></tr>
+          <tr><td><code>Chip!(label, on_click)</code></td><td><code>selected</code>, <code>icon</code>, <code>enabled</code></td></tr>
+          <tr><td><code>ProgressIndicator!(fraction)</code>, <code>IndeterminateProgressIndicator!()</code></td><td><code>circular</code></td></tr>
+          <tr><td><code>Divider!()</code>, <code>Separator!(color)</code></td><td><code>vertical</code></td></tr>
+          <tr><td><code>TopAppBar!(..)</code></td><td><code>title</code>, <code>content</code></td></tr>
+          <tr><td><code>Scaffold!(..)</code></td><td><code>top_bar</code>, <code>bottom_bar</code>, <code>floating_action</code>, <code>content</code></td></tr>
+          <tr><td><code>Navigation!(selected_index)</code>, <code>NavigationItem!(label, on_click)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>; an item takes <code>icon</code>, <code>section</code>, <code>count</code></td></tr>
+          <tr><td><code>Tabs!(selected_index)</code></td><td><code>content</code>; each child is one tab</td></tr>
+          <tr><td><code>Dialog!(open, on_dismiss)</code>, <code>Sheet!(open, on_dismiss)</code></td><td><code>content</code></td></tr>
+          <tr><td><code>Menu!(expanded, on_dismiss)</code></td><td><code>anchor</code>, <code>content</code></td></tr>
+          <tr><td><code>Popover!(open, on_dismiss)</code></td><td><code>anchor</code>, <code>placement</code>, <code>align</code>, <code>offset</code>, <code>scrim</code>, <code>content</code>. Any content in a floating box on its anchor. The renderer keeps the box inside the window. The application owns <code>open</code>: a press outside or Escape only calls <code>on_dismiss</code>.</td></tr>
+          <tr><td><code>Tooltip!(text)</code>, <code>Badge!(..)</code></td><td><code>content</code>; a badge takes <code>value</code>, <code>text</code>, <code>color</code></td></tr>
+          <tr><td><code>FloatingAction!(label, on_click)</code></td><td><code>icon</code></td></tr>
+          <tr><td><code>SplitPane!(on_change)</code></td><td><code>value</code>, <code>min</code>, <code>max</code>, <code>collapsible</code>, <code>content</code> with exactly two children</td></tr>
+          <tr><td><code>FileDropTarget!(on_files_dropped)</code></td><td><code>on_files_entered</code>, <code>content</code></td></tr>
+          <tr><td><code>LazyColumn!(..)</code>, <code>LazyRow!(..)</code>, <code>LazyGrid!(..)</code></td><td><code>columns</code> or <code>min_column_width</code> for a grid, and <code>content = |list| ...</code>. See <a href="lists-and-streaming.html#windowing">Lists &amp; streaming</a>.</td></tr>
+          <tr><td><code>Image!(asset_id)</code>, <code>Icon!(asset_id)</code></td><td><code>color</code></td></tr>
+          <tr><td><code>Canvas!(draw_list)</code></td><td><code>modifier</code></td></tr>
+          <tr><td><code>LinearProgressIndicator!(progress)</code></td><td>The extension widget. See <a href="#extensions">Extensions</a>.</td></tr>
         </tbody>
       </table>
     </div>
     <p>
-      Every one of them also takes <code>modifier(Modifier...)</code>. Each widget is used by at
+      Every one of them also takes <code>modifier = Modifier...</code>. Each widget is used by at
       least one of the <a href="getting-started.html#samples">samples</a>.
     </p>
 
@@ -363,6 +364,16 @@
       in Rust, because a size that changed every layout pass would run Rust code every layout pass.
       Before the first measurement the value is <code>Compact</code> at 0 by 0, because a
       one-column layout works at any width.
+    </p>
+    <p>
+      <strong>Your own breakpoints.</strong> When a screen changes shape at other widths than the
+      classes, <code>current_window_breakpoint(&amp;[560.0, 900.0, 1279.0])</code> returns which
+      bucket the window is in: how many of the breakpoints its width has reached, so a width
+      exactly on a breakpoint is in the bucket above it. The composable runs again only when the
+      bucket changes. It does not make the window report more often: to see a breakpoint that is
+      not a class edge as it is crossed, open the window with <code>report_size(true)</code>
+      (<code>Window::new().with_report_size(true)</code> for the single window), which costs a
+      call into Rust for every whole dp of a drag.
     </p>
     <p>
       <code>Navigation</code>, <code>Sheet</code> and <code>Scaffold</code> already adapt without

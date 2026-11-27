@@ -9,7 +9,7 @@
 //! the drawings read the sample's palette, and the tests below hold them to it.
 
 use crate::palette;
-use compose_rust::ui::next::{DrawList, DrawListBuilder, Paint, TypeRole};
+use compose_rust::ui::{DrawList, DrawListBuilder, Paint, TypeRole};
 
 /// Where the ticks start and stop, as a share of the dial's radius.
 const TICK_FROM: f32 = 0.73;

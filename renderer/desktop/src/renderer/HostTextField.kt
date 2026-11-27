@@ -64,6 +64,7 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.letterSpacingProp
+import dev.darkpyonix.composerust.ui.MultiLineText
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.textStyle
@@ -376,7 +377,9 @@ internal fun HostTextField(
     BasicTextField(
         value = value,
         onValueChange = applyValueChange,
-        modifier = if (readOnly) inputModifier.semantics { isEditable = false } else inputModifier,
+        modifier = (if (readOnly) inputModifier.semantics { isEditable = false } else inputModifier)
+            // A field of many lines is a text area to a reader.
+            .then(if (multiline) Modifier.semantics { this[MultiLineText] = true } else Modifier),
         enabled = enabled,
         readOnly = readOnly,
         singleLine = !multiline,

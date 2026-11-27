@@ -5,8 +5,8 @@
 //! more runs, and composes none of them itself.
 //!
 //! ```ignore
-//! LazyColumn().modifier(Modifier.fill_max_size()).content(|list| {
-//!     list.item(|| { Text("Header"); });
+//! LazyColumn!(modifier = Modifier.fill_max_size(), content = |list| {
+//!     list.item(|| { Text!("Header"); });
 //!     list.items_keyed(tasks.len(), move |index| ids[index].clone(), move |index| {
 //!         TaskRow(index);
 //!     });
@@ -93,7 +93,7 @@ enum Kind {
 }
 
 /// A lazy list and its builder.
-pub struct LazyList {
+pub(crate) struct LazyList {
     kind: Kind,
     modifier: Modifier,
     columns: Option<u32>,
@@ -103,18 +103,18 @@ pub struct LazyList {
 }
 
 /// A vertical list that composes only the items on screen. Compose's `LazyColumn`.
-pub fn LazyColumn() -> LazyList {
+pub(crate) fn LazyColumn() -> LazyList {
     LazyList::new(Kind::Column)
 }
 
 /// A horizontal list that composes only the items on screen. Compose's `LazyRow`.
-pub fn LazyRow() -> LazyList {
+pub(crate) fn LazyRow() -> LazyList {
     LazyList::new(Kind::Row)
 }
 
 /// A grid that composes only the rows on screen. Compose's `LazyVerticalGrid`; say how
 /// wide a column is with `columns` or `min_column_width`.
-pub fn LazyGrid() -> LazyList {
+pub(crate) fn LazyGrid() -> LazyList {
     LazyList::new(Kind::Grid)
 }
 
@@ -130,19 +130,19 @@ impl LazyList {
         }
     }
 
-    pub fn modifier(mut self, modifier: Modifier) -> Self {
+    pub(crate) fn modifier(mut self, modifier: Modifier) -> Self {
         self.modifier = modifier;
         self
     }
 
     /// A grid's fixed number of columns. Compose's `GridCells.Fixed`.
-    pub fn columns(mut self, columns: u32) -> Self {
+    pub(crate) fn columns(mut self, columns: u32) -> Self {
         self.columns = Some(columns);
         self
     }
 
     /// The narrowest a grid column may be. Compose's `GridCells.Adaptive`.
-    pub fn min_column_width(mut self, dp: f32) -> Self {
+    pub(crate) fn min_column_width(mut self, dp: f32) -> Self {
         self.min_column_width = Some(dp);
         self
     }
@@ -152,13 +152,16 @@ impl LazyList {
     /// nothing is reported. A run interrupted by a newer size is not reported, only
     /// the one that settles, and under reduced motion it arrives in the frame the
     /// size changes in.
-    pub fn on_motion_finished(mut self, handler: impl FnMut(MotionFinished) + 'static) -> Self {
+    pub(crate) fn on_motion_finished(
+        mut self,
+        handler: impl FnMut(MotionFinished) + 'static,
+    ) -> Self {
         self.on_motion_finished = Some(Box::new(handler));
         self
     }
 
     /// Composes the list with the items `build` declares.
-    pub fn content(mut self, build: impl FnOnce(&mut LazyListScope)) {
+    pub(crate) fn content(mut self, build: impl FnOnce(&mut LazyListScope)) {
         self.done = true;
         let mut scope = LazyListScope::default();
         build(&mut scope);

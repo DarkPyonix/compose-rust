@@ -17,7 +17,7 @@ use compose_rust::schema::{
     Chrome, ColorScheme, DesignSystem, EventPayload, LastWindowClosed, PropertyKind, Theme,
     TitleBar, WidgetKind, Window as WindowSettings, WindowHeightClass, WindowMode, WindowSizeClass,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, zoom};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -45,11 +45,7 @@ fn window_ids(batch: &[u8]) -> Vec<u32> {
 }
 
 fn event(node_id: u32, handler_id: u64, payload: EventPayload<'static>) -> HostEvent<'static> {
-    HostEvent {
-        node_id,
-        handler_id,
-        payload,
-    }
+    HostEvent::new(node_id, handler_id, payload)
 }
 
 // ----- a single window is what it was -------------------------------------------------
@@ -632,11 +628,7 @@ fn fr53_window_records_round_trip() {
         (0, 0, EventPayload::ApplicationReopen),
     ];
     for (node_id, handler_id, payload) in events {
-        let sent = HostEvent {
-            node_id,
-            handler_id,
-            payload,
-        };
+        let sent = HostEvent::new(node_id, handler_id, payload);
         let mut wire = Vec::new();
         encode_event(&sent, &mut wire).expect("the event encodes");
         assert_eq!(decode_event(&wire), Ok(sent.clone()), "{sent:?}");

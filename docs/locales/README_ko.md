@@ -40,7 +40,7 @@ compose-rust는 네 가지를 합친 것입니다.
 0.0.2 크레이트에 있는 것:
 
 - **작성 API.** `#[Composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
-  위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
+  위젯마다 하나씩인 함수와 호출 매크로입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
   그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
   `Modifier.animated_alpha`, `animated_background`, `animated_offset` 에 줍니다. 목표값이 바뀔 때마다
@@ -73,10 +73,9 @@ use compose_rust::ui::*;
 #[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
-    Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
-        Text(format!("Count: {}", count.get())).type_role(TypeRole::Title);
-        let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+    Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
+        Text!(format!("Count: {}", count.get()), type_role = TypeRole::Title);
+        Button!("Increment", move || count.update(|count| *count += 1));
     });
 }
 
@@ -85,8 +84,9 @@ fn main() {
 }
 ```
 
-위젯은 문장 하나입니다. `Text("Hello")`가 위젯을 기술하고, 그 메서드들이 Compose가 이름 붙은
-인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[Composable]`이 그룹을
+위젯은 문장 하나입니다. `Text!("Hello")`는 호출이 놓인 자리에 글을 구성합니다. 위젯마다 함수와
+같은 이름의 호출 매크로가 있습니다. 매크로는 위젯이 없으면 안 되는 것과 핸들러를 위치로, Compose가
+이름 붙은 인자로 받는 것을 `name = value`로, 컨테이너의 자식을 끝의 `{ ... }` 블록으로 받습니다. `#[Composable]`이 그룹을
 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다.
 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다. 나머지는
 [가이드](https://darkpyonix.dev/compose-rust/ko/writing-ui.html)에 있습니다.
@@ -203,10 +203,26 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 cargo add compose-rust@0.0.12
 ```
 
-`cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트의 정확한 버전에 맞는 릴리스 아티팩트를
-내려받아 함께 게시된 `.sha256`으로 확인한 뒤, `target/` 바깥의 캐시에 풀고 링크합니다. 설정할 환경
-변수도, 실행할 스크립트도 없습니다. 캐시는 버전과 대상으로 구분되므로 `cargo clean` 뒤에도 남고
-프로젝트끼리 공유됩니다.
+이 README의 프로그램은 0.0.12 다음 버전에 맞춰 쓰여 있습니다. 그 버전에서는 모든 위젯이 함수와
+호출 매크로(`Column!(..)`)입니다. 0.0.12로는 그대로 빌드되지 않습니다. 그 버전이 나오기 전까지는
+`develop` 브랜치에서 크레이트를 가져옵니다.
+
+```toml
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "develop" }
+```
+
+`cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트 버전의 릴리스 아티팩트를 내려받아 함께
+게시된 `.sha256`으로 확인한 뒤, `target/` 바깥의 캐시에 풀고 링크합니다. 설정할 환경 변수도, 실행할
+스크립트도 없습니다.
+
+맞아야 하는 것은 버전 번호가 아니라 크레이트가 생성된 스키마입니다. 모든 렌더러 아티팩트는 자기가
+어느 스키마로 빌드됐는지 적고 있고, 크레이트는 자기 스키마를 압니다. 릴리스 뒤의 git 리비전은 그
+릴리스의 버전을 그대로 둔 채 스키마가 바뀌므로, 릴리스의 렌더러가 다른 스키마로 빌드됐으면 빌드는
+`develop`이 크레이트의 스키마로 게시한 렌더러를 `renderer-dev` 릴리스에서 대신 받습니다. 둘 다 맞지
+않으면 빌드가 멈추고 크레이트의 스키마 해시, 각 렌더러의 해시, 시도한 두 주소를 알려 줍니다.
+
+캐시는 스키마 해시와 대상으로 구분되므로 `cargo clean` 뒤에도 남고, 프로젝트끼리 공유되며, 스키마가
+같은 크레이트 버전끼리도 공유됩니다. 한 버전의 두 리비전이 스키마가 다르면 같은 항목을 쓰지 않습니다.
 
 아티팩트가 정적 아카이브인 곳(0.0.2부터 macOS와 Linux)에서 `cargo build`가 내는 것은 **실행
 파일 하나**입니다. 렌더러, Compose, Skia, ICU가 그 안에 있고, 옆에 놓이는 것은 없으며, 불러오는 것은
@@ -219,6 +235,7 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 |---|---|
 | `COMPOSE_RUST_RENDERER_DIR` | 이 디렉터리의 렌더러를 씁니다. 풀어 둔 아티팩트나 렌더러 빌드가 쓴 디렉터리이고, 정적 아카이브든 공유 라이브러리든 들어 있는 쪽을 링크합니다. 가장 먼저 확인하고, 설정되어 있으면 아무것도 내려받지 않으므로 직접 빌드한 렌더러, 벤더링한 사본, 오프라인 빌드가 모두 이것으로 됩니다 |
 | `COMPOSE_RUST_CACHE_DIR` | 캐시 위치를 `$HOME/.cache/compose-rust`(Windows는 `%LOCALAPPDATA%\compose-rust`)에서 옮깁니다 |
+| `COMPOSE_RUST_RENDERER_URL` | `https://github.com/DarkPyonix/compose-rust/releases` 대신 이 주소에서 내려받습니다. 미러나 GitHub에 닿지 않는 CI 기계를 위한 것입니다. 두 렌더러 모두 그 아래에서 같은 경로(`download/v<version>/...`, `download/renderer-dev/...`)로 찾습니다 |
 
 `default-features = false`로 빌드하면 렌더러 없이 빌드되며, 헤드리스나 문서용 빌드에 씁니다. 그렇게
 빌드한 바이너리는 창 없이 조용히 끝나지 않고, 무엇이 빠졌는지 알린 뒤 0이 아닌 값으로 종료합니다.

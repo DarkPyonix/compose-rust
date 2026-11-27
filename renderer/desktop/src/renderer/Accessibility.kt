@@ -26,10 +26,14 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.node.NodeTable
 
 /** The two bits of one tri-state field in the `Semantics` state word. */
 private const val FIELD_MASK = 0b11
 private const val CHECKED_SHIFT = 0
+
+/** The checked field's fourth value: the node is mixed, neither checked nor unchecked. */
+private const val CHECKED_MIXED = 3
 private const val SELECTED_SHIFT = 2
 private const val EXPANDED_SHIFT = 4
 private const val DISABLED_SHIFT = 6
@@ -38,9 +42,42 @@ private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
 private const val FOCUS_ACTION_BIT = 1 shl 12
 private const val HAS_POPUP_BIT = 1 shl 13
+private const val MODAL_BIT = 1 shl 14
 
 /** Every bit the state word of a `Semantics` modifier may set. */
-internal const val SEMANTICS_STATE_MASK = (1 shl 14) - 1
+internal const val SEMANTICS_STATE_MASK = (1 shl 15) - 1
+
+/**
+ * Whether the Host made this node a modal with the modal bit, and did not hide it: while it
+ * is on screen, only what is inside it stays in the accessibility tree.
+ */
+internal fun Node.declaresModal(): Boolean {
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+        ?: return false
+    return declared.state and MODAL_BIT != 0 && declared.state and HIDDEN_BIT == 0
+}
+
+/**
+ * The name of the option a combobox points at with its `ActiveDescendant` property, or null
+ * when it points at none or at an id no node has. The option's accessible name, or else the
+ * text of the option and everything under it, in tree order.
+ */
+internal fun NodeTable.activeOptionName(combobox: Node): String? {
+    val id = combobox.handler(PropertyKind.ActiveDescendant)?.toInt()?.takeIf { it != 0 } ?: return null
+    val option = node(id) ?: return null
+    option.text(PropertyKind.AccessibleName).takeIf { it.isNotEmpty() }?.let { return it }
+    val parts = ArrayList<String>()
+    fun collect(current: Node, depth: Int) {
+        current.text(PropertyKind.Text).takeIf { it.isNotEmpty() }?.let { parts += it }
+        if (depth >= MAX_NAME_DEPTH) return
+        for (child in current.children) node(child)?.let { collect(it, depth + 1) }
+    }
+    collect(option, 0)
+    return parts.joinToString(" ").takeIf { it.isNotEmpty() }
+}
+
+/** How deep under an option its name is looked for: an option is a row, not a page. */
+private const val MAX_NAME_DEPTH = 8
 
 /**
  * Whether the Host asked for this node to offer a focus action to assistive technology.
@@ -67,6 +104,14 @@ internal fun Node.isDeclaredSelected(): Boolean {
 internal fun Node.declaredSemanticsRole(): SemanticsRole? {
     val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
     return declared?.role?.takeIf { it != SemanticsRole.None }
+}
+
+/** The checked field of the state word: unset, off, on or mixed. */
+private fun Int.checkedField(): ToggleableState? = when ((this shr CHECKED_SHIFT) and FIELD_MASK) {
+    1 -> ToggleableState.Off
+    2 -> ToggleableState.On
+    CHECKED_MIXED -> ToggleableState.Indeterminate
+    else -> null
 }
 
 /** A field of the state word: unset, off or on. */
@@ -100,6 +145,9 @@ private fun SemanticsRole.word(): String? = when (this) {
     SemanticsRole.List -> "list"
     SemanticsRole.ListItem -> "listitem"
     SemanticsRole.Group -> "group"
+    SemanticsRole.ComboBox -> "combobox"
+    SemanticsRole.ListBox -> "listbox"
+    SemanticsRole.Option -> "option"
     else -> null
 }
 
@@ -110,13 +158,15 @@ private fun SemanticsRole.word(): String? = when (this) {
  */
 internal fun SemanticsRole.isContainer(): Boolean = when (this) {
     SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.Group,
-    SemanticsRole.TabList, SemanticsRole.Tree, SemanticsRole.Navigation -> true
+    SemanticsRole.TabList, SemanticsRole.Tree, SemanticsRole.Navigation,
+    SemanticsRole.ListBox -> true
     else -> false
 }
 
 /** Whether a reader is told how many items a container with this role holds, as a list is. */
 private fun SemanticsRole.countsItems(): Boolean = when (this) {
-    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.TabList, SemanticsRole.Tree -> true
+    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.TabList, SemanticsRole.Tree,
+    SemanticsRole.ListBox -> true
     else -> false
 }
 
@@ -139,6 +189,15 @@ internal val DeclaredExpanded = SemanticsPropertyKey<Boolean>(
     mergePolicy = { parent, _ -> parent },
 )
 
+/**
+ * Whether an editable node takes more than one line: a multi-line text field or the code
+ * editor. A window tells a reader it is a text area rather than a one-line field.
+ */
+internal val MultiLineText = SemanticsPropertyKey<Boolean>(
+    name = "ComposeRustMultiLineText",
+    mergePolicy = { parent, _ -> parent },
+)
+
 /** Whether the Host declared that the node opens a popup. */
 internal val DeclaredHasPopup = SemanticsPropertyKey<Boolean>(
     name = "ComposeRustDeclaredHasPopup",
@@ -146,18 +205,32 @@ internal val DeclaredHasPopup = SemanticsPropertyKey<Boolean>(
 )
 
 /**
- * What a node's state description says about its declared [role], [expanded] state and
- * whether it [hasPopup], for a reader that has no other way to hear them. A window that names
- * them natively leaves this text out, so the reader does not hear the role twice.
+ * The name of the option a combobox points at (its `ActiveDescendant`). Compose has no
+ * relation from one node to another for a reader to follow, so the name is what travels: it
+ * ends the combobox's state description, and a window that names the role itself gives it
+ * as the combobox's value.
+ */
+internal val DeclaredActiveOption = SemanticsPropertyKey<String>(
+    name = "ComposeRustDeclaredActiveOption",
+    mergePolicy = { parent, _ -> parent },
+)
+
+/**
+ * What a node's state description says about its declared [role], [expanded] state, whether
+ * it [hasPopup], and the [activeOption] a combobox points at, for a reader that has no other
+ * way to hear them. A window that names them natively leaves this text out, so the reader
+ * does not hear the role twice.
  */
 internal fun declaredStateDescription(
     role: SemanticsRole?,
     expanded: Boolean?,
     hasPopup: Boolean = false,
+    activeOption: String? = null,
 ): String? = listOfNotNull(
     role?.word(),
     expanded?.let { if (it) "expanded" else "collapsed" },
     if (hasPopup) "has popup" else null,
+    activeOption,
 ).joinToString(", ").takeIf { it.isNotEmpty() }
 
 /**
@@ -177,6 +250,7 @@ internal fun Modifier.accessibility(
     dispatcher: EventDispatcher? = null,
     clickHandlerId: Long? = null,
     onFocusAction: (() -> Boolean)? = null,
+    activeOption: String? = null,
 ): Modifier {
     val name = node.text(PropertyKind.AccessibleName).takeIf { it.isNotEmpty() }
     val declared = node.modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
@@ -184,7 +258,7 @@ internal fun Modifier.accessibility(
     val state = declared?.state ?: 0
     val declaredRole = declared?.role
     val role = declaredRole?.toRole()
-    val checked = state.field(CHECKED_SHIFT)
+    val checked = state.checkedField()
     val selected = state.field(SELECTED_SHIFT)
     val expanded = state.field(EXPANDED_SHIFT)
     val isDisabled = state.field(DISABLED_SHIFT)
@@ -194,7 +268,9 @@ internal fun Modifier.accessibility(
     val isHeading = declaredRole == SemanticsRole.Heading
     val isTextBox = declaredRole == SemanticsRole.TextBox
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
-    val description = declaredStateDescription(declaredRole, expanded, hasPopup)
+    // Only a combobox points at an option; the property on any other node says nothing.
+    val pointedAt = activeOption.takeIf { declaredRole == SemanticsRole.ComboBox }
+    val description = declaredStateDescription(declaredRole, expanded, hasPopup, pointedAt)
     // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
@@ -209,7 +285,8 @@ internal fun Modifier.accessibility(
         if (declaredRole != null && declaredRole != SemanticsRole.None) this[DeclaredRole] = declaredRole
         if (expanded != null) this[DeclaredExpanded] = expanded
         if (hasPopup) this[DeclaredHasPopup] = true
-        if (checked != null) toggleableState = ToggleableState(checked)
+        if (pointedAt != null) this[DeclaredActiveOption] = pointedAt
+        if (checked != null) toggleableState = checked
         if (selected != null) this.selected = selected
         if (isDisabled == true) disabled()
         if (focused != null) this.focused = focused

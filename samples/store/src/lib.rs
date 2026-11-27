@@ -20,7 +20,7 @@ use catalogue::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 /// How wide the page is once the window is wider than a phone. A phone design in a desktop
@@ -298,13 +298,14 @@ fn carousel(slide: MutableState<usize>) {
     let showing = slide.get() % FEATURED;
     let picture = catalogue::featured()[showing];
     let scene = picture == catalogue::HERO;
+    let turn = slide;
     Box!(
         modifier = Modifier
             .fill_max_width()
             .height(CAROUSEL_HEIGHT + CAROUSEL_RISE),
         alignment = Alignment::BottomCenter,
+        on_click = Some(move || turn.set((turn.get_untracked() + 1) % FEATURED)),
         {
-            let turn = slide;
             Box!(
                 modifier = Modifier
                     .fill_max_width()
@@ -312,7 +313,6 @@ fn carousel(slide: MutableState<usize>) {
                     .background(palette::TILE)
                     .shape_role(ShapeRole::Large),
                 alignment = Alignment::Center,
-                on_click = Some(move || turn.set((turn.get_untracked() + 1) % FEATURED)),
                 {
                     if !scene {
                         Image!(
@@ -600,135 +600,143 @@ fn detail_screen(
 
             Column!(modifier = Modifier.fill_max_size(), {
                 Spacer!(modifier = Modifier.height(HERO_HEIGHT - PANEL_OVERLAP));
-                Column!(
+                ScrollColumn!(
                     modifier = Modifier
                         .fill_max_width()
                         .weight(1.0)
                         .background(palette::PAGE)
-                        .corner_radii([PANEL_CORNER, PANEL_CORNER, 0.0, 0.0])
-                        .padding_role(SpaceRole::Md),
-                    space_role = SpaceRole::Md,
+                        .corner_radii([PANEL_CORNER, PANEL_CORNER, 0.0, 0.0]),
                     {
-                        Box!(
-                            modifier = Modifier.fill_max_width(),
-                            alignment = Alignment::Center,
+                        Column!(
+                            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                            space_role = SpaceRole::Md,
                             {
                                 Box!(
-                                    modifier = Modifier
-                                        .size(GRABBER.0, GRABBER.1)
-                                        .background(palette::DOT)
-                                        .shape_role(ShapeRole::Full)
-                                );
-                            }
-                        );
-                        Column!(
-                            modifier = Modifier.fill_max_width(),
-                            space_role = SpaceRole::Xs,
-                            {
-                                Text!(
-                                    product.name,
-                                    type_role = TypeRole::Headline,
-                                    color = palette::INK
-                                );
-                                Text!(
-                                    product.support,
-                                    type_role = TypeRole::Body,
-                                    color = palette::MUTED
-                                );
-                                Row!(
-                                    space_role = SpaceRole::Sm,
-                                    alignment = Alignment::CenterStart,
+                                    modifier = Modifier.fill_max_width(),
+                                    alignment = Alignment::Center,
                                     {
-                                        // Two runs of the same star in two inks,
-                                        // so the one the rating does not reach is
-                                        // grey rather than hollow.
-                                        Row!(alignment = Alignment::CenterStart, {
-                                            if !lit.is_empty() {
-                                                Text!(
-                                                    lit.as_str(),
-                                                    type_role = TypeRole::Caption,
-                                                    color = palette::INK
-                                                );
-                                            }
-                                            if !unlit.is_empty() {
-                                                Text!(
-                                                    unlit.as_str(),
-                                                    type_role = TypeRole::Caption,
-                                                    color = palette::FAINT
-                                                );
-                                            }
-                                        });
-                                        Text!(
-                                            format!("({})", catalogue::rating_text(rating)),
-                                            type_role = TypeRole::Label,
-                                            color = palette::MUTED
+                                        Box!(
+                                            modifier = Modifier
+                                                .size(GRABBER.0, GRABBER.1)
+                                                .background(palette::DOT)
+                                                .shape_role(ShapeRole::Full)
                                         );
                                     }
                                 );
-                            }
-                        );
-
-                        Column!(
-                            modifier = Modifier.fill_max_width(),
-                            space_role = SpaceRole::Sm,
-                            {
-                                Text!(
-                                    "Select size",
-                                    type_role = TypeRole::Label,
-                                    color = palette::MUTED
-                                );
-                                Row!(space_role = SpaceRole::Md, {
-                                    for option in SIZES {
-                                        key(option, || size_chip(option, chosen, size));
+                                Column!(
+                                    modifier = Modifier.fill_max_width(),
+                                    space_role = SpaceRole::Xs,
+                                    {
+                                        Text!(
+                                            product.name,
+                                            type_role = TypeRole::Headline,
+                                            color = palette::INK
+                                        );
+                                        Text!(
+                                            product.support,
+                                            type_role = TypeRole::Body,
+                                            color = palette::MUTED
+                                        );
+                                        Row!(
+                                            space_role = SpaceRole::Sm,
+                                            alignment = Alignment::CenterStart,
+                                            {
+                                                // Two runs of the same star in two inks,
+                                                // so the one the rating does not reach is
+                                                // grey rather than hollow.
+                                                Row!(alignment = Alignment::CenterStart, {
+                                                    if !lit.is_empty() {
+                                                        Text!(
+                                                            lit.as_str(),
+                                                            type_role = TypeRole::Caption,
+                                                            color = palette::INK
+                                                        );
+                                                    }
+                                                    if !unlit.is_empty() {
+                                                        Text!(
+                                                            unlit.as_str(),
+                                                            type_role = TypeRole::Caption,
+                                                            color = palette::FAINT
+                                                        );
+                                                    }
+                                                });
+                                                Text!(
+                                                    format!("({})", catalogue::rating_text(rating)),
+                                                    type_role = TypeRole::Label,
+                                                    color = palette::MUTED
+                                                );
+                                            }
+                                        );
                                     }
-                                });
-                            }
-                        );
+                                );
 
-                        Row!(
-                            modifier = Modifier.fill_max_width(),
-                            space_role = SpaceRole::Md,
-                            alignment = Alignment::CenterStart,
-                            {
-                                let fewer = quantity;
-                                step_button(
-                                    "\u{2212}",
-                                    false,
-                                    Rc::new(move || {
-                                        fewer.set(fewer.get_untracked().saturating_sub(1).max(1))
-                                    }),
+                                Column!(
+                                    modifier = Modifier.fill_max_width(),
+                                    space_role = SpaceRole::Sm,
+                                    {
+                                        Text!(
+                                            "Select size",
+                                            type_role = TypeRole::Label,
+                                            color = palette::MUTED
+                                        );
+                                        Row!(space_role = SpaceRole::Md, {
+                                            for option in SIZES {
+                                                key(option, || size_chip(option, chosen, size));
+                                            }
+                                        });
+                                    }
                                 );
-                                Text!(
-                                    count.to_string(),
-                                    type_role = TypeRole::Subtitle,
-                                    color = palette::INK
+
+                                Row!(
+                                    modifier = Modifier.fill_max_width(),
+                                    space_role = SpaceRole::Md,
+                                    alignment = Alignment::CenterStart,
+                                    {
+                                        let fewer = quantity;
+                                        step_button(
+                                            "\u{2212}",
+                                            false,
+                                            Rc::new(move || {
+                                                fewer.set(
+                                                    fewer.get_untracked().saturating_sub(1).max(1),
+                                                )
+                                            }),
+                                        );
+                                        Text!(
+                                            count.to_string(),
+                                            type_role = TypeRole::Subtitle,
+                                            color = palette::INK
+                                        );
+                                        let more = quantity;
+                                        step_button(
+                                            "+",
+                                            true,
+                                            Rc::new(move || {
+                                                more.set((more.get_untracked() + 1).min(9))
+                                            }),
+                                        );
+                                        Spacer!(modifier = Modifier.weight(1.0));
+                                        Text!(
+                                            line_total.as_str(),
+                                            type_role = TypeRole::Headline,
+                                            color = palette::INK
+                                        );
+                                    }
                                 );
-                                let more = quantity;
-                                step_button(
-                                    "+",
-                                    true,
-                                    Rc::new(move || more.set((more.get_untracked() + 1).min(9))),
-                                );
-                                Spacer!(modifier = Modifier.weight(1.0));
-                                Text!(
-                                    line_total.as_str(),
-                                    type_role = TypeRole::Headline,
-                                    color = palette::INK
+
+                                let add = Rc::clone(&on_add);
+                                Button!(
+                                    "Add to Bag",
+                                    move || add(),
+                                    modifier = Modifier
+                                        .fill_max_width()
+                                        .height(PILL_HEIGHT)
+                                        .background(palette::DARK)
+                                        .shape_role(ShapeRole::Full),
+                                    variant = ButtonVariant::Text,
+                                    color = palette::PAGE
                                 );
                             }
-                        );
-
-                        let add = Rc::clone(&on_add);
-                        Button!(
-                            "Add to Bag",
-                            move || add(),
-                            modifier = Modifier
-                                .fill_max_width()
-                                .height(PILL_HEIGHT)
-                                .background(palette::DARK)
-                                .shape_role(ShapeRole::Full),
-                            variant = ButtonVariant::Text,
-                            color = palette::PAGE
                         );
                     }
                 );
@@ -743,6 +751,7 @@ fn detail_screen(
                         "",
                         move || back(),
                         icon = IconRole::Back,
+                        accessible_name = "Back",
                         variant = ButtonVariant::Text,
                         color = palette::INK,
                         modifier = Modifier.size(ICON_TAP, ICON_TAP)
@@ -947,6 +956,18 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
 /// Search, which is a field and the shelves as a list.
 #[Composable]
 fn search_screen(on_open: Rc<dyn Fn(u32)>) {
+    let query = remember(|| mutable_state_of(String::new()));
+    let current = query.get();
+    let needle = current.trim().to_ascii_lowercase();
+    let matches: Vec<&'static Product> = CATALOGUE
+        .iter()
+        .filter(|product| {
+            needle.is_empty()
+                || product.name.to_ascii_lowercase().contains(&needle)
+                || product.support.to_ascii_lowercase().contains(&needle)
+        })
+        .collect();
+
     Column!(
         modifier = Modifier
             .fill_max_width()
@@ -959,9 +980,10 @@ fn search_screen(on_open: Rc<dyn Fn(u32)>) {
                 type_role = TypeRole::Headline,
                 color = palette::INK
             );
+            let edit = query;
             TextField!(
-                "",
-                |_| {},
+                current.as_str(),
+                move |value| edit.set(value),
                 modifier = Modifier.fill_max_width(),
                 placeholder = "T-shirts, joggers, jackets"
             );
@@ -969,7 +991,7 @@ fn search_screen(on_open: Rc<dyn Fn(u32)>) {
                 modifier = Modifier.fill_max_width(),
                 space_role = SpaceRole::Sm,
                 {
-                    for product in CATALOGUE.iter() {
+                    for product in matches {
                         key(product.id, || {
                             Row!(
                                 modifier = Modifier.fill_max_width(),
@@ -1142,8 +1164,11 @@ pub fn app() {
     });
 
     let on_open: Rc<dyn Fn(u32)> = {
-        let (destination, open) = (destination, open);
+        let (destination, open, quantity) = (destination, open, quantity);
         Rc::new(move |id: u32| {
+            if open.get_untracked() != Some(id) {
+                quantity.set(1);
+            }
             destination.set(Destination::Shop);
             open.set(Some(id));
         })
@@ -1206,11 +1231,17 @@ pub fn app() {
         }),
         {
             Box!(
-                modifier = Modifier.weight(1.0),
+                modifier = Modifier.fill_max_size(),
                 alignment = Alignment::TopCenter,
                 {
                     if !full_screen {
-                        ScrollColumn!(modifier = Modifier.width_if(measure), content = body);
+                        ScrollColumn!(
+                            modifier = Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none())
+                                .fill_max_height(),
+                            content = body
+                        );
                     } else {
                         // A column with no width of its own is as wide as its widest child at
                         // that child's narrowest, which for the first screen is one word of its
@@ -1218,7 +1249,8 @@ pub fn app() {
                         Column!(
                             modifier = Modifier
                                 .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
+                                .fill_max_width_if(measure.is_none())
+                                .fill_max_height(),
                             content = body
                         );
                     }
@@ -1386,10 +1418,10 @@ mod tests {
         }
 
         fn resize(&mut self, width_dp: f32) {
-            self.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            self.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 780.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1399,7 +1431,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
         }
 
         fn send(&mut self, event: HostEvent<'_>) {
@@ -1561,11 +1593,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1593,11 +1621,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1707,14 +1731,14 @@ mod tests {
             };
             assert_eq!(lists.len(), 1, "the catalogue should have one strip");
             for (node_id, handler_id) in lists {
-                self.send(HostEvent {
+                self.send(HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::RangeRequested {
+                    EventPayload::RangeRequested {
                         start: 0,
                         count: Category::STRIP.len() as u32,
                     },
-                });
+                ));
             }
         }
 
@@ -2061,10 +2085,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -2074,7 +2098,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");
@@ -2469,6 +2493,66 @@ mod tests {
                     && face.contains(&Modifier::Background(palette::TILE))
             }),
             "the grey card is not under the scene"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Typing into the search field filters the catalogue case-insensitively by both
+    /// product name and support line.
+    #[test]
+    fn search_filters_catalogue_by_name_and_support() {
+        let mut screen = Screen::new();
+        assert!(
+            screen.press_icon(Destination::Search.icon()),
+            "the bar has no icon for Search"
+        );
+        let field = screen
+            .live()
+            .iter()
+            .rev()
+            .find_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::TextField,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .expect("search screen has no text field");
+
+        let handler = screen
+            .integer_prop(field, PropertyKind::OnValueChange)
+            .expect("search field has no change handler") as u64;
+        screen.send(HostEvent::new(
+            field,
+            handler,
+            EventPayload::TextChanged("jogger"),
+        ));
+        let texts = screen.live_texts();
+        assert!(
+            texts.iter().any(|text| text == "Flex Jogger"),
+            "search by name did not keep Flex Jogger"
+        );
+        assert!(
+            !texts.iter().any(|text| text == "Swoosh T-Shirt"),
+            "search by name did not filter out non-matching products"
+        );
+
+        let handler = screen
+            .integer_prop(field, PropertyKind::OnValueChange)
+            .expect("search field lost its change handler") as u64;
+        screen.send(HostEvent::new(
+            field,
+            handler,
+            EventPayload::TextChanged("JACKET"),
+        ));
+        let texts = screen.live_texts();
+        assert!(
+            texts.iter().any(|text| text == "Windrunner"),
+            "search by support did not keep Windrunner"
+        );
+        assert!(
+            !texts.iter().any(|text| text == "Flex Jogger"),
+            "search by support did not filter out Flex Jogger"
         );
         compose_rust::window::reset_window_size();
     }

@@ -473,6 +473,8 @@ fn nfr14_a_workspace_static_build_comes_before_the_native_image() {
             crate_version: SAMPLE_VERSION,
             target: SAMPLE_TARGET,
             target_os: SAMPLE_TARGET_OS,
+            crate_schema_hash: None,
+            release_base_url: None,
             fetch: None,
         })
     };
@@ -526,6 +528,8 @@ fn nfr14_a_windows_workspace_kit_is_static() {
         crate_version: SAMPLE_VERSION,
         target: WINDOWS_TARGET,
         target_os: WINDOWS_OS,
+        crate_schema_hash: None,
+        release_base_url: None,
         fetch: None,
     })
     .expect("the kit is there");
@@ -861,6 +865,8 @@ fn nfr11_a_renderer_built_in_the_workspace_is_named_after_where_it_sits() {
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
         target_os: "macos",
+        crate_schema_hash: None,
+        release_base_url: None,
         fetch: None,
     })
     .expect("the workspace has a renderer in it");
@@ -890,6 +896,8 @@ fn nfr10_a_renderer_the_variable_points_at_is_named_after_where_it_sits() {
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
         target_os: "macos",
+        crate_schema_hash: None,
+        release_base_url: None,
         fetch: None,
     })
     .expect("the variable points at a renderer");
@@ -951,6 +959,8 @@ fn nfr11_a_renderer_that_already_answers_to_its_location_is_left_alone() {
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
         target_os: "macos",
+        crate_schema_hash: None,
+        release_base_url: None,
         fetch: None,
     });
 
@@ -1168,6 +1178,46 @@ fn nfr11_no_message_names_a_file_that_is_not_in_the_repository() {
     );
 }
 
+/// A message may name one of this repository's build scripts only as something to run in a
+/// checkout of the repository. The published crate carries none of
+/// them, so "run renderer/desktop/scripts/build-windows.sh" alone is a dead end for an
+/// application that depends on compose-rust; the message has to say where the script is
+/// and what to do without one.
+#[test]
+fn nfr10_a_message_names_a_build_script_only_with_the_repository_it_is_in() {
+    let temp = TempDir::new("script-messages");
+    let mut messages = every_failure_message(temp.path());
+    messages.push(compose_rust::boundary::no_renderer_message());
+
+    let mut named = 0;
+    for message in &messages {
+        let names_script = message
+            .split_whitespace()
+            .filter_map(repository_path)
+            .any(|path| {
+                ["sh", "ps1", "py"]
+                    .iter()
+                    .any(|ext| Path::new(path).extension().is_some_and(|e| e == *ext))
+            });
+        if !names_script {
+            continue;
+        }
+        named += 1;
+        // Messages are wrapped at about 90 columns, so compare the words, not the lines.
+        let words = message.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            words.contains("checkout of the compose-rust repository")
+                && words.contains(renderer_dir::REPOSITORY_URL),
+            "this message sends someone to a build script without saying it is only in a \
+             checkout of the repository:\n\n{message}"
+        );
+    }
+    assert!(
+        named > 0,
+        "no message named a build script, so this test proved nothing"
+    );
+}
+
 /// A token out of a message that is meant to be a path in this repository.
 ///
 /// Absolute paths are someone's cache or home directory, `http` is a link, and a
@@ -1300,6 +1350,8 @@ fn acquire_for(
         crate_version: SAMPLE_VERSION,
         target,
         target_os,
+        crate_schema_hash: None,
+        release_base_url: None,
         fetch: match fetch {
             Network::Forbidden => None,
             Network::Allowed(fetch) => Some(fetch),
@@ -1831,7 +1883,7 @@ fn fr26_bold_and_link_runs_encode_distinct_styles_and_only_the_link_carries_a_ha
             .with_color(Paint::Role(ColorRole::Primary));
         link.on_click = Some(7);
         let spans = TextSpans::new([TextSpan::new(0, 4).bold(), link]);
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("bold link", spans = spans);
     });
     let wire = host.rebuild().expect("the batch encodes").to_vec();
@@ -1903,7 +1955,7 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
     let content = mutable_state_of("hello".to_owned());
     let state = content;
     let mut host = ComposeHost::with_content(move || {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!(state.get());
     });
     let initial = host.rebuild().expect("the initial batch encodes").to_vec();
@@ -1926,7 +1978,7 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
     assert_eq!(records_of(&initial, PropertyKind::Spans), 0);
 
     let mut empty_host = ComposeHost::with_content(|| {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("hello", spans = TextSpans::new(Vec::<TextSpan>::new()));
     });
     let empty_initial = empty_host
@@ -2140,4 +2192,651 @@ fn fr19_the_build_applies_the_keyboard_resize_to_the_manifest() {
         chrome.contains("SOFT_INPUT_ADJUST_RESIZE"),
         "an application with its own Activity and manifest still gets a window that resizes"
     );
+}
+
+// -------------------------------------------------------------------------------------
+// Finding the renderer by schema hash
+// -------------------------------------------------------------------------------------
+
+use renderer_dir::{
+    RELEASE_BASE_URL, RENDERER_URL_ENV, SCHEMA_RELEASE_TAG, lookup_plan, release_base_url,
+    schema_artifact_file_name, schema_artifact_url, schema_cached_renderer_dir,
+    schema_hash_in_file_names, schema_hash_in_messages, version_artifact_url,
+};
+use std::cell::RefCell;
+
+/// The schema the crate under test was generated from.
+const CRATE_HASH: &str = "0x62b9a55ed371acad";
+/// The schema the release for [`SAMPLE_VERSION`] was built from, when it is not the crate's.
+const RELEASED_HASH: &str = "0x284215b3caced78f";
+/// A third schema, for a renderer that matches neither.
+const THIRD_HASH: &str = "0x2106ffd038ad189b";
+
+/// The name a renderer published for a schema carries, from any spelling of the hash.
+#[test]
+fn nfr16_schema_artifact_name_from_hash() {
+    let expected = "compose-rust-renderer-schema-62b9a55ed371acad-macos-aarch64.tar.gz";
+    for spelling in [
+        "0x62b9a55ed371acad",
+        "62b9a55ed371acad",
+        "0X62B9A55ED371ACAD",
+        "62B9A55ED371ACAD",
+        "0x62b9a55ed371acad\n",
+    ] {
+        assert_eq!(
+            schema_artifact_file_name(spelling, "macos-aarch64"),
+            expected,
+            "{spelling:?} is the same hash and has to name the same file"
+        );
+    }
+    assert_eq!(SCHEMA_RELEASE_TAG, "renderer-dev");
+    assert_eq!(
+        schema_artifact_url(RELEASE_BASE_URL, expected),
+        format!(
+            "https://github.com/DarkPyonix/compose-rust/releases/download/renderer-dev/{expected}"
+        )
+    );
+}
+
+/// The release for the crate version is asked first, and the renderer published for the
+/// crate's schema only when that release was built from another schema. A renderer
+/// directory that is set means neither is asked for anything.
+#[test]
+fn nfr16_fallback_order() {
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let schema_artifact = schema_artifact_file_name(CRATE_HASH, SAMPLE_TARGET);
+    let version_url = version_artifact_url(RELEASE_BASE_URL, SAMPLE_VERSION, &version_artifact);
+    let schema_url = schema_artifact_url(RELEASE_BASE_URL, &schema_artifact);
+
+    // The release for this version was built from this crate's schema: it is used, and the
+    // schema release is not asked for anything.
+    {
+        let temp = TempDir::new("schema-order-version");
+        let release = temp.path().join("release");
+        let server = Server::new(vec![
+            (
+                version_url.clone(),
+                schema_fixture(&release, &version_artifact, Some(CRATE_HASH)),
+            ),
+            (
+                schema_url.clone(),
+                schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+            ),
+        ]);
+        let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+        let renderer = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+            .expect("the release for this version matches");
+        assert_eq!(renderer.source, RendererSource::Download);
+        assert!(!renderer.schema_release);
+        assert_eq!(
+            server.asked(),
+            vec![version_url.clone(), format!("{version_url}.sha256")],
+            "a matching version release costs no further request"
+        );
+        assert!(renderer.lib_dir.starts_with(schema_cached_renderer_dir(
+            &temp.path().join("cache"),
+            CRATE_HASH,
+            SAMPLE_TARGET
+        )));
+    }
+
+    // The release was built from another schema: the renderer published for this one is
+    // asked for next, and is the one linked.
+    {
+        let temp = TempDir::new("schema-order-schema");
+        let release = temp.path().join("release");
+        let server = Server::new(vec![
+            (
+                version_url.clone(),
+                schema_fixture(&release, &version_artifact, Some(RELEASED_HASH)),
+            ),
+            (
+                schema_url.clone(),
+                schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+            ),
+        ]);
+        let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+        let renderer = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+            .expect("the renderer published for this schema matches");
+        assert_eq!(renderer.source, RendererSource::Download);
+        assert!(renderer.schema_release);
+        assert_eq!(
+            server.asked(),
+            vec![
+                version_url.clone(),
+                format!("{version_url}.sha256"),
+                schema_url.clone(),
+                format!("{schema_url}.sha256"),
+            ]
+        );
+        let cache = temp.path().join("cache");
+        assert!(renderer.lib_dir.starts_with(schema_cached_renderer_dir(
+            &cache,
+            CRATE_HASH,
+            SAMPLE_TARGET
+        )));
+        // The release's renderer is still right for its own schema, and kept under it.
+        assert!(
+            schema_cached_renderer_dir(&cache, RELEASED_HASH, SAMPLE_TARGET).is_dir(),
+            "the release's renderer was thrown away rather than kept under its schema"
+        );
+
+        // And the next build is a cache hit that asks for nothing.
+        let again = acquire_with_schema(&temp, None, CRATE_HASH, None, None).expect("now cached");
+        assert_eq!(again.source, RendererSource::Cache);
+        assert_eq!(again.lib_dir, renderer.lib_dir);
+    }
+
+    // The variable is set: nothing is asked for at all.
+    {
+        let temp = TempDir::new("schema-order-env");
+        let release = temp.path().join("release");
+        let server = Server::new(vec![
+            (
+                version_url.clone(),
+                schema_fixture(&release, &version_artifact, Some(RELEASED_HASH)),
+            ),
+            (
+                schema_url.clone(),
+                schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+            ),
+        ]);
+        let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+        let pointed_at = hashed_tree(&temp.path().join("vendored"), Some(CRATE_HASH));
+        let renderer =
+            acquire_with_schema(&temp, Some(&pointed_at), CRATE_HASH, None, Some(&fetch))
+                .expect("the variable is set");
+        assert_eq!(renderer.source, RendererSource::Environment);
+        assert!(server.asked().is_empty(), "asked for {:?}", server.asked());
+    }
+}
+
+/// Two builds of one crate version with different schemas use different cache entries,
+/// and neither reads the other's as a hit. One schema shared by two versions is one entry.
+#[test]
+fn nfr16_cache_key_is_schema_hash() {
+    let root = Path::new("/cache");
+    let for_crate = schema_cached_renderer_dir(root, CRATE_HASH, SAMPLE_TARGET);
+    assert_eq!(
+        for_crate,
+        Path::new("/cache/renderer/schema-62b9a55ed371acad/linux-x64")
+    );
+    assert_ne!(
+        for_crate,
+        schema_cached_renderer_dir(root, RELEASED_HASH, SAMPLE_TARGET)
+    );
+    assert_ne!(
+        for_crate,
+        schema_cached_renderer_dir(root, CRATE_HASH, "linux-arm64")
+    );
+    assert_eq!(
+        lookup_plan(RELEASE_BASE_URL, root, "0.1.0", CRATE_HASH, SAMPLE_TARGET).cache_dir,
+        lookup_plan(RELEASE_BASE_URL, root, "0.2.0", CRATE_HASH, SAMPLE_TARGET).cache_dir,
+        "the version is not part of the key"
+    );
+
+    // One version, two schemas, and the cache holds a renderer for the first.
+    let temp = TempDir::new("schema-cache-key");
+    let cache = temp.path().join("cache");
+    let entry = hashed_tree(
+        &schema_cached_renderer_dir(&cache, CRATE_HASH, SAMPLE_TARGET),
+        Some(CRATE_HASH),
+    );
+    let hit = acquire_with_schema(&temp, None, CRATE_HASH, None, None).expect("cached");
+    assert_eq!(hit.source, RendererSource::Cache);
+    assert!(hit.lib_dir.starts_with(&entry));
+    let miss = acquire_with_schema(&temp, None, RELEASED_HASH, None, None)
+        .expect_err("the other schema's entry is not this one's");
+    assert!(
+        miss.contains(&artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET)),
+        "a miss goes on to the release for the version: {miss}"
+    );
+
+    // An entry filed under one schema whose renderer says it is from another is not a hit.
+    hashed_tree(
+        &schema_cached_renderer_dir(&cache, RELEASED_HASH, SAMPLE_TARGET),
+        Some(CRATE_HASH),
+    );
+    acquire_with_schema(&temp, None, RELEASED_HASH, None, None)
+        .expect_err("the renderer in that entry was built from another schema");
+
+    // What builds left when the cache was keyed by version is used for the schema its
+    // renderer says, and passed over, not trusted, for any other.
+    let temp = TempDir::new("schema-cache-by-version");
+    hashed_tree(
+        &cached_renderer_dir(&temp.path().join("cache"), SAMPLE_VERSION, SAMPLE_TARGET),
+        Some(RELEASED_HASH),
+    );
+    acquire_with_schema(&temp, None, CRATE_HASH, None, None)
+        .expect_err("an entry of another schema is not this crate's");
+    let reused =
+        acquire_with_schema(&temp, None, RELEASED_HASH, None, None).expect("its own schema");
+    assert_eq!(reused.source, RendererSource::Cache);
+}
+
+/// When neither renderer matches, the failure names this crate's hash, each renderer's
+/// hash, and both addresses that were tried.
+#[test]
+fn nfr16_mismatch_message_names_both_hashes_and_urls() {
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let schema_artifact = schema_artifact_file_name(CRATE_HASH, SAMPLE_TARGET);
+    let version_url = version_artifact_url(RELEASE_BASE_URL, SAMPLE_VERSION, &version_artifact);
+    let schema_url = schema_artifact_url(RELEASE_BASE_URL, &schema_artifact);
+
+    let temp = TempDir::new("schema-mismatch");
+    let release = temp.path().join("release");
+    let server = Server::new(vec![
+        (
+            version_url.clone(),
+            schema_fixture(&release, &version_artifact, Some(RELEASED_HASH)),
+        ),
+        (
+            schema_url.clone(),
+            schema_fixture(&release, &schema_artifact, Some(THIRD_HASH)),
+        ),
+    ]);
+    let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+    let message = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+        .expect_err("neither renderer was built from this schema");
+    for needed in [
+        CRATE_HASH,
+        RELEASED_HASH,
+        THIRD_HASH,
+        version_url.as_str(),
+        schema_url.as_str(),
+    ] {
+        assert!(
+            message.contains(needed),
+            "the message has to name {needed}: {message}"
+        );
+    }
+    assert!(
+        !schema_cached_renderer_dir(&temp.path().join("cache"), CRATE_HASH, SAMPLE_TARGET).exists(),
+        "a renderer of another schema was filed under this crate's"
+    );
+
+    // And when nothing is published for this schema at all, the message says that.
+    let temp = TempDir::new("schema-unpublished");
+    let release = temp.path().join("release");
+    let server = Server::new(vec![(
+        version_url.clone(),
+        schema_fixture(&release, &version_artifact, Some(RELEASED_HASH)),
+    )]);
+    let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+    let message = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+        .expect_err("nothing is published for this schema");
+    for needed in [
+        CRATE_HASH,
+        RELEASED_HASH,
+        "not published",
+        version_url.as_str(),
+        schema_url.as_str(),
+    ] {
+        assert!(
+            message.contains(needed),
+            "the message has to name {needed}: {message}"
+        );
+    }
+}
+
+/// `COMPOSE_RUST_RENDERER_URL` moves both addresses to another base. Unset, the default
+/// is used.
+#[test]
+fn nfr16_renderer_url_override() {
+    assert_eq!(RENDERER_URL_ENV, "COMPOSE_RUST_RENDERER_URL");
+    assert_eq!(release_base_url(None), RELEASE_BASE_URL);
+    assert_eq!(release_base_url(Some("  ")), RELEASE_BASE_URL);
+
+    let mirror = "https://mirror.example/compose-rust";
+    assert_eq!(
+        release_base_url(Some("https://mirror.example/compose-rust/")),
+        mirror
+    );
+
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let schema_artifact = schema_artifact_file_name(CRATE_HASH, SAMPLE_TARGET);
+    let plan = lookup_plan(
+        mirror,
+        Path::new("/cache"),
+        SAMPLE_VERSION,
+        CRATE_HASH,
+        SAMPLE_TARGET,
+    );
+    assert_eq!(
+        plan.version_url,
+        format!("{mirror}/download/v{SAMPLE_VERSION}/{version_artifact}")
+    );
+    assert_eq!(
+        plan.schema_url,
+        format!("{mirror}/download/renderer-dev/{schema_artifact}")
+    );
+    let default = lookup_plan(
+        &release_base_url(None),
+        Path::new("/cache"),
+        SAMPLE_VERSION,
+        CRATE_HASH,
+        SAMPLE_TARGET,
+    );
+    assert_eq!(
+        default.version_url,
+        artifact_url(SAMPLE_VERSION, &version_artifact)
+    );
+    assert!(default.schema_url.starts_with(RELEASE_BASE_URL));
+
+    // A build given the mirror asks the mirror, and nothing else.
+    let temp = TempDir::new("schema-mirror");
+    let release = temp.path().join("release");
+    let server = Server::new(vec![
+        (
+            plan.version_url.clone(),
+            schema_fixture(&release, &version_artifact, Some(RELEASED_HASH)),
+        ),
+        (
+            plan.schema_url.clone(),
+            schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+        ),
+    ]);
+    let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+    let renderer = acquire_with_schema(
+        &temp,
+        None,
+        CRATE_HASH,
+        Some("https://mirror.example/compose-rust/"),
+        Some(&fetch),
+    )
+    .expect("the mirror serves both");
+    assert!(renderer.schema_release);
+    let asked = server.asked();
+    assert_eq!(asked.len(), 4, "{asked:?}");
+    for url in &asked {
+        assert!(url.starts_with(mirror), "{url} is not on the mirror");
+    }
+}
+
+/// File names spell a hash with no `0x`, in lowercase. Logs and messages spell it the way
+/// `schema-hash.txt` does, with `0x`.
+#[test]
+fn nfr16_hash_spelling() {
+    assert_eq!(
+        schema_hash_in_file_names("0x62B9A55ED371ACAD").as_deref(),
+        Some("62b9a55ed371acad")
+    );
+    assert_eq!(
+        schema_hash_in_file_names("0x2a").as_deref(),
+        Some("000000000000002a"),
+        "a short hash is the same number, written in sixteen digits"
+    );
+    assert_eq!(schema_hash_in_file_names("not a hash"), None);
+    assert_eq!(
+        schema_hash_in_messages("62B9A55ED371ACAD"),
+        "0x62b9a55ed371acad"
+    );
+    assert_eq!(schema_hash_in_messages(CRATE_HASH), CRATE_HASH);
+
+    let name = schema_artifact_file_name("0X62B9A55ED371ACAD", SAMPLE_TARGET);
+    assert!(!name.contains("0x") && !name.contains("0X"), "{name}");
+    assert_eq!(name, name.to_ascii_lowercase());
+    assert!(
+        schema_cached_renderer_dir(Path::new("/cache"), "0X62B9A55ED371ACAD", SAMPLE_TARGET)
+            .ends_with("schema-62b9a55ed371acad/linux-x64")
+    );
+
+    // Every message that names a hash outside an address gives it its `0x`.
+    let messages = every_failure_message(Path::new("/sample"));
+    let named: Vec<&String> = messages
+        .iter()
+        .filter(|message| message.contains("no published renderer was built from"))
+        .collect();
+    assert!(
+        !named.is_empty(),
+        "the mismatch message is not in the list the tests walk"
+    );
+    for message in named {
+        for line in message.lines().filter(|line| !line.contains("://")) {
+            for hash in ["62b9a55ed371acad", "284215b3caced78f"] {
+                for (at, _) in line.match_indices(hash) {
+                    assert!(
+                        line[..at].ends_with("0x"),
+                        "a hash in a message has to read as schema-hash.txt writes it: {line}"
+                    );
+                }
+            }
+        }
+    }
+
+    // The build script's line about a renderer published for a schema does the same.
+    let build = include_str!("../build.rs");
+    assert!(build.contains("unpacked the renderer published for schema {}"));
+    assert!(build.contains("schema_hash_in_messages(hash)"));
+}
+
+/// With none of the variables set, which is the build every consumer runs, the search by
+/// schema keeps every promise the search by version made: a cached renderer needs no
+/// network, an artifact whose checksum does not match is not unpacked, a target nothing is
+/// published for is told what is, and an artifact already in the download directory is
+/// unpacked with no network. Nothing here sets or reads a variable: the request carries no
+/// renderer directory and no base address, which is what a build without them passes.
+/// What a binary built with no renderer does, and what the messages tell people to run,
+/// do not depend on any variable and are checked by the nfr11 tests above.
+#[test]
+fn nfr16_no_env_var_needed() {
+    // A cached renderer, and no network.
+    let temp = TempDir::new("schema-no-env-cache");
+    hashed_tree(
+        &schema_cached_renderer_dir(&temp.path().join("cache"), CRATE_HASH, SAMPLE_TARGET),
+        Some(CRATE_HASH),
+    );
+    let renderer = acquire_with_schema(&temp, None, CRATE_HASH, None, None).expect("cached");
+    assert_eq!(renderer.source, RendererSource::Cache);
+
+    // A checksum that does not match.
+    let temp = TempDir::new("schema-no-env-checksum");
+    let downloads = download_dir(&temp.path().join("cache"));
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let tarball = schema_fixture(&downloads, &version_artifact, Some(CRATE_HASH));
+    std::fs::write(
+        sibling_checksum(&tarball),
+        format!("{}  {version_artifact}\n", "0".repeat(64)),
+    )
+    .unwrap();
+    let message =
+        acquire_with_schema(&temp, None, CRATE_HASH, None, None).expect_err("the digest is wrong");
+    assert!(
+        message.contains(&sha256_file(&tarball).unwrap()),
+        "{message}"
+    );
+    assert!(
+        !schema_cached_renderer_dir(&temp.path().join("cache"), CRATE_HASH, SAMPLE_TARGET).exists(),
+        "nothing may be unpacked"
+    );
+
+    // A target with nothing published.
+    let temp = TempDir::new("schema-no-env-unpublished");
+    let message = acquire_schema_for(
+        "freebsd-x86_64",
+        "freebsd",
+        &temp,
+        None,
+        CRATE_HASH,
+        None,
+        None,
+    )
+    .expect_err("freebsd is not published");
+    for published in PUBLISHED_TARGETS {
+        assert!(message.contains(published), "{message}");
+    }
+
+    // The artifact already downloaded, unpacked with no network, from the default address.
+    let temp = TempDir::new("schema-no-env-local");
+    schema_fixture(
+        &download_dir(&temp.path().join("cache")),
+        &version_artifact,
+        Some(CRATE_HASH),
+    );
+    let renderer =
+        acquire_with_schema(&temp, None, CRATE_HASH, None, None).expect("the tarball is here");
+    assert_eq!(renderer.source, RendererSource::LocalArtifact);
+    assert_eq!(release_base_url(None), RELEASE_BASE_URL);
+}
+
+/// A renderer built from this crate's schema is not refused for the version it was
+/// packaged with. The schema is what has to match, and one schema's renderer serves every
+/// version that shares it. A crate that does not know its schema still checks the version.
+#[test]
+fn nfr16_a_renderer_of_this_schema_is_not_refused_for_its_version() {
+    let temp = TempDir::new("schema-not-version");
+    let root = hashed_tree(&temp.path().join("vendored"), Some(CRATE_HASH));
+    std::fs::write(root.join("renderer.version"), "9.9.9\n").unwrap();
+
+    let renderer = acquire_with_schema(&temp, Some(&root), CRATE_HASH, None, None)
+        .expect("the schema matches");
+    assert_eq!(renderer.artifact_version.as_deref(), Some("9.9.9"));
+
+    acquire_with_schema(&temp, Some(&root), RELEASED_HASH, None, None)
+        .expect_err("another schema says nothing for it, so the version still has to match");
+    acquire(&temp, Some(&root), Network::Forbidden)
+        .expect_err("without a schema hash the version still has to match");
+}
+
+/// A version that has no release yet, which a git dependency on a revision after a version
+/// bump is, still finds the renderer published for its schema: the 404 on the version's
+/// release is not the end of the lookup.
+#[test]
+fn nfr16_a_version_release_that_is_not_published_falls_through_to_the_schema_renderer() {
+    let version_artifact = artifact_file_name(SAMPLE_VERSION, SAMPLE_TARGET);
+    let schema_artifact = schema_artifact_file_name(CRATE_HASH, SAMPLE_TARGET);
+    let version_url = version_artifact_url(RELEASE_BASE_URL, SAMPLE_VERSION, &version_artifact);
+    let schema_url = schema_artifact_url(RELEASE_BASE_URL, &schema_artifact);
+
+    let temp = TempDir::new("schema-version-404");
+    let release = temp.path().join("release");
+    let server = Server::new(vec![(
+        schema_url.clone(),
+        schema_fixture(&release, &schema_artifact, Some(CRATE_HASH)),
+    )]);
+    let fetch = |url: &str, destination: &Path| server.fetch(url, destination);
+    let renderer = acquire_with_schema(&temp, None, CRATE_HASH, None, Some(&fetch))
+        .expect("the renderer published for this schema is there");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert!(renderer.schema_release);
+    assert_eq!(
+        server.asked(),
+        vec![
+            version_url.clone(),
+            schema_url.clone(),
+            format!("{schema_url}.sha256"),
+        ]
+    );
+}
+
+/// A renderer tree with `schema-hash.txt` in its root, as every artifact carries it.
+fn hashed_tree(root: &Path, hash: Option<&str>) -> PathBuf {
+    renderer_tree(root);
+    if let Some(hash) = hash {
+        std::fs::write(root.join("schema-hash.txt"), format!("{hash}\n")).unwrap();
+    }
+    root.to_path_buf()
+}
+
+/// A renderer artifact called `file_name` in `into`, with its `.sha256`, built from `hash`.
+fn schema_fixture(into: &Path, file_name: &str, hash: Option<&str>) -> PathBuf {
+    let staging = into.join(format!("{file_name}.staging"));
+    hashed_tree(&staging, hash);
+    let tarball = into.join(file_name);
+    let status = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&tarball)
+        .arg("-C")
+        .arg(&staging)
+        .arg(".")
+        .status()
+        .expect("tar is on PATH: the build script needs it too");
+    assert!(status.success(), "packing the fixture failed: {status}");
+    let digest = sha256_file(&tarball).unwrap();
+    std::fs::write(
+        sibling_checksum(&tarball),
+        format!("{digest}  {file_name}\n"),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&staging).unwrap();
+    tarball
+}
+
+/// A release server that knows its files by address, answers 404 for anything else, and
+/// remembers every address it was asked for.
+struct Server {
+    files: Vec<(String, PathBuf)>,
+    asked: RefCell<Vec<String>>,
+}
+
+impl Server {
+    fn new(files: Vec<(String, PathBuf)>) -> Self {
+        Self {
+            files,
+            asked: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn fetch(&self, url: &str, destination: &Path) -> Result<(), FetchError> {
+        self.asked.borrow_mut().push(url.to_owned());
+        for (address, file) in &self.files {
+            let source = if url == address {
+                file.clone()
+            } else if url == format!("{address}.sha256") {
+                sibling_checksum(file)
+            } else {
+                continue;
+            };
+            return std::fs::copy(&source, destination)
+                .map(|_| ())
+                .map_err(|error| FetchError::Failed(error.to_string()));
+        }
+        Err(FetchError::NotFound)
+    }
+
+    fn asked(&self) -> Vec<String> {
+        self.asked.borrow().clone()
+    }
+}
+
+fn acquire_with_schema(
+    temp: &TempDir,
+    env_dir: Option<&Path>,
+    crate_hash: &str,
+    base: Option<&str>,
+    fetch: Option<Fetch>,
+) -> Result<Renderer, String> {
+    acquire_schema_for(
+        SAMPLE_TARGET,
+        SAMPLE_TARGET_OS,
+        temp,
+        env_dir,
+        crate_hash,
+        base,
+        fetch,
+    )
+}
+
+fn acquire_schema_for(
+    target: &str,
+    target_os: &str,
+    temp: &TempDir,
+    env_dir: Option<&Path>,
+    crate_hash: &str,
+    base: Option<&str>,
+    fetch: Option<Fetch>,
+) -> Result<Renderer, String> {
+    let no_workspace = temp.path().join("no-workspace/lib");
+    let cache = temp.path().join("cache");
+    acquire_renderer(&Request {
+        env_dir,
+        workspace_dirs: &[no_workspace.as_path()],
+        cache_root: Some(cache.as_path()),
+        crate_version: SAMPLE_VERSION,
+        target,
+        target_os,
+        crate_schema_hash: Some(crate_hash),
+        release_base_url: base,
+        fetch,
+    })
 }

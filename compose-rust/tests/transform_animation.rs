@@ -268,11 +268,7 @@ fn fr41_start_animation_round_trips() {
         },
         EventPayload::ReducedMotionChanged(ReducedMotion::Unknown),
     ] {
-        let event = HostEvent {
-            node_id: 4,
-            handler_id: 0,
-            payload,
-        };
+        let event = HostEvent::new(4, 0, payload);
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
         assert_eq!(decode_event(&bytes), Ok(event));
@@ -283,7 +279,7 @@ fn fr41_start_animation_round_trips() {
         .iter()
         .filter(|mutation| matches!(mutation, Mutation::StartAnimation(_)))
         .count();
-    assert_eq!(animations, 10, "the vector carries ten animations");
+    assert_eq!(animations, 12, "the vector carries twelve animations");
     assert!(
         mutations
             .iter()
@@ -395,14 +391,20 @@ fn fr41_border_color_animation_round_trips() {
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
 
     let mutations = decode_batch(include_bytes!("vectors/mutations.bin")).unwrap();
+    // Records added later (a spring, a 3D matrix) come after it, so it is the last one of
+    // its own property rather than the last animation.
     let last = mutations
         .iter()
         .rev()
         .find_map(|mutation| match mutation {
-            Mutation::StartAnimation(animation) => Some(animation),
+            Mutation::StartAnimation(animation)
+                if animation.property == AnimatedProperty::BorderColor =>
+            {
+                Some(animation)
+            }
             _ => None,
         })
-        .expect("the vector carries animations");
+        .expect("the vector carries a border colour animation");
     assert_eq!(last.property, AnimatedProperty::BorderColor);
     assert_eq!(
         last.interpolation,
@@ -414,4 +416,266 @@ fn fr41_border_color_animation_round_trips() {
             0xff33_6699
         ))))
     );
+}
+
+/// The animations the vector ends with, newest last: a spring, then a 3D matrix.
+fn vector_animations() -> Vec<Animation<'static>> {
+    decode_batch(include_bytes!("vectors/mutations.bin"))
+        .unwrap()
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::StartAnimation(animation) => Some(animation),
+            _ => None,
+        })
+        .collect()
+}
+
+fn spring_animation(stiffness: f32, damping_ratio: f32) -> Animation<'static> {
+    let mut spring = animation(
+        AnimatedProperty::Alpha,
+        vec![KeyframeValue::Alpha(0.0), KeyframeValue::Alpha(1.0)],
+    );
+    spring.keyframes.to_mut()[0].timing = Timing::Spring {
+        stiffness,
+        damping_ratio,
+    };
+    spring
+}
+
+/// A spring keyframe is timing kind 4 with no step position, the stiffness and the damping
+/// ratio in the first two numbers and zero in the last two. It decodes back to what was
+/// encoded, and the checked-in vector carries one after every record that was there before.
+#[test]
+fn fr41_spring_timing_round_trips() {
+    let record = Mutation::StartAnimation(spring_animation(1500.0, 0.5));
+    let bytes = encode(std::slice::from_ref(&record));
+    let keyframe = &bytes[12 + 52..12 + 52 + 24];
+    assert_eq!(keyframe[4], 4, "timing kind Spring");
+    assert_eq!(keyframe[5], 0, "no step position");
+    let number = |at: usize| f32::from_le_bytes(keyframe[at..at + 4].try_into().unwrap());
+    assert_eq!(number(8), 1500.0);
+    assert_eq!(number(12), 0.5);
+    assert_eq!(&keyframe[16..24], &[0; 8]);
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
+
+    let animations = vector_animations();
+    let spring = &animations[animations.len() - 2];
+    assert_eq!(spring.property, AnimatedProperty::Alpha);
+    assert_eq!(
+        spring.keyframes[0].timing,
+        Timing::Spring {
+            stiffness: 1500.0,
+            damping_ratio: 0.5
+        }
+    );
+    assert_eq!(spring.keyframes[1].timing, Timing::Linear);
+}
+
+/// A spring whose stiffness or damping ratio is not a finite positive number, or that
+/// carries anything in the numbers or the step position it does not use, is a protocol
+/// error.
+#[test]
+fn fr41_spring_with_invalid_parameters_is_a_protocol_error() {
+    for (stiffness, damping_ratio) in [
+        (0.0, 1.0),
+        (-1500.0, 1.0),
+        (f32::NAN, 1.0),
+        (f32::INFINITY, 1.0),
+        (1500.0, 0.0),
+        (1500.0, -0.5),
+        (1500.0, f32::NAN),
+        (1500.0, f32::INFINITY),
+    ] {
+        let bytes = encode(&[Mutation::StartAnimation(spring_animation(
+            stiffness,
+            damping_ratio,
+        ))]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidAnimation),
+            "stiffness {stiffness}, damping ratio {damping_ratio} was accepted"
+        );
+    }
+    let good = encode(&[Mutation::StartAnimation(spring_animation(1500.0, 0.5))]);
+    let keyframe = 12 + 52;
+    for (what, at, byte) in [
+        ("a third number", keyframe + 16, 0x3f_u8),
+        ("a fourth number", keyframe + 20, 0x3f),
+        ("a step position", keyframe + 5, 2),
+    ] {
+        let mut bad = good.clone();
+        bad[at + if at == keyframe + 5 { 0 } else { 3 }] = byte;
+        assert_eq!(
+            decode_batch(&bad),
+            Err(ProtocolError::InvalidAnimation),
+            "{what} was accepted"
+        );
+    }
+}
+
+/// `AnimationSpec::spring` fills the length with the spring's settle time: how long Compose's
+/// spring of mass 1 takes to come within 0.001 of its target and stay there. The same table
+/// is checked against the Renderer's own settle time on the Kotlin side.
+#[test]
+fn fr41_spring_spec_duration_is_the_settle_time() {
+    use compose_rust::{AnimationSpec, spring_settle_ms};
+    // (stiffness, damping ratio, settle time in ms): critically damped, under-damped and
+    // over-damped springs.
+    let table = [
+        (1500.0, 1.0, 238.4053),
+        (1500.0, 0.5, 364.1429),
+        (400.0, 0.75, 488.073),
+        (200.0, 0.2, 2449.4766),
+        (10_000.0, 1.0, 92.3340),
+        (50.0, 2.0, 3685.1787),
+    ];
+    for (stiffness, damping_ratio, settle_ms) in table {
+        let spec = AnimationSpec::spring(stiffness, damping_ratio);
+        assert!(
+            (spec.duration_ms - settle_ms).abs() < 1.0,
+            "spring({stiffness}, {damping_ratio}) lasts {} ms, not {settle_ms}",
+            spec.duration_ms
+        );
+        assert_eq!(spec.duration_ms, spring_settle_ms(stiffness, damping_ratio));
+        assert_eq!(spec.delay_ms, 0.0);
+        assert_eq!(
+            spec.timing,
+            Timing::Spring {
+                stiffness,
+                damping_ratio
+            }
+        );
+    }
+}
+
+/// `rotateY(30deg)` in front of `perspective(400px)`, column-major.
+fn turned_matrix() -> [f32; 16] {
+    let (sin, cos) = 30.0_f32.to_radians().sin_cos();
+    // The perspective row is (0, 0, -1/400, 1), which takes the rotation's third row into w.
+    [
+        cos,
+        0.0,
+        -sin,
+        sin / 400.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        sin,
+        0.0,
+        cos,
+        -cos / 400.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ]
+}
+
+fn matrix_animation(values: Vec<KeyframeValue>) -> Animation<'static> {
+    let mut animation = animation(AnimatedProperty::Transform3D, values);
+    // A spring among the keyframes as well, so every timing kind travels with a matrix.
+    animation.keyframes.to_mut()[0].timing = Timing::Spring {
+        stiffness: 400.0,
+        damping_ratio: 0.75,
+    };
+    animation
+}
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+/// A 3D matrix animation is property 6 with sixteen `f32` in each keyframe, an 88 byte
+/// keyframe, and no origin of its own. It decodes back to what was encoded, and the vector
+/// carries one as its last animation.
+#[test]
+fn fr41_2_1_transform3d_animation_round_trips() {
+    let to = turned_matrix();
+    let record = Mutation::StartAnimation(matrix_animation(vec![
+        KeyframeValue::Matrix3D(IDENTITY),
+        KeyframeValue::Matrix3D(to),
+        KeyframeValue::Matrix3D(IDENTITY),
+    ]));
+    let bytes = encode(std::slice::from_ref(&record));
+    assert_eq!(bytes.len(), 12 + 52 + 3 * 88, "a keyframe is 88 bytes");
+    assert_eq!(bytes[12 + 12], 6, "property Transform3D");
+    let second = 12 + 52 + 88 + 24;
+    let values: Vec<f32> = bytes[second..second + 64]
+        .chunks(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    assert_eq!(values, to, "column-major, in the modifier's order");
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
+
+    let animations = vector_animations();
+    let last = animations.last().expect("the vector carries animations");
+    assert_eq!(last.property, AnimatedProperty::Transform3D);
+    assert_eq!((last.origin_x, last.origin_y), (0.0, 0.0));
+    assert!(matches!(
+        last.keyframes.last().map(|keyframe| &keyframe.value),
+        Some(KeyframeValue::Matrix3D(m)) if m[3] == 0.00125 && m[11] == -0.0025 && m[12] == 12.0
+    ));
+}
+
+/// A matrix with a value that is not a number, and a record that names an origin of its own,
+/// are protocol errors. Whether the node has the `Transform3D` modifier the animation plays
+/// on, and whether a `Transform` animation names a node that has one, is the Renderer's
+/// question once the batch is in, and is tested there.
+#[test]
+fn fr41_2_1_transform3d_animation_needs_its_base_modifier() {
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        for cell in [0, 3, 11, 15] {
+            let mut m = IDENTITY;
+            m[cell] = bad;
+            let bytes = encode(&[Mutation::StartAnimation(matrix_animation(vec![
+                KeyframeValue::Matrix3D(IDENTITY),
+                KeyframeValue::Matrix3D(m),
+            ]))]);
+            assert_eq!(
+                decode_batch(&bytes),
+                Err(ProtocolError::InvalidAnimation),
+                "{bad} in cell {cell} was accepted"
+            );
+        }
+    }
+    for (origin_x, origin_y) in [(0.5, 0.0), (0.0, 0.5)] {
+        let mut animation = matrix_animation(vec![
+            KeyframeValue::Matrix3D(IDENTITY),
+            KeyframeValue::Matrix3D(turned_matrix()),
+        ]);
+        animation.origin_x = origin_x;
+        animation.origin_y = origin_y;
+        let bytes = encode(&[Mutation::StartAnimation(animation)]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidAnimation),
+            "origin ({origin_x}, {origin_y}) was accepted"
+        );
+    }
+    // A matrix where a list of functions belongs, and the other way round.
+    let mut list_in_matrix = matrix_animation(vec![
+        KeyframeValue::Matrix3D(IDENTITY),
+        KeyframeValue::Matrix3D(IDENTITY),
+    ]);
+    list_in_matrix.keyframes.to_mut()[1].value = functions(&[TransformFunction::rotate(0.0)]);
+    let mut matrix_in_list = animation(
+        AnimatedProperty::Transform,
+        vec![
+            functions(&[TransformFunction::rotate(0.0)]),
+            functions(&[TransformFunction::rotate(90.0)]),
+        ],
+    );
+    matrix_in_list.keyframes.to_mut()[1].value = KeyframeValue::Matrix3D(IDENTITY);
+    for (what, animation) in [
+        ("a function list in a matrix animation", list_in_matrix),
+        ("a matrix in a function list animation", matrix_in_list),
+    ] {
+        let bytes = encode(&[Mutation::StartAnimation(animation)]);
+        assert_eq!(
+            decode_batch(&bytes),
+            Err(ProtocolError::InvalidAnimation),
+            "{what} was accepted"
+        );
+    }
 }

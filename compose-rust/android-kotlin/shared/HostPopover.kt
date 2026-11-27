@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import dev.darkpyonix.composerust.ui.declaresModal
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
 import dev.darkpyonix.composerust.design.ResolvedTheme
@@ -359,7 +360,7 @@ private fun PopoverContent(
     }
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onDismiss = { dismiss(node, dispatcher) }
-    val menuEntries = popoverMenuEntries(node, content, table)
+    val menuEntries = menuEntriesIn(node, content, table)
     Popup(
         popupPositionProvider = provider,
         // Escape is not the popup's to act on: the overlay stack gives it to the topmost
@@ -387,20 +388,35 @@ private fun PopoverContent(
         } else {
             null
         }
-        ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null)
+        // A popover floats over the page and takes nothing away from the reader, unless it
+        // declared itself modal: then it hides what is behind it as a dialog does.
+        ModalOverlayFocus(
+            node.id,
+            surfaceRequester,
+            onDismiss,
+            focusSurface = menuKeys == null,
+            isModal = node.declaresModal(),
+        )
+        val exposed = LocalOverlayFocusStack.current.exposesOverlay(node.id)
         // The recorded page does not reach into a popup, for the reason a menu gives.
+        // The application's own blur reads the window's page through positions on the
+        // screen, which mean the same thing on both sides of a popup.
+        val page = LocalWindowBackdrop.current
         CompositionLocalProvider(
             LocalGlassBackdrop provides null,
+            LocalAppBackdrop provides page,
             LocalMenuKeyboard provides menuKeys,
         ) {
             Column(
                 Modifier
+                    // A modal opened after this popover hides it, as it hides the page.
+                    .behindModal(!exposed)
                     .popoverSizeLimit(margin, provider)
                     .then(modifier)
                     .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
                     .modalOverlaySurface(node.id, surfaceRequester)
-                    // A group that floats over the page, not a dialog: nothing behind it
-                    // is taken away from the reader, and no title is announced for it.
+                    // A group that floats over the page, not a dialog: no title is
+                    // announced for it.
                     .semantics {
                         popup()
                         isTraversalGroup = true
@@ -413,48 +429,4 @@ private fun PopoverContent(
             }
         }
     }
-}
-
-/**
- * The entries of a popover whose content is a menu, in tree order, or null when the popover
- * is not a menu.
- *
- * A popover is a menu when it or a node in its content declares [SemanticsRole.Menu], or when
- * its content holds nodes that declare [SemanticsRole.MenuItem]. When items are marked with
- * [SemanticsRole.MenuItem], those nodes are the entries. Otherwise the direct children of the
- * node that declared [SemanticsRole.Menu] are the entries, as in a `Menu` widget.
- */
-private fun popoverMenuEntries(
-    popover: Node,
-    content: List<Int>,
-    table: NodeTable,
-): List<Int>? {
-    val menuItems = mutableListOf<Int>()
-    var menuContainer: Node? = if (popover.declaredSemanticsRole() == SemanticsRole.Menu) popover else null
-
-    fun walk(id: Int) {
-        val current = table.node(id) ?: return
-        when (current.declaredSemanticsRole()) {
-            SemanticsRole.MenuItem -> {
-                menuItems += id
-                return
-            }
-            SemanticsRole.Menu -> if (menuContainer == null) menuContainer = current
-            else -> {}
-        }
-        // Do not descend into a nested overlay's own content.
-        if (current.widget == WidgetKind.Popover ||
-            current.widget == WidgetKind.Menu ||
-            current.widget == WidgetKind.Dialog ||
-            current.widget == WidgetKind.Sheet
-        ) {
-            return
-        }
-        for (childId in current.children) walk(childId)
-    }
-
-    for (childId in content) walk(childId)
-    if (menuItems.isNotEmpty()) return menuItems
-    val container = menuContainer ?: return null
-    return if (container.id == popover.id) content else container.children
 }

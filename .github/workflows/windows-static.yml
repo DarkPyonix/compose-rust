@@ -107,9 +107,33 @@ jobs:
           ls ~/.konan/dependencies
           ls ~/.konan/dependencies/llvm-*-essentials*/bin | head -50
 
+      - name: Restore the fork build's Gradle downloads
+        id: gradle-downloads
+        # What the fork's Gradle build fetched, so a miss on the published Compose does not
+        # fetch it all again from Maven Central, which rate-limits runners (429). An older key
+        # is taken when build-compose.sh changed: Gradle then fetches only what moved.
+        if: steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-downloads-mingwx64-${{ hashFiles('renderer/scripts/build-compose.sh') }}
+          restore-keys: |
+            gradle-downloads-mingwx64-
+
       - name: Build skiko and Compose for mingwX64 from the fork
         if: steps.kit-cache.outputs.cache-hit != 'true'
         run: ./renderer/scripts/build-compose.sh --target mingwX64
+
+      - name: Keep the fork build's Gradle downloads for the next run
+        if: github.event_name != 'pull_request' && steps.gradle-downloads.outputs.cache-hit != 'true' && steps.kit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.gradle-downloads.outputs.cache-primary-key }}
 
       - name: Keep them for the next run
         if: github.event_name != 'pull_request' && (steps.kit-cache.outputs.cache-hit != 'true')
@@ -351,6 +375,24 @@ jobs:
 
       - name: Build, check, move and run an application
         run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
+
+      - name: Report Windows C runtime executable sizes
+        if: always()
+        run: |
+          report="$(cygpath -u "$RUNNER_TEMP")/consumer-windows/crt-sizes.md"
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Memory stays under 2x start after thousands of synthetic-input frames
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          set -euo pipefail
+          out="$(cygpath -u "$RUNNER_TEMP")/frame-soak"
+          ./.github/scripts/frame-soak-run.sh \
+            target/windows-consumer-check/release/release/consumer.exe "$out" frame-soak-windows-kn
+          { echo "### Windows Kotlin/Native frame soak"; ./.github/scripts/frame-soak-check.sh "$out/frame-soak-windows-kn.log" 2.0 2000; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the application
         if: always()

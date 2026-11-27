@@ -16,7 +16,7 @@ use compose_rust::runtime::*;
 use compose_rust::schema::{
     EventPayload, NativeHandle, NativeParentKind, PropertyKind, WidgetKind,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Batch, codegen};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -30,25 +30,23 @@ const PARENT_AT: usize = 1779;
 const PARENT_LEN: usize = 32;
 const FOCUS_AT: usize = 1811;
 const FOCUS_LEN: usize = 24;
+/// The two rich text events that follow them: the formatting at a selection, then a document.
+const RICH_TEXT_EVENTS_LEN: usize = 36 + 171;
 
 fn vector_parent() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 20,
-        handler_id: 0,
-        payload: EventPayload::NativeViewParent {
+    HostEvent::new(
+        20,
+        0,
+        EventPayload::NativeViewParent {
             handle: NativeHandle(codegen::NATIVE_PARENT_VECTOR_HANDLE),
             kind: NativeParentKind::AppKit,
             scale: 2.0,
         },
-    }
+    )
 }
 
 fn vector_focus() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 25,
-        handler_id: 301,
-        payload: EventPayload::NativeViewFocus { focused: true },
-    }
+    HostEvent::new(25, 301, EventPayload::NativeViewFocus { focused: true })
 }
 
 fn native_records(batch: &[u8]) -> Vec<Mutation<'_>> {
@@ -75,11 +73,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree, Vec<
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str) -> Vec<u8> {
     let (node_id, handler_id) = tree.find("Button", Some(label), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -151,8 +145,12 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     let written = batch.finish().expect("the batch encodes").to_vec();
     assert_eq!(native_records(&written), expected);
 
-    // The two events sit at their place in the event vector, byte for byte.
-    assert_eq!(EVENTS.len(), FOCUS_AT + FOCUS_LEN);
+    // The two events sit at their place in the event vector, byte for byte. The rich text
+    // events, the font request's 20 bytes and the back request's 20 bytes come after them.
+    assert_eq!(
+        EVENTS.len(),
+        FOCUS_AT + FOCUS_LEN + RICH_TEXT_EVENTS_LEN + 20 + 20
+    );
     for (at, len, event) in [
         (PARENT_AT, PARENT_LEN, vector_parent()),
         (FOCUS_AT, FOCUS_LEN, vector_focus()),
@@ -379,11 +377,11 @@ fn fr81_focus_report_reaches_the_handler() {
     });
     let (node_id, handler_id) = tree.handled("NativeView", PropertyKind::OnNativeViewFocus)[0];
     for focused in [true, false] {
-        host.dispatch(HostEvent {
+        host.dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::NativeViewFocus { focused },
-        })
+            EventPayload::NativeViewFocus { focused },
+        ))
         .expect("the focus report is accepted");
         assert_eq!(FOCUSED.load(Ordering::SeqCst), focused);
     }
@@ -401,14 +399,16 @@ fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
     let _subscription = subscribe_native_parent(Arc::new(move || {
         counter.fetch_add(1, Ordering::SeqCst);
     }));
-    let report = |handle: u64, scale: f32| HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::NativeViewParent {
-            handle: NativeHandle(handle),
-            kind: NativeParentKind::AppKit,
-            scale,
-        },
+    let report = |handle: u64, scale: f32| {
+        HostEvent::new(
+            0,
+            0,
+            EventPayload::NativeViewParent {
+                handle: NativeHandle(handle),
+                kind: NativeParentKind::AppKit,
+                scale,
+            },
+        )
     };
     host.dispatch(report(0xabc0, 2.0))
         .expect("the report is accepted");

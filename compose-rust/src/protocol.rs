@@ -90,6 +90,15 @@ const TAG_SET_SELECTIONS: u16 = 41;
 /// `SetSelections` in full: the 4 byte head, the node, the base version and the reference
 /// to the selections.
 const SET_SELECTIONS_LEN: usize = 20;
+// 42 applies one formatting command to the selection of a rich text field.
+const TAG_FORMAT_TEXT: u16 = 42;
+/// `FormatText` in full: the 4 byte head, the node, the operation, its value and the paint.
+const FORMAT_TEXT_LEN: usize = 20;
+// 43 replaces a rich text field's document: text, character runs, paragraphs, selection.
+const TAG_SET_RICH_TEXT: u16 = 43;
+/// `SetRichText` in full: the 4 byte head, the node, three references (the text, the
+/// character runs and the paragraphs) and the selection's two ends.
+const SET_RICH_TEXT_LEN: usize = 40;
 // 40 puts a snippet into a code editor and opens its tab stops.
 const TAG_INSERT_SNIPPET: u16 = 40;
 /// `InsertSnippet` in full: the 4 byte head, the node, the base version, the range and the
@@ -116,6 +125,8 @@ const ANIMATION_HEADER_LEN: usize = 52;
 const KEYFRAME_HEAD_LEN: usize = 24;
 /// One transform function: its kind and six numbers.
 const TRANSFORM_FUNCTION_LEN: usize = 28;
+/// A `Transform3D` keyframe's value: sixteen `f32`, column-major like the modifier's.
+const MATRIX3D_VALUE_LEN: usize = 64;
 const KEYFRAME_FROM_PRESENTED: u16 = 1;
 const ENVELOPE_LEN: usize = 12;
 /// `SetTheme` after its header: four `u16` fields, one font slot per type role, and the
@@ -477,6 +488,26 @@ pub enum Mutation<'a> {
         base_version: u32,
         selections: &'a [u8],
     },
+    /// Applies one formatting command to the selection of a rich text field. `value` is
+    /// what the operation takes (a toggle, a paragraph role or a list kind, else 0) and
+    /// `paint` is only for [`FormatOp::Color`]. [`crate::rich_text::Format`] builds and
+    /// reads these.
+    FormatText {
+        node_id: u32,
+        op: crate::schema::FormatOp,
+        value: u16,
+        paint: Option<Paint>,
+    },
+    /// Replaces a rich text field's document. `characters` and `paragraphs` are the 24-byte
+    /// and 16-byte records [`crate::rich_text::RichDocument`] writes, checked against `text`
+    /// where this is encoded and where it is decoded. The selection is as `SetText` keeps it.
+    SetRichText {
+        node_id: u32,
+        text: &'a str,
+        characters: &'a [u8],
+        paragraphs: &'a [u8],
+        selection: Option<Selection>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -512,13 +543,41 @@ pub enum ProtocolError {
     /// into another. Compose keeps one composition per window and has no
     /// way to hand a node from one to the next.
     MisplacedWindow,
+    /// Rich text that does not hold together: a run or paragraph record outside the text, a
+    /// command value no operation takes, a selection state with a word that is not one.
+    InvalidRichText(crate::rich_text::RichTextError),
+    /// The Renderer asked for the bytes of an asset id the Host never handed out, or let
+    /// go of without setting the bytes aside: there is nothing to send it.
+    UnknownAsset(u32),
 }
 
+/// One event the Renderer sent the Host: the node it happened on, the handler that hears
+/// it and what happened.
+///
+/// It is non-exhaustive so that a field can be added without breaking code outside this
+/// crate. Build one with [`HostEvent::new`] rather than a struct literal, and destructure it
+/// with `..` at the end of the pattern.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct HostEvent<'a> {
     pub node_id: u32,
     pub handler_id: u64,
     pub payload: crate::schema::EventPayload<'a>,
+}
+
+impl<'a> HostEvent<'a> {
+    /// An event for `handler_id` on `node_id`, carrying `payload`.
+    pub const fn new(
+        node_id: u32,
+        handler_id: u64,
+        payload: crate::schema::EventPayload<'a>,
+    ) -> Self {
+        Self {
+            node_id,
+            handler_id,
+            payload,
+        }
+    }
 }
 
 const EVENT_CLICK: u16 = 1;
@@ -619,6 +678,20 @@ const EVENT_CODE_POINTER: u16 = 66;
 // 67 is every selection of a code editor: the version, then the selections' reference.
 const EVENT_SELECTIONS_CHANGED: u16 = 67;
 const SELECTIONS_CHANGED_LEN: usize = 28;
+// 68 is the formatting at the selection of a rich text field: the 16 byte header, the style
+// words, the paragraph words and the shared colour.
+const EVENT_TEXT_FORMAT: u16 = 68;
+const TEXT_FORMAT_EVENT_LEN: usize = 36;
+// 69 is a rich text field's document: the header, then the text's, the character runs' and
+// the paragraphs' references.
+const EVENT_RICH_TEXT_CHANGED: u16 = 69;
+const RICH_TEXT_CHANGED_LEN: usize = 40;
+// 71 is a font the Renderer needs the bytes of: its id, one `u32` after the header.
+const EVENT_ASSET_WANTED: u16 = 71;
+// 70 is a request to go back that reached the application.
+const EVENT_BACK_REQUESTED: u16 = 70;
+/// `BackRequested` in full: the 16 byte header and the source word.
+const BACK_REQUESTED_LEN: usize = 20;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -846,6 +919,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
             crate::schema::EventPayload::DensityChanged { scale }
         }
+        EVENT_ASSET_WANTED if record_len == 20 => crate::schema::EventPayload::AssetWanted {
+            asset_id: read_u32(bytes, 16)?,
+        },
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
             start_line: read_u32(bytes, 20)?,
@@ -1233,6 +1309,47 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SELECTIONS_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_TEXT_FORMAT if record_len == TEXT_FORMAT_EVENT_LEN => {
+            let wire = crate::rich_text::TextFormatWire {
+                flags: read_u32(bytes, 16)?,
+                role: read_u16(bytes, 20)?,
+                list: read_u16(bytes, 22)?,
+                indent: read_u16(bytes, 24)?,
+                quote: read_u16(bytes, 26)?,
+                paint: read_u64(bytes, 28)?,
+            };
+            crate::schema::EventPayload::TextFormatAtSelection(
+                crate::rich_text::TextFormat::from_wire(wire)
+                    .map_err(ProtocolError::InvalidRichText)?,
+            )
+        }
+        EVENT_TEXT_FORMAT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_RICH_TEXT_CHANGED if record_len == RICH_TEXT_CHANGED_LEN => {
+            let text = read_string(bytes, 16, record_len)?;
+            let characters = read_bytes(bytes, 24, record_len)?;
+            let paragraphs = read_bytes(bytes, 32, record_len)?;
+            crate::rich_text::validate_wire(text, characters, paragraphs)
+                .map_err(ProtocolError::InvalidRichText)?;
+            crate::schema::EventPayload::RichTextChanged {
+                text,
+                characters,
+                paragraphs,
+            }
+        }
+        EVENT_RICH_TEXT_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_BACK_REQUESTED if record_len == BACK_REQUESTED_LEN => {
+            let raw = read_u32(bytes, 16)?;
+            // A source this Host has no name for is a newer or a broken Renderer. Taking it
+            // for one of the four would let a handler act on a gesture that never happened.
+            let source = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::BackSource::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::BackRequested { source }
+        }
+        EVENT_BACK_REQUESTED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1259,6 +1376,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_REDUCED_MOTION_CHANGED
         | EVENT_COLOR_SCHEME_CHANGED
         | EVENT_DENSITY_CHANGED
+        | EVENT_ASSET_WANTED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1533,6 +1651,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&scale.to_bits().to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::AssetWanted { asset_id } = event.payload {
+        output.extend_from_slice(&EVENT_ASSET_WANTED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&asset_id.to_le_bytes());
+        return Ok(());
+    }
     match event.payload {
         crate::schema::EventPayload::CodeChanged {
             version,
@@ -1794,6 +1920,49 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(selections);
         return Ok(());
     }
+    if let crate::schema::EventPayload::TextFormatAtSelection(format) = event.payload {
+        let wire = format.to_wire().map_err(ProtocolError::InvalidRichText)?;
+        put_event_header(
+            output,
+            EVENT_TEXT_FORMAT,
+            TEXT_FORMAT_EVENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&wire.flags.to_le_bytes());
+        output.extend_from_slice(&wire.role.to_le_bytes());
+        output.extend_from_slice(&wire.list.to_le_bytes());
+        output.extend_from_slice(&wire.indent.to_le_bytes());
+        output.extend_from_slice(&wire.quote.to_le_bytes());
+        output.extend_from_slice(&wire.paint.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::RichTextChanged {
+        text,
+        characters,
+        paragraphs,
+    } = event.payload
+    {
+        crate::rich_text::validate_wire(text, characters, paragraphs)
+            .map_err(ProtocolError::InvalidRichText)?;
+        put_event_header(
+            output,
+            EVENT_RICH_TEXT_CHANGED,
+            RICH_TEXT_CHANGED_LEN as u16,
+            event,
+        );
+        let mut offset = RICH_TEXT_CHANGED_LEN;
+        for part in [text.as_bytes(), characters, paragraphs] {
+            let len = u32::try_from(part.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+            let at = u32::try_from(offset).map_err(|_| ProtocolError::LengthOverflow)?;
+            output.extend_from_slice(&at.to_le_bytes());
+            output.extend_from_slice(&len.to_le_bytes());
+            offset += part.len();
+        }
+        output.extend_from_slice(text.as_bytes());
+        output.extend_from_slice(characters);
+        output.extend_from_slice(paragraphs);
+        return Ok(());
+    }
     if let crate::schema::EventPayload::IoAnswer {
         request,
         status,
@@ -1898,6 +2067,16 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&(kind as u16).to_le_bytes());
         output.extend_from_slice(&0_u16.to_le_bytes());
         output.extend_from_slice(&scale.to_bits().to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::BackRequested { source } = event.payload {
+        put_event_header(
+            output,
+            EVENT_BACK_REQUESTED,
+            BACK_REQUESTED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&u32::from(u16::from(source)).to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::NativeViewFocus { focused } = event.payload {
@@ -2035,17 +2214,21 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ScrollChanged { .. }
         | crate::schema::EventPayload::NativeViewParent { .. }
         | crate::schema::EventPayload::NativeViewFocus { .. }
+        | crate::schema::EventPayload::BackRequested { .. }
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
         | crate::schema::EventPayload::CodePointer { .. }
         | crate::schema::EventPayload::CodeEditGroupResult { .. }
-        | crate::schema::EventPayload::SelectionsChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::SelectionsChanged { .. }
+        | crate::schema::EventPayload::TextFormatAtSelection(_)
+        | crate::schema::EventPayload::RichTextChanged { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
         | crate::schema::EventPayload::ColorSchemeChanged(_)
         | crate::schema::EventPayload::DensityChanged { .. }
+        | crate::schema::EventPayload::AssetWanted { .. }
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
@@ -2501,6 +2684,39 @@ impl BatchEncoder {
                 self.put_u32(*base_version);
                 self.put_bytes_ref(selections)?;
             }
+            Mutation::FormatText {
+                node_id,
+                op,
+                value,
+                paint,
+            } => {
+                crate::rich_text::Format::from_command(*op, *value, *paint)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                self.begin_record(TAG_FORMAT_TEXT, (FORMAT_TEXT_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u16(u16::from(*op));
+                self.put_u16(*value);
+                self.put_u64(optional_paint_word(*paint));
+            }
+            Mutation::SetRichText {
+                node_id,
+                text,
+                characters,
+                paragraphs,
+                selection,
+            } => {
+                crate::rich_text::validate_wire(text, characters, paragraphs)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                self.begin_record(TAG_SET_RICH_TEXT, (SET_RICH_TEXT_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_string_ref(text)?;
+                self.put_bytes_ref(characters)?;
+                self.put_bytes_ref(paragraphs)?;
+                let (start, end) =
+                    selection.map_or((u32::MAX, u32::MAX), |value| (value.start, value.end));
+                self.put_u32(start);
+                self.put_u32(end);
+            }
             Mutation::InsertSnippet {
                 node_id,
                 base_version,
@@ -2714,6 +2930,7 @@ impl BatchEncoder {
                         KeyframeValue::Transform(functions) => {
                             4 + TRANSFORM_FUNCTION_LEN * functions.len()
                         }
+                        KeyframeValue::Matrix3D(_) => MATRIX3D_VALUE_LEN,
                     }
             })
             .sum();
@@ -2752,6 +2969,10 @@ impl BatchEncoder {
                     [x1.to_bits(), y1.to_bits(), x2.to_bits(), y2.to_bits()],
                 ),
                 Timing::Steps { count, position } => (3, position as u8, [count, 0, 0, 0]),
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                } => (4, 0, [stiffness.to_bits(), damping_ratio.to_bits(), 0, 0]),
             };
             self.records.push(kind);
             self.records.push(position);
@@ -2776,6 +2997,11 @@ impl BatchEncoder {
                         for value in function.values {
                             self.put_u32(value.to_bits());
                         }
+                    }
+                }
+                KeyframeValue::Matrix3D(m) => {
+                    for value in m {
+                        self.put_u32(value.to_bits());
                     }
                 }
             }
@@ -3355,6 +3581,45 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 selections: read_bytes(bytes, payload + 8, records_len)?,
             },
             TAG_SET_SELECTIONS => return Err(ProtocolError::InvalidRecordLength),
+            TAG_FORMAT_TEXT if len == FORMAT_TEXT_LEN => {
+                let node_id = read_u32(bytes, payload)?;
+                let op_raw = read_u16(bytes, payload + 4)?;
+                let value = read_u16(bytes, payload + 6)?;
+                let paint_bits = read_u64(bytes, payload + 8)?;
+                let invalid = ProtocolError::InvalidRichText;
+                let op = crate::schema::FormatOp::try_from(op_raw).map_err(|()| {
+                    invalid(crate::rich_text::RichTextError::InvalidFormat { op: op_raw, value })
+                })?;
+                let paint = decode_optional_paint(paint_bits).map_err(|_| {
+                    invalid(crate::rich_text::RichTextError::InvalidPaint { bits: paint_bits })
+                })?;
+                crate::rich_text::Format::from_command(op, value, paint).map_err(invalid)?;
+                Mutation::FormatText {
+                    node_id,
+                    op,
+                    value,
+                    paint,
+                }
+            }
+            TAG_FORMAT_TEXT => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_RICH_TEXT if len == SET_RICH_TEXT_LEN => {
+                let text = read_string(bytes, payload + 4, records_len)?;
+                let characters = read_bytes(bytes, payload + 12, records_len)?;
+                let paragraphs = read_bytes(bytes, payload + 20, records_len)?;
+                crate::rich_text::validate_wire(text, characters, paragraphs)
+                    .map_err(ProtocolError::InvalidRichText)?;
+                let start = read_u32(bytes, payload + 28)?;
+                let end = read_u32(bytes, payload + 32)?;
+                Mutation::SetRichText {
+                    node_id: read_u32(bytes, payload)?,
+                    text,
+                    characters,
+                    paragraphs,
+                    selection: (start != u32::MAX || end != u32::MAX)
+                        .then_some(Selection { start, end }),
+                }
+            }
+            TAG_SET_RICH_TEXT => return Err(ProtocolError::InvalidRecordLength),
             TAG_EDIT_CODE_GROUP if len == EDIT_CODE_GROUP_LEN => Mutation::EditCodeGroup {
                 node_id: read_u32(bytes, payload)?,
                 request_id: read_u32(bytes, payload + 4)?,
@@ -3437,6 +3702,11 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
     {
         return Err(bad);
     }
+    // A 3D matrix animation turns about its base modifier's origin. An origin here as well
+    // would leave two answers to which one wins, so the record must not carry one.
+    if property == AnimatedProperty::Transform3D && (origin_x != 0.0 || origin_y != 0.0) {
+        return Err(bad);
+    }
     let mut keyframes = Vec::with_capacity(keyframe_count);
     let mut at = ANIMATION_HEADER_LEN;
     for index in 0..keyframe_count {
@@ -3474,6 +3744,24 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                     return Err(bad);
                 }
                 Timing::Steps { count, position }
+            }
+            4 => {
+                // A spring is its stiffness and damping ratio; the last two numbers and
+                // the step position have no meaning for it and must be zero.
+                let (stiffness, damping_ratio) = (float(at + 8)?, float(at + 12)?);
+                let positive = |value: f32| value.is_finite() && value > 0.0;
+                if !positive(stiffness)
+                    || !positive(damping_ratio)
+                    || read_u32(record, at + 16)? != 0
+                    || read_u32(record, at + 20)? != 0
+                    || raw_position != 0
+                {
+                    return Err(bad);
+                }
+                Timing::Spring {
+                    stiffness,
+                    damping_ratio,
+                }
             }
             _ => return Err(bad),
         };
@@ -3524,6 +3812,16 @@ fn decode_animation(record: &[u8]) -> Result<crate::schema::Animation<'static>, 
                     KeyframeValue::Transform(std::borrow::Cow::Owned(functions)),
                     4 + TRANSFORM_FUNCTION_LEN * count,
                 )
+            }
+            AnimatedProperty::Transform3D => {
+                let mut m = [0.0_f32; 16];
+                for (slot, value) in m.iter_mut().enumerate() {
+                    *value = float(value_at + 4 * slot)?;
+                }
+                if !m.iter().all(|value| value.is_finite()) {
+                    return Err(bad);
+                }
+                (KeyframeValue::Matrix3D(m), MATRIX3D_VALUE_LEN)
             }
         };
         keyframes.push(Keyframe {
@@ -3802,6 +4100,14 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
             44,
             two_words(paint.to_bits(), pack_floats(*width_dp, *offset_dp)),
         ),
+        Modifier::Backdrop {
+            blur_dp,
+            saturation,
+            tint,
+        } => (
+            47,
+            two_words(pack_floats(*blur_dp, *saturation), tint.to_bits()),
+        ),
         Modifier::PressStyle { tint, press_easing } => {
             // A NaN first point is no curve, the one value a curve can never start at.
             let [x1, y1, x2, y2] = press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]);
@@ -3821,6 +4127,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 ],
             )
         }
+        Modifier::WeightUnfilled(value) => (48, two_words(float_word(*value), 0)),
         Modifier::Transform {
             a,
             b,
@@ -4145,6 +4452,20 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             width_dp: unpack_low(second),
             offset_dp: unpack_high(second),
         }),
+        47 => {
+            let (blur_dp, saturation) = (unpack_low(first), unpack_high(first));
+            // A blur or a saturation below zero, or one that is not a number, is nothing
+            // that can be drawn. Zero is: no blur, and no colour left.
+            let drawable = |value: f32| value.is_finite() && value >= 0.0;
+            if !drawable(blur_dp) || !drawable(saturation) {
+                return Err(ProtocolError::InvalidModifier(47));
+            }
+            Ok(Modifier::Backdrop {
+                blur_dp,
+                saturation,
+                tint: decode_paint(second)?,
+            })
+        }
         45 => Ok(Modifier::PressStyle {
             tint: decode_optional_paint(first)?,
             press_easing: if unpack_low(second).is_nan() {
@@ -4158,6 +4479,7 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 ])
             },
         }),
+        48 => Ok(Modifier::WeightUnfilled(f32::from_bits(first as u32))),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -4351,7 +4673,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x4000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x8000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -4396,21 +4718,73 @@ mod tests {
         assert!(
             ROLE_ENUM_SCHEMA
                 .iter()
-                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
-            "the schema must list all 19 roles"
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 22),
+            "the schema must list all 22 roles"
         );
     }
 
     #[test]
+    fn fr71_combobox_listbox_option_roles_round_trip() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::ComboBox, 20),
+            (SemanticsRole::ListBox, 21),
+            (SemanticsRole::Option, 22),
+        ];
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics {
+                    role,
+                    state: 2 << SEMANTICS_EXPANDED_SHIFT,
+                },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        // The option a combobox points at is a node id carried as an integer property.
+        assert_eq!(PropertyKind::ActiveDescendant as u16, 219);
+        let mutation = Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::ActiveDescendant,
+            value: PropertyValue::Integer(7),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
+    fn fr71_modal_bit_round_trips() {
+        use crate::schema::*;
+        assert_eq!(SEMANTICS_MODAL_BIT, 1 << 14);
+        assert_eq!(SEMANTICS_MODAL_BIT & !SEMANTICS_STATE_MASK, 0);
+        let mutation = Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::Semantics {
+                role: SemanticsRole::Group,
+                state: SEMANTICS_MODAL_BIT,
+            },
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+    }
+
+    #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
-        // Bit 14 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Bit 15 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 15, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 
@@ -5419,7 +5793,7 @@ mod tests {
         let calls_for_root = Arc::clone(&calls);
         let mut host = crate::ComposeHost::with_content(move || {
             let calls_inner = Arc::clone(&calls_for_root);
-            crate::ui::TextField().on_composition_change(move |composing| {
+            crate::ui::widgets::TextField().on_composition_change(move |composing| {
                 calls_inner.fetch_add(if composing { 10 } else { 1 }, Ordering::SeqCst);
             });
         });
@@ -5471,7 +5845,7 @@ mod tests {
         let mut host = crate::ComposeHost::with_content(move || {
             let gained_trace = Arc::clone(&trace_for_root);
             let lost_trace = Arc::clone(&trace_for_root);
-            crate::ui::TextField()
+            crate::ui::widgets::TextField()
                 .on_focus_gained(move || {
                     gained_trace.lock().unwrap().push("gained");
                 })
@@ -5543,7 +5917,7 @@ mod tests {
         let mut host = crate::ComposeHost::with_content(move || {
             let down_trace = Arc::clone(&trace_for_root);
             let up_trace = Arc::clone(&trace_for_root);
-            crate::ui::TextField()
+            crate::ui::widgets::TextField()
                 .on_key_down(move |event| {
                     down_trace.lock().unwrap().push((
                         "down",
@@ -5644,8 +6018,8 @@ mod tests {
     #[test]
     fn fr45_unregistered_nodes_get_no_events() {
         let mut host = crate::ComposeHost::with_content(|| {
-            crate::ui::TextField();
-            crate::ui::Box().content(|| {});
+            crate::ui::widgets::TextField();
+            crate::ui::widgets::Box().content(|| {});
         });
         let init = host.rebuild().unwrap().to_vec();
         let mutations = decode_batch(&init).unwrap();
@@ -5773,7 +6147,7 @@ mod tests {
         let seen_for_root = Arc::clone(&seen);
         let mut host = crate::ComposeHost::with_content(move || {
             let seen = Arc::clone(&seen_for_root);
-            crate::ui::Column()
+            crate::ui::widgets::Column()
                 .on_key_down(move |event| {
                     seen.lock()
                         .unwrap()
@@ -5783,7 +6157,7 @@ mod tests {
                     }
                 })
                 .content(|| {
-                    crate::ui::Text("session list");
+                    crate::ui::widgets::Text("session list");
                 });
         });
         let init = host.rebuild().unwrap().to_vec();

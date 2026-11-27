@@ -11,7 +11,7 @@ use compose_rust::clipboard::{self, ClipboardError, MAX_TEXT_BYTES};
 use compose_rust::protocol::{BatchEncoder, HostEvent, Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, EventPayload, PropertyKind, Theme};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -74,11 +74,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         batch.to_vec()
     }

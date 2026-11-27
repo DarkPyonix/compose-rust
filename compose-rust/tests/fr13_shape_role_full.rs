@@ -6,7 +6,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
 use compose_rust::schema::{MODIFIER_SCHEMA, ROLE_ENUM_SCHEMA, SHAPE_ROLE_SCHEMA};
 use compose_rust::tokens::DESIGN_TOKENS;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {

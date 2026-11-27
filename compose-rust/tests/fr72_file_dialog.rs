@@ -16,7 +16,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDialogKind, FileDialogStatus, PropertyKind,
     Theme,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FileDialog, FileDialogResult, FileDialogSender};
 use std::cell::RefCell;
 use std::sync::Mutex;
@@ -64,11 +64,7 @@ fn Askers() {
 }
 
 fn event(payload: EventPayload<'static>) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload,
-    }
+    HostEvent::new(0, 0, payload)
 }
 
 fn result_event(
@@ -124,11 +120,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         let mut asked = dialogs(batch);
         assert_eq!(asked.len(), 1, "one press, one request: {asked:?}");
@@ -235,16 +227,16 @@ fn fr72_every_request_gets_exactly_one_result() {
     assert_eq!(WORKER_RESULTS.lock().unwrap().len(), 1);
 
     // The answer belongs to the Host: a node or a handler on it is a malformed event.
-    let on_a_node = HostEvent {
-        node_id: 5,
-        handler_id: 0,
-        payload: EventPayload::FileDialogResult {
+    let on_a_node = HostEvent::new(
+        5,
+        0,
+        EventPayload::FileDialogResult {
             request: chosen,
             status: FileDialogStatus::Cancelled,
             filter: u32::MAX,
             paths: "",
         },
-    };
+    );
     assert!(session.host.dispatch(on_a_node).is_err());
 }
 

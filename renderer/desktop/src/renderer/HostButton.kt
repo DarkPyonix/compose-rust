@@ -14,6 +14,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -39,6 +41,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
@@ -48,6 +51,7 @@ import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
+import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.design.compositeOver
 import dev.darkpyonix.composerust.design.ensureContrast
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
@@ -65,12 +69,14 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.hoverAndFocusRing
 import dev.darkpyonix.composerust.ui.pressFeedback
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.typeRole
 import dev.darkpyonix.composerust.ui.buttonKind
 import dev.darkpyonix.composerust.ui.variant
 
@@ -94,7 +100,8 @@ internal fun HostButton(
     val checked = node.flag(PropertyKind.Checked, default = false)
     val alignStart = inMenu ||
         node.role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray()) == TextAlign.Start
-    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let { base ->
+    val kind = node.buttonKind()
+    val style = buttonStyle(node.variant(), kind, theme).let { base ->
         val entry = if (inMenu) theme.rules.menuEntry(base, theme) else base
         if (inMenu && node.variant() == ButtonVariant.Text) {
             entry.copy(
@@ -273,8 +280,23 @@ internal fun HostButton(
         repeat(2) { for (f in faded) result = ensureContrast(result, f, MIN_DISABLED_LABEL_CONTRAST) }
         result
     }
-    val label = node.textStyle(theme, style.typeRole).copy(color = tint)
+    val defaultTypeRole = if (
+        kind == ButtonKind.ActionKey &&
+        node.typeRole() == null &&
+        node.floatProp(PropertyKind.FontSize) == null
+    ) {
+        TypeRole.Headline
+    } else {
+        style.typeRole
+    }
+    val baseLabel = node.textStyle(theme, defaultTypeRole).copy(color = tint)
+    val label = if (kind == ButtonKind.ActionKey && node.intProp(PropertyKind.FontWeight) == null) {
+        baseLabel.copy(fontWeight = FontWeight.Normal)
+    } else {
+        baseLabel
+    }
     val text = node.text(PropertyKind.Text)
+    val shortcut = node.text(PropertyKind.ShortcutLabel)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
     val ellipsis = node.overflow(ComposeOverflow.Ellipsis)
     // A button with a glyph and no word is still a button with a name. The role is what
@@ -297,6 +319,21 @@ internal fun HostButton(
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
+    fun PlainLabel() {
+        if (icon == null) {
+            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RoleIcon(icon, tint, theme)
+                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+            }
+        }
+    }
+
+    @Composable
     fun ButtonLabelContent() {
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
@@ -313,16 +350,22 @@ internal fun HostButton(
                     Children(node, table, dispatcher)
                 }
             }
-        } else if (icon == null) {
-            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
-        } else {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RoleIcon(icon, tint, theme)
-                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+        } else if (shortcut.isNotEmpty()) {
+            // A menu entry's shortcut sits at the row's trailing edge, quieter than the
+            // label, as every platform's menu sets it. It is only text: the key is the
+            // application's to handle.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f, fill = false)) { PlainLabel() }
+                Spacer(Modifier.width(theme.space(SpaceRole.Lg)))
+                ThemedText(
+                    text = shortcut,
+                    style = label.copy(color = tint.copy(alpha = tint.alpha * SHORTCUT_ALPHA)),
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
+        } else {
+            PlainLabel()
         }
     }
 
@@ -370,6 +413,9 @@ private fun contentInset(first: Float, second: Float): Dp {
 
 // Slightly above 3:1 so anti-aliased glyph edges still measure 3:1.
 private const val MIN_DISABLED_LABEL_CONTRAST = 3.3f
+
+/** How much of the label's colour a menu entry's shortcut text keeps: quieter, still legible. */
+private const val SHORTCUT_ALPHA = 0.6f
 
 /**
  * How a button of this variant and kind looks under this design system.

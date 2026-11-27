@@ -8,7 +8,7 @@ use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::Modifier as Wire;
 use compose_rust::schema::WidgetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{
     AnimatedProperty, AnimationSpec, ComposeHost, GraphicsLayer, KeyframeValue,
     animate_color_as_state, animate_float_as_state, animate_offset_as_state, transition,
@@ -248,4 +248,53 @@ fn fr41_compose_api_offset_and_colour_are_one_transition_each() {
         )),
         "{changed:?}"
     );
+}
+
+/// A 3D matrix is written with the same authoring API as every other value: a transition to
+/// a `Matrix3D` keyframe on the `Transform3D` property, here along a spring. The record
+/// carries no origin of its own (the node's `Transform3D` modifier has it), starts from what
+/// is presented, and travels as the bytes the Renderer reads.
+#[test]
+fn fr41_compose_api_animates_a_3d_matrix() {
+    use compose_rust::protocol::BatchEncoder;
+    use compose_rust::{Timing, spring_settle_ms};
+    let (sin, cos) = 45.0_f32.to_radians().sin_cos();
+    // `rotateY(45deg)`, column-major.
+    let turned = [
+        cos, 0.0, -sin, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        sin, 0.0, cos, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    ];
+    let spec = AnimationSpec::spring(400.0, 0.75);
+    let animation = transition(
+        7,
+        3,
+        AnimatedProperty::Transform3D,
+        KeyframeValue::Matrix3D(turned),
+        spec,
+    );
+    assert_eq!(animation.property, AnimatedProperty::Transform3D);
+    assert_eq!((animation.origin_x, animation.origin_y), (0.0, 0.0));
+    assert_eq!(animation.interpolation, None);
+    assert_eq!(animation.duration_ms, spring_settle_ms(400.0, 0.75));
+    assert_eq!(animation.keyframes.len(), 2);
+    assert!(animation.keyframes[0].from_presented);
+    assert_eq!(
+        animation.keyframes[0].timing,
+        Timing::Spring {
+            stiffness: 400.0,
+            damping_ratio: 0.75
+        }
+    );
+    assert_eq!(
+        animation.keyframes[1].value,
+        KeyframeValue::Matrix3D(turned)
+    );
+
+    let record = Mutation::StartAnimation(animation);
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&record).expect("the record encodes");
+    let bytes = encoder.finish().expect("the batch encodes").to_vec();
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
 }

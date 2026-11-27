@@ -12,7 +12,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::HostEvent;
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use support::Tree;
@@ -185,14 +185,14 @@ fn nfr_17_a_list_that_grows_and_a_text_that_streams_do_not_leave_memory_behind()
                 frame += 1;
                 tail.set(chunk + 1);
                 let batch = host
-                    .dispatch(HostEvent {
-                        node_id: node,
-                        handler_id: handler,
-                        payload: EventPayload::RangeRequested {
+                    .dispatch(HostEvent::new(
+                        node,
+                        handler,
+                        EventPayload::RangeRequested {
                             start: 0,
                             count: 30,
                         },
-                    })
+                    ))
                     .unwrap()
                     .0
                     .to_vec();

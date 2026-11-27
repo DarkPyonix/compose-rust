@@ -10,7 +10,7 @@ use compose_rust::boundary::{
 use compose_rust::protocol::{HostEvent, Mutation, decode_batch, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, LoopMode, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 #[Composable]
@@ -61,11 +61,7 @@ fn fr39_a_composable_application_runs_through_the_unchanged_boundary() {
         let (node_id, handler_id) = tree.find("Button", Some("More"), 0, PropertyKind::OnClick);
         let mut event = Vec::new();
         encode_event(
-            &HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            },
+            &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
             &mut event,
         )
         .unwrap();

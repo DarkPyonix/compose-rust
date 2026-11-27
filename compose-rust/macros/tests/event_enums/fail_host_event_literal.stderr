@@ -1,0 +1,10 @@
+error[E0639]: cannot create non-exhaustive struct using struct expression
+  --> tests/event_enums/fail_host_event_literal.rs:7:18
+   |
+ 7 |       let _event = HostEvent {
+   |  __________________^
+ 8 | |         node_id: 1,
+ 9 | |         handler_id: 2,
+10 | |         payload: EventPayload::Clicked,
+11 | |     };
+   | |_____^

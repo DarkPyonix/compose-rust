@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{PropertyKind, WidgetKind};
 use support::Tree;
 

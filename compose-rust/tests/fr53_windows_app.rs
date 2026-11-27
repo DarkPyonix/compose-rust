@@ -67,10 +67,10 @@ fn window_count(tree: &Tree) -> usize {
 }
 
 fn sized(window: u32) -> HostEvent<'static> {
-    HostEvent {
-        node_id: window,
-        handler_id: 0,
-        payload: EventPayload::WindowSizeChanged {
+    HostEvent::new(
+        window,
+        0,
+        EventPayload::WindowSizeChanged {
             width_dp: app::WINDOW_SIZE.0,
             height_dp: app::WINDOW_SIZE.1,
             class: WindowSizeClass::Medium,
@@ -80,7 +80,7 @@ fn sized(window: u32) -> HostEvent<'static> {
             safe_area_trailing: 0.0,
             safe_area_bottom: 0.0,
         },
-    }
+    )
 }
 
 /// What a person does with the fixture: both windows open with the shared state, typing in
@@ -102,11 +102,11 @@ fn fr53_windows_app_two_windows_share_state_and_close_one_at_a_time() {
     // Typed into the second window's field, shown under both fields.
     let (field, on_change) = tree.find("TextField", None, 1, PropertyKind::OnValueChange);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: field,
-            handler_id: on_change,
-            payload: EventPayload::TextChanged("안녕"),
-        })
+        .dispatch(HostEvent::new(
+            field,
+            on_change,
+            EventPayload::TextChanged("안녕"),
+        ))
         .expect("the text change dispatches");
     tree.apply(batch);
     let echoes: Vec<String> = tree
@@ -125,11 +125,7 @@ fn fr53_windows_app_two_windows_share_state_and_close_one_at_a_time() {
     // The click count is shared the same way.
     let (button, on_click) = tree.find("Button", Some("Add one"), 1, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: button,
-            handler_id: on_click,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(button, on_click, EventPayload::Clicked))
         .expect("the click dispatches");
     tree.apply(batch);
     let counts: Vec<String> = tree
@@ -149,11 +145,11 @@ fn fr53_windows_app_two_windows_share_state_and_close_one_at_a_time() {
     let (second, close_second) = closes[1];
     assert_eq!(second, windows[1]);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: second,
-            handler_id: close_second,
-            payload: EventPayload::WindowCloseRequested,
-        })
+        .dispatch(HostEvent::new(
+            second,
+            close_second,
+            EventPayload::WindowCloseRequested,
+        ))
         .expect("the close request dispatches");
     let gone = removed(batch);
     assert!(gone.contains(&windows[1]), "{gone:?}");
@@ -173,11 +169,7 @@ fn fr53_windows_app_two_windows_share_state_and_close_one_at_a_time() {
         PropertyKind::OnClick,
     );
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: button,
-            handler_id: on_click,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(button, on_click, EventPayload::Clicked))
         .expect("the click dispatches");
     let gone = removed(batch);
     assert!(gone.contains(&windows[0]), "{gone:?}");
