@@ -57,7 +57,7 @@ class MacosBlockingOsMenu(private val window: () -> NSWindow?) : BlockingOsMenu 
  * [window] is the window's `NSWindow`, [requestFrame] asks it for a frame, which the result of
  * a menu needs to show.
  */
-class MacosOsMenuLoop(window: () -> NSWindow?, private val requestFrame: () -> Unit) {
+class MacosOsMenuLoop(private val window: () -> NSWindow?, private val requestFrame: () -> Unit) {
 
     /** The presenter the window's content is given as `LocalOsMenuPresenter`. */
     val presenter = BlockingOsMenuPresenter(MacosBlockingOsMenu(window))
@@ -71,6 +71,11 @@ class MacosOsMenuLoop(window: () -> NSWindow?, private val requestFrame: () -> U
         armed = true
         val timer = NSTimer.timerWithTimeInterval(interval = 0.0, repeats = false) { _: NSTimer? ->
             armed = false
+            // The window may have closed between the frame and this timer.
+            if (window()?.visible != true) {
+                presenter.dismissPending()
+                return@timerWithTimeInterval
+            }
             running = true
             val busy = try {
                 runOsMenuAfterFrame(presenter)

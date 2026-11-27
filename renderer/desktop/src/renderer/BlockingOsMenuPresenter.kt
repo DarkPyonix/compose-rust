@@ -53,6 +53,17 @@ class BlockingOsMenuPresenter(private val platform: BlockingOsMenu) : OsMenuPres
     }
 
     /**
+     * Dismisses the menu waiting to go up, if any, without putting it up: for a window that
+     * went away before its loop came round, so the menu never opens over a window that is
+     * not there.
+     */
+    fun dismissPending() {
+        val menu = next ?: return
+        next = null
+        menu.once.dismissed()
+    }
+
+    /**
      * Puts up the menu waiting, if any, and reports its result. Blocks while it is up. The
      * window's loop calls it after a frame, outside composition, layout and drawing.
      */
