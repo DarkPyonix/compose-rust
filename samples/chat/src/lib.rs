@@ -412,9 +412,12 @@ pub fn app() {
             TopAppBar!(modifier = Modifier.fill_max_width(), {
                 Spacer!(modifier = Modifier.weight(1.0));
                 let start = Rc::clone(&start_conversation);
+                // Icon-only actions carry a name: it is what assistive technology reads,
+                // and what the bar's overflow menu calls them when the bar is too narrow.
                 Button!(
                     "",
                     move || start(),
+                    accessible_name = "New conversation",
                     icon = IconRole::Compose,
                     variant = ButtonVariant::Text,
                     color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -427,6 +430,7 @@ pub fn app() {
                         Button!(
                             "",
                             move || open.set(true),
+                            accessible_name = "More",
                             icon = IconRole::More,
                             variant = ButtonVariant::Text,
                             color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -434,26 +438,19 @@ pub fn app() {
                     }),
                     {
                         let (more, settings_open) = (more_open, settings_open);
-                        Button!(
-                            "Assistant settings",
-                            move || {
-                                more.set(false);
-                                settings_open.set(true);
-                            },
-                            variant = ButtonVariant::Text,
-                            modifier = Modifier.fill_max_width()
-                        );
+                        MenuItem!("Assistant settings", move || {
+                            more.set(false);
+                            settings_open.set(true);
+                        });
                         let (more, delete) = (more_open, Rc::clone(&delete_current));
-                        Button!(
+                        MenuItem!(
                             "Delete conversation",
                             move || {
                                 more.set(false);
                                 delete();
                             },
-                            variant = ButtonVariant::Text,
-                            color = Paint::Role(ColorRole::Error),
-                            modifier = Modifier.fill_max_width(),
-                            enabled = conversation_count > 1
+                            enabled = conversation_count > 1,
+                            color = Paint::Role(ColorRole::Error)
                         );
                     }
                 );
@@ -765,6 +762,7 @@ fn composer_row(
                     Button!(
                         "",
                         move || open.set(true),
+                        accessible_name = "More",
                         icon = IconRole::Add,
                         variant = ButtonVariant::Text,
                         color = Paint::Role(ColorRole::OnSurfaceVariant)
@@ -772,27 +770,23 @@ fn composer_row(
                 }),
                 {
                     let (more, search) = (*more_open, *search_open);
-                    Button!(
+                    MenuItem!(
                         "Search conversations",
                         move || {
                             more.set(false);
                             search.set(true);
                         },
-                        icon = IconRole::Search,
-                        variant = ButtonVariant::Text,
-                        modifier = Modifier.fill_max_width()
+                        icon = IconRole::Search
                     );
-                    Divider!();
+                    Separator!(None);
                     let (more, settings_open) = (*more_open, *settings_open);
-                    Button!(
+                    MenuItem!(
                         "Settings",
                         move || {
                             more.set(false);
                             settings_open.set(true);
                         },
-                        icon = IconRole::Settings,
-                        variant = ButtonVariant::Text,
-                        modifier = Modifier.fill_max_width()
+                        icon = IconRole::Settings
                     );
                 }
             );
@@ -821,15 +815,14 @@ fn composer_row(
                     for length in Length::ALL {
                         let (close, settings) = (*length_open, *settings);
                         key(length.label(), || {
-                            Button!(
+                            MenuItem!(
                                 length.label(),
                                 move || {
                                     close.set(false);
                                     let current = settings.get_untracked();
                                     settings.set(Settings { length, ..current });
                                 },
-                                variant = ButtonVariant::Text,
-                                modifier = Modifier.fill_max_width()
+                                selected = length == current_settings.length
                             );
                         });
                     }

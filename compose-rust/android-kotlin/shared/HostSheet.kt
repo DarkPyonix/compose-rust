@@ -26,7 +26,16 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +116,22 @@ var platformModalOverlayWindow: @Composable (
 }
 
 /**
+ * [platformModalOverlayWindow] with the window's page offered to what is inside as its
+ * backdrop: a sheet or a dialog covers the page, so the page is what is behind it.
+ */
+@Composable
+internal fun ModalOverlayWindow(
+    onDismissRequest: () -> Unit,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val page = LocalWindowBackdrop.current
+    platformModalOverlayWindow(onDismissRequest, onBack) {
+        CompositionLocalProvider(LocalAppBackdrop provides page, content = content)
+    }
+}
+
+/**
  * Where the default overlay popup goes: at the corner of the application's window, whatever
  * node opened it.
  *
@@ -162,6 +187,19 @@ internal fun bottomSheetHeight(window: Dp, fraction: Float, keyboard: Dp, top: D
     return minOf(asked, window - keyboard - top).coerceAtLeast(0.dp)
 }
 
+/** The bits of a sheet's `SheetDetents` property: the heights it may rest at. */
+internal const val SHEET_DETENT_MEDIUM = 1
+internal const val SHEET_DETENT_LARGE = 2
+internal const val SHEET_DETENT_MASK = SHEET_DETENT_MEDIUM or SHEET_DETENT_LARGE
+
+/**
+ * How tall a bottom sheet is at one of its resting heights, in a window [window] tall:
+ * half the window at the medium one, and at the large one the window less the top safe
+ * area ([top]) and the room the design system keeps above the sheet ([margin]).
+ */
+internal fun sheetDetentHeight(large: Boolean, window: Dp, top: Dp, margin: Dp): Dp =
+    if (large) (window - top - margin).coerceAtLeast(0.dp) else window / 2
+
 /**
  * A temporary surface that comes in from an edge of the window.
  *
@@ -173,6 +211,14 @@ internal fun bottomSheetHeight(window: Dp, fraction: Float, keyboard: Dp, top: D
  * hears nothing: the travel is state here, and only a drag that ends past the threshold
  * becomes one dismissal. A Host that heard every frame of a drag would be running the
  * VirtualDom for an animation it cannot see.
+ *
+ * A bottom sheet that was given resting heights (`SheetDetents`) opens at the lowest of
+ * them and is pulled between them. Which one it rests at is state here too, and moving
+ * between them says nothing to the Host. With `SheetDragToDismiss` false the pull stops at
+ * the lowest resting height and never closes the sheet; Escape, the platform's back and a
+ * press outside still ask to. Neither property means anything to a centered sheet or to
+ * one that comes from the side, which is not an error: the same declaration changes form
+ * with the window.
  */
 @Composable
 internal fun HostSheet(
@@ -199,6 +245,81 @@ internal fun HostSheet(
         open.set(false)
         dismiss(node, dispatcher)
     }
+    // The resting heights and whether a pull can close the sheet, for a sheet along the
+    // bottom edge only.
+    val edgeBottom = bottom && !isCentered
+    val detents = if (edgeBottom) (node.intProp(PropertyKind.SheetDetents)?.toInt() ?: 0) and SHEET_DETENT_MASK else 0
+    val bothDetents = detents == SHEET_DETENT_MASK
+    val dragToDismiss = !edgeBottom || node.flag(PropertyKind.SheetDragToDismiss, default = true)
+    // Which resting height the sheet is at. It opens at the lowest it was given.
+    var large by remember(node.id, detents) { mutableStateOf(detents == SHEET_DETENT_LARGE) }
+    // How far apart the two resting heights are, in pixels, as the last layout measured it.
+    val detentSpan = remember(node.id) { FloatArray(1) }
+    val settleScope = rememberCoroutineScope()
+    // The run that brings the sheet back to rest, so a new pull can take over from it.
+    val settling = remember(node.id) { arrayOfNulls<Job>(1) }
+    // The pull, in pixels: down is positive and moves the sheet, up is negative and grows
+    // a sheet that has a taller resting height to go to.
+    val pull: (Float) -> Unit = { delta ->
+        settling[0]?.cancel()
+        val highest = if (bothDetents && !large) -detentSpan[0] else 0f
+        val lowest = if (!dragToDismiss && !(bothDetents && large)) 0f else Float.POSITIVE_INFINITY
+        travel = (travel + delta).coerceIn(highest, lowest)
+    }
+    // Moves to the other resting height from where the pull left the sheet, without a jump:
+    // the travel is restated against the new height and then let go.
+    val settle: (Boolean?) -> Unit = { toLarge ->
+        if (toLarge != null && toLarge != large) {
+            travel += if (toLarge) detentSpan[0] else -detentSpan[0]
+            large = toLarge
+        }
+        settling[0]?.cancel()
+        settling[0] = settleScope.launch {
+            animate(travel, 0f) { value, _ -> travel = value }
+        }
+    }
+    val release: () -> Unit = {
+        when {
+            bothDetents && !large && travel <= -threshold -> settle(true)
+            bothDetents && large && travel >= threshold -> settle(false)
+            travel >= threshold && dragToDismiss -> close()
+            detents != 0 || !dragToDismiss -> settle(null)
+            else -> travel = 0f
+        }
+    }
+    // A pull that starts on the sheet's scrolling content: what the content does not use
+    // moves the sheet, and a sheet that is off its resting height comes back before the
+    // content scrolls. Only a sheet with resting heights listens.
+    val contentPull = remember(node.id) {
+        object : NestedScrollConnection {
+            var pull: (Float) -> Unit = {}
+            var release: () -> Unit = {}
+            var displaced: () -> Boolean = { false }
+            var moved: () -> Float = { 0f }
+
+            private fun take(delta: Float): Offset {
+                val before = moved()
+                pull(delta)
+                return Offset(0f, moved() - before)
+            }
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput && displaced()) take(available.y) else Offset.Zero
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput) take(available.y) else Offset.Zero
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (!displaced()) return Velocity.Zero
+                release()
+                return available
+            }
+        }
+    }
+    contentPull.pull = pull
+    contentPull.release = release
+    contentPull.displaced = { travel != 0f }
+    contentPull.moved = { travel }
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val focusRequesters = remember(node.id) { mutableMapOf<Int, FocusRequester>() }
     var focusedChildId by remember(node.id) { mutableStateOf<Int?>(null) }
@@ -287,7 +408,7 @@ internal fun HostSheet(
     }
     val handleGap = style.handleGap ?: contentPadding
 
-    platformModalOverlayWindow(close, onEscape) {
+    ModalOverlayWindow(close, onEscape) {
         val focusManager = LocalFocusManager.current
         val menuEntries = menuEntriesIn(node, node.children, table)
         val menuKeys = if (menuEntries != null) {
@@ -299,9 +420,12 @@ internal fun HostSheet(
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
         val keyboard = overlayKeyboardInset()
+        val exposed = LocalOverlayFocusStack.current.exposesOverlay(node.id)
         CompositionLocalProvider(LocalMenuKeyboard provides menuKeys) {
         Box(
             Modifier
+                // A modal opened over this one hides it, as this one hides the page.
+                .behindModal(!exposed)
                 .testTag(sheetScrimTestTag(node.id))
                 .fillMaxSize()
                 // A scrim that dims the window dims a platform view too: it is covered.
@@ -373,6 +497,14 @@ internal fun HostSheet(
                     }
                     val window = constraints.maxHeight.toDp()
                     val sheet = when {
+                        detents != 0 -> {
+                            val medium = sheetDetentHeight(false, window, top, style.largeDetentMargin)
+                            val tallest = sheetDetentHeight(true, window, top, style.largeDetentMargin)
+                            detentSpan[0] = (tallest - medium).toPx().coerceAtLeast(0f)
+                            // A pull upwards grows the sheet towards its taller resting height.
+                            val resting = (if (large) tallest else medium) + (-travel).coerceAtLeast(0f).toDp()
+                            if (keyboard > 0.dp) minOf(resting, window - keyboard - top).coerceAtLeast(0.dp) else resting
+                        }
                         bottom -> bottomSheetHeight(window, maxHeight ?: style.heightFraction, keyboard, top)
                         else -> window * maxHeight!!
                     }
@@ -380,7 +512,7 @@ internal fun HostSheet(
                         .roundToPx()
                         .coerceIn(constraints.minHeight, constraints.maxHeight)
                     val placeable = measurable.measure(
-                        if (maxHeight == null) {
+                        if (maxHeight == null || detents != 0) {
                             constraints.copy(minHeight = height, maxHeight = height)
                         } else {
                             constraints.copy(minHeight = 0, maxHeight = height)
@@ -437,7 +569,9 @@ internal fun HostSheet(
                 Modifier
                     .offset {
                         if (bottom) {
-                            IntOffset(0, travel.roundToInt())
+                            // An upward pull grows the sheet where it is measured, and
+                            // does not lift it off the bottom edge.
+                            IntOffset(0, travel.coerceAtLeast(0f).roundToInt())
                         } else {
                             IntOffset(travel.roundToInt(), 0)
                         }
@@ -446,11 +580,13 @@ internal fun HostSheet(
                         orientation = if (bottom) Orientation.Vertical else Orientation.Horizontal,
                         state = rememberDraggableState { delta ->
                             // Only travel towards the edge counts. Pulling the other way
-                            // would drag the sheet off the edge it came from.
-                            travel = (travel + delta).coerceAtLeast(0f)
+                            // would drag the sheet off the edge it came from, unless it
+                            // has a taller resting height to grow to.
+                            pull(delta)
                         },
-                        onDragStopped = { if (travel >= threshold) close() else travel = 0f },
+                        onDragStopped = { release() },
                     )
+                    .let { if (detents != 0) it.nestedScroll(contentPull) else it }
             } else {
                 Modifier
             }
@@ -498,7 +634,7 @@ internal fun HostSheet(
                             )
                         }
                     }
-                    if (maxHeight == null && !isCentered) {
+                    if (maxHeight == null && !isCentered && detents == 0) {
                         node.children.forEach { childId ->
                             key(childId) { RenderNode(childId, table, dispatcher) }
                         }

@@ -291,12 +291,30 @@ mod macros {
             selected = true,
             enabled = false,
             color = ERROR,
+            shortcut_label = "Ctrl+D",
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
     }
 
     pub fn plain_menu_item() {
         MenuItem!("Delete", || {});
+    }
+
+    pub fn submenu() {
+        Submenu!(
+            "Export",
+            modifier = Modifier.padding(1.0),
+            icon = IconRole::Share,
+            enabled = false,
+            on_motion_finished = Some(|_: MotionFinished| {}),
+            {
+                MenuItem!("PDF", || {});
+            }
+        );
+    }
+
+    pub fn plain_submenu() {
+        Submenu!("Export");
     }
 
     pub fn chip() {
@@ -571,7 +589,21 @@ mod functions {
             true,
             false,
             ERROR,
+            "Ctrl+D",
             Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn submenu() {
+        Submenu(
+            "Export",
+            Modifier.padding(1.0),
+            IconRole::Share,
+            false,
+            Some(|_: MotionFinished| {}),
+            || {
+                MenuItem!("PDF", || {});
+            },
         );
     }
 
@@ -665,6 +697,17 @@ fn fr39_function_form_pickers_composes_with_every_parameter() {
 fn fr39_function_form_dropdowns_composes_with_every_parameter() {
     assert!(!batch(macros::dropdowns).is_empty());
     assert!(!batch(macros::plain_dropdowns).is_empty());
+}
+
+#[test]
+fn fr39_function_form_submenu_composes_with_every_parameter() {
+    assert!(!batch(macros::submenu).is_empty());
+    assert!(!batch(macros::plain_submenu).is_empty());
+}
+
+#[test]
+fn fr39_call_macro_submenu_is_the_function_call() {
+    assert_eq!(batch(functions::submenu), batch(macros::submenu));
 }
 
 #[test]

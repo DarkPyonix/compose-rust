@@ -58,9 +58,8 @@ pub use crate::schema::{
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
     MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetDetents,
-    SheetPresentation,
-    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
-    WindowHeightClass, WindowSizeClass,
+    SheetPresentation, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole,
+    VerticalAlignment, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
@@ -74,11 +73,11 @@ pub fn theme() -> ThemeHandle {
 pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::windows::{WindowDragEvent, WindowDragOver, WindowFrame};
+pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
-pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
 pub use rich::{RichTextState, remember_rich_text_state};
 pub use text_handle::{TextFieldHandle, use_text_field_handle};
@@ -92,8 +91,8 @@ pub use functions::{
     IndeterminateProgressIndicator, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, Menu,
     MenuItem, NativeView, Navigation, NavigationItem, Popover, ProgressIndicator, RadioButton, Row,
     Scaffold, ScrollColumn, ScrollRow, Select, SelectionContainer, Separator, Sheet, Slider,
-    Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
-    Window,
+    Spacer, SplitPane, Submenu, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip,
+    TopAppBar, Window,
 };
 pub use lazy::LazyListScope;
 pub use widgets::{ScrollState, remember_scroll_state};
@@ -214,6 +213,9 @@ pub struct SemanticsState {
     pub click_action: bool,
     pub focus_action: bool,
     pub has_popup: bool,
+    /// Whether the node is a modal: while it is on screen, only the nodes inside it are in
+    /// the accessibility tree, and Tab does not leave it.
+    pub modal: bool,
 }
 
 impl SemanticsState {
@@ -228,6 +230,7 @@ impl SemanticsState {
         click_action: false,
         focus_action: false,
         has_popup: false,
+        modal: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -302,6 +305,14 @@ impl SemanticsState {
         }
     }
 
+    /// A node that is a modal, as a dialog drawn in the page announces itself.
+    pub const fn modal(modal: bool) -> Self {
+        Self {
+            modal,
+            ..Self::NONE
+        }
+    }
+
     /// Says whether the node is checked, keeping every other field.
     pub const fn with_checked(mut self, checked: bool) -> Self {
         self.checked = Some(checked);
@@ -362,6 +373,12 @@ impl SemanticsState {
         self
     }
 
+    /// Says whether the node is a modal, keeping every other field.
+    pub const fn with_modal(mut self, modal: bool) -> Self {
+        self.modal = modal;
+        self
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -392,6 +409,7 @@ impl SemanticsState {
             } else {
                 0
             }
+            | if self.modal { SEMANTICS_MODAL_BIT } else { 0 }
     }
 }
 
@@ -636,6 +654,7 @@ pub struct Modifier {
     unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
+    active_descendant: Option<u32>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -695,6 +714,7 @@ impl Modifier {
             unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
+            active_descendant: None,
         }
     }
 
@@ -1260,6 +1280,27 @@ impl Modifier {
         self
     }
 
+    /// Makes the node a modal when true: while it is on screen, only the nodes inside it are
+    /// in the accessibility tree, and Tab and Shift+Tab do not move focus out of it. A
+    /// `Dialog` and a `Sheet` are modal already; this is for a node drawn in the page.
+    pub const fn modal(mut self, modal: bool) -> Self {
+        self.semantics_state.modal = modal;
+        self
+    }
+
+    /// The option a combobox's keys point at while focus stays on the combobox, as
+    /// WAI-ARIA's `aria-activedescendant` does: give the option widget `focus_handle =
+    /// &handle` and the combobox `Modifier.role(Role::ComboBox).active_descendant(&handle)`.
+    ///
+    /// The node the handle is bound to when this is called is the one sent. A handle bound to
+    /// no node yet sends nothing; the composition after its option first appears sends it,
+    /// which is the composition that changes the active option in the first place.
+    pub fn active_descendant(mut self, option: &crate::ui::FocusHandle) -> Self {
+        let node = option.bound_node();
+        self.active_descendant = (node != 0).then_some(node);
+        self
+    }
+
     /// The role, the name and the state in one call.
     pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
         let mut named = self.role(role).label(label);
@@ -1594,6 +1635,13 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         false,
         "semantics",
         semantics_bits(modifier).map_or(OwnedAttr::None, OwnedAttr::Int),
+    );
+    push(
+        false,
+        "active_descendant",
+        modifier
+            .active_descendant
+            .map_or(OwnedAttr::None, |node| OwnedAttr::Int(i64::from(node))),
     );
     push(
         false,

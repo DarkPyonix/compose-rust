@@ -740,31 +740,14 @@ pub fn app() {
                     }),
                     {
                         let open = Rc::clone(&open_file);
-                        Button!(
-                            "Open",
-                            move || open(),
-                            variant = ButtonVariant::Text,
-                            modifier = Modifier.fill_max_width(),
-                            enabled = !working
-                        );
+                        MenuItem!("Open", move || open(), enabled = !working);
                         let save_as = Rc::clone(&save_as);
-                        Button!(
-                            "Save as",
-                            move || save_as(),
-                            variant = ButtonVariant::Text,
-                            modifier = Modifier.fill_max_width(),
-                            enabled = !working
-                        );
+                        MenuItem!("Save as", move || save_as(), enabled = !working);
                         let (menu, sheet) = (more_open, format_open);
-                        Button!(
-                            "Format",
-                            move || {
-                                menu.set(false);
-                                sheet.set(true);
-                            },
-                            variant = ButtonVariant::Text,
-                            modifier = Modifier.fill_max_width()
-                        );
+                        MenuItem!("Format", move || {
+                            menu.set(false);
+                            sheet.set(true);
+                        });
                     }
                 );
                 // The accent control at the trailing end, which is the filled check in the

@@ -19,6 +19,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.PaddingValues
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -108,7 +109,14 @@ internal fun HostLazyGrid(
 
     HostScroll(node, table, remember(state) { state.scrollSurface() })
 
-    LazyVerticalGrid(columns = cells, modifier = sized, state = state) {
+    // Under a bar that floats over the page the grid ends lower by what the bar covers.
+    val barReserve = LocalFloatingBarReserve.current
+    LazyVerticalGrid(
+        columns = cells,
+        modifier = sized,
+        state = state,
+        contentPadding = PaddingValues(bottom = barReserve),
+    ) {
         items(
             count = itemCount,
             key = { index -> lazyItemKey(table, children, index - windowStart, index) },

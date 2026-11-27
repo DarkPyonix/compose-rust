@@ -14,7 +14,7 @@ mod window;
 pub use controls::{
     Badge, Button, Canvas, Checkbox, Chip, DatePicker, Divider, Dropdown, FloatingAction, Icon,
     IconAsset, Image, IndeterminateProgressIndicator, LinearProgressIndicator, MenuItem,
-    ProgressIndicator, RadioButton, Select, Separator, Slider, Switch, TimePicker,
+    ProgressIndicator, RadioButton, Select, Separator, Slider, Submenu, Switch, TimePicker,
 };
 pub use layout::{
     Box, Card, Column, FlowRow, Row, ScrollColumn, ScrollRow, SelectionContainer, Spacer, Surface,

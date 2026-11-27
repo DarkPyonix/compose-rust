@@ -893,6 +893,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
                 ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
+                ProtocolModifier.Backdrop(20f, 1.8f, Paint.Literal(0x66FFFFFF)),
             ),
             modifiers,
         )
@@ -1639,7 +1640,7 @@ class ProtocolVectorsTest {
         val document = encoded(HostEvent.RichTextChanged(26, 35L, text, characters, paragraphs))
         assertEquals(171, document.size)
         assertEquals(bytes.copyOfRange(1871, 1871 + 171).toList(), document.toList())
-        assertEquals(1871 + 171 + 20, bytes.size)
+        assertEquals(1871 + 171 + 20 + 20, bytes.size)
     }
 
     private fun decodeVector(name: String): List<Mutation> {

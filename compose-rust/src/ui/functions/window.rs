@@ -1,8 +1,8 @@
 //! Windows.
 
 use super::{set, set_some};
-use crate::schema::{Chrome, Theme, TitleBar};
 use crate::BackRequested;
+use crate::schema::{Chrome, Theme, TitleBar};
 use crate::windows::{DragFromPointer, WindowDragEvent, WindowFrame};
 use compose_rust_macros::Composable;
 
