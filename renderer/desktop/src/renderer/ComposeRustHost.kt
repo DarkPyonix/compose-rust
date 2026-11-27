@@ -911,7 +911,7 @@ private fun ComposeRustTree(
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     // Who in this window hears a request to go back, and what becomes of one nobody consumed.
     // The page as the overlays over it see it, recorded only while one of them blurs it.
-    val windowBackdrop = dev.darkpyonix.composerust.foundation.rememberBackdropSource()
+    val pageBackdrop = dev.darkpyonix.composerust.foundation.rememberBackdropSource()
     val backRequests = remember(host, windowNodeId) {
         dev.darkpyonix.composerust.foundation.BackRequests(host.table, windowNodeId, host)
     }
@@ -939,7 +939,7 @@ private fun ComposeRustTree(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
-        dev.darkpyonix.composerust.foundation.LocalWindowBackdrop provides windowBackdrop,
+        dev.darkpyonix.composerust.foundation.LocalWindowBackdrop provides pageBackdrop,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -987,7 +987,7 @@ private fun ComposeRustTree(
                     .pointerBackButton(backRequests)
                     .background(host.table.windowFill(pageRoots, theme, hasWindowBackdrop = windowBackdrop)),
             ) {
-                Box(Modifier.padding(top = pageTop, bottom = pageBottom).recordsBackdrop(windowBackdrop, 0)) {
+                Box(Modifier.padding(top = pageTop, bottom = pageBottom).recordsBackdrop(pageBackdrop, 0)) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)
