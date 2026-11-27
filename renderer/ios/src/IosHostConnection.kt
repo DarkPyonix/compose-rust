@@ -72,6 +72,7 @@ class IosHostConnection : HostConnection {
                 checkStatus(
                     HostSymbols.dispatchEvent(pinned.addressOf(0), length.toUInt(), batch),
                     "dispatch_event",
+                    event,
                 )
                 result = batch.resultField()
                 readBatch(batch, onMutation)
@@ -114,9 +115,9 @@ class IosHostConnection : HostConnection {
     private fun CPointer<ByteVar>.resultField(): Long =
         (this + RESULT_OFFSET)!!.reinterpret<LongVar>()[0]
 
-    private fun checkStatus(status: Int, operation: String) {
+    private fun checkStatus(status: Int, operation: String, event: HostEvent? = null) {
         if (status != STATUS_OK) {
-            throw HostCallException("compose_rust_host_$operation returned $status")
+            throw HostCallException(refusedHostCallMessage(operation, status, event))
         }
     }
 
@@ -175,4 +176,14 @@ private object HostSymbols {
                     "but not found they are missing from the exported symbols: build the " +
                     "Host with -Wl,-export_dynamic.",
             )
+}
+
+/**
+ * What a refused boundary call says. It names the event a refused `dispatch_event` carried,
+ * its kind, node and handler: a bare status says only that some call failed, and an
+ * application that sees two of them at its first frame cannot tell which event to look at.
+ */
+internal fun refusedHostCallMessage(operation: String, status: Int, event: HostEvent?): String {
+    val about = event?.let { " for $it" } ?: ""
+    return "compose_rust_host_$operation returned $status$about"
 }
