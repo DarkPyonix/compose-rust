@@ -27,7 +27,9 @@ import dev.darkpyonix.composerust.runtime.HostConnection
 import java.lang.System
 import kotlin.math.abs
 import kotlinx.cinterop.UIntVar
+import kotlinx.cinterop.UShortVar
 import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.toLong
@@ -35,6 +37,7 @@ import kotlinx.cinterop.value
 import kotlin.time.TimeSource
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.toKStringFromUtf16
 import org.thisisthepy.compose.window.windows.Win32Loop
 import org.thisisthepy.compose.window.windows.Win32System
 import platform.windows.ClientToScreen
@@ -213,18 +216,21 @@ private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
             ),
         )
         // The dialog is up, owned by window 1, and the loop still turns while it is. It is
-        // found by the title the request gave it, then its owner is compared: GetWindow's
-        // GW_ENABLEDPOPUP answers the window itself or nothing depending on the system, and a
-        // dialog's first open on a fresh machine can take seconds while the shell starts.
-        fun dialog() = platform.windows.FindWindowW("#32770", "fr72 check")
+        // looked for among this process's top-level windows as a dialog (class #32770) that
+        // window 1 owns, so neither its title nor GetWindow's GW_ENABLEDPOPUP, which answers
+        // the window itself or nothing depending on the system, decides it. Its first open on a
+        // fresh machine can take seconds while the shell starts.
+        val owner = one.handle.toLong()
+        fun dialog() = processWindows().firstOrNull { it.className == "#32770" && it.owner == owner }
         val opened = h.waitFor(20_000) { dialog() != null || results().isNotEmpty() }
         check(opened && results().isEmpty()) {
-            if (opened) "the request was answered ${results().map { it.status }} instead of opening a dialog"
-            else "timed out after 20000 ms waiting for the file dialog to open on window 1"
-        }
-        val owner = platform.windows.GetWindow(dialog(), GW_OWNER)
-        check(owner.toLong() == one.handle.toLong()) {
-            "the file dialog is owned by ${owner.toLong()}, not window 1 (${one.handle.toLong()})"
+            if (opened) {
+                "the request was answered ${results().map { it.status }} instead of opening a dialog"
+            } else {
+                "timed out after 20000 ms waiting for the file dialog to open on window 1 (${owner}); " +
+                    "dialogs the fork has open: ${Win32System.windows.fileDialogs.openCount}; " +
+                    "this process's windows: ${processWindows().joinToString { it.toString() }}"
+            }
         }
         check(results().isEmpty()) { "the request was answered ${results().map { it.status }} while its dialog was open" }
         h.forMillis(300)
@@ -248,6 +254,33 @@ private fun fileDialogOpensOnItsWindowAndEndsWithIt() {
 
 /** GetWindow's "the window that owns this one". */
 private const val GW_OWNER = 4u
+
+/** A top-level window as a failing check names it. */
+private class TopWindow(val handle: Long, val className: String, val title: String, val owner: Long) {
+    override fun toString() = "$handle $className \"$title\" owned by $owner"
+}
+
+/** Every top-level window of this process, visible or not. */
+private fun processWindows(): List<TopWindow> = memScoped {
+    val self = platform.windows.GetCurrentProcessId()
+    val pid = alloc<UIntVar>()
+    val text = allocArray<UShortVar>(256)
+    val found = ArrayList<TopWindow>()
+    var at = platform.windows.FindWindowExW(null, null, null, null)
+    while (at != null) {
+        platform.windows.GetWindowThreadProcessId(at, pid.ptr)
+        if (pid.value == self) {
+            platform.windows.GetClassNameW(at, text, 256)
+            val className = text.toKStringFromUtf16()
+            platform.windows.GetWindowTextW(at, text, 256)
+            val title = text.toKStringFromUtf16()
+            val owner = platform.windows.GetWindow(at, GW_OWNER).toLong()
+            found += TopWindow(at.toLong(), className, title, owner)
+        }
+        at = platform.windows.FindWindowExW(null, at, null, null)
+    }
+    found
+}
 
 /**
  * A press on a `WindowDrag(true)` node moves the window it is in, with the system's

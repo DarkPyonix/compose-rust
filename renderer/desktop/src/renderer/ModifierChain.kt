@@ -164,6 +164,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     var alphaSeen = false
     var backgroundSeen = false
     var transformSeen = false
+    var transform3DSeen = false
     var borderSeen = false
     var pressableAttached = false
     fun attachPressableIfNeeded(chain: Modifier): Modifier {
@@ -484,12 +485,29 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // exactly, so the layout is untouched and a pointer is tested against the shape
             // that is drawn. The plan is worked out here, once for each value of the record.
             is ProtocolModifier.Transform3D -> {
-                val plan = Transform3DPlan()
-                plan.solve(
-                    floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15),
-                    value.backfaceHidden,
-                )
-                chain.perspectiveTransform(plan, value.originX, value.originY)
+                val holder = if (!transform3DSeen) animated?.invoke() else null
+                transform3DSeen = true
+                val base = floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15)
+                if (holder != null && holder.transform3DAnimated.value) {
+                    // An animation plays on this matrix: the layers read what it shows in
+                    // the layer phase and solve it again there, once per new value, so the
+                    // node is neither composed nor measured again while it plays. The
+                    // origin and backface-visibility stay the modifier's.
+                    val plan = Transform3DPlan()
+                    var solvedVersion = Int.MIN_VALUE
+                    chain.changingPerspectiveTransform(value.originX, value.originY) {
+                        val version = holder.transform3DVersion.intValue
+                        if (version != solvedVersion) {
+                            solvedVersion = version
+                            plan.solve(if (holder.transform3DShown) holder.matrix3D else base, value.backfaceHidden)
+                        }
+                        plan
+                    }
+                } else {
+                    val plan = Transform3DPlan()
+                    plan.solve(base, value.backfaceHidden)
+                    chain.perspectiveTransform(plan, value.originX, value.originY)
+                }
             }
 
             // The node and everything in it are drawn into one layer first, and the layer is

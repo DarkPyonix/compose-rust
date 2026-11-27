@@ -6,6 +6,10 @@
 
 The renderer now builds with the Compose fork's `1.11.1-ext.6` (tag `v1.11.1-ext.6`) for Compose, the window modules and skiko-awt alike. On Windows a toast's answer (a press on it, or the permission) now asks for the frame that delivers it through a callback the renderer registers with the fork, instead of the fork calling a compose-rust symbol by name; nothing changes for an application. The fork's other window changes since ext.5 (the CSS cursor keywords, the caption strip height by title bar mode, UI Automation patterns, native views on Windows and Linux, the GDI route as the Windows default) reach applications as the renderer adopts them.
 
+### Fonts that load on the first letter that needs them
+
+`lazy_asset(AssetKind::Font, bytes)` returns the id `asset()` would give the same bytes and sends nothing. `FontRef::LazyAsset(id)` names such a font in a font list, and `FontStack::lazy_family(ids)` in a stack. The Renderer asks for the bytes with the new `AssetWanted(id)` event the first time a letter that no font before it has reaches it, once per id, and the Host answers with the `RegisterAsset` it already had, on the next batch. Until the bytes arrive the letter is drawn as a missing glyph, never in a font of the machine's own, and measuring and drawing agree before and after. An application can ship a cut-down Korean face for the first batch and keep the full 1.5 MB face on the Host until a letter such as 똠 needs it. A request for an id the Host has nothing for is one `ProtocolError::UnknownAsset`, and a face let go of with `release_asset` is asked for again when it is needed. The schema hash moves (event 71, payload 46, font candidate kind 4) (FR-48.4, [#1057](https://github.com/DarkPyonix/compose-rust/issues/1057)).
+
 ### A Linux window redraws when the display scale changes
 
 The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
@@ -14,9 +18,17 @@ The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` chan
 
 When the build cannot use a renderer, its message names the repository's build scripts only as something to run in a checkout of the compose-rust repository, with its address. An incomplete or unreadable Windows renderer kit now says to delete the cached download so the next build fetches it again, and an unreadable MSVC library points at the C++ build tools; before, all of these said to run `build-windows.sh`, which the published crate does not carry (NFR-10).
 
+### A scroll container removed in the middle of a frame's reports no longer reports
+
+A frame's scroll reports go out one after another, and the Host's answer to one could remove a container whose report came later in the same frame. That container still reported with the handler the Host had just forgotten, the Host refused it, and the desktop renderer printed `dispatch_event returned -1` (protocol error 100). Ember saw it at its editor window's first frame. A container removed during the reports now sends nothing (FR-80, #1077).
+
 ### `release_asset(id)` lets go of a registered font or picture
 
 `compose_rust::release_asset(id)` releases what `asset(kind, bytes)` registered, of any kind, and puts one `ReleaseAsset` on the next batch. It returns false for an id that was never registered or was already released, a registration that has not left yet is dropped without a release, and the id is never handed out again. Before this only brushes could be released (`release_brush`), so a `@font-face` font registered through `asset()` stayed in the Renderer for the life of the app (FR-48 rule 5).
+
+### `TextFieldHandle` gives a live text field a new text
+
+A `TextField` takes its `text` when its node is made, so an application could not reset or clear a field already on screen except by giving it a new `key`, which made a new node. `use_text_field_handle()` returns a handle that `TextField!(..., text_handle = &handle)` binds to the field; `handle.set_text(text)` (or `set_text_with_selection`) puts one `SetText` for that node on the next batch, the empty text included, with the last text asked for before the batch. The field stays uncontrolled: the Renderer keeps the caret where it still fits and waits for an input method's composition to end first (FR-5, #1075).
 
 ### A memory report for a blank window on Linux and Windows
 
@@ -41,6 +53,13 @@ The macOS renderer tells the Kotlin/Native collector to let its heap be 80 % ful
 ### The build finds its renderer by schema hash
 
 A git dependency on a revision after a release builds. The crate's version stays the same between two releases while its schema moves on, and the build used to fetch the release for that version, whose renderer was built from the older schema, and then stop at the schema check with nothing else to try. The build now reads the schema hash of the release's renderer, and when it is not the crate's, fetches the renderer published for the crate's schema from the `renderer-dev` release (`compose-rust-renderer-schema-<hash>-<target>.tar.gz`, verified against its `.sha256` like any other). When neither matches, the build stops and names the crate's schema hash, each renderer's hash and both addresses. A released version costs no extra request. The cache is keyed by schema hash and target (`renderer/schema-<hash>/<target>`) instead of by version, so two revisions of one version never share an entry; an entry an earlier build left under the version is used only when its renderer says it was built from the same schema. A renderer that says it was built from the crate's schema is no longer refused for the version written in its `renderer.version`. `COMPOSE_RUST_RENDERER_URL` moves both addresses to a mirror; it is optional, and a build without it uses GitHub as before ([#293](https://github.com/DarkPyonix/compose-rust/issues/293)).
+
+### Rich text in a text field (wire)
+
+### Rich text in a text field (wire and Rust API)
+
+A `TextField` can keep character and paragraph formatting that the Renderer owns: `TextField!(rich = &state, on_format = ..., on_rich_change = ...)` turns it on, `RichTextState::format(Format::Bold(Toggle::Flip))` formats the selection, and the field reports the formatting at the selection and its document. `RichDocument` has `to_markdown()` and `from_markdown()` for storing a document. This adds the properties 220 to 222, the commands `FormatText` and `SetRichText`, the events `TextFormatAtSelection` and `RichTextChanged`, and the enums `FormatOp`, `ParagraphRole` and `ListKind`, so the schema hash moves; a `TextField` without `rich` sends the records it always did. The Renderer only stores the new requests for now. See [#638](https://github.com/DarkPyonix/compose-rust/issues/638).
+
 
 ### Widgets are functions and call macros, not builder chains
 
