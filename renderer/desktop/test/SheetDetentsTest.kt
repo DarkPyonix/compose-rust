@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.Density
@@ -76,7 +77,14 @@ private fun sheet(vararg extra: Mutation) = listOf(
 class SheetDetentsTest {
     private val frames = FrameRequestSource()
 
-    /** Shows the batch in a window [width] wide and 800dp tall, at one pixel to the dp. */
+    /**
+     * Shows the batch in a box [width] wide and 800dp tall, at one pixel to the dp.
+     *
+     * A sheet is its own window and is measured against the test's window, not against
+     * this box. A test that asserts a sheet's height in dp therefore runs in a test window
+     * of the same 500 by 800dp; the default one is 768dp tall, and a half-window sheet in it
+     * is 384dp rather than 400.
+     */
     private fun ComposeUiTest.show(connection: FakeHostConnection, width: Dp = 500.dp) {
         setContent {
             CompositionLocalProvider(
@@ -121,7 +129,7 @@ class SheetDetentsTest {
      * height and stops there, and pulled down again stops at half. The Host hears none of it.
      */
     @Test
-    fun fr21_3_4_a_sheet_rests_at_its_detents() = runComposeUiTest {
+    fun fr21_3_4_a_sheet_rests_at_its_detents() = runDesktopComposeUiTest(500, 800) {
         val connection = FakeHostConnection(
             sheet(Mutation.SetProp(SHEET, PropertyKind.SheetDetents, PropertyValue.Integer(MEDIUM or LARGE))),
         )
@@ -146,7 +154,7 @@ class SheetDetentsTest {
 
     /** With one resting height the sheet has that height, and a pull down closes it as before. */
     @Test
-    fun fr21_3_4_a_sheet_with_one_detent_has_that_height() = runComposeUiTest {
+    fun fr21_3_4_a_sheet_with_one_detent_has_that_height() = runDesktopComposeUiTest(500, 800) {
         val connection = FakeHostConnection(
             sheet(Mutation.SetProp(SHEET, PropertyKind.SheetDetents, PropertyValue.Integer(LARGE))),
         )
