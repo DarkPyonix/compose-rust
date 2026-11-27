@@ -654,6 +654,12 @@ private class BarOverflowState {
      */
     var titleCap by mutableIntStateOf(Int.MAX_VALUE)
 
+    /**
+     * Whether the actions that stay did not fit on the last frame, so the next one measures
+     * them in the room there is rather than at their own width.
+     */
+    var squeezed by mutableStateOf(false)
+
     /** How wide the title was drawn in the pass being measured. */
     var titleWidth = 0
 
@@ -781,6 +787,13 @@ private fun BarActions(
         },
     ) { measurables, constraints ->
         val available = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+        // Each action at its own width: the row is measured unbounded first, which records
+        // the widths the decision below reads, and only what fits the bar's leftover width
+        // stays in it. When even the actions that stay did not fit on the frame before, they
+        // are measured in what there is and shrink like any row's children.
+        val row = measurables.single().measure(
+            constraints.copy(minWidth = 0, maxWidth = if (state.squeezed) available else Constraints.Infinity),
+        )
         val fits = fittingActions(movable.size, available, ::rowWidth)
         // The least the actions need: the ones that stay, and the overflow button when there
         // is anything that could go behind it.
@@ -790,14 +803,9 @@ private fun BarActions(
         } else {
             Int.MAX_VALUE
         }
-        // Each action at its own width: the row is measured unbounded, and only what fits
-        // the bar's leftover width stays in it. When even the actions that stay do not fit,
-        // they are measured in what there is and shrink like any row's children.
         val squeezed = rowWidth(fits, fits < movable.size) > available
-        val row = measurables.single().measure(
-            constraints.copy(minWidth = 0, maxWidth = if (squeezed) available else Constraints.Infinity),
-        )
-        val settled = fits == shown
+        val settled = fits == shown && squeezed == state.squeezed
+        if (squeezed != state.squeezed) state.squeezed = squeezed
         if (!settled) state.shown = fits
         val width = row.width.coerceAtMost(available).coerceAtLeast(constraints.minWidth)
         layout(width, row.height) {
