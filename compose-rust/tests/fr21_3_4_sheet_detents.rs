@@ -139,16 +139,16 @@ fn fr21_3_4_sheet_detents_round_trip() {
 
     let vector = decode_batch(MUTATIONS).expect("the mutation vector decodes");
     assert!(vector.contains(&Mutation::Create {
-        node_id: 26,
+        node_id: 27,
         widget: WidgetKind::Sheet
     }));
     assert!(vector.contains(&Mutation::SetProp {
-        node_id: 26,
+        node_id: 27,
         property: PropertyKind::SheetDetents,
         value: PropertyValue::Integer(3),
     }));
     assert!(vector.contains(&Mutation::SetProp {
-        node_id: 26,
+        node_id: 27,
         property: PropertyKind::SheetDragToDismiss,
         value: PropertyValue::Bool(false),
     }));

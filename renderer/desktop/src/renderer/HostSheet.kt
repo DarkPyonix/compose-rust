@@ -378,13 +378,19 @@ internal fun HostSheet(
         ?.coerceAtMost(1f)
 
     val explicitSheetPad = theme.overlay?.sheetPadding
-    val sheetPadding = if (node.setsOwnPadding()) {
-        Modifier
-    } else if (explicitSheetPad != null && explicitSheetPad > 0) {
-        Modifier.padding(explicitSheetPad.dp)
-    } else {
-        Modifier.padding(style.padding)
+    val contentPadding = if (explicitSheetPad != null && explicitSheetPad > 0) explicitSheetPad.dp else style.padding
+    // The application can turn the handle off; the drag is the surface's, so the sheet drags
+    // the same either way.
+    val handle = style.handle?.takeIf { !isCentered && node.flag(PropertyKind.SheetHandle, default = true) }
+    val ownPadding = node.setsOwnPadding()
+    val sheetPadding = when {
+        ownPadding -> Modifier
+        // The space above the handle is the handle's own, so the sheet's top padding is not
+        // stacked on it as well.
+        handle != null -> Modifier.padding(start = contentPadding, end = contentPadding, bottom = contentPadding)
+        else -> Modifier.padding(contentPadding)
     }
+    val handleGap = style.handleGap ?: contentPadding
 
     platformModalOverlayWindow(close, onEscape) {
         val focusManager = LocalFocusManager.current
@@ -590,20 +596,23 @@ internal fun HostSheet(
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
                 Column(modifier.fillMaxWidth().then(sheetPadding).padding(bottom = clearBottom)) {
-                    // The application can turn the handle off; the drag above is the
-                    // surface's, so the sheet drags the same either way.
-                    if (!isCentered && node.flag(PropertyKind.SheetHandle, default = true)) {
-                        style.handle?.let { handle ->
-                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Box(
-                                    Modifier
-                                        .testTag(sheetHandleTestTag(node.id))
-                                        .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
-                                        .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
-                                        .clip(theme.shape(ShapeRole.Full))
-                                        .background(handle),
-                                )
-                            }
+                    // The content starts a gap below the handle rather than level with
+                    // it. Padding the Host set itself already holds the space above.
+                    if (handle != null) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (ownPadding) 0.dp else handleGap, bottom = handleGap),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .testTag(sheetHandleTestTag(node.id))
+                                    .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
+                                    .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
+                                    .clip(theme.shape(ShapeRole.Full))
+                                    .background(handle),
+                            )
                         }
                     }
                     if (maxHeight == null && !isCentered && detents == 0) {

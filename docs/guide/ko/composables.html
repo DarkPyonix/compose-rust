@@ -126,11 +126,11 @@
         <tbody>
           <tr><td><code>Column!(..)</code>, <code>Row!(..)</code></td><td><code>arrangement</code>, <code>spacing</code>, <code>space_role</code>, <code>alignment</code>, <code>content</code></td></tr>
           <tr><td><code>Box!(..)</code></td><td><code>alignment</code>, <code>content</code></td></tr>
-          <tr><td><code>ScrollColumn!(..)</code>, <code>ScrollRow!(..)</code>, <code>Card!(..)</code>, <code>Surface!(..)</code>, <code>SelectionContainer!(..)</code>, <code>Spacer!(..)</code></td><td><code>modifier</code>, <code>content</code></td></tr>
+          <tr><td><code>ScrollColumn!(..)</code>, <code>ScrollRow!(..)</code>, <code>Card!(..)</code>, <code>Surface!(..)</code>, <code>SelectionContainer!(..)</code>, <code>Spacer!(..)</code></td><td><code>modifier</code>, <code>content</code>. 두 스크롤 컨테이너는 <code>remember_scroll_state()</code>로 만든 <code>scroll_state</code>도 받습니다. 그 <code>offset()</code>, <code>max_offset()</code>, <code>viewport_size()</code>는 스크롤하는 축의 dp 값이고, <code>scroll_to</code>로 옮깁니다.</td></tr>
           <tr><td><code>Text!(text)</code></td><td><code>type_role</code>, <code>color</code>, <code>text_align</code>, <code>max_lines</code>, <code>overflow</code>, <code>spans</code>, 그리고 타입 축마다 매개변수 하나</td></tr>
           <tr><td><code>TextField!(text, on_value_change)</code></td><td><code>placeholder</code>, <code>multiline</code>, <code>enabled</code>, <code>on_submit</code>, <code>on_focus_lost</code>, <code>on_key_down</code>. <code>text</code> 는 처음 텍스트일 뿐입니다.</td></tr>
           <tr><td><code>Button!(label, on_click)</code></td><td><code>variant</code>, <code>kind</code>, <code>icon</code>, <code>enabled</code>, <code>color</code>. 레이블이 비어 있고 아이콘이 있으면 아이콘 버튼입니다.</td></tr>
-          <tr><td><code>Checkbox!(checked, on_change)</code>, <code>RadioButton!(selected, on_change)</code>, <code>Switch!(checked, on_change)</code></td><td><code>enabled</code></td></tr>
+          <tr><td><code>Checkbox!(checked, on_change)</code>, <code>RadioButton!(selected, on_change)</code>, <code>Switch!(checked, on_change)</code></td><td><code>enabled</code>. <code>Checkbox!</code>는 <code>indeterminate</code>(혼합 상태. 채운 상자에 가로 막대를 그리고, 누르면 <code>true</code>를 요청합니다)와 <code>outline_color</code>(상자 테두리 색)도 받습니다. 상자 모서리는 수정자의 <code>corner_radius</code>를 따릅니다. 스위치는 <code>track_color</code>, <code>thumb_color</code>, <code>size</code>, <code>thumb_elevation</code>(손잡이 아래의 옅은 그림자, dp), <code>track_border</code>(<code>(폭, paint)</code>, 트랙을 두르는 선)도 받습니다. 주지 않은 것은 디자인 시스템의 모양 그대로입니다.</td></tr>
           <tr><td><code>Slider!(value, on_change)</code></td><td><code>range</code>, <code>steps</code>, <code>enabled</code></td></tr>
           <tr><td><code>Dropdown!(selected_index, on_change)</code></td><td><code>enabled</code>. 자식 하나가 선택지 하나입니다</td></tr>
           <tr><td><code>DatePicker!(days, on_change)</code>, <code>TimePicker!(minutes, on_change)</code></td><td><code>min</code>, <code>max</code>, <code>enabled</code></td></tr>
@@ -139,7 +139,7 @@
           <tr><td><code>Divider!()</code>, <code>Separator!(color)</code></td><td><code>vertical</code></td></tr>
           <tr><td><code>TopAppBar!(..)</code></td><td><code>title</code>, <code>content</code></td></tr>
           <tr><td><code>Scaffold!(..)</code></td><td><code>top_bar</code>, <code>bottom_bar</code>, <code>floating_action</code>, <code>content</code></td></tr>
-          <tr><td><code>Navigation!(selected_index)</code>, <code>NavigationItem!(label, on_click)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>. 항목은 <code>icon</code>, <code>section</code> 을 받습니다</td></tr>
+          <tr><td><code>Navigation!(selected_index)</code>, <code>NavigationItem!(label, on_click)</code></td><td><code>head</code>, <code>foot</code>, <code>content</code>. 항목은 <code>icon</code>, <code>section</code>, <code>count</code> 를 받습니다</td></tr>
           <tr><td><code>Tabs!(selected_index)</code></td><td><code>content</code>. 자식 하나가 탭 하나입니다</td></tr>
           <tr><td><code>Dialog!(open, on_dismiss)</code>, <code>Sheet!(open, on_dismiss)</code></td><td><code>content</code></td></tr>
           <tr><td><code>Menu!(expanded, on_dismiss)</code></td><td><code>anchor</code>, <code>content</code></td></tr>
@@ -357,6 +357,15 @@
       깨어나지 않습니다. 레이아웃마다 바뀌는 크기를 알리면 레이아웃마다 Rust 코드가 돌기 때문입니다.
       처음 재기 전에는 0 × 0의 <code>Compact</code> 입니다. 한 열 배치는 어느 너비에서나 쓸 수 있기
       때문입니다.
+    </p>
+    <p>
+      <strong>앱이 정한 경계.</strong> 클래스와 다른 너비에서 화면이 모양을 바꿔야 하면
+      <code>current_window_breakpoint(&amp;[560.0, 900.0, 1279.0])</code> 가 창이 속한 구간 번호를
+      돌려줍니다. 너비가 이른 경계의 개수이므로, 경계와 같은 너비는 그 위 구간입니다. 컴포저블은 구간이
+      바뀔 때만 다시 실행됩니다. 창이 더 자주 알리게 하지는 않습니다. 클래스 경계가 아닌 경계를 넘는
+      순간을 보려면 창을 <code>report_size(true)</code>(단일 창은
+      <code>Window::new().with_report_size(true)</code>)로 여세요. 끄는 동안 정수 dp마다 Rust 호출이
+      하나씩 늡니다.
     </p>
     <p>
       <code>Navigation</code>, <code>Sheet</code>, <code>Scaffold</code> 는 렌더러가 이미 가진 노드를

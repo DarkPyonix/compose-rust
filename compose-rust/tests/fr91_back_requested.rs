@@ -20,7 +20,7 @@ const MUTATIONS: &[u8] = include_bytes!("vectors/mutations.bin");
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the back request sits in the event vector.
-const BACK_AT: usize = 1835;
+const BACK_AT: usize = 2062;
 const BACK_LEN: usize = 20;
 
 fn back(node_id: u32, handler_id: u64, source: BackSource) -> HostEvent<'static> {
@@ -50,6 +50,15 @@ fn fr91_back_requested_round_trips() {
         .expect("BackRequested is in the event schema");
     assert_eq!(schema.tag, 70);
     assert_eq!(schema.payload, EventPayloadType::Back);
+    let at = EVENT_SCHEMA
+        .iter()
+        .position(|event| event.name == "BackRequested")
+        .unwrap();
+    assert_eq!(
+        EVENT_SCHEMA[at - 1].name,
+        "AssetWanted",
+        "the event table is append only, so the back request stays where it was appended"
+    );
     assert_eq!(
         [
             BackSource::SystemBack,

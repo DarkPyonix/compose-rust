@@ -38,6 +38,8 @@
 pub(crate) mod focus;
 mod functions;
 mod lazy;
+pub(crate) mod rich;
+pub(crate) mod text_handle;
 pub(crate) mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
@@ -46,6 +48,9 @@ pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::font_features::FontFeature;
 pub use crate::message::{Message, show_message};
+pub use crate::rich_text::{
+    CharacterRun, Format, ParagraphFormat, RichDocument, TextFormat, Toggle, Tri,
+};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
@@ -57,6 +62,7 @@ pub use crate::schema::{
     Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
     WindowHeightClass, WindowSizeClass,
 };
+pub use crate::schema::{ListKind, ParagraphRole};
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
 
@@ -74,6 +80,8 @@ pub use crate::{
 };
 pub use crate::{BackRequested, BackSource, MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
+pub use rich::{RichTextState, remember_rich_text_state};
+pub use text_handle::{TextFieldHandle, use_text_field_handle};
 // Each name is a function and a call macro. The macro is hidden where it is defined, and
 // rustdoc leaves out a re-export of a hidden item unless the re-export is inlined, so
 // without this `ui` would list the functions and none of the macros.
@@ -173,9 +181,31 @@ impl BackgroundBrush {
 
 /// How a node presents itself to assistive technology. Each tri-state field is unset until
 /// it is given a value, and an unset one sends nothing. The flags are off until set.
+///
+/// The type is non-exhaustive, so that a later field does not break code that uses it.
+/// Code outside this crate therefore cannot write `SemanticsState { .. }`, with or without
+/// `..Default::default()`. It starts from `SemanticsState::default()`, or from the
+/// constructor named after the first field it sets, and chains a `with_` method for each
+/// further field:
+///
+/// ```
+/// use compose_rust::ui::SemanticsState;
+///
+/// let nothing = SemanticsState::default();
+/// let row = SemanticsState::selected(true).with_disabled(false);
+/// let partly = SemanticsState::mixed().with_has_popup(true);
+/// assert_eq!(nothing.with_selected(true).with_disabled(false), row);
+/// assert!(partly.mixed && partly.has_popup);
+/// ```
+///
+/// The fields stay public, so a state can be read, and a `let mut` one assigned to.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct SemanticsState {
     pub checked: Option<bool>,
+    /// Whether the node is mixed: a box standing for a set of which only some are checked.
+    /// It wins over `checked`, and is sent as the checked field's fourth value.
+    pub mixed: bool,
     pub selected: Option<bool>,
     pub expanded: Option<bool>,
     pub disabled: Option<bool>,
@@ -189,6 +219,7 @@ pub struct SemanticsState {
 impl SemanticsState {
     const NONE: Self = Self {
         checked: None,
+        mixed: false,
         selected: None,
         expanded: None,
         disabled: None,
@@ -202,6 +233,15 @@ impl SemanticsState {
     pub const fn checked(checked: bool) -> Self {
         Self {
             checked: Some(checked),
+            ..Self::NONE
+        }
+    }
+
+    /// A node that is neither checked nor unchecked, as a box that stands for a partly
+    /// checked set announces itself.
+    pub const fn mixed() -> Self {
+        Self {
+            mixed: true,
             ..Self::NONE
         }
     }
@@ -262,11 +302,76 @@ impl SemanticsState {
         }
     }
 
+    /// Says whether the node is checked, keeping every other field.
+    pub const fn with_checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    /// Says whether the node is mixed, keeping every other field. Mixed wins over `checked`.
+    pub const fn with_mixed(mut self, mixed: bool) -> Self {
+        self.mixed = mixed;
+        self
+    }
+
+    /// Says whether the node is selected, keeping every other field.
+    pub const fn with_selected(mut self, selected: bool) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    /// Says whether the node is expanded, keeping every other field.
+    pub const fn with_expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
+        self
+    }
+
+    /// Says whether the node is disabled, keeping every other field.
+    pub const fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = Some(disabled);
+        self
+    }
+
+    /// Says whether the node is focused, keeping every other field.
+    pub const fn with_focused(mut self, focused: bool) -> Self {
+        self.focused = Some(focused);
+        self
+    }
+
+    /// Hides the node from assistive technology or shows it, keeping every other field.
+    pub const fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
+    }
+
+    /// Exposes a click action or takes it away, keeping every other field.
+    pub const fn with_click_action(mut self, exposed: bool) -> Self {
+        self.click_action = exposed;
+        self
+    }
+
+    /// Exposes a focus action or takes it away, keeping every other field.
+    pub const fn with_focus_action(mut self, exposed: bool) -> Self {
+        self.focus_action = exposed;
+        self
+    }
+
+    /// Says whether the node opens a popup, keeping every other field.
+    pub const fn with_has_popup(mut self, has_popup: bool) -> Self {
+        self.has_popup = has_popup;
+        self
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
         let tri = |value: Option<bool>| value.map_or(0_u32, |on| if on { 2 } else { 1 });
-        (tri(self.checked) << SEMANTICS_CHECKED_SHIFT)
+        let checked = if self.mixed {
+            SEMANTICS_CHECKED_MIXED
+        } else {
+            tri(self.checked)
+        };
+        (checked << SEMANTICS_CHECKED_SHIFT)
             | (tri(self.selected) << SEMANTICS_SELECTED_SHIFT)
             | (tri(self.expanded) << SEMANTICS_EXPANDED_SHIFT)
             | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
@@ -486,7 +591,7 @@ pub struct Modifier {
     observe_size_every_dp: bool,
     motion: Option<MotionRole>,
     material: Option<MaterialRole>,
-    weight: Option<f32>,
+    weight: Option<(f32, bool)>,
     width: Option<f32>,
     height: Option<f32>,
     padding: Option<f32>,
@@ -593,7 +698,14 @@ impl Modifier {
 
     /// A share of the space left in a `Row` or `Column`.
     pub const fn weight(mut self, weight: f32) -> Self {
-        self.weight = Some(weight);
+        self.weight = Some((weight, true));
+        self
+    }
+
+    /// A share of the space left in a `Row` or `Column`, without forcing a shorter child
+    /// to expand to fill its share (Compose `Modifier.weight(w, fill = false)`).
+    pub const fn weight_unfilled(mut self, weight: f32) -> Self {
+        self.weight = Some((weight, false));
         self
     }
 
@@ -1284,7 +1396,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(container, "observe_size_every_dp", every_dp);
     push(container, "motion", role(modifier.motion));
     push(container || scaffold, "material", role(modifier.material));
-    push(chip, "weight", float(modifier.weight));
+    // One slot, two names: whichever is not in use goes out unset, which clears nothing
+    // because only the name that wrote a slot may clear it.
+    let (weight_filled, weight_unfilled) = match modifier.weight {
+        Some((value, true)) => (float(Some(value)), OwnedAttr::None),
+        Some((value, false)) => (OwnedAttr::None, float(Some(value))),
+        None => (OwnedAttr::None, OwnedAttr::None),
+    };
+    push(chip, "weight", weight_filled);
+    push(chip, "weight_unfilled", weight_unfilled);
     push(chip, "width", float(modifier.width));
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));

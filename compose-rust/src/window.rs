@@ -365,7 +365,8 @@ impl Drop for WindowSizeSubscription {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NodeSize {
     token: u32,
-    size: WindowSize,
+    state: Option<crate::runtime::MutableState<WindowSize>>,
+    fallback: WindowSize,
 }
 
 impl NodeSize {
@@ -373,7 +374,19 @@ impl NodeSize {
     pub fn of(token: u32) -> Self {
         Self {
             token,
-            size: node_size(token),
+            state: None,
+            fallback: node_size(token),
+        }
+    }
+
+    /// A handle backed by the runtime's state for `token`, so reading the measurement
+    /// subscribes whichever scope or derived state reads it, while passing the handle or
+    /// reading its token subscribes nothing.
+    pub(crate) fn from_state(token: u32, state: crate::runtime::MutableState<WindowSize>) -> Self {
+        Self {
+            token,
+            state: Some(state),
+            fallback: WindowSize::default(),
         }
     }
 
@@ -384,22 +397,28 @@ impl NodeSize {
 
     /// Phone-shaped: narrower than 600dp.
     pub fn is_compact(&self) -> bool {
-        self.size.is_compact()
+        self.measured().is_compact()
     }
 
     /// Tablet-shaped.
     pub fn is_medium(&self) -> bool {
-        self.size.is_medium()
+        self.measured().is_medium()
     }
 
     /// Desktop-shaped.
     pub fn is_expanded(&self) -> bool {
-        self.size.is_expanded()
+        self.measured().is_expanded()
     }
 
     /// The measurement itself, zero until the Renderer has reported one.
-    pub const fn measured(&self) -> WindowSize {
-        self.size
+    ///
+    /// When this handle came from [`crate::runtime::remember_node_size`], reading the
+    /// measurement records the node's size state as read by the scope composing now.
+    pub fn measured(&self) -> WindowSize {
+        match self.state {
+            Some(state) => state.try_get().unwrap_or_else(|_| node_size(self.token)),
+            None => self.fallback,
+        }
     }
 }
 

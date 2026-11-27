@@ -358,6 +358,89 @@ class AnimationPlaybackTest {
         assertEquals(emptyList(), table.drainErrors(), "the Border arrived in the same batch")
     }
 
+    private val identity3D = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
+
+    private fun rotateY(degrees: Double): FloatArray {
+        val radians = degrees * Math.PI / 180.0
+        val c = kotlin.math.cos(radians).toFloat()
+        val s = kotlin.math.sin(radians).toFloat()
+        return floatArrayOf(c, 0f, -s, 0f, 0f, 1f, 0f, 0f, s, 0f, c, 0f, 0f, 0f, 0f, 1f)
+    }
+
+    private fun transform3D(m: FloatArray) = ProtocolModifier.Transform3D(
+        m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15],
+        0.5f, 0.5f, false,
+    )
+
+    /** A 3D matrix animation, which carries no origin: the one on its modifier is used. */
+    private fun matrixAnimation(from: FloatArray, to: FloatArray, fromPresented: Boolean = false) =
+        animation(
+            AnimatedProperty.Transform3D,
+            KeyframeValue.Matrix3D(from),
+            KeyframeValue.Matrix3D(to),
+            fromPresented = fromPresented,
+        ).copy(originX = 0f, originY = 0f)
+
+    /**
+     * A 3D matrix animation plays on the node's first `Transform3D`, which may arrive later in
+     * the same batch, and is a protocol error once the batch is in if it never does. A
+     * `Transform` animation on a node that has only a `Transform3D` has nowhere to be drawn
+     * either, because a 3D transform arrives as one matrix and not as a list.
+     */
+    @Test
+    fun fr41_2_1_transform3d_animation_needs_its_base_modifier() {
+        table.apply(Mutation.Create(NODE, WidgetKind.Box))
+        table.apply(Mutation.StartAnimation(matrixAnimation(identity3D, rotateY(90.0))))
+        table.apply(Mutation.SetModifier(NODE, 0, transform3D(identity3D)))
+        assertEquals(emptyList(), table.drainErrors(), "the Transform3D arrived in the same batch")
+
+        table.apply(Mutation.StartAnimation(animation(AnimatedProperty.Transform, rotate(0f), rotate(90f))))
+        assertEquals(
+            listOf(TableError.INVALID_ANIMATION),
+            table.drainErrors().map { it.code },
+            "a Transform animation on a node with only a Transform3D",
+        )
+
+        table.apply(Mutation.Create(2, WidgetKind.Box))
+        table.apply(Mutation.StartAnimation(matrixAnimation(identity3D, rotateY(90.0)).copy(nodeId = 2)))
+        assertEquals(listOf(TableError.INVALID_ANIMATION), table.drainErrors().map { it.code }, "no Transform3D")
+
+        table.apply(Mutation.Create(3, WidgetKind.Box))
+        table.apply(Mutation.SetModifier(3, 0, ProtocolModifier.Transform(1f, 0f, 0f, 1f, 0f, 0f, 0.5f, 0.5f)))
+        table.apply(Mutation.StartAnimation(matrixAnimation(identity3D, rotateY(90.0)).copy(nodeId = 3)))
+        assertEquals(
+            listOf(TableError.INVALID_ANIMATION),
+            table.drainErrors().map { it.code },
+            "a 2D Transform is not where a matrix animation plays",
+        )
+    }
+
+    /**
+     * What a 3D matrix animation writes: rotateY(0) to rotateY(90deg) is rotateY(45deg) half
+     * way, the node's own matrix shows again once it ends, and a transition from what is
+     * presented starts where the last one was.
+     */
+    @Test
+    fun fr41_2_1_transform3d_animation_writes_the_interpolated_matrix() {
+        node(WidgetKind.Box, transform3D(identity3D))
+        assertEquals(emptyList(), start(matrixAnimation(identity3D, rotateY(90.0))))
+        frame(500.0)
+        assertTrue(shown.transform3DShown, "the animation's matrix shows")
+        val half = rotateY(45.0)
+        for (cell in 0 until 16) assertClose(half[cell], shown.matrix3D[cell], "cell $cell half way", 1e-4f)
+        frame(1100.0)
+        assertTrue(!shown.transform3DShown, "after the end the modifier's matrix shows again")
+
+        assertEquals(emptyList(), start(matrixAnimation(identity3D, rotateY(90.0), fromPresented = false).copy(animationId = 2)))
+        frame(500.0)
+        assertEquals(
+            emptyList(),
+            start(matrixAnimation(identity3D, identity3D, fromPresented = true).copy(animationId = 3, startTimeNanos = ms(500.0))),
+        )
+        frame(500.0)
+        for (cell in 0 until 16) assertClose(half[cell], shown.matrix3D[cell], "cell $cell from what was presented", 1e-4f)
+    }
+
     /** A role in a keyframe is resolved against the theme every frame. */
     @Test
     fun fr41_a_role_follows_the_theme_while_playing() {
