@@ -1395,11 +1395,20 @@ impl Host {
 /// So the slot empties itself and leaks the `Host` when the thread is tearing down. An
 /// orderly `shutdown` still drops it properly; only the unorderly path leaks, and that
 /// path is a thread ending anyway.
-struct HostSlot(RefCell<Option<Host>>);
+///
+/// The slot can still be borrowed at that moment: an application that calls
+/// `std::process::exit` from inside a render callback ends the process with the `Host`
+/// borrowed further up the stack, and the thread's locals are destroyed from there. Asking
+/// for the borrow again would panic, and a panic there aborts. So the cell is never dropped
+/// itself (`ManuallyDrop`), and a borrowed slot is left as it is: the frame holding the
+/// borrow never resumes, and the `Host` inside is leaked with the rest of the process.
+struct HostSlot(std::mem::ManuallyDrop<RefCell<Option<Host>>>);
 
 impl Drop for HostSlot {
     fn drop(&mut self) {
-        std::mem::forget(self.0.borrow_mut().take());
+        if let Ok(mut slot) = self.0.try_borrow_mut() {
+            std::mem::forget(slot.take());
+        }
     }
 }
 
@@ -1433,7 +1442,7 @@ static THEME: Mutex<Theme> = Mutex::new(Theme::unified(crate::schema::DesignSyst
 static WINDOW: Mutex<crate::schema::Window> = Mutex::new(crate::schema::Window::new());
 
 thread_local! {
-    static HOST: HostSlot = const { HostSlot(RefCell::new(None)) };
+    static HOST: HostSlot = const { HostSlot(std::mem::ManuallyDrop::new(RefCell::new(None))) };
 }
 
 fn launched_app() -> Option<RuntimeFactory> {
@@ -2066,6 +2075,21 @@ mod tests {
             Some("compose-rust-ui"),
             "an overflow or a panic on this thread would not say whose it was"
         );
+    }
+
+    #[test]
+    fn nfr7_a_host_slot_still_borrowed_at_teardown_does_not_panic() {
+        // An application that exits from inside a render callback tears the thread's locals
+        // down while the slot is still borrowed up the stack. A panic there aborts the
+        // process, so dropping such a slot must not ask for the borrow again.
+        let slot = HostSlot(std::mem::ManuallyDrop::new(RefCell::new(None)));
+        std::mem::forget(slot.borrow_mut());
+        let dropped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(slot)));
+        assert!(dropped.is_ok(), "dropping a borrowed host slot panicked");
+
+        // An unborrowed slot is still emptied as before.
+        let slot = HostSlot(std::mem::ManuallyDrop::new(RefCell::new(None)));
+        drop(slot);
     }
 
     /// Where the Host makes no thread the loop runs on the caller, which on macOS has to be
