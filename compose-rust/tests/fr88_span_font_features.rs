@@ -475,12 +475,17 @@ fn frame_allocations(with_features: bool) -> usize {
 
 #[test]
 fn fr88_span_font_features_do_not_allocate_in_steady_state() {
-    // One unmeasured pass first: whatever the process sets up once (lazy statics, the first
-    // growth of a shared buffer) lands in it, not in whichever measurement happens to run
-    // first, so the two counts compare the runs and nothing else.
+    // The count of one pass moves by one between passes on a loaded machine, in either
+    // direction (train runs saw 96 against 97 and 97 against 96), so a single pass of each
+    // compares that noise and not the runs. The fewest allocations over several passes, the
+    // two kinds taken in turn, is what each kind needs; an allocation features add would be
+    // in every one of their passes and so in their fewest as well.
     frame_allocations(false);
-    let plain = frame_allocations(false);
-    let featured = frame_allocations(true);
+    let (mut plain, mut featured) = (usize::MAX, usize::MAX);
+    for _ in 0..5 {
+        plain = plain.min(frame_allocations(false));
+        featured = featured.min(frame_allocations(true));
+    }
     assert_eq!(
         featured, plain,
         "a text whose runs name features allocated {featured} times over the frames one whose runs name none took {plain}"
